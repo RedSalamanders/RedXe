@@ -132,10 +132,18 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   grid derivation when settled; alternating WARP draws MUST allocate zero heap memory. Animated overlay sizes recompute
   only the changed entry. Overflow shortcuts paginate inside the widget at the chosen cell size; the GPU page-dot strip
   shares `DxUi::PageIndicator` DIP metrics and does not add a second constant buffer. Each visible launcher instance
-  owns one 32-slice 256×256 BGRA `Texture2DArray` (8 MiB) plus a 64-byte dynamic constant buffer and a 1 KiB
-  (32×32-byte) dynamic structured instance buffer. That 8 MiB texture is the justified capacity cost of 32 jumbo
-  icons; `Render` only maps the existing instance and constant buffers. CPU BGRA sources stay bounded at
-  32×256×256×4 and rebuild the GPU array after device loss without a second extract.
+  owns one 256×256 BGRA `Texture2DArray` sized to the displayed shortcut count: zero entries own no icon texture,
+  eight entries use 2 MiB and 32 use at most 8 MiB. The existing 96-byte dynamic constant buffer and 1 KiB
+  (32×32-byte) dynamic structured instance buffer remain reusable. Replacement publishes texture and view together;
+  failure keeps the preceding owner, and simultaneous old/new payload stays at most 16 MiB. Driver overhead and
+  context-held references are additional. Visibility/drop decodes bounded CPU icons and marks preparation dirty;
+  GPU creation/upload occurs only in device creation or `Prepare`. Clean preparation allocates and uploads nothing;
+  unchanged failure waits for explicit content/visibility or extent recovery. `Render` refuses pending icon content,
+  binds no icon texture for an empty grid and only maps existing buffers. CPU BGRA sources allocate only used icons,
+  bounded at 32×256×256×4, and rebuild the GPU array after device loss without a second extract. A used icon without
+  decoded pixels needs at most one temporary 256-KiB transparent fallback; unused slices are never cleared/uploaded.
+  The x64 instance grows from 122,808 to 122,824 bytes, including its GPU owner growing from 48 to 56 bytes.
+  This 16-byte bookkeeping cost is accepted to avoid the empty 8-MiB allocation and unused-slice uploads.
 - Visible continuous animation defaults to display presentation pacing. The optional `continuousFrameRate: 30`
   limits settled continuous content through a monotonic 33⅓-ms deadline, independent of display refresh. A lazy,
   reusable auto-reset one-shot waitable timer blocks together with the message queue. The host acquires DXGI

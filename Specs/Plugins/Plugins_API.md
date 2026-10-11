@@ -1448,13 +1448,21 @@ else `IExtractIconW` 256, else `IShellItemImageFactory::GetImage` 256 with `SIIG
 padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second shell extract.
 
 Shared device resources live once per provider: embedded Shader Model 5.0 blobs, textured-quad pipeline, sampler, and
-immutable blend/rasterizer/depth state. Each instance owns a 32-slice 256×256 `Texture2DArray` (8 MiB BGRA) for jumbo
-icons, one 96-byte dynamic constant buffer (viewport, hint, `iconCount`, page count and selection, and the page-dot
+immutable blend/rasterizer/depth state. Each instance owns a 256×256 `Texture2DArray` with one BGRA slice per displayed
+shortcut (zero entries need no texture; eight use 2 MiB; at most 32 use 8 MiB), one 96-byte dynamic constant buffer
+(viewport, hint, `iconCount`, page count and selection, and the page-dot
 pixel layout), and one 32-slot
 dynamic structured buffer of instance rects and motion (32 bytes each). `Render` is allocation-free: it maps those
 existing buffers with `WRITE_DISCARD` and issues at most two draws (background plus instanced icons). Instance rects
 MUST NOT live in the constant buffer. Device loss keeps CPU BGRA and re-uploads the texture array without a second
-shell extract. Grid geometry uses two bounded cache entries keyed by actual width, height, DPI, shortcut count, `iconSize`, and
+shell extract. Visibility/drop may decode icons and mark their content dirty, but may not create/upload GPU storage.
+The optional preparation interface creates count-sized replacements and uploads only used slices before composition.
+A clean preparation returns `S_FALSE` with no upload/allocation; unchanged preparation failure is suppressed until
+another content/visibility change or target extent notification. Pending content cannot be rendered. Texture and
+view creation are transactional: failure preserves preceding owners; old/new payload is at most 16 MiB, excluding
+driver/context references. Empty rendering binds a null icon view and keeps its hint/background draw. A failed used
+icon decodes as transparent through one bounded temporary 256-KiB preparation buffer; there is no unused-slice clear.
+Grid geometry uses two bounded cache entries keyed by actual width, height, DPI, shortcut count, `iconSize`, and
 launcher page. The tile and overlay therefore reuse distinct layouts, and pointer hit testing uses the most recently
 drawn layout (the overlay draw is last while raised). A largest-target notification MUST NOT displace or clip icons in
 the original tile.

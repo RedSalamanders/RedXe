@@ -43,14 +43,18 @@ extern "C"
     REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherGetTestDiagnostics(
         LauncherTestDiagnostics* diagnostics) noexcept;
     REDXE_LAUNCHER_TEST_API void __stdcall RedXeLauncherResetTestDiagnostics() noexcept;
+    // 0 clears; 1 fails replacement texture creation; 2 fails its view, after texture allocation. Automated hosts only.
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherSetTestIconFailure(uint32_t phase) noexcept;
 }
 
 using LauncherSetTestPinDirectoryFn = decltype(&RedXeLauncherSetTestPinDirectory);
 using LauncherGetTestDiagnosticsFn = decltype(&RedXeLauncherGetTestDiagnostics);
 using LauncherResetTestDiagnosticsFn = decltype(&RedXeLauncherResetTestDiagnostics);
+using LauncherSetTestIconFailureFn = decltype(&RedXeLauncherSetTestIconFailure);
 
 inline constexpr char kLauncherSetTestPinDirectoryExport[] = "RedXeLauncherSetTestPinDirectory";
 inline constexpr char kLauncherGetTestDiagnosticsExport[] = "RedXeLauncherGetTestDiagnostics";
 inline constexpr char kLauncherResetTestDiagnosticsExport[] = "RedXeLauncherResetTestDiagnostics";
+inline constexpr char kLauncherSetTestIconFailureExport[] = "RedXeLauncherSetTestIconFailure";
 
 #undef REDXE_LAUNCHER_TEST_API

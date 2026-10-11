@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
+#include <new>
 #include <string>
 #include <string_view>
 
@@ -258,9 +259,24 @@ struct RenderTarget final
 }
 
 [[nodiscard]] HRESULT RenderFrame(IRedXeGpuWidget& widget, RenderTarget& target, float elapsedSeconds,
-                                  float deltaSeconds, float originX = 0.0f, uint32_t width = 0,
-                                  uint32_t height = 0) noexcept
+                                  float deltaSeconds, float originX = 0.0f, uint32_t width = 0, uint32_t height = 0,
+                                  bool prepare = true, uint32_t dpi = USER_DEFAULT_SCREEN_DPI) noexcept
 {
+    if (prepare)
+    {
+        wil::com_ptr_nothrow<IRedXePreparedGpuWidget> prepared;
+        const HRESULT query = widget.QueryInterface(IID_PPV_ARGS(prepared.put()));
+        if (FAILED(query) && query != E_NOINTERFACE)
+            return query;
+        if (prepared)
+        {
+            const RedXeGpuPreparationContext preparation{sizeof(RedXeGpuPreparationContext), dpi, target.width,
+                                                         target.height};
+            const HRESULT result = prepared->Prepare(&preparation);
+            if (FAILED(result))
+                return result;
+        }
+    }
     width = width == 0 ? target.width : width;
     height = height == 0 ? target.height : height;
     target.context->ClearState();
@@ -271,7 +287,7 @@ struct RenderTarget final
     };
     target.context->RSSetViewports(1, &viewport);
     const RedXeWidgetFrameContext widgetFrame{
-        sizeof(RedXeWidgetFrameContext), width, height, USER_DEFAULT_SCREEN_DPI, elapsedSeconds, deltaSeconds,
+        sizeof(RedXeWidgetFrameContext), width, height, dpi, elapsedSeconds, deltaSeconds,
     };
     const RedXeGpuFrameContext frame{sizeof(RedXeGpuFrameContext), &widgetFrame, target.context.get(), viewport};
     return widget.Render(&frame);
@@ -1639,7 +1655,289 @@ struct RenderTarget final
     return S_OK;
 }
 
-[[nodiscard]] HRESULT Run() noexcept
+class TextureLifetime final : public IUnknown
+{
+  public:
+    explicit TextureLifetime(std::atomic<uint32_t>& live) noexcept : _live(live)
+    {
+        ++_live;
+    }
+    ~TextureLifetime()
+    {
+        --_live;
+    }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** output) noexcept override
+    {
+        if (!output)
+            return E_POINTER;
+        *output = nullptr;
+        if (iid != IID_IUnknown)
+            return E_NOINTERFACE;
+        *output = static_cast<IUnknown*>(this);
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return ++_references;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = --_references;
+        if (remaining == 0)
+            delete this;
+        return remaining;
+    }
+
+  private:
+    std::atomic<uint32_t>& _live;
+    ULONG _references = 1;
+};
+constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5, 0xC0, 0x1B, 0x38, 0x14, 0x11}};
+[[nodiscard]] HRESULT BoundIconTexture(RenderTarget& target, wil::com_ptr_nothrow<ID3D11Texture2D>& texture) noexcept
+{
+    texture.reset();
+    wil::com_ptr_nothrow<ID3D11ShaderResourceView> view;
+    target.context->PSGetShaderResources(0, 1, view.put());
+    if (!view)
+        return S_FALSE;
+    wil::com_ptr_nothrow<ID3D11Resource> resource;
+    view->GetResource(resource.put());
+    return resource.query_to(texture.put());
+}
+[[nodiscard]] HRESULT MarkIconTexture(RenderTarget& target, std::atomic<uint32_t>& live) noexcept
+{
+    wil::com_ptr_nothrow<ID3D11Texture2D> texture;
+    HRESULT result = BoundIconTexture(target, texture);
+    if (result != S_OK)
+        return kTestFailure;
+    wil::com_ptr_nothrow<IUnknown> marker;
+    marker.attach(new (std::nothrow) TextureLifetime(live));
+    if (!marker)
+        return E_OUTOFMEMORY;
+    return texture->SetPrivateDataInterface(kTextureLifetimeId, marker.get());
+}
+[[nodiscard]] HRESULT FrameChecksum(RenderTarget& target, uint32_t width, uint32_t height, uint64_t& hash) noexcept
+{
+    D3D11_TEXTURE2D_DESC description{};
+    target.texture->GetDesc(&description);
+    description.Usage = D3D11_USAGE_STAGING;
+    description.BindFlags = 0;
+    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    wil::com_ptr_nothrow<ID3D11Texture2D> staging;
+    HRESULT result = target.device->CreateTexture2D(&description, nullptr, staging.put());
+    if (FAILED(result))
+        return result;
+    target.context->CopyResource(staging.get(), target.texture.get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    result = target.context->Map(staging.get(), 0, D3D11_MAP_READ, 0, &mapped);
+    if (FAILED(result))
+        return result;
+    const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(staging.get(), 0); });
+    hash = 14695981039346656037ULL;
+    for (uint32_t y = 0; y < height; ++y)
+    {
+        const auto* row = static_cast<const uint8_t*>(mapped.pData) + static_cast<size_t>(y) * mapped.RowPitch;
+        for (uint32_t x = 0; x < width * 4; ++x)
+            hash = (hash ^ row[x]) * 1099511628211ULL;
+    }
+    return S_OK;
+}
+[[nodiscard]] std::string MakeGlyphShortcutList(uint32_t count)
+{
+    std::string json = R"({"iconSize":"large","shortcuts":[)";
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        if (index)
+            json += ',';
+        char item[128]{};
+        (void)sprintf_s(item, R"({"target":"https://example.com/launcher/%u","icon":"Settings"})", index);
+        json += item;
+    }
+    json += "]}";
+    return json;
+}
+[[nodiscard]] HRESULT ValidateIconStorage(RedXeCreateFn create, LauncherSetTestPinDirectoryFn setPins,
+                                          LauncherGetTestDiagnosticsFn getDiagnostics,
+                                          LauncherSetTestIconFailureFn setFailure, FILE* pixels = nullptr) noexcept
+{
+    if (FAILED(setPins(L"")))
+        return kTestFailure;
+    const bool qualify = pixels == nullptr;
+    const RedXeGpuPreparationContext preparation{sizeof(RedXeGpuPreparationContext), 96, 800, 720};
+    for (uint32_t count : {0U, 8U, 32U})
+    {
+        std::atomic<uint32_t> liveTexture{0}; // Outlives every D3D owner, including rollback on a failed assertion.
+        TestHost host;
+        RenderTarget target;
+        HRESULT result = CreateRenderTarget(800, 720, target);
+        if (FAILED(result))
+            return result;
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateProvider(create, MakeGlyphShortcutList(count), &host, provider);
+        if (FAILED(result))
+            return result;
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        result = provider->CreateWidget(kWidgetTypeId, "launcher.capacity", widget.put());
+        if (FAILED(result))
+            return result;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+        result = AttachGpu(*widget, target, gpu.put());
+        if (FAILED(result))
+            return result;
+        wil::com_ptr_nothrow<IRedXePreparedGpuWidget> prepared;
+        const HRESULT query = widget.query_to(prepared.put());
+        if (qualify && (query != S_OK || !prepared))
+            return kTestFailure;
+        if (qualify)
+        {
+            wil::com_ptr_nothrow<IUnknown> genericIdentity;
+            wil::com_ptr_nothrow<IUnknown> preparedIdentity;
+            if (FAILED(widget.query_to(genericIdentity.put())) || FAILED(prepared.query_to(preparedIdentity.put())) ||
+                genericIdentity.get() != preparedIdentity.get() || prepared->Prepare(nullptr) != E_INVALIDARG)
+                return kTestFailure;
+        }
+        LauncherTestDiagnostics before{sizeof(LauncherTestDiagnostics)};
+        if (FAILED(getDiagnostics(&before)) || FAILED(widget->SetVisible(TRUE)))
+            return kTestFailure;
+        LauncherTestDiagnostics after{sizeof(LauncherTestDiagnostics)};
+        if (FAILED(getDiagnostics(&after)) || after.displayCount != count || host.frameRequests != 0)
+            return kTestFailure;
+        if (qualify && after.textureUploads != before.textureUploads)
+            return kTestFailure;
+        for (const auto& extent : std::array<std::array<uint32_t, 3>, 5>{
+                 {{160, 160, 96}, {480, 480, 96}, {256, 720, 96}, {799, 559, 144}, {480, 480, 192}}})
+        {
+            result = RenderFrame(*gpu, target, 0.0f, 0.0f, 0.0f, extent[0], extent[1], true, extent[2]);
+            if (FAILED(result))
+                return result;
+            wil::com_ptr_nothrow<ID3D11Texture2D> texture;
+            result = BoundIconTexture(target, texture);
+            uint32_t slices = 0;
+            if (texture)
+            {
+                D3D11_TEXTURE2D_DESC description{};
+                texture->GetDesc(&description);
+                slices = description.ArraySize;
+                if (description.Width != 256 || description.Height != 256 || description.MipLevels != 1 ||
+                    description.Format != DXGI_FORMAT_B8G8R8A8_UNORM || description.SampleDesc.Count != 1)
+                    return kTestFailure;
+            }
+            if (qualify && (FAILED(result) || slices != count))
+                return kTestFailure;
+            uint64_t hash = 0;
+            if (FAILED(FrameChecksum(target, extent[0], extent[1], hash)))
+                return kTestFailure;
+            if (pixels && std::fprintf(pixels, "%u %u %u %u %016llX\n", count, extent[0], extent[1], extent[2],
+                                       static_cast<unsigned long long>(hash)) < 0)
+                return E_FAIL;
+            std::wprintf(L"launcher_icon_texture count=%u slices=%u bytes=%llu\n", count, slices,
+                         static_cast<unsigned long long>(slices) * 256 * 256 * 4);
+        }
+        if (qualify)
+        {
+            if (prepared->Prepare(&preparation) != S_FALSE)
+                return kTestFailure;
+            if (count && FAILED(MarkIconTexture(target, liveTexture)))
+                return kTestFailure;
+            gpu->OnDeviceLost();
+            target.context->ClearState();
+            // Test-only submission drains deferred runtime references before observing final COM ownership.
+            target.context->Flush();
+            if (liveTexture != 0)
+            {
+                std::wprintf(L"Icon owner survived device loss: count=%u live=%u\n", count, liveTexture.load());
+                return kTestFailure;
+            }
+            const RedXeGpuDeviceContext recreated{sizeof(RedXeGpuDeviceContext), target.device.get(),
+                                                  DXGI_FORMAT_B8G8R8A8_UNORM, target.featureLevel};
+            const uint64_t extracts = after.extractCalls;
+            if (FAILED(gpu->OnDeviceCreated(&recreated)) || FAILED(RenderFrame(*gpu, target, 0, 0)) ||
+                FAILED(getDiagnostics(&after)) || after.extractCalls != extracts)
+                return kTestFailure;
+            wil::com_ptr_nothrow<ID3D11Texture2D> texture;
+            result = BoundIconTexture(target, texture);
+            D3D11_TEXTURE2D_DESC description{};
+            if (texture)
+                texture->GetDesc(&description);
+            if (FAILED(result) || description.ArraySize != count)
+                return kTestFailure;
+            if (count == 8)
+            {
+                wil::com_ptr_nothrow<IRedXeInteractiveWidget> input;
+                if (FAILED(widget.query_to(input.put())) || !setFailure)
+                    return kTestFailure;
+                texture.reset();
+                for (uint32_t phase : {1U, 2U})
+                {
+                    if (FAILED(MarkIconTexture(target, liveTexture)))
+                        return kTestFailure;
+                    target.context->ClearState();
+                    // Test-only submission drains deferred runtime references before observing final COM ownership.
+                    target.context->Flush();
+                    if (liveTexture != 1)
+                        return kTestFailure;
+                    const wchar_t* url = phase == 1 ? L"https://example.com/new-one" : L"https://example.com/new-two";
+                    const RedXeDropItem item{sizeof(RedXeDropItem), 0, url};
+                    const RedXeDropEvent drop{sizeof(RedXeDropEvent), 1, 1, 1, &item};
+                    if (input->OnDrop(&drop) != S_OK || FAILED(setFailure(phase)))
+                        return kTestFailure;
+                    const HRESULT failed = prepared->Prepare(&preparation);
+                    if (failed != E_OUTOFMEMORY || liveTexture != 1)
+                    {
+                        std::wprintf(L"Icon rollback phase=%u hr=%08X live=%u\n", phase,
+                                     static_cast<unsigned int>(failed), liveTexture.load());
+                        return kTestFailure;
+                    }
+                    if (prepared->Prepare(&preparation) != S_FALSE || liveTexture != 1)
+                        return kTestFailure;
+                    if (RenderFrame(*gpu, target, 0, 0, 0, 0, 0, false) != E_UNEXPECTED)
+                        return kTestFailure;
+                    if (phase == 1)
+                    {
+                        if (FAILED(widget->SetVisible(TRUE)))
+                            return kTestFailure;
+                    }
+                    else
+                    {
+                        const RedXeGpuTargetSizeContext extent{sizeof(RedXeGpuTargetSizeContext), 799, 720, 96};
+                        if (FAILED(gpu->OnTargetSizeChanged(&extent)))
+                            return kTestFailure;
+                    }
+                    const HRESULT recovered = prepared->Prepare(&preparation);
+                    target.context->Flush(); // Drain the runtime's deferred release after successful replacement.
+                    if (recovered != S_OK || liveTexture != 0)
+                    {
+                        std::wprintf(L"Icon retry phase=%u hr=%08X live=%u\n", phase,
+                                     static_cast<unsigned int>(recovered), liveTexture.load());
+                        return kTestFailure;
+                    }
+                    if (FAILED(RenderFrame(*gpu, target, 0, 0)))
+                        return kTestFailure;
+                    wil::com_ptr_nothrow<ID3D11Texture2D> grown;
+                    if (BoundIconTexture(target, grown) != S_OK)
+                        return kTestFailure;
+                    grown->GetDesc(&description);
+                    if (description.ArraySize != count + phase)
+                        return kTestFailure;
+                }
+                if (FAILED(setFailure(0)))
+                    return kTestFailure;
+            }
+            if (FAILED(widget->SetVisible(FALSE)) || prepared->Prepare(&preparation) != S_FALSE)
+                return kTestFailure;
+            gpu->OnDeviceLost();
+            target.context->ClearState();
+            // Test-only submission drains deferred runtime references before observing final COM ownership.
+            target.context->Flush();
+            if (liveTexture)
+                return kTestFailure;
+        }
+    }
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT Run(const wchar_t* pixelsPath) noexcept
 {
     const bool compilerLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
@@ -1679,10 +1977,30 @@ struct RenderTarget final
         OleUninitialize();
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
-    result = ValidateFactoryAndSettings(create, enumerate, getContract);
-    if (FAILED(result))
+    const LauncherSetTestIconFailureFn setFailure =
+        Resolve<LauncherSetTestIconFailureFn>(module.get(), kLauncherSetTestIconFailureExport);
+    if (pixelsPath)
     {
-        std::wprintf(L"ValidateFactoryAndSettings failed: 0x%08X\n", static_cast<unsigned int>(result));
+        FILE* file = nullptr;
+        if (_wfopen_s(&file, pixelsPath, L"wb") != 0 || !file)
+            result = E_FAIL;
+        else
+        {
+            const auto close = wil::scope_exit([file]() noexcept { (void)std::fclose(file); });
+            result = ValidateIconStorage(create, setPin, getDiagnostics, setFailure, file);
+        }
+        shutdown();
+        OleUninitialize();
+        return result;
+    }
+    result = ValidateIconStorage(create, setPin, getDiagnostics, setFailure);
+    if (FAILED(result))
+        std::wprintf(L"ValidateIconStorage failed: 0x%08X\n", static_cast<unsigned int>(result));
+    if (SUCCEEDED(result))
+    {
+        result = ValidateFactoryAndSettings(create, enumerate, getContract);
+        if (FAILED(result))
+            std::wprintf(L"ValidateFactoryAndSettings failed: 0x%08X\n", static_cast<unsigned int>(result));
     }
     if (SUCCEEDED(result))
     {
@@ -1717,10 +2035,12 @@ struct RenderTarget final
 }
 } // namespace
 
-int wmain() noexcept
+int wmain(int argc, wchar_t** argv) noexcept
 {
     RedXeFailureReports::RouteAwayFromDialogs();
-    const HRESULT result = Run();
+    if (argc != 1 && (argc != 3 || std::wcscmp(argv[1], L"--icon-pixels") != 0))
+        return 2;
+    const HRESULT result = Run(argc == 3 ? argv[2] : nullptr);
     if (FAILED(result))
     {
         std::wprintf(L"Launcher tests failed: 0x%08X\n", static_cast<unsigned int>(result));

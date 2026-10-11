@@ -101,6 +101,7 @@ enum class PinMode : uint32_t
 std::atomic<uint32_t> gLiveWidgets{0};
 std::atomic<uint64_t> gExtractCalls{0};
 std::atomic<uint64_t> gTextureUploads{0};
+std::atomic<uint32_t> gTestIconFailurePhase{0};
 std::atomic<uint64_t> gDrawCalls{0};
 std::atomic<uint64_t> gLaunchCount{0};
 std::atomic<uint64_t> gShellExecuteCount{0};
@@ -852,7 +853,7 @@ class LauncherInstanceGpu final
         {
             return E_POINTER;
         }
-        if (_deviceIdentity == device && _constantBuffer && _instanceBuffer && _texture)
+        if (_deviceIdentity == device && _constantBuffer && _instanceBuffer && _instanceView)
         {
             return S_OK;
         }
@@ -891,38 +892,10 @@ class LauncherInstanceGpu final
         {
             return result;
         }
-        D3D11_TEXTURE2D_DESC textureDescription{};
-        textureDescription.Width = kIconEdge;
-        textureDescription.Height = kIconEdge;
-        textureDescription.MipLevels = 1;
-        textureDescription.ArraySize = kMaximumShortcuts;
-        textureDescription.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-        textureDescription.SampleDesc.Count = 1;
-        textureDescription.Usage = D3D11_USAGE_DEFAULT;
-        textureDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        wil::com_ptr_nothrow<ID3D11Texture2D> texture;
-        result = device->CreateTexture2D(&textureDescription, nullptr, texture.put());
-        if (FAILED(result))
-        {
-            return result;
-        }
-        D3D11_SHADER_RESOURCE_VIEW_DESC viewDescription{};
-        viewDescription.Format = textureDescription.Format;
-        viewDescription.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-        viewDescription.Texture2DArray.MipLevels = 1;
-        viewDescription.Texture2DArray.ArraySize = kMaximumShortcuts;
-        wil::com_ptr_nothrow<ID3D11ShaderResourceView> view;
-        result = device->CreateShaderResourceView(texture.get(), &viewDescription, view.put());
-        if (FAILED(result))
-        {
-            return result;
-        }
         _deviceIdentity = device;
         _constantBuffer = std::move(constantBuffer);
         _instanceBuffer = std::move(instanceBuffer);
         _instanceView = std::move(instanceView);
-        _texture = std::move(texture);
-        _view = std::move(view);
         return S_OK;
     }
 
@@ -934,27 +907,83 @@ class LauncherInstanceGpu final
         _instanceBuffer.reset();
         _constantBuffer.reset();
         _deviceIdentity = nullptr;
+        _slices = 0;
     }
 
     [[nodiscard]] HRESULT UploadIcons(ID3D11DeviceContext* context, const LauncherConfiguration& display) noexcept
     {
-        if (!context || !_texture)
+        if (!context || !_deviceIdentity || display.count > kMaximumShortcuts)
         {
             return E_UNEXPECTED;
         }
-        gTextureUploads.fetch_add(1, std::memory_order_relaxed);
-        const UINT pitch = kIconEdge * 4;
-        for (uint32_t index = 0; index < kMaximumShortcuts; ++index)
+        if (display.count == 0)
         {
-            std::array<uint8_t, kIconEdge * kIconEdge * 4> empty{};
-            const uint8_t* source = empty.data();
-            if (index < display.count && display.items[index].bgra)
+            _view.reset();
+            _texture.reset();
+            _slices = 0;
+            return S_OK;
+        }
+        // Allocate transparent fallback only if a used icon failed to decode. Ordinary icons need no clear buffer.
+        std::unique_ptr<uint8_t[]> empty;
+        for (uint32_t index = 0; index < display.count; ++index)
+        {
+            if (!display.items[index].bgra)
             {
-                source = display.items[index].bgra.get();
+                empty.reset(new (std::nothrow) uint8_t[kIconEdge * kIconEdge * 4]{});
+                if (!empty)
+                    return E_OUTOFMEMORY;
+                break;
             }
-            context->UpdateSubresource(_texture.get(), D3D11CalcSubresource(0, index, 1), nullptr, source, pitch,
+        }
+        wil::com_ptr_nothrow<ID3D11Texture2D> replacement;
+        wil::com_ptr_nothrow<ID3D11ShaderResourceView> replacementView;
+        if (_slices != display.count)
+        {
+            uint32_t failurePhase = 1;
+            if (gTestIconFailurePhase.compare_exchange_strong(failurePhase, 0, std::memory_order_relaxed))
+                return E_OUTOFMEMORY;
+            D3D11_TEXTURE2D_DESC description{};
+            description.Width = kIconEdge;
+            description.Height = kIconEdge;
+            description.MipLevels = 1;
+            description.ArraySize = display.count;
+            description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            description.SampleDesc.Count = 1;
+            description.Usage = D3D11_USAGE_DEFAULT;
+            description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            HRESULT result = _deviceIdentity->CreateTexture2D(&description, nullptr, replacement.put());
+            if (FAILED(result))
+                return result;
+            failurePhase = 2;
+            if (gTestIconFailurePhase.compare_exchange_strong(failurePhase, 0, std::memory_order_relaxed))
+                return E_OUTOFMEMORY;
+            D3D11_SHADER_RESOURCE_VIEW_DESC viewDescription{};
+            viewDescription.Format = description.Format;
+            viewDescription.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+            viewDescription.Texture2DArray.MipLevels = 1;
+            viewDescription.Texture2DArray.ArraySize = display.count;
+            result =
+                _deviceIdentity->CreateShaderResourceView(replacement.get(), &viewDescription, replacementView.put());
+            if (FAILED(result))
+                return result;
+        }
+        ID3D11Texture2D* texture = replacement ? replacement.get() : _texture.get();
+        if (!texture)
+            return E_UNEXPECTED;
+        const UINT pitch = kIconEdge * 4;
+        for (uint32_t index = 0; index < display.count; ++index)
+        {
+            const uint8_t* source = display.items[index].bgra ? display.items[index].bgra.get() : empty.get();
+            context->UpdateSubresource(texture, D3D11CalcSubresource(0, index, 1), nullptr, source, pitch,
                                        pitch * kIconEdge);
         }
+        if (replacement)
+        {
+            _texture = std::move(replacement);
+            _view = std::move(replacementView);
+            _slices = display.count;
+        }
+        gTextureUploads.fetch_add(1, std::memory_order_relaxed);
         return S_OK;
     }
 
@@ -985,6 +1014,7 @@ class LauncherInstanceGpu final
     wil::com_ptr_nothrow<ID3D11ShaderResourceView> _instanceView;
     wil::com_ptr_nothrow<ID3D11Texture2D> _texture;
     wil::com_ptr_nothrow<ID3D11ShaderResourceView> _view;
+    uint32_t _slices = 0;
 };
 
 class LauncherDeviceResources final
@@ -1083,11 +1113,12 @@ class LauncherDeviceResources final
     [[nodiscard]] HRESULT Draw(ID3D11DeviceContext* context, LauncherInstanceGpu& instance, LauncherConstants constants,
                                const LauncherIconInstance* icons) noexcept
     {
-        if (!context || !_vertexShader || !instance.ConstantBuffer() || !instance.View())
+        if (!context || !_vertexShader || !instance.ConstantBuffer())
         {
             return E_UNEXPECTED;
         }
-        if (constants.iconCount > 0 && (!icons || !instance.InstanceBuffer() || !instance.InstanceView()))
+        if (constants.iconCount > 0 &&
+            (!icons || !instance.View() || !instance.InstanceBuffer() || !instance.InstanceView()))
         {
             return E_UNEXPECTED;
         }
@@ -1184,8 +1215,8 @@ void CopyConfigurationIdentity(const LauncherConfiguration& source, LauncherConf
     }
 }
 
-class LauncherWidget final
-    : public RedXeComObject<LauncherWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeInteractiveWidget, IRedXeRaisedWidget>
+class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget, IRedXeGpuWidget,
+                                                   IRedXePreparedGpuWidget, IRedXeInteractiveWidget, IRedXeRaisedWidget>
 {
   public:
     LauncherWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, LauncherDeviceResources& resources,
@@ -1292,12 +1323,16 @@ class LauncherWidget final
         context->device->GetImmediateContext(immediate.put());
         result = _gpu.UploadIcons(immediate.get(), _display);
         _deviceReady = SUCCEEDED(result);
+        _iconsDirty = FAILED(result);
+        _iconsPreparationFailed = false;
         return result;
     }
 
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
     {
         _deviceReady = false;
+        _iconsDirty = true;
+        _iconsPreparationFailed = false;
         _device = nullptr;
         _gpu.Reset();
         _resources->Reset();
@@ -1314,11 +1349,30 @@ class LauncherWidget final
         {
             return E_INVALIDARG;
         }
+        if (_width != context->widthPixels || _height != context->heightPixels || _dpi != context->dpi)
+            _iconsPreparationFailed = false;
         _width = context->widthPixels;
         _height = context->heightPixels;
         _dpi = context->dpi == 0 ? USER_DEFAULT_SCREEN_DPI : context->dpi;
         ComputeGrid();
         return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE Prepare(const RedXeGpuPreparationContext* context) noexcept override
+    {
+        if (!context || context->sizeBytes != sizeof(RedXeGpuPreparationContext))
+            return E_INVALIDARG;
+        if (!_visible || !_iconsDirty || _iconsPreparationFailed)
+            return S_FALSE;
+        if (!_deviceReady || !_device)
+            return E_UNEXPECTED;
+        wil::com_ptr_nothrow<ID3D11DeviceContext> immediate;
+        _device->GetImmediateContext(immediate.put());
+        const HRESULT result = _gpu.UploadIcons(immediate.get(), _display);
+        _iconsPreparationFailed = FAILED(result);
+        if (SUCCEEDED(result))
+            _iconsDirty = false;
+        return result;
     }
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
@@ -1334,7 +1388,7 @@ class LauncherWidget final
         {
             return E_INVALIDARG;
         }
-        if (!_deviceReady)
+        if (!_deviceReady || _iconsDirty)
         {
             return E_UNEXPECTED;
         }
@@ -1937,12 +1991,8 @@ class LauncherWidget final
         }
         (void)degraded;
         ComputeGrid();
-        if (_deviceReady && _device)
-        {
-            wil::com_ptr_nothrow<ID3D11DeviceContext> immediate;
-            _device->GetImmediateContext(immediate.put());
-            (void)_gpu.UploadIcons(immediate.get(), _display);
-        }
+        _iconsDirty = true;
+        _iconsPreparationFailed = false;
         PublishCounts();
         if (requestFrame && _host)
         {
@@ -2140,6 +2190,8 @@ class LauncherWidget final
     uint64_t _qpcFrequency = 0;
     bool _visible = false;
     bool _deviceReady = false;
+    bool _iconsDirty = true;
+    bool _iconsPreparationFailed = false;
     bool _usingPins = false;
     bool _pointerDown = false;
     bool _pagePan = false;
@@ -2271,6 +2323,16 @@ extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId
 }
 
 extern "C" void __stdcall RedXePluginShutdown() noexcept {}
+
+extern "C" HRESULT __stdcall RedXeLauncherSetTestIconFailure(uint32_t phase) noexcept
+{
+    if (!IsAutomatedHost())
+        return E_ACCESSDENIED;
+    if (phase > 2)
+        return E_INVALIDARG;
+    gTestIconFailurePhase.store(phase, std::memory_order_relaxed);
+    return S_OK;
+}
 
 extern "C" HRESULT __stdcall RedXeLauncherSetTestPinDirectory(const wchar_t* directory) noexcept
 {
