@@ -51,6 +51,11 @@ std::atomic<uint32_t> g_typographyCount{0};
 std::atomic<bool> g_failNextInitializationForTest{false};
 std::atomic<uint32_t> g_heroTwinCount{0};
 std::atomic<uint32_t> g_iconCellCount{0};
+std::atomic<uint32_t> g_uploadCellCount{0};
+std::atomic<uint64_t> g_uploadBytes{0};
+std::atomic<uint32_t> g_fontSessionCount{0};
+std::atomic<uint32_t> g_livePreparationFonts{0};
+std::atomic<bool> g_failNextGlyphPreparationForTest{false};
 
 [[nodiscard]] HRESULT CreateWeatherFontFace(IDWriteFactory& factory,
                                             wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
@@ -178,6 +183,7 @@ struct DirectWriteSession final
         return result;
     }
     (void)CreateWeatherIconFontFace(*session.factory, session.iconFace);
+    g_fontSessionCount.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
 }
 
@@ -513,17 +519,18 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
     _rasterizer = std::move(rasterizer);
     _depthState = std::move(depthState);
     _blendState = std::move(blendState);
-    _atlasDirty = false;
+    _dirtyGlyphs.reset();
     g_liveResourceSets.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
 }
 
 void WeatherGpuResources::Reset() noexcept
 {
+    ReleasePreparationFonts();
     ResetGpuResources();
     _atlasPixels.reset();
     _glyphCount = 0;
-    _atlasDirty = false;
+    _dirtyGlyphs.reset();
 }
 
 void WeatherGpuResources::ResetGpuResources() noexcept
@@ -723,7 +730,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
     g_iconCellCount.store(iconCells, std::memory_order_relaxed);
     _staticGlyphCount = _glyphCount;
     _dynamicCursor = _glyphCount;
-    _atlasDirty = true;
+    _dirtyGlyphs.reset();
     g_typographyCount.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
 }
@@ -784,12 +791,21 @@ HRESULT WeatherGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characte
         return S_OK;
     }
 
-    DirectWriteSession session;
-    HRESULT result = OpenDirectWrite(session);
-    if (FAILED(result))
+    HRESULT result = S_OK;
+    if (!_preparationFontFace)
     {
-        return result;
+        DirectWriteSession session;
+        result = OpenDirectWrite(session);
+        if (FAILED(result))
+            return result;
+        _preparationFontModule = std::move(session.module);
+        _preparationFontFactory = std::move(session.factory);
+        _preparationFontFace = std::move(session.face);
+        _preparationIconFace = std::move(session.iconFace);
+        g_livePreparationFonts.fetch_add(1, std::memory_order_relaxed);
     }
+    if (g_failNextGlyphPreparationForTest.exchange(false, std::memory_order_relaxed))
+        return E_OUTOFMEMORY;
     for (uint32_t index = 0; index < characters; ++index)
     {
         const wchar_t character = text[index];
@@ -814,8 +830,8 @@ HRESULT WeatherGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characte
             break;
         }
         float advance = 0.5f;
-        result = RasterizeIntoAtlas(*session.factory, *session.face, character, atlasX, atlasY, kWeatherGlyphCell,
-                                    _atlasPixels.get(), advance, false, _glyphInk[slot]);
+        result = RasterizeIntoAtlas(*_preparationFontFactory, *_preparationFontFace, character, atlasX, atlasY,
+                                    kWeatherGlyphCell, _atlasPixels.get(), advance, false, _glyphInk[slot]);
         if (FAILED(result))
         {
             return result;
@@ -829,7 +845,7 @@ HRESULT WeatherGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characte
         {
             _glyphCount = slot + 1;
         }
-        _atlasDirty = true;
+        _dirtyGlyphs.set(slot);
     }
     g_typographyCount.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
@@ -935,9 +951,20 @@ HRESULT WeatherGpuResources::AppendIconFit(WeatherDrawList& list, float x, float
     return S_OK;
 }
 
-void WeatherGpuResources::UploadAtlas() noexcept
+void WeatherGpuResources::ReleasePreparationFonts() noexcept
 {
-    if (!_atlasDirty || !_atlas || !_deviceIdentity)
+    const bool hadFonts = _preparationFontFace != nullptr;
+    _preparationIconFace.reset();
+    _preparationFontFace.reset();
+    _preparationFontFactory.reset();
+    _preparationFontModule.reset();
+    if (hadFonts)
+        g_livePreparationFonts.fetch_sub(1, std::memory_order_relaxed);
+}
+
+void WeatherGpuResources::UploadDirtyGlyphs() noexcept
+{
+    if (_dirtyGlyphs.none() || !_atlas || !_deviceIdentity)
     {
         return;
     }
@@ -947,8 +974,20 @@ void WeatherGpuResources::UploadAtlas() noexcept
     {
         return;
     }
-    context->UpdateSubresource(_atlas.get(), 0, nullptr, _atlasPixels.get(), kWeatherAtlasSize, 0);
-    _atlasDirty = false;
+    for (uint32_t slot = 0; slot < kWeatherGlyphCapacity; ++slot)
+    {
+        if (!_dirtyGlyphs.test(slot))
+            continue;
+        const uint32_t x = _glyphAtlasX[slot];
+        const uint32_t y = _glyphAtlasY[slot];
+        const uint32_t cell = _glyphCell[slot];
+        const D3D11_BOX box{x, y, 0, x + cell, y + cell, 1};
+        context->UpdateSubresource(_atlas.get(), 0, &box, _atlasPixels.get() + y * kWeatherAtlasSize + x,
+                                   kWeatherAtlasSize, 0);
+        g_uploadCellCount.fetch_add(1, std::memory_order_relaxed);
+        g_uploadBytes.fetch_add(cell * cell, std::memory_order_relaxed);
+    }
+    _dirtyGlyphs.reset();
 }
 
 HRESULT WeatherGpuResources::Render(ID3D11DeviceContext* context, float width, float height,
@@ -962,7 +1001,6 @@ HRESULT WeatherGpuResources::Render(ID3D11DeviceContext* context, float width, f
     {
         return S_OK;
     }
-    UploadAtlas();
 
     D3D11_MAPPED_SUBRESOURCE mapped{};
     HRESULT result = context->Map(_constantBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
@@ -1066,6 +1104,28 @@ uint32_t WeatherGpuResourceSetCount() noexcept
 void WeatherGpuFailNextInitializationForTest() noexcept
 {
     g_failNextInitializationForTest.store(true, std::memory_order_relaxed);
+}
+
+void WeatherGpuFailNextGlyphPreparationForTest() noexcept
+{
+    g_failNextGlyphPreparationForTest.store(true, std::memory_order_relaxed);
+}
+
+uint32_t WeatherGpuUploadCellCount() noexcept
+{
+    return g_uploadCellCount.load(std::memory_order_relaxed);
+}
+uint64_t WeatherGpuUploadBytes() noexcept
+{
+    return g_uploadBytes.load(std::memory_order_relaxed);
+}
+uint32_t WeatherGpuFontSessionCount() noexcept
+{
+    return g_fontSessionCount.load(std::memory_order_relaxed);
+}
+uint32_t WeatherGpuLivePreparationFonts() noexcept
+{
+    return g_livePreparationFonts.load(std::memory_order_relaxed);
 }
 
 void WeatherGpuLock() noexcept

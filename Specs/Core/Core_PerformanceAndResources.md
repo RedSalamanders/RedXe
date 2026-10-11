@@ -72,6 +72,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   MUST release that CPU allocation. A surviving user retains the shared atlas; a revisit reconstructs identical
   glyph pixels. Each atlas uses one virtual-memory owner, keeping cold release independent of CRT heap retention
   and sanitizer quarantine. No per-instance atlas, worker, timer or steady-frame allocation is added.
+  Their workers use CPU snapshot storage only. UI-thread preparation freezes paint and uploads changed 48 px
+  cells, reusing one temporary font session for the changed strings and releasing every font owner before drawing,
+  including failure. Weather adds one bounded 9,904-byte paint snapshot plus revision/phase bookkeeping per widget,
+  accepted to preserve complete forecast/alert data and tile/raised coherence. Render performs no atlas upload or
+  worker-snapshot copy/lock. Clean preparation allocates/uploads nothing; unchanged failed preparation does not retry.
 - Derived display state such as DPI, design-canvas transforms, and widget viewports must be cached and recomputed only
   when its inputs change.
   Provider staging retains at most 1 KiB of compact keys instead of 32 copied 8 KiB envelopes. Key comparisons
@@ -479,10 +484,12 @@ crossings. Auxiliary data and identical targets do not restart an ease. A contin
 sooner without another deadline wake. The fixed target/start pose adds at most 1,320 bytes per widget (12.9 KiB for
 ten), accepted for cadence-independent interpolation and avoiding repeated empty bursts; it adds no allocation,
 thread, timer, GPU resource or synchronization to scheduling. Sample/draw-list storage otherwise remains unchanged.
-Glyph rasterization runs when a snapshot arrives or at device creation, never inside `Render`.
+Dynamic glyph rasterization runs in UI preparation and static glyphs are built at device creation, never on the
+acquisition worker or inside `Render`.
 A settled System page MUST NOT set continuous animation. Hidden, minimized, suspended, occluded, and
 display-off states stop eases and drain subscriptions; recovery draws current values and does not replay missed
-motion. Snapshot copy stays on the acquisition worker. After delivery, the host coalesces one UI-thread invalidation.
+motion. Snapshot ingestion stays on the acquisition worker; UI preparation promotes the bounded paint sample.
+After delivery, the host coalesces one UI-thread invalidation.
 This family remains on the immediate-context GPU path. The 2026-10-10 full gates measured a 0.399 ms Release and
 0.388 ms Debug mean production `Renderer::Render` over the 32-frame hidden WARP fixture at 2560×720 after warmup
 and device-loss rebuild. This is off-screen submission evidence, not hardware presented-frame/input latency or

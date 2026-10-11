@@ -37,9 +37,16 @@ struct WeatherTestDiagnostics final
     float pageDotGap;
     uint32_t cpuAtlasBytes;
     uint32_t liveGpuResourceSets;
+    uint32_t glyphUploadCells;
+    uint32_t fontSessions;
+    uint32_t livePreparationFonts;
+    uint32_t preparations;
+    uint32_t preparationFailures;
+    uint64_t glyphUploadBytes;
+    uint32_t paintSnapshotBytes;
 };
 
-static_assert(sizeof(WeatherTestDiagnostics) == 364);
+static_assert(sizeof(WeatherTestDiagnostics) == 400);
 
 struct WeatherTestSnapshot final
 {
@@ -69,6 +76,7 @@ struct WeatherTestSnapshot final
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherGetTestDiagnostics(
     WeatherTestDiagnostics* diagnostics) noexcept;
 extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherFailNextAtlasInitialization() noexcept;
+extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherFailNextGlyphPreparation() noexcept;
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherApplyTestSnapshot(
     const WeatherTestSnapshot* snapshot) noexcept;
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherParseTestForecast(const char* json, uint32_t bytes,

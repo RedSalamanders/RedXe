@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `d3f055a` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `3e382fd` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -74,9 +74,9 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P2.3 | Complete | Move-only 16-byte status pins; one atomic read per placeholder decision, no locked ID scan in Render/Prepare. Adds at most 1.5 KiB across two full pages, no allocation/thread/wake. 10,000 reads complete under the exclusively held status lock; concurrent reports, move/reuse/shutdown, same-ID replacement and 64-slot capacity pass. Slot destruction/move drains network registration and interface/callback lifetime before final release, including rollback. 100,000 Release reads: cached 72.8 us / last-slot cold lookup 80.6 ms, diagnostic only. Release 16 scopes; Debug and ASan Debug 15 native scopes; ARM64 Release compile; 10 skills. `runtime-2026-10-10-p23`; P3.2 commit `55da17f`. |
 | P3.6 | In progress; source and GPU binding cuts complete | `7c1f72b`: quiescent last-consumer source reclamation preserves facade identity, inactive/staged subscriptions and external leases. Matched retained private 87.61 → 71.75 MiB. The separate GPU binding cut proves last-owner release, identical pixels and no device/swap-chain rebuild. All 16 Release scopes, 15 Debug and ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Its matched retained private is 69.54 → 69.08 MiB and local usage 47.26 → 46.26 MiB, versus cold 25.01. Submissions remain about 60/s, hidden/minimized zero; no CPU saving established. Remaining return budget and cache attribution stay open. `runtime-2026-10-10-p36-source`, `-p36-before`, `-p36-after`, `-p36-gpu`. |
 | P2.1 | Single-capacity query cut complete; activity/storage proposal remains | Native walk queries its existing four-MiB buffer once; columns, caps, history and fallback remain. Capacity red/green, failure/invalid-length and real DLL field/catalog/row-cap/history/allocation checks pass. All 16 Release scopes, 15 Debug and 15 ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Source storage remains 16,437,760 bytes. Standalone 64 pairs: two calls → one, median 20.121 → 11.678 ms. Matched 65 s System control / after-1 / after-2: CPU 2.186 / 2.653 / 2.238%, submissions 12.324 / 13.166 / 11.991/s; no whole-process saving established. `runtime-2026-10-10-p21-*`. |
-
-| P2.8 / P3.6 CPU atlas lifetime | Complete; Weather preparation remains | Cold construction, shared users, idempotent device loss, last release and failure/retry pass against real DLLs. Both one-MiB CPU owners reach zero. Unicode recovery pixels and eight Weather images remain identical. Matched D private: cold 38.23 → 35.51 MiB, returned 106.39 → 105.06; returned working set 98.16 → 96.16. Submissions about 60/s and inactive zero, local usage unchanged. Return-over-cold 68.16 → 69.55 MiB still misses the budget; no causal CPU saving claimed. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-10-p28-before`, `runtime-2026-10-11-atlas-after` and `-p28-atlas`. |
+| P2.8 / P3.6 CPU atlas lifetime | Complete; preparation cuts recorded below | Cold construction, shared users, idempotent device loss, last release and failure/retry pass against real DLLs. Both one-MiB CPU owners reach zero. Unicode recovery pixels and eight Weather images remain identical. Matched D private: cold 38.23 → 35.51 MiB, returned 106.39 → 105.06; returned working set 98.16 → 96.16. Submissions about 60/s and inactive zero, local usage unchanged. Return-over-cold 68.16 → 69.55 MiB still misses the budget; no causal CPU saving claimed. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-10-p28-before`, `runtime-2026-10-11-atlas-after` and `-p28-atlas`. |
 | P2.8 Viewer preparation | Complete; capacity-wrap and monitor failure follow-ups remain | Worker delivery freezes at UI preparation; a dirty glyph uploads 2,304 bytes, Render uploads none, and one temporary font session serves a preparation batch with zero retained owners. Added pending storage is 11,160 bytes per widget. All 145 preceding frame checksums match. Fresh matched control/candidate: CPU 2.134 / 2.055%, submissions 12.244 / 11.954/s, private 57.62 / 57.92 MiB, local 26.26 in both. Rate improvement remains unestablished. Release 16 scopes, Debug 15 native scopes accounted across the initial run and final HostPlugin/HostSmoke run, ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-11-p28-prepare-paired` and `-p28-prepare`. |
+| P2.8 Weather preparation | Complete; capacity follow-up remains | One 9,904-byte UI paint snapshot; one temporary batch font session, zero retained owners, 2,304-byte dirty-cell uploads and no worker font/Render upload work. Real worker, failure/recovery and eight identical PNGs pass. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release and 10 skills pass. Two counterbalanced Gallery pairs remain about 60.15 submissions/s; CPU has no established saving or repeatable regression. `runtime-2026-10-11-p28-weather`, `-paired` and `-paired-reverse`. |
 
 ### P2.8 Viewer preparation cut (2026-10-11)
 
@@ -121,6 +121,43 @@ HostSmoke run account for all 15 native scopes. The initial isolated Debug Matri
 peak private growth (5,910,528 at the end); both quiet repeats peak at zero under the unchanged four-MiB guard.
 The cause of that outlier remains unresolved and its failed log is retained. ARM64 Release compilation and all
 10 skills pass. `runtime-2026-10-11-p28-prepare` saves source/artifact identities and all successful/failed gate logs.
+
+### P2.8 Weather preparation cut (2026-10-11)
+
+Weather now exposes the optional preparation interface on the same controlling COM identity. Network delivery
+updates the latest CPU snapshot without atlas access; preparation freezes a separate 9,904-byte paint snapshot
+and Render reads it without a worker lock/copy. Late tile/raised deliveries wait for the next preparation.
+Dirty cells upload from their stored coordinates and sizes, preserving the reserved 96 px hero/icon twins.
+One temporary font session serves the changed label batch and releases before drawing, including injected failure.
+Clean/failed preparation does no automatic work until new data, changed extent or device recreation permits recovery.
+The bounded paint-model/revision cost is accepted for complete forecast/alert data, with no new thread or timer.
+
+The new interface test fails against the preceding DLL as expected. Focused Release tests pass real worker
+delivery, coalescing, late tile/raised paint, one/two dirty-cell byte counts, batch fonts, failed input/drawing,
+no retry, new-data/extent recovery, hidden preparation and identical-pixel device re-acquisition.
+All eight preceding layout PNGs remain byte-identical; `runtime-2026-10-11-p28-weather-images-before` retains them.
+Forced Debug/Release rebuilds pass: Release all 16 scopes and Debug all 15 native scopes. ASan Debug passes all
+15 native scopes with its default quarantine; ARM64 Release compiles with zero warnings/errors, and all 10 skills
+pass. The host fixture now prepares every optional prepared widget before drawing and preserves setup failures.
+`runtime-2026-10-11-p28-weather` saves the final sources, binaries and gate logs.
+
+Two 65-second Gallery pairs change only the Weather DLL, retain matching scene/profile/geometry/adapter and verify
+restoration plus eight identical PNGs. The second pair runs candidate before control. Each run has 13 samples.
+The production forecast responses are live, not pinned; these are whole-process observations, not a causal CPU claim.
+
+| Pair | Control / candidate CPU, percent of one core | Control / candidate submissions/s | Control / candidate private MiB | Control / candidate working set MiB |
+| --- | --- | --- | --- | --- |
+| Control first | 1.900 / 2.760 | 60.152 / 60.150 | 92.02 / 91.58 | 92.79 / 93.18 |
+| Candidate first | 2.343 / 1.978 | 60.136 / 60.152 | 90.94 / 92.14 | 92.86 / 92.78 |
+
+All four runs report 45 threads, 96 modules, local usage 54.24 MiB and AV tile surfaces 1,474,560 bytes. CPU moves
+in opposite directions between pairs; no saving or repeatable regression is established. Retain the first higher
+candidate reading. `runtime-2026-10-11-p28-weather-paired` and `-paired-reverse` contain every raw interval and
+comparison. The demonstrated change is removal of worker font work, Render snapshot copying/locking and full-atlas
+uploads: one new cell uploads 2,304 bytes in Prepare, and a clean preparation or Render adds zero font/upload work.
+The existing Weather dynamic cursor stops before the reserved bottom rows rather than wrapping its usable
+capacity; a separate capacity/recovery regression must decide that follow-up alongside Viewer reused-cell ink
+and Debug monitor failure retry. These pre-existing edges keep the full P2.8 item open.
 
 ### P0.4 composition accounting (2026-10-11)
 
@@ -293,7 +330,7 @@ attribution before treating it as proof of a particular collection cost.
 | SystemData | `CollectProcessesFromWalk` still opens each process; source members still use fixed zero-initialized arrays. P3.6 now reclaims unleased sources after collection/callback quiescence, retaining facade identity. | P2.1, P4.1 and remaining cache/return attribution in P3.6 stay active. The later normative contract accepts the current bounded per-process baseline; changing datasets needs a new measured contract change. |
 | ProcessViewer | P2.7 parks settled viewers (`S_FALSE`), snaps unchanged/sub-pixel targets, and schedules only visible easing/pulses at 33 ms. Eases use a fixed start pose and one host timestamp for both views; auxiliary observations do not restart them. `PluginHost::Deliver` still coalesces the initial invalidation. | Matched control: 14.126 submissions/s, 2.986% of one core. Two after-runs: 12.163/12.184 submissions/s, 3.515/3.069% CPU. Submission reduction is 13.7–13.9%; CPU improvement is not established. Proposed System budgets remain open. |
 | Logging/settings | P2.5 caches the writer's UTC date and swept policy; ordinary lines perform no directory enumeration or path allocation. Settings persistence flushes its temp file and checks the loaded document before replacement, but still runs synchronously. | P2.5 is complete. P2.6 must preserve the current flush, merge and stamp guarantees; the old proposed write-through replacement is obsolete. |
-| Retained plugin work | Launcher still reserves 32 GPU icon slices even for an empty authored list. Viewer/Weather atlas upload paths and DeskClock's 1 ms animation deadline still exist. | P2.8/P4.3/P4.6 need current measurements; the September cost/line-number table below must not be used as current proof. |
+| Retained plugin work | Launcher still reserves 32 GPU icon slices even for an empty authored list. Viewer and Weather upload changed glyph cells in preparation, with full gates and matched receipts. DeskClock's 1 ms animation deadline still exists. | P2.8 capacity/failure follow-ups and P4.3/P4.6 need current evidence; the September cost/line-number table below must not be used as current proof. |
 | Probe | Opt-in `RuntimeProbe` shares existing message/frame-latency waits and the 32×1024 JSONL ring; disabled path has no diagnostic deadline/query. AV queries never load a module or prepare a view. | P0.1 changes diagnostics, not page rendering or service behavior. Invalid/unavailable counters stay explicitly marked. |
 
 ### P0.1 implementation and evidence
@@ -668,7 +705,7 @@ contract and validation updates.
 | P2.5 | **Complete 2026-10-10.** Writer-owned UTC date/policy cache: sweep on open, date change or changed retention value. Policy updates wake the idle writer and synchronize with flush; ordinary lines construct no path. | Same-day, unchanged/shortened policy, forward/backward UTC correction and actual idle-worker flush tests pass in Debug/Release; ARM64 Release compiles. Removes two enumerations per ordinary line; adds 20 bytes of cached date/policy, no thread or wake. |
 | P2.6 | **Candidate: settings persistence latency.** Coalesce and move durable writes off the UI thread only if measured promote stalls justify a bounded owner/worker design. Temp-file flushing and loaded-document/stamp/merge protections already exist; preserve them. Reusing the log worker is undecided. | No UI-thread disk-write stall at promote; concurrent edits, shutdown, failure recovery and stamps retain current guarantees. |
 | P2.7 | **Implemented and measured 2026-10-10: ProcessViewer wake discipline.** Settled viewers park; unchanged/sub-pixel values snap; real 320 ms easing and 420 ms pulses use a 33 ms deadline without immediate requests. Fixed-pose interpolation preserves tile/raised timestamps, ranks and endpoints. Tests cover all ten types, auxiliary deliveries, bursts, recovery, allocation and a scheduled production-host soak. | Fresh matched 14.126/s becomes 12.163/12.184/s (13.7–13.9% lower). CPU 2.986% becomes 3.515/3.069%; no CPU saving established. Proposed ≤2/s and ≤1.5% process CPU remain unmet; UI-thread ≤0.3% is unmeasured. Keep budget acceptance open and use P0.2 attribution to choose further work. |
-| P2.8 | **CPU lifetime and Viewer preparation/batching complete; Weather remains.** Dirty 48×48 cells upload from Prepare, paint stays frozen across delivery and Render, and one temporary font session serves each changed batch with zero steady ownership. Follow up Viewer reused-cell ink and Debug monitor failure retry with tests. A trim export is optional only if actual ownership requires it. | Viewer: 145 preceding frame checksums identical, worker/late/failure/recovery and dirty-byte/font-owner tests pass; Release/Debug/ASan native gates, ARM64 compile and skills accounted above. Matched rates remain within variation. Weather retains its separate quality and qualification requirements. |
+| P2.8 | **CPU lifetime and Viewer/Weather preparation/batching complete.** Dirty 48×48 cells upload from Prepare, paint stays frozen across delivery and Render, and one temporary font session serves each changed batch with zero steady ownership. Follow up Viewer/Weather capacity edges and Debug monitor failure retry with tests. A trim export is optional only if actual ownership requires it. | Viewer: 145 preceding frame checksums identical and required gates accounted above. Weather: eight unchanged PNGs, Release/Debug/ASan full gates, ARM64 compilation and skills pass. Two Gallery pairs hold about 60.15 submissions/s; CPU moves in opposite directions and no saving or repeatable regression is established. |
 | P2.9 | Measure callback drain stalls before redesigning waits. Network and subscription drains include `INFINITE` waits; a timeout cannot free state while a callback can still use it. Reuse current bounded/tombstoned control/device-lane patterns only where ownership permits. | Slow-fixture recovery bounds UI delay while preserving callback quiescence, cancellation and teardown lifetimes. |
 
 ### Phase 3 — fluid swipe, nothing left behind

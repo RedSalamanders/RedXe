@@ -192,6 +192,7 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   `RedXeWeatherFailNextAtlasInitialization` (one failure after CPU atlas construction, consumed by the next actual
   resource initialization rather than a shared-resource acquisition),
   `RedXeProcessViewerFailNextGlyphPreparation` (one failure on the next missing-glyph preparation),
+  `RedXeWeatherFailNextGlyphPreparation` (one failure after acquiring temporary fonts for the next missing glyph),
   `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
   `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`, and the Logicon surface
   `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconUseSyntheticDialpad`,
@@ -610,7 +611,8 @@ GPU vtables.
   The host MUST deactivate and drain current and staged widget work before device teardown, stage new pages hidden
   until setup completes, and restore prior visibility only after successful resource creation. GPU state accessed by
   snapshot or network workers MUST synchronize its lifetime check and resource access with device teardown. The
-  Process Viewer and Weather resource hubs use an atomic instance-ownership flag and the shared GPU lock for this.
+  Process Viewer and Weather workers access only CPU snapshot storage; their shared atlas and device-user
+  lifetime remain on the UI thread, with the hub's cold shared-resource acquisition/release lock.
   During recovery, both current and staged pages receive device creation before the new render target exists;
   viewport calculation and initial size notifications MUST wait until that target has physical dimensions.
 - `IRedXePreparedGpuWidget` is an optional sibling of the GPU interface. `Renderer::PrepareWidgets` runs before frame
@@ -1348,10 +1350,13 @@ empty/overlong input; live geocoding is not a test dependency.
 Weather location selection, disposable Windows helper, saved city, precipitation notices, glyph fitting and responsive
 hourly/daily composition are owned by [`Plugins_Weather.md`](Plugins_Weather.md). A configured city takes precedence;
 automatic discovery must never use a country centroid as the computer's city.
-
-Weather location selection, disposable Windows helper, saved city, precipitation notices, glyph fitting and responsive
-hourly/daily composition are owned by [`Plugins_Weather.md`](Plugins_Weather.md). A configured city takes precedence;
-automatic discovery must never use a country centroid as the computer's city.
+Weather exposes `IRedXePreparedGpuWidget` as a sibling on the same controlling identity. Network delivery has no
+font/GPU work. Preparation freezes complete paint data, rasterizes/uploads changed 48 px cells at their stored
+coordinates and releases one temporary batch font session before drawing, including failure. Reserved 96 px
+icon/hero twins retain their layout and pixels. Render reads the prepared model without a snapshot copy/lock or
+atlas upload. Its additional bounded paint snapshot is 9,904 bytes per widget plus revision/phase bookkeeping;
+this is accepted for tile/raised coherence. Clean and failed preparation follow the generic no-work/no-retry
+contract; a new snapshot, extent change or device recreation permits recovery.
 
 `Plugins/Launcher` exposes settings-visible plugin ID `builtin.launcher`, internally maps it to type ID `launcher`,
 and exposes sibling `IRedXeGpuWidget`, `IRedXeInteractiveWidget`, and `IRedXeRaisedWidget` interfaces on one

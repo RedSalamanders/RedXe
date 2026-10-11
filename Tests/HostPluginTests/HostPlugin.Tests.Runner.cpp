@@ -431,8 +431,8 @@ constexpr UINT kHostHeight = 720;
 
 // These hidden WARP fixtures grant frames explicitly, including after DXGI reports occlusion. Prepare the real
 // cached interfaces before drawing; production occlusion/scheduling suppression has its own decision tests.
-[[nodiscard]] HRESULT RenderViewerTestFrame(Renderer& renderer, DashboardHost& dashboard, float now,
-                                            float delta) noexcept
+[[nodiscard]] HRESULT RenderPreparedTestFrame(Renderer& renderer, DashboardHost& dashboard, float now,
+                                              float delta) noexcept
 {
     for (size_t index = 0; index < dashboard.WidgetCount(); ++index)
     {
@@ -2629,7 +2629,7 @@ void TestWidgetRaiseHost(bool& success) noexcept
               SUCCEEDED(renderer.SetRaisedOverlay(3, layout.content)),
           L"host raises Process Viewer to the plugin-requested half overlay", success);
 
-    result = RenderViewerTestFrame(renderer, dashboard, 0.5f, 1.0f / 60.0f);
+    result = RenderPreparedTestFrame(renderer, dashboard, 0.5f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.HasRaisedOverlay() && renderer.RaisedOverlayIndex() == 3 &&
               renderer.LastFrameWidgetCount() == 11 && renderer.LastFrameSuccessfulWidgetCount() == 11 &&
               renderer.RaisedContentRect().left == layout.content.left &&
@@ -2644,7 +2644,7 @@ void TestWidgetRaiseHost(bool& success) noexcept
     Check(SUCCEEDED(processRaised->SetRaised(FALSE)), L"Process Viewer accepts SetRaised(FALSE)", success);
     renderer.ClearRaisedOverlay();
     Check(SUCCEEDED(dashboard.ClearRaisedNativeLayout(window.Dpi())), L"native raise layout restores", success);
-    result = RenderViewerTestFrame(renderer, dashboard, 0.6f, 1.0f / 60.0f);
+    result = RenderPreparedTestFrame(renderer, dashboard, 0.6f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && !renderer.HasRaisedOverlay() && renderer.LastFrameWidgetCount() == 10 &&
               renderer.LastFrameSuccessfulWidgetCount() == 10,
           L"dismissing the overlay restores every System Data GPU tile", success);
@@ -3885,7 +3885,7 @@ void TestSystemDataViewers(bool& success) noexcept
     QueryPerformanceFrequency(&frequency);
     for (uint32_t frame = 0; frame < 8; ++frame)
     {
-        result = RenderViewerTestFrame(renderer, dashboard, static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        result = RenderPreparedTestFrame(renderer, dashboard, static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
         if (FAILED(result))
         {
             break;
@@ -3923,7 +3923,7 @@ void TestSystemDataViewers(bool& success) noexcept
     }
     for (uint32_t frame = 0; frame < 2 && SUCCEEDED(result); ++frame)
     {
-        result = RenderViewerTestFrame(renderer, dashboard, 0.8f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        result = RenderPreparedTestFrame(renderer, dashboard, 0.8f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
     }
     if (SUCCEEDED(result))
     {
@@ -3957,7 +3957,7 @@ void TestSystemDataViewers(bool& success) noexcept
         for (uint32_t frame = 0; frame < 2 && SUCCEEDED(rendered); ++frame)
         {
             rendered =
-                RenderViewerTestFrame(renderer, dashboard, 1.0f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+                RenderPreparedTestFrame(renderer, dashboard, 1.0f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
         }
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(down == S_FALSE && up == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 1,
@@ -3967,7 +3967,7 @@ void TestSystemDataViewers(bool& success) noexcept
         (void)processViewer->OnPointer(&tap);
         tap.phase = RedXePointerPhaseUp;
         const HRESULT back = processViewer->OnPointer(&tap);
-        rendered = RenderViewerTestFrame(renderer, dashboard, 1.1f, 1.0f / 60.0f);
+        rendered = RenderPreparedTestFrame(renderer, dashboard, 1.1f, 1.0f / 60.0f);
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(back == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 0,
               L"a tap on the first page dot returns to page one", success);
@@ -3980,14 +3980,14 @@ void TestSystemDataViewers(bool& success) noexcept
         const HRESULT upAtFirst = processViewer->OnPointer(&wheel);
         wheel.wheelDelta = -120.0f;
         const HRESULT wheelDown = processViewer->OnPointer(&wheel);
-        rendered = RenderViewerTestFrame(renderer, dashboard, 1.2f, 1.0f / 60.0f);
+        rendered = RenderPreparedTestFrame(renderer, dashboard, 1.2f, 1.0f / 60.0f);
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(upAtFirst == S_OK && wheelDown == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) &&
                   diagnostics.pageIndex == 1,
               L"a paged viewer keeps wheel-up at its first page and pages forward on wheel-down", success);
         wheel.wheelDelta = 120.0f;
         (void)processViewer->OnPointer(&wheel);
-        rendered = RenderViewerTestFrame(renderer, dashboard, 1.3f, 1.0f / 60.0f);
+        rendered = RenderPreparedTestFrame(renderer, dashboard, 1.3f, 1.0f / 60.0f);
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 0,
               L"wheel-up returns the viewer to its first page", success);
@@ -4000,7 +4000,7 @@ void TestSystemDataViewers(bool& success) noexcept
     }
     if (SUCCEEDED(result))
     {
-        result = RenderViewerTestFrame(renderer, dashboard, 0.25f, 1.0f / 60.0f);
+        result = RenderPreparedTestFrame(renderer, dashboard, 0.25f, 1.0f / 60.0f);
     }
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 10,
           L"System Data widgets rebuild after device loss", success);
@@ -4009,7 +4009,7 @@ void TestSystemDataViewers(bool& success) noexcept
     constexpr uint32_t kMeasuredFrames = 32;
     for (uint32_t frame = 0; frame < kMeasuredFrames; ++frame)
     {
-        result = RenderViewerTestFrame(renderer, dashboard, 0.5f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        result = RenderPreparedTestFrame(renderer, dashboard, 0.5f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
         if (FAILED(result))
         {
             break;
@@ -4061,8 +4061,8 @@ void TestSystemDataViewers(bool& success) noexcept
         const ULONGLONG now = GetTickCount64();
         if (invalidated || (nextFrame != 0 && now >= nextFrame))
         {
-            result = RenderViewerTestFrame(renderer, dashboard, 2.0f + static_cast<float>(now - soakStart) / 1000.0f,
-                                           static_cast<float>(now - previousFrame) / 1000.0f);
+            result = RenderPreparedTestFrame(renderer, dashboard, 2.0f + static_cast<float>(now - soakStart) / 1000.0f,
+                                             static_cast<float>(now - previousFrame) / 1000.0f);
             previousFrame = now;
             ++soakFrames;
             invalidated = false;
@@ -4522,8 +4522,10 @@ void TestGpuPageLifetime(bool& success)
     if (SUCCEEDED(result))
         result = dashboards[0].SetWidgetsVisible(true);
     if (SUCCEEDED(result))
+    {
         (void)renderer.PrepareWidgets();
-    result = renderer.Render(0.1f, 0.1f);
+        result = renderer.Render(0.1f, 0.1f);
+    }
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 6,
           L"a fresh WARP device rebuilds and draws both surviving pages", success);
     renderer.Shutdown();
@@ -5811,7 +5813,7 @@ void TestShortTilePageControl(bool& success) noexcept
     {
         window.PumpMessages();
         (void)MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
-        result = RenderViewerTestFrame(renderer, dashboard, static_cast<float>(frame++) / 60.0f, 1.0f / 60.0f);
+        result = RenderPreparedTestFrame(renderer, dashboard, static_cast<float>(frame++) / 60.0f, 1.0f / 60.0f);
         if (SUCCEEDED(result))
         {
             result = ReadProcessViewerDiagnostics(diagnostics);

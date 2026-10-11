@@ -515,6 +515,192 @@ HRESULT AtlasLifetimeTests(HMODULE module, RedXeCreateFn create)
     return S_OK;
 }
 
+HRESULT PreparedDrawingTests(HMODULE module, RedXeCreateFn create)
+{
+    const auto fixture = Resolve<WeatherApplyTestSnapshotFn>(module, kWeatherApplyTestSnapshotExport);
+    const auto diagnostics = Resolve<WeatherGetTestDiagnosticsFn>(module, kWeatherGetTestDiagnosticsExport);
+    const auto failNext =
+        Resolve<decltype(&RedXeWeatherFailNextGlyphPreparation)>(module, "RedXeWeatherFailNextGlyphPreparation");
+    CHECK(fixture && diagnostics && failNext);
+    TestHost host;
+    wil::com_ptr_nothrow<IRedXeWidget> widget;
+    CHECK(Create(create, host, R"({"location":"Paris"})", widget) == S_OK);
+    wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+    wil::com_ptr_nothrow<IRedXeNetworkWidget> network;
+    wil::com_ptr_nothrow<IRedXePreparedGpuWidget> prepared;
+    wil::com_ptr_nothrow<IRedXeRaisedWidget> raised;
+    wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
+    CHECK(SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(network.put())) &&
+          SUCCEEDED(widget.query_to(prepared.put())) && SUCCEEDED(widget.query_to(raised.put())) &&
+          SUCCEEDED(widget.query_to(interactive.put())));
+    wil::com_ptr_nothrow<IUnknown> widgetIdentity, preparationIdentity;
+    CHECK(SUCCEEDED(widget.query_to(widgetIdentity.put())) && SUCCEEDED(prepared.query_to(preparationIdentity.put())) &&
+          widgetIdentity.get() == preparationIdentity.get());
+    CHECK(prepared->Prepare(nullptr) == E_INVALIDARG);
+    RedXeGpuPreparationContext preparation{sizeof(preparation), 144, 766, 622, 766, 622, {}};
+    CHECK(prepared->Prepare(&preparation) == S_FALSE); // Hidden, before any GPU work.
+    CHECK(widget->SetVisible(TRUE) == S_OK && prepared->Prepare(&preparation) == E_UNEXPECTED);
+    CHECK(widget->SetVisible(FALSE) == S_OK);
+    wil::com_ptr_nothrow<ID3D11Device> device;
+    wil::com_ptr_nothrow<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL level{};
+    CHECK(SUCCEEDED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr,
+                                      0, D3D11_SDK_VERSION, device.put(), &level, context.put())));
+    const RedXeGpuDeviceContext created{sizeof(created), device.get(), DXGI_FORMAT_B8G8R8A8_UNORM, level};
+    CHECK(gpu->OnDeviceCreated(&created) == S_OK && widget->SetVisible(TRUE) == S_OK);
+    const auto detach = wil::scope_exit(
+        [&]() noexcept
+        {
+            (void)widget->SetVisible(FALSE);
+            gpu->OnDeviceLost();
+        });
+    D3D11_TEXTURE2D_DESC description{};
+    description.Width = 766;
+    description.Height = 622;
+    description.MipLevels = description.ArraySize = description.SampleDesc.Count = 1;
+    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.BindFlags = D3D11_BIND_RENDER_TARGET;
+    wil::com_ptr_nothrow<ID3D11Texture2D> texture, readback;
+    wil::com_ptr_nothrow<ID3D11RenderTargetView> target;
+    CHECK(SUCCEEDED(device->CreateTexture2D(&description, nullptr, texture.put())) &&
+          SUCCEEDED(device->CreateRenderTargetView(texture.get(), nullptr, target.put())));
+    description.Usage = D3D11_USAGE_STAGING;
+    description.BindFlags = 0;
+    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    CHECK(SUCCEEDED(device->CreateTexture2D(&description, nullptr, readback.put())));
+    uint32_t width = 766, height = 622;
+    const auto draw = [&](uint64_t& hash) noexcept -> HRESULT
+    {
+        ID3D11RenderTargetView* view = target.get();
+        context->OMSetRenderTargets(1, &view, nullptr);
+        const float black[4]{0, 0, 0, 1};
+        context->ClearRenderTargetView(view, black);
+        const RedXeWidgetFrameContext frame{sizeof(frame), width, height, 144, 1, 0};
+        const RedXeGpuFrameContext drawing{sizeof(drawing),
+                                           &frame,
+                                           context.get(),
+                                           {0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1}};
+        context->RSSetViewports(1, &drawing.viewport);
+        HRESULT result = gpu->Render(&drawing);
+        if (result != S_OK)
+            return result;
+        context->CopyResource(readback.get(), texture.get());
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        result = context->Map(readback.get(), 0, D3D11_MAP_READ, 0, &mapped);
+        if (FAILED(result))
+            return result;
+        const auto unmap = wil::scope_exit([&]() noexcept { context->Unmap(readback.get(), 0); });
+        hash = 14695981039346656037ULL;
+        for (uint32_t y = 0; y < description.Height; ++y)
+            for (uint32_t x = 0; x < description.Width * 4; ++x)
+                hash = (hash ^ static_cast<const uint8_t*>(mapped.pData)[y * mapped.RowPitch + x]) * 1099511628211ULL;
+        return S_OK;
+    };
+    wil::unique_handle cancel{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    CHECK(cancel);
+    const auto deliver = [&](const char* place, const char* alerts = nullptr) -> HRESULT
+    {
+        const WeatherTestSnapshot snapshot{sizeof(snapshot),
+                                           gForecast.data(),
+                                           static_cast<uint32_t>(gForecast.size()),
+                                           nullptr,
+                                           0,
+                                           place,
+                                           static_cast<uint32_t>(std::strlen(place)),
+                                           alerts,
+                                           alerts ? static_cast<uint32_t>(std::strlen(alerts)) : 0};
+        CHECK(fixture(&snapshot) == S_OK);
+        HRESULT result = E_PENDING;
+        // Use a real worker to prove network delivery cannot mutate the UI atlas/paint model.
+        std::jthread worker(
+            [&]() noexcept
+            {
+                uint32_t delay = 0;
+                result = network->RunNetworkWork(cancel.get(), &delay);
+            });
+        worker.join();
+        return result;
+    };
+    WeatherTestDiagnostics initial{sizeof(initial)}, info{sizeof(info)};
+    CHECK(diagnostics(&initial) == S_OK && initial.livePreparationFonts == 0);
+    uint64_t empty = 0, tile = 0, overlay = 0, late = 0;
+    CHECK(draw(empty) == S_FALSE && prepared->Prepare(&preparation) == S_OK && draw(empty) == S_OK);
+    constexpr char cafe[] = R"({"lat":"48.8566","lon":"2.3522","address":{"city":"Caf\u00e9","country_code":"fr"}})";
+    CHECK(deliver(cafe) == S_OK && deliver(cafe) == S_OK && deliver(cafe) == S_OK);
+    CHECK(diagnostics(&info) == S_OK && info.fontSessions == initial.fontSessions &&
+          info.glyphUploadBytes == initial.glyphUploadBytes);
+    CHECK(draw(late) == S_OK && late == empty);
+    CHECK(prepared->Prepare(&preparation) == S_OK && draw(tile) == S_OK && tile != empty);
+    CHECK(diagnostics(&info) == S_OK && info.fontSessions == initial.fontSessions + 1 &&
+          info.glyphUploadCells == initial.glyphUploadCells + 1 &&
+          info.glyphUploadBytes == initial.glyphUploadBytes + 2304 && info.livePreparationFonts == 0);
+    CHECK(raised->SetRaised(TRUE) == S_OK && draw(overlay) == S_OK);
+    constexpr char munich[] =
+        R"({"lat":"48.8566","lon":"2.3522","address":{"city":"M\u00fcnchen","country_code":"fr"}})";
+    CHECK(deliver(munich) == S_OK && draw(late) == S_OK && late == overlay);
+    CHECK(raised->SetRaised(FALSE) == S_OK && draw(late) == S_OK && late == tile);
+    CHECK(prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK && late != tile);
+    CHECK(raised->SetRaised(TRUE) == S_OK && draw(late) == S_OK && late != overlay && raised->SetRaised(FALSE) == S_OK);
+    CHECK(diagnostics(&info) == S_OK && info.glyphUploadCells == initial.glyphUploadCells + 2 &&
+          info.glyphUploadBytes == initial.glyphUploadBytes + 4608 && info.livePreparationFonts == 0);
+    const WeatherTestDiagnostics clean = info;
+    for (uint32_t repeat = 0; repeat < 4; ++repeat)
+        CHECK(prepared->Prepare(&preparation) == S_FALSE && draw(late) == S_OK);
+    CHECK(diagnostics(&info) == S_OK && info.fontSessions == clean.fontSessions &&
+          info.glyphUploadBytes == clean.glyphUploadBytes && info.preparations == clean.preparations);
+    constexpr char batchPlace[] =
+        R"({"lat":"48.8566","lon":"2.3522","address":{"city":"B\u00f8","country_code":"fr"}})";
+    constexpr char batchAlert[] =
+        R"({"warnings":[{"headline":"\u00c5 storm","awareness_level":"3; orange; Moderate","onset":"2026-09-05T06:00:00Z","expires":"2026-09-06T06:00:00Z"}]})";
+    CHECK(deliver(batchPlace, batchAlert) == S_OK && prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK);
+    CHECK(diagnostics(&info) == S_OK && info.fontSessions == clean.fontSessions + 1 &&
+          info.glyphUploadCells == clean.glyphUploadCells + 2 &&
+          info.glyphUploadBytes == clean.glyphUploadBytes + 4608 && info.livePreparationFonts == 0 &&
+          info.heroTwinCells == initial.heroTwinCells && info.iconCells == initial.iconCells);
+    width = preparation.tileWidthPixels = 280;
+    height = preparation.tileHeightPixels = 500;
+    CHECK(draw(late) == S_OK && diagnostics(&info) == S_OK && info.pageCount > 1);
+    RedXePointerEvent wheel{sizeof(wheel), 0,  RedXePointerKindMouse, RedXePointerPhaseWheel, 20, 20, 0, width,
+                            height,        144};
+    wheel.wheelDelta = -120;
+    CHECK(interactive->OnPointer(&wheel) == S_OK && draw(late) == S_OK && diagnostics(&info) == S_OK &&
+          info.pageIndex == 1);
+    wheel.wheelDelta = 120;
+    CHECK(interactive->OnPointer(&wheel) == S_OK && draw(late) == S_OK && diagnostics(&info) == S_OK &&
+          info.pageIndex == 0);
+    wheel.wheelDelta = -120;
+    const WeatherTestDiagnostics beforeFailure = info;
+    constexpr char omega[] = R"({"lat":"48.8566","lon":"2.3522","address":{"city":"\u03a9","country_code":"fr"}})";
+    CHECK(deliver(omega) == S_OK);
+    failNext();
+    CHECK(prepared->Prepare(&preparation) == E_OUTOFMEMORY && draw(late) == S_FALSE);
+    CHECK(interactive->OnPointer(&wheel) == S_FALSE);
+    for (uint32_t repeat = 0; repeat < 4; ++repeat)
+        CHECK(prepared->Prepare(&preparation) == S_FALSE && draw(late) == S_FALSE);
+    CHECK(diagnostics(&info) == S_OK && info.preparationFailures == beforeFailure.preparationFailures + 1 &&
+          info.fontSessions == beforeFailure.fontSessions + 1 && info.livePreparationFonts == 0 &&
+          info.glyphUploadBytes == beforeFailure.glyphUploadBytes && info.paintCount == beforeFailure.paintCount &&
+          info.pageIndex == beforeFailure.pageIndex);
+    width = ++preparation.tileWidthPixels;
+    CHECK(prepared->Prepare(&preparation) == S_OK && draw(tile) == S_OK && diagnostics(&info) == S_OK &&
+          info.livePreparationFonts == 0 && info.glyphUploadBytes == beforeFailure.glyphUploadBytes + 2304);
+    constexpr char psi[] = R"({"lat":"48.8566","lon":"2.3522","address":{"city":"\u03a8","country_code":"fr"}})";
+    CHECK(deliver(psi) == S_OK);
+    failNext();
+    CHECK(prepared->Prepare(&preparation) == E_OUTOFMEMORY && prepared->Prepare(&preparation) == S_FALSE);
+    constexpr char fresh[] = R"({"lat":"48.8566","lon":"2.3522","address":{"city":"Stra\u00dfe","country_code":"fr"}})";
+    CHECK(deliver(fresh) == S_OK && prepared->Prepare(&preparation) == S_OK && draw(tile) == S_OK);
+    CHECK(widget->SetVisible(FALSE) == S_OK && prepared->Prepare(&preparation) == S_FALSE);
+    gpu->OnDeviceLost();
+    CHECK(diagnostics(&info) == S_OK && info.cpuAtlasBytes == 0 && info.livePreparationFonts == 0);
+    CHECK(gpu->OnDeviceCreated(&created) == S_OK && widget->SetVisible(TRUE) == S_OK &&
+          prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK && late == tile);
+    CHECK(diagnostics(&info) == S_OK && info.livePreparationFonts == 0 &&
+          info.paintSnapshotBytes == sizeof(WeatherSnapshot));
+    std::printf("Weather prepared_snapshot_bytes=%u glyph_upload_bytes_per_cell=2304\n", info.paintSnapshotBytes);
+    return S_OK;
+}
+
 HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool stress = false)
 {
     const auto fixture = Resolve<WeatherApplyTestSnapshotFn>(module, kWeatherApplyTestSnapshotExport);
@@ -543,8 +729,10 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
     wil::com_ptr_nothrow<IRedXeNetworkWidget> network;
     wil::com_ptr_nothrow<IRedXeRaisedWidget> raised;
     wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
+    wil::com_ptr_nothrow<IRedXePreparedGpuWidget> prepared;
     CHECK(SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(network.put())) &&
-          SUCCEEDED(widget.query_to(raised.put())) && SUCCEEDED(widget.query_to(interactive.put())));
+          SUCCEEDED(widget.query_to(raised.put())) && SUCCEEDED(widget.query_to(interactive.put())) &&
+          SUCCEEDED(widget.query_to(prepared.put())));
     wil::unique_handle cancel{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     CHECK(cancel);
     uint32_t delay = 0;
@@ -604,8 +792,14 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
             CHECK(network->RunNetworkWork(cancel.get(), &delay) == S_OK);
         }
         const RedXeGpuTargetSizeContext targetSize{sizeof(targetSize), size.width, size.height, 144};
+        CHECK(widget->SetVisible(FALSE) == S_OK);
         CHECK(gpu->OnTargetSizeChanged(&targetSize) == S_OK);
+        CHECK(widget->SetVisible(TRUE) == S_OK);
         CHECK(raised->SetRaised(size.raised) == S_OK);
+        const RedXeGpuPreparationContext preparation{
+            sizeof(preparation),           144, size.width, size.height, size.raised ? size.width : 0,
+            size.raised ? size.height : 0, {}};
+        CHECK(SUCCEEDED(prepared->Prepare(&preparation)));
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = size.width;
         desc.Height = size.height;
@@ -839,6 +1033,7 @@ HRESULT RunWeatherRegressionTests(HMODULE module)
     CHECK(AlertProviderTests() == S_OK);
     CHECK(RunWeatherLocationPolicyTests() == S_OK);
     CHECK(AtlasLifetimeTests(module, create) == S_OK);
+    CHECK(PreparedDrawingTests(module, create) == S_OK);
     CHECK(RenderTests(module, create, now) == S_OK);
     CHECK(RenderTests(module, create, now, true) == S_OK);
     CHECK(LocationTests(module, create) == S_OK);
