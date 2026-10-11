@@ -468,7 +468,7 @@ class Application final
     // before the dock's first placement; RunSelfTest checks it.
     bool _taskbarCreatedAdmitted = false;
     std::unique_ptr<AppSettings> _settings;
-    std::unique_ptr<AppSettings> _transitionSettings;
+    std::optional<uint32_t> _transitionPageIndex;
     std::unique_ptr<PluginManager> _transitionPluginManager;
     std::unique_ptr<DashboardHost> _transitionDashboardHost;
     struct ScreenshotRequest final

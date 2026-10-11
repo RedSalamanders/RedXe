@@ -3,6 +3,8 @@
 #include "../Common/ProcessResources.h"
 #include "../Plugins/AVControl/AVControlDiagnostics.h"
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cstddef>
 #include <dxgi1_4.h>
 
@@ -36,6 +38,49 @@ struct RuntimeProbeSample final
 // Exactly one bounded line, including extreme numeric values. Array order is versioned in the performance contract.
 inline constexpr size_t kRuntimeProbeLineCapacity = 1024;
 [[nodiscard]] uint32_t FormatRuntimeProbeLine(const RuntimeProbeSample& sample, char* line, size_t capacity) noexcept;
+
+// Cumulative UI-thread staging measurements, opt-in only. A clear phase/CPU validity bit means unavailable.
+enum class RuntimePageStagePhase : uint32_t
+{
+    Retirement,
+    SettingsCopy,
+    Providers,
+    Layout,
+    GpuSetup,
+    Visibility,
+    Complete,
+    Count,
+};
+struct RuntimePageStageSample final
+{
+    uint64_t tick = 0, cpu100ns = 0;
+    uint32_t fromPage = 0, page = UINT32_MAX;
+    int32_t direction = 0;
+    HRESULT result = E_UNEXPECTED;
+    uint32_t phaseMask = 0, cpuValid = 0;
+    std::array<uint64_t, static_cast<size_t>(RuntimePageStagePhase::Count)> wallMicroseconds{};
+};
+[[nodiscard]] uint32_t FormatRuntimePageStageLine(const RuntimePageStageSample& sample, char* line,
+                                                  size_t capacity) noexcept;
+class RuntimePageStageProbe final
+{
+  public:
+    RuntimePageStageProbe(bool enabled, uint32_t fromPage, int32_t direction) noexcept;
+    void Select(uint32_t page) noexcept;
+    void Mark(RuntimePageStagePhase phase) noexcept;
+    [[nodiscard]] RuntimePageStageSample Complete(HRESULT result) noexcept;
+    [[nodiscard]] bool Enabled() const noexcept
+    {
+        return _enabled;
+    }
+
+  private:
+    [[nodiscard]] static bool QueryCpu(uint64_t& cpu) noexcept;
+    RuntimePageStageSample _sample;
+    std::chrono::steady_clock::time_point _started{};
+    uint64_t _cpuStarted = 0;
+    bool _enabled = false, _cpuStartedValid = false;
+};
 
 class RuntimeProbe final
 {

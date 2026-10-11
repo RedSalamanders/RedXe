@@ -51,6 +51,11 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
 
     // Idempotent teardown of this runtime's worker, providers, sources, and module bindings.
     void Shutdown() noexcept;
+    // UI-thread validation evidence must not outlive terminal module shutdown.
+    [[nodiscard]] bool IsShutdown() const noexcept
+    {
+        return _shutdown;
+    }
 
     PluginHost(const PluginHost&) = delete;
     PluginHost& operator=(const PluginHost&) = delete;
@@ -73,6 +78,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] IRedXeHost* Interface() noexcept;
     // UI-thread diagnostics use the existing 32x1024 logger ring. AV queries never map an absent module.
     [[nodiscard]] HRESULT LogRuntimeProbe(const RuntimeProbeSample& sample) noexcept;
+    [[nodiscard]] HRESULT LogRuntimePageStage(const RuntimePageStageSample& sample) noexcept;
     [[nodiscard]] HRESULT QueryAvProbeStatistics(AVControl::ProbeStatistics& statistics) noexcept;
     [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
                                           ModuleView* module) noexcept;

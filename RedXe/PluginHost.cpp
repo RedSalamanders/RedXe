@@ -758,6 +758,16 @@ HRESULT PluginHost::LogRuntimeProbe(const RuntimeProbeSample& sample) noexcept
     return bytes != 0 ? EnqueueLogLine(line.data(), bytes) : HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 }
 
+HRESULT PluginHost::LogRuntimePageStage(const RuntimePageStageSample& sample) noexcept
+{
+    if (_shutdown)
+        return E_UNEXPECTED;
+    static_assert(kRuntimeProbeLineCapacity == kLogLineCapacity);
+    std::array<char, kRuntimeProbeLineCapacity> line{};
+    const uint32_t bytes = FormatRuntimePageStageLine(sample, line.data(), line.size());
+    return bytes != 0 ? EnqueueLogLine(line.data(), bytes) : HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+}
+
 HRESULT PluginHost::QueryAvProbeStatistics(AVControl::ProbeStatistics& statistics) noexcept
 {
     statistics = {};

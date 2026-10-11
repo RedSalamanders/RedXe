@@ -33,6 +33,8 @@
   "Tests/HostPluginTests/HostPlugin.Tests.ProcessViewerScheduling.cpp",
   "Tests/HostPluginTests/HostPlugin.Tests.Runner.cpp",
   "Tests/HostPluginTests/HostPlugin.Tests.RuntimeProbe.cpp",
+  "Tests/HostPluginTests/HostPlugin.Tests.PageStaging.cpp",
+  "Tests/HostPluginTests/HostPlugin.Tests.PageStaging.h",
   "Tests/LauncherTests/Launcher.Tests.Runner.cpp",
   "Tests/LogiconTests/Logicon.Tests.Runner.cpp",
   "Tests/PluginContractTests/PluginContract.Tests.AddressSanitizerProbe.h",

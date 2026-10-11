@@ -8,6 +8,7 @@
 #include "FrameScheduler.h"
 #include "HostActions.h"
 #include "HostPlugin.Tests.FramePacing.h"
+#include "HostPlugin.Tests.PageStaging.h"
 #include "Launcher.Tests.Contract.h"
 #include "MatrixRain.Tests.Contract.h"
 #include "NoticeWindow.h"
@@ -9090,6 +9091,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestContinuousFramePacing(success);
     TestSoakGrowthBudgets(success);
     TestRuntimeProbe(success);
+    TestCheckedPageStaging(success);
     TestAdapterSelectionPolicy(success);
     TestRendererDeviceIdentity(success);
     TestWindowCapture(success);

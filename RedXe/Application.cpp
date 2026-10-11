@@ -1495,8 +1495,8 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         if (SUCCEEDED(result))
             result = ApplySettings(std::move(annotated));
         if (SUCCEEDED(result))
-            result = (result == S_FALSE && _transitionSettings) ? PromoteTransitionPage() : E_UNEXPECTED;
-        if (FAILED(result) || _transitionSettings || _settings->dashboard.activePageIndex != firstPage ||
+            result = (result == S_FALSE && _transitionPageIndex) ? PromoteTransitionPage() : E_UNEXPECTED;
+        if (FAILED(result) || _transitionPageIndex || _settings->dashboard.activePageIndex != firstPage ||
             _settings->sourceDocument != expectedSource)
         {
             return FailSelfTest(L"A source-only reload during a staged swipe did not survive the page commit.", result);
@@ -3165,81 +3165,105 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
     {
         return E_INVALIDARG;
     }
-    if (targetPageIndex && (*targetPageIndex >= _settings->dashboard.pageCount ||
-                            *targetPageIndex == _settings->dashboard.activePageIndex))
+    if (_settings->dashboard.pages.size() != _settings->dashboard.pageCount ||
+        (targetPageIndex && (*targetPageIndex >= _settings->dashboard.pageCount ||
+                             *targetPageIndex == _settings->dashboard.activePageIndex)))
     {
         return E_INVALIDARG;
     }
-    if (_pageTransitionDirection == direction && _transitionDashboardHost && _transitionSettings &&
-        (!targetPageIndex || _transitionSettings->dashboard.activePageIndex == *targetPageIndex))
+    if (_pageTransitionDirection == direction && _transitionDashboardHost && _transitionPageIndex &&
+        (!targetPageIndex || *_transitionPageIndex == *targetPageIndex))
     {
         return S_OK;
     }
-    ClearTransitionPage();
-    auto settings = std::unique_ptr<AppSettings>(new (std::nothrow) AppSettings(*_settings));
-    if (!settings)
+    RuntimePageStageProbe stageProbe(_probe.Enabled(), _settings->dashboard.activePageIndex, direction);
+    HRESULT stageResult = S_OK;
+    const auto stage = [&]() -> HRESULT
     {
-        return E_OUTOFMEMORY;
-    }
-    HRESULT result = S_OK;
-    if (targetPageIndex)
+        ClearTransitionPage();
+        stageProbe.Mark(RuntimePageStagePhase::Retirement);
+        uint32_t selected = targetPageIndex ? *targetPageIndex : 0;
+        HRESULT result = targetPageIndex ? S_OK : ResolveAdjacentDashboardPage(*_settings, direction, selected);
+        if (FAILED(result))
+            return result;
+        stageProbe.Select(selected);
+        stageProbe.Mark(RuntimePageStagePhase::SettingsCopy);
+        auto plugins = std::unique_ptr<PluginManager>(new (std::nothrow) PluginManager());
+        if (!plugins)
+        {
+            return E_OUTOFMEMORY;
+        }
+        result = plugins->InitializePage(*_settings, selected, _pluginManager.get());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        stageProbe.Mark(RuntimePageStagePhase::Providers);
+        // The neighbour is laid out on the same canvas as the page it replaces: a dock's full bar, never its strip.
+        UINT width = 0;
+        UINT height = 0;
+        UINT dpi = 0;
+        result = PresentationCanvas(width, height, dpi);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        auto dashboard = std::unique_ptr<DashboardHost>(new (std::nothrow) DashboardHost());
+        if (!dashboard)
+        {
+            return E_OUTOFMEMORY;
+        }
+        const auto rollback = wil::scope_exit(
+            [&]() noexcept
+            {
+                if (dashboard)
+                {
+                    (void)_renderer.SetTransitionDashboard(nullptr);
+                    dashboard->Shutdown();
+                }
+            });
+        const bool visible = _windowVisible && _displayPoweredOn && !_renderer.IsSuspended() && !_renderer.IsOccluded();
+        result = dashboard->Initialize(*plugins, _window.get(), width, height, dpi, false);
+        if (SUCCEEDED(result))
+            result = dashboard->SetHorizontalOffset(_pageCurrentOffset + direction * static_cast<LONG>(width));
+        // Both pages share a dock slide's translation (zero once settled, as it is when navigation starts).
+        if (SUCCEEDED(result) && _dashboardHost)
+            result = dashboard->SetSlideOffset(_dashboardHost->SlideOffset());
+        if (SUCCEEDED(result))
+            stageProbe.Mark(RuntimePageStagePhase::Layout);
+        if (SUCCEEDED(result))
+            result = _renderer.SetTransitionDashboard(dashboard.get());
+        if (SUCCEEDED(result))
+            stageProbe.Mark(RuntimePageStagePhase::GpuSetup);
+        if (SUCCEEDED(result))
+            result = dashboard->SetWidgetsVisible(visible);
+        if (SUCCEEDED(result))
+            stageProbe.Mark(RuntimePageStagePhase::Visibility);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        _transitionPageIndex = selected;
+        _transitionPluginManager = std::move(plugins);
+        _transitionDashboardHost = std::move(dashboard);
+        _pageTransitionDirection = direction;
+        return S_OK;
+    };
+    try
     {
-        settings->dashboard.activePageIndex = *targetPageIndex;
-        settings->dashboard.activePageId = settings->dashboard.pages[*targetPageIndex].id;
+        stageResult = stage();
     }
-    else
+    catch (const std::bad_alloc&)
     {
-        result = MoveDashboardPage(*settings, direction);
+        stageResult = E_OUTOFMEMORY;
     }
-    if (FAILED(result))
+    catch (...)
     {
-        return result;
+        stageResult = E_FAIL;
     }
-    auto plugins = std::unique_ptr<PluginManager>(new (std::nothrow) PluginManager());
-    if (!plugins)
-    {
-        return E_OUTOFMEMORY;
-    }
-    result = plugins->Initialize(*settings);
-    if (FAILED(result))
-    {
-        return result;
-    }
-    // The neighbour is laid out on the same canvas as the page it replaces: a dock's full bar, never its strip.
-    UINT width = 0;
-    UINT height = 0;
-    UINT dpi = 0;
-    result = PresentationCanvas(width, height, dpi);
-    if (FAILED(result))
-    {
-        return result;
-    }
-    auto dashboard = std::unique_ptr<DashboardHost>(new (std::nothrow) DashboardHost());
-    if (!dashboard)
-    {
-        return E_OUTOFMEMORY;
-    }
-    const bool visible = _windowVisible && _displayPoweredOn && !_renderer.IsSuspended() && !_renderer.IsOccluded();
-    result = dashboard->Initialize(*plugins, _window.get(), width, height, dpi, false);
-    if (SUCCEEDED(result))
-        result = dashboard->SetHorizontalOffset(_pageCurrentOffset + direction * static_cast<LONG>(width));
-    // Both pages share a dock slide's translation (zero once settled, as it is when navigation starts).
-    if (SUCCEEDED(result) && _dashboardHost)
-        result = dashboard->SetSlideOffset(_dashboardHost->SlideOffset());
-    if (SUCCEEDED(result))
-        result = _renderer.SetTransitionDashboard(dashboard.get());
-    if (SUCCEEDED(result))
-        result = dashboard->SetWidgetsVisible(visible);
-    if (FAILED(result))
-    {
-        dashboard->Shutdown();
-        return result;
-    }
-    _transitionSettings = std::move(settings);
-    _transitionPluginManager = std::move(plugins);
-    _transitionDashboardHost = std::move(dashboard);
-    _pageTransitionDirection = direction;
-    return S_OK;
+    if (stageProbe.Enabled())
+        (void)PluginHost::Instance().LogRuntimePageStage(stageProbe.Complete(stageResult));
+    return stageResult;
 }
 
 void Application::ClearTransitionPage() noexcept
@@ -3251,7 +3275,7 @@ void Application::ClearTransitionPage() noexcept
     }
     _transitionDashboardHost.reset();
     _transitionPluginManager.reset();
-    _transitionSettings.reset();
+    _transitionPageIndex.reset();
     _pageTransitionDirection = 0;
     _pageStagePendingDirection = 0;
 }
@@ -3296,7 +3320,7 @@ void Application::FlushPendingTransitionStage() noexcept
 
 HRESULT Application::PromoteTransitionPage() noexcept
 {
-    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionSettings || !_settings ||
+    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionPageIndex || !_settings ||
         !_pluginManager || !_dashboardHost)
     {
         return E_UNEXPECTED;
@@ -3313,12 +3337,12 @@ HRESULT Application::PromoteTransitionPage() noexcept
     std::unique_ptr<PluginManager> retiringPlugins = std::move(_pluginManager);
     _dashboardHost = std::move(_transitionDashboardHost);
     _pluginManager = std::move(_transitionPluginManager);
-    // The staged copy differs from the document only in the active page (StageTransitionPage), and every change to
+    // Staging borrows this document with a narrow selector, and every change to
     // the page list cancels navigation first. Take only the page, so a source-only reload, a dock drag, or a widget
     // persist made during the swipe stays in the document.
-    _settings->dashboard.activePageIndex = _transitionSettings->dashboard.activePageIndex;
-    _settings->dashboard.activePageId = _transitionSettings->dashboard.activePageId;
-    _transitionSettings.reset();
+    _settings->dashboard.activePageIndex = *_transitionPageIndex;
+    _settings->dashboard.activePageId = _settings->dashboard.pages[*_transitionPageIndex].id;
+    _transitionPageIndex.reset();
     _pageTransitionDirection = 0;
     _pageStagePendingDirection = 0;
     _pageCurrentOffset = 0;

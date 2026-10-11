@@ -122,6 +122,8 @@ class Renderer final
     HRESULT CreateSwapChain() noexcept;
     HRESULT CreateRenderTarget(UINT width, UINT height) noexcept;
     HRESULT UpdateCachedViewports() noexcept;
+    // Cold retirement must clear the borrowed page even if its visibility callback fails.
+    HRESULT DropTransitionDashboard() noexcept;
     // Notifies widgets whose largest drawn viewport changed. Called from UpdateCachedViewports, which already runs
     // exactly on the events that can change a viewport, so this never fires per frame or for a position-only change.
     void NotifyTargetSizes() noexcept;

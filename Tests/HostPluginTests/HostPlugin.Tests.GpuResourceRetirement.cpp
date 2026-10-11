@@ -22,6 +22,10 @@ struct RendererResourceTestAccess final
     {
         return renderer._renderTarget.get();
     }
+    static bool HasTransition(const Renderer& renderer) noexcept
+    {
+        return renderer._transitionDashboardHost != nullptr;
+    }
 };
 
 struct PluginManagerGpuResourceTestAccess final
@@ -30,10 +34,34 @@ struct PluginManagerGpuResourceTestAccess final
     {
         plugins._widgets[0].gpuWidget = replacement;
     }
+    static void ReplaceVisibility(PluginManager& plugins, IRedXeWidget* replacement) noexcept
+    {
+        plugins._widgets[0].widget = replacement;
+    }
 };
 
 namespace
 {
+class VisibilityFaultWidget final : public RedXeComObject<VisibilityFaultWidget, IRedXeWidget>
+{
+  public:
+    explicit VisibilityFaultWidget(IRedXeWidget* inner) noexcept : _inner(inner) {}
+    HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
+    {
+        const HRESULT failure = visible ? showFailure : hideFailure;
+        return FAILED(failure) ? failure : _inner->SetVisible(visible);
+    }
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* json, uint32_t capacity,
+                                                        uint32_t* bytes) noexcept override
+    {
+        return _inner->CollectPersistentSettings(json, capacity, bytes);
+    }
+    HRESULT showFailure = S_OK;
+    HRESULT hideFailure = S_OK;
+
+  private:
+    wil::com_ptr_nothrow<IRedXeWidget> _inner;
+};
 // Both wrappers use one staging texture and copy the completed frame before Present, while a flip-discard back
 // buffer's contents are still defined. The copy changes no pipeline state.
 class CaptureGpuWidget final : public RedXeComObject<CaptureGpuWidget, IRedXeGpuWidget>
@@ -352,4 +380,38 @@ void TestGpuResourceRetirement(bool& success) noexcept
     check(SUCCEEDED(result) && destructions == 4 && renderer.LastFrameSuccessfulWidgetCount() == 1 &&
               currentPixels == incomingPixels,
           L"failed-promotion recovery cancels the neighbor and preserves primary pixels");
+
+    wil::com_ptr_nothrow<VisibilityFaultWidget> visibility;
+    visibility.attach(new (std::nothrow) VisibilityFaultWidget(primaryPlugins.WidgetAt(0)));
+    check(bool(visibility), L"the visibility fault wrapper is available");
+    if (!visibility)
+        return;
+    PluginManagerGpuResourceTestAccess::ReplaceVisibility(primaryPlugins, visibility.get());
+    result = primary.SetWidgetsVisible(true);
+    visibility->showFailure = E_ACCESSDENIED;
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(&primary);
+    check(result == E_ACCESSDENIED && !RendererResourceTestAccess::HasTransition(renderer),
+          L"failed staged visibility drops the renderer's borrowed page before its owner can destroy it");
+    visibility->showFailure = S_OK;
+    (void)renderer.SetTransitionDashboard(nullptr);
+    result = primary.SetWidgetsVisible(true);
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(&primary);
+    if (SUCCEEDED(result))
+        result = BindRetiringResources(renderer, destructions);
+    visibility->hideFailure = E_ABORT;
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(nullptr);
+    RendererResourceTestAccess::Context(renderer)->Flush();
+    check(result == E_ABORT && !RendererResourceTestAccess::HasTransition(renderer) &&
+              RetiringBindingsAreClear(renderer) && destructions == 5,
+          L"failed staged hide reports its error but still detaches and releases retiring bindings");
+    visibility->hideFailure = S_OK;
+    (void)renderer.SetTransitionDashboard(nullptr);
+    result = renderer.Render(0.1f, 0.0f);
+    if (SUCCEEDED(result))
+        result = FrameFingerprint(renderer, capture.get(), currentPixels, changedPixels);
+    check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 1 && currentPixels == incomingPixels,
+          L"staged visibility failures preserve primary pixels and presentation resources");
 }

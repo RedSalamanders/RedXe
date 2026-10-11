@@ -589,6 +589,23 @@ Hidden/minimized/occluded/display-off states remain inactive: the diagnostic tim
 frame. Delayed samples restart the interval from their completion, without a catch-up loop. The waits preserve the
 earlier scheduled-frame deadline. A valid probe is ignored by `--self-test`.
 
+With this probe enabled, each newly staged dashboard page also emits a bounded `page-stage`, version 1 record into
+the same log ring. This cold operation uses a local collector, with no worker, owned handle, periodic wake-up or
+retained timing state. A disabled probe performs no timing, CPU query or logging for staging. The record includes
+the source and selected page indices, signed direction, start tick and actual HRESULT. `phase_mask` bits 0–6 identify
+cumulative `wall_us` entries for retirement, settings selection/copy, validation and providers, layout, GPU setup,
+visibility and completion (including local cleanup on failure). A clear bit means unavailable. `cpu_valid: 1`
+identifies the calling UI thread's kernel-plus-user `cpu_100ns` delta. Short CPU measurements can be quantized;
+a zero does not establish a two-millisecond CPU budget. Repeated CPU batches or external attribution are required
+alongside wall timing. Logging happens after measurement and diagnostic failure does not change the stage result.
+
+Page validation evidence has at most 64 KiB of logical payload, plus one shared vector/control object and a 16-byte
+shared owner per page manager. Only a successful complete typed/published-contract validation may create it; a warm
+comparison allocates nothing and parses no JSON. Larger valid documents and cache allocation failure use full cold
+validation. The shipped Release document currently retains 6,166 payload bytes, compared with 209,460 bytes of typed
+settings/vector/source capacity that staging previously duplicated. This is a logical ownership comparison, not a
+whole-process memory saving. Staging now keeps only an optional page index and shares proof across the two live pages.
+
 Record `event: "probe", v: 1` includes UTC `ts`, `pid`, monotonic completion `tick`, actual interval `ms`,
 query cost `sample_us`, current page index `page`, host `state`, and cached absolute scheduled `deadline` (0 = none).
 The numeric arrays keep even maximum-width values within one logger slot:

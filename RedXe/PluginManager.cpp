@@ -12,6 +12,8 @@
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <span>
+#include <type_traits>
 #include <utility>
 
 #include <yyjson.h>
@@ -578,7 +580,258 @@ class SchemaCache final
     std::array<Entry, kRedXeBundledWidgets.size()> _entries{};
     size_t _count = 0;
 };
+// A validation witness contains logical settings bytes, never padding, unused text tails or the source document.
+// The same bounded walk counts/writes on a cold pass and compares without allocation on subsequent page selections.
+constexpr size_t kMaximumValidationEvidenceBytes = 64U * 1024U;
+class SettingsEvidenceStream final
+{
+  public:
+    explicit SettingsEvidenceStream(std::vector<std::byte>* output = nullptr) noexcept : _output(output) {}
+    explicit SettingsEvidenceStream(std::span<const std::byte> expected) noexcept : _expected(expected), _compare(true)
+    {
+    }
+    template <typename T> [[nodiscard]] bool Scalar(T value)
+    {
+        static_assert(std::is_trivially_copyable_v<T>);
+        return Append(&value, sizeof(value));
+    }
+    template <size_t N> [[nodiscard]] bool Stored(const std::array<char, N>& text, uint32_t bytes, bool object = false)
+    {
+        if (bytes >= N || (object && bytes < 2) || text[bytes] != '\0' || std::memchr(text.data(), '\0', bytes))
+            return false;
+        return Scalar(bytes) && Append(text.data(), bytes);
+    }
+    [[nodiscard]] bool Text(const SettingsText& text)
+    {
+        return Stored(text.utf8, text.bytes);
+    }
+    [[nodiscard]] bool Json(const JsonObjectSettings& json)
+    {
+        return Stored(json.utf8, json.bytes, true);
+    }
+    [[nodiscard]] size_t Size() const noexcept
+    {
+        return _size;
+    }
+    [[nodiscard]] bool Complete() const noexcept
+    {
+        return !_compare || _size == _expected.size();
+    }
+
+  private:
+    [[nodiscard]] bool Append(const void* data, size_t size)
+    {
+        if (size > kMaximumValidationEvidenceBytes - _size)
+            return false;
+        if (_compare && (_size > _expected.size() || size > _expected.size() - _size ||
+                         std::memcmp(_expected.data() + _size, data, size) != 0))
+            return false;
+        if (_output && size != 0)
+        {
+            const auto* bytes = static_cast<const std::byte*>(data);
+            _output->insert(_output->end(), bytes, bytes + size);
+        }
+        _size += size;
+        return true;
+    }
+    std::vector<std::byte>* _output = nullptr;
+    std::span<const std::byte> _expected;
+    size_t _size = 0;
+    bool _compare = false;
+};
+[[nodiscard]] bool WalkSettingsEvidence(const AppSettings& settings, SettingsEvidenceStream& stream)
+{
+    // Structured bindings deliberately make additions to these records require a witness-policy decision.
+    const auto& [major, minor, retention, background, dock, tray, rate, source, plugins, pluginCount, services,
+                 serviceCount, retired, dashboard] = settings;
+    const auto& [columns, rows, activeId, pages, pageCount, activeIndex, wrap] = dashboard;
+    (void)source;
+    (void)activeIndex;
+    if (pluginCount > kMaximumSettingsPlugins || plugins.size() != pluginCount ||
+        serviceCount > kMaximumSettingsServices || services.size() != serviceCount ||
+        retired.size() > kMaximumSettingsServices - serviceCount || pageCount == 0 ||
+        pageCount > kMaximumDashboardPages || pages.size() != pageCount || activeId.bytes == 0 ||
+        activeId.bytes >= activeId.utf8.size() || activeId.utf8[activeId.bytes] != '\0' ||
+        std::memchr(activeId.utf8.data(), '\0', activeId.bytes))
+        return false;
+    const auto& [edge, monitor, thickness, mode, reserve, peek, revealDelay, hideDelay, animation] = dock;
+    if (!(stream.Scalar(major) && stream.Scalar(minor) && stream.Scalar(retention) && stream.Scalar(background) &&
+          stream.Scalar(edge) && stream.Text(monitor) && stream.Scalar(thickness) && stream.Scalar(mode) &&
+          stream.Scalar(reserve) && stream.Scalar(peek) && stream.Scalar(revealDelay) && stream.Scalar(hideDelay) &&
+          stream.Scalar(animation) && stream.Scalar(tray) && stream.Scalar(rate) && stream.Scalar(pluginCount)))
+        return false;
+    for (const auto& plugin : plugins)
+    {
+        const auto& [id, enabled, configuration] = plugin;
+        if (!(stream.Text(id) && stream.Scalar(enabled) && stream.Json(configuration)))
+            return false;
+    }
+    if (!stream.Scalar(serviceCount))
+        return false;
+    for (const auto& service : services)
+    {
+        const auto& [name, pluginId, configuration] = service;
+        if (!(stream.Text(name) && stream.Text(pluginId) && stream.Json(configuration)))
+            return false;
+    }
+    if (!stream.Scalar(static_cast<uint32_t>(retired.size())))
+        return false;
+    for (const auto& id : retired)
+        if (!stream.Text(id))
+            return false;
+    if (!(stream.Scalar(columns) && stream.Scalar(rows) && stream.Scalar(pageCount) && stream.Scalar(wrap)))
+        return false;
+    bool activeFound = false;
+    for (const auto& page : pages)
+    {
+        const auto& [id, name, widgets, count] = page;
+        if (count > kMaximumWidgetsPerPage || widgets.size() != count ||
+            !(stream.Text(id) && stream.Text(name) && stream.Scalar(count)))
+            return false;
+        activeFound = activeFound || SettingsIdEquals(id.View(), activeId.View());
+        for (const auto& widget : widgets)
+        {
+            const auto& [widgetId, pluginId, typeId, placement, adaptive, usesAdaptive, overridesBackground,
+                         widgetBackground, configuration] = widget;
+            const auto& [column, row, columnSpan, rowSpan] = placement;
+            const auto& [steps, depth] = adaptive;
+            if (!(stream.Text(widgetId) && stream.Text(pluginId) && stream.Text(typeId) && stream.Scalar(column) &&
+                  stream.Scalar(row) && stream.Scalar(columnSpan) && stream.Scalar(rowSpan) && stream.Scalar(depth)))
+                return false;
+            for (const auto& step : steps)
+            {
+                const auto& [axis, preceding, size, total] = step;
+                if (!(stream.Scalar(axis) && stream.Scalar(preceding) && stream.Scalar(size) && stream.Scalar(total)))
+                    return false;
+            }
+            if (!(stream.Scalar(usesAdaptive) && stream.Scalar(overridesBackground) &&
+                  stream.Scalar(widgetBackground) && stream.Json(configuration)))
+                return false;
+        }
+    }
+    return activeFound && stream.Complete();
+}
+[[nodiscard]] HRESULT ValidatePluginDocument(const AppSettings& settings, bool& complete) noexcept
+{
+    HRESULT result = ValidateAppSettings(settings);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    SchemaCache schemaCache;
+    complete = true;
+
+    // Static discovery covers every effective widget in the document. This maps each referenced module once and
+    // validates its immutable settings contract without creating providers or widget resources.
+    for (uint32_t pluginIndex = 0; pluginIndex < settings.pluginCount; ++pluginIndex)
+    {
+        const PluginSettings& plugin = settings.plugins[pluginIndex];
+        if (!plugin.enabled)
+        {
+            continue;
+        }
+        const RedXeBundledWidgetSpec* widgetSpec = FindBundledWidget(plugin.id.View());
+        const RedXeBundledPluginSpec* pluginSpec = FindBundledPlugin(plugin.id.View());
+        if (!widgetSpec || !pluginSpec)
+        {
+            return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+        }
+        PluginHost::ModuleView module{};
+        const HRESULT mapResult = TryMapBundledWidgetModule(pluginSpec->pluginId, module);
+        if (mapResult == S_FALSE)
+        {
+            complete = false;
+            continue;
+        }
+        if (FAILED(mapResult))
+        {
+            return mapResult;
+        }
+    }
+
+    for (uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
+    {
+        const DashboardPageSettings& candidatePage = settings.dashboard.pages[pageIndex];
+        for (uint32_t widgetIndex = 0; widgetIndex < candidatePage.widgetCount; ++widgetIndex)
+        {
+            const WidgetInstanceSettings& widget = candidatePage.widgets[widgetIndex];
+            const RedXeBundledWidgetSpec* widgetSpec = FindBundledWidget(widget.pluginId.View(), widget.typeId.View());
+            const RedXeBundledPluginSpec* pluginSpec = FindBundledPlugin(widget.pluginId.View());
+            if (!widgetSpec || !pluginSpec)
+            {
+                return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+            }
+            PluginHost::ModuleView module{};
+            const HRESULT mapResult = TryMapBundledWidgetModule(pluginSpec->pluginId, module);
+            if (mapResult == S_FALSE)
+            {
+                complete = false;
+                continue;
+            }
+            if (FAILED(mapResult))
+            {
+                return mapResult;
+            }
+            yyjson_val* schemaRoot = nullptr;
+            result = schemaCache.Acquire(module, pluginSpec->pluginId, schemaRoot);
+            if (FAILED(result) || !schemaRoot)
+            {
+                return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            unique_contract_doc valueDocument{yyjson_read(widget.privateConfiguration.utf8.data(),
+                                                          widget.privateConfiguration.bytes, YYJSON_READ_NOFLAG)};
+            if (!valueDocument ||
+                !ValidateValueAgainstPublishedSchema(schemaRoot, yyjson_doc_get_root(valueDocument.get())))
+            {
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+        }
+    }
+
+    return S_OK;
+}
 } // namespace
+
+struct PluginManager::ValidationEvidence final
+{
+    std::vector<std::byte> facts;
+};
+std::shared_ptr<const PluginManager::ValidationEvidence> PluginManager::BuildValidationEvidence(
+    const AppSettings& settings) noexcept
+{
+    try
+    {
+        SettingsEvidenceStream count;
+        if (!WalkSettingsEvidence(settings, count))
+            return {};
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+        if (_failValidationEvidenceAllocation)
+            throw std::bad_alloc{};
+#endif
+        auto evidence = std::make_shared<ValidationEvidence>();
+        evidence->facts.reserve(count.Size());
+        SettingsEvidenceStream output{&evidence->facts};
+        if (!WalkSettingsEvidence(settings, output))
+            return {};
+        return evidence;
+    }
+    catch (...)
+    {
+        // This optional cache must not prevent use of the already-validated cold path on allocation failure.
+        return {};
+    }
+}
+bool PluginManager::ValidationEvidenceMatches(const ValidationEvidence& evidence, const AppSettings& settings) noexcept
+{
+    SettingsEvidenceStream input{std::span<const std::byte>{evidence.facts}};
+    return WalkSettingsEvidence(settings, input);
+}
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+size_t PluginManager::ValidationEvidenceBytes() const noexcept
+{
+    return _validationEvidence ? _validationEvidence->facts.capacity() : 0;
+}
+#endif
 
 PluginManager::~PluginManager()
 {
@@ -866,87 +1119,35 @@ bool PluginManager::ProviderConfigurationMatches(const ProviderBuildKey& key, co
            std::memcmp(original.utf8.data(), instance.privateConfiguration.utf8.data(), original.bytes) == 0;
 }
 
-HRESULT PluginManager::StageActivePage(const AppSettings& settings,
-                                       std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
-                                       std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
-                                       size_t& providerCount, std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
-                                       size_t& widgetCount) noexcept
+HRESULT PluginManager::StagePage(const AppSettings& settings, uint32_t pageIndex, const PluginManager* validated,
+                                 std::shared_ptr<const ValidationEvidence>& evidence,
+                                 std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
+                                 std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
+                                 size_t& providerCount, std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
+                                 size_t& widgetCount) noexcept
 {
     providerCount = 0;
     widgetCount = 0;
-    HRESULT result = ValidateAppSettings(settings);
-    if (FAILED(result))
+    HRESULT result = S_OK;
+    if (!PluginHost::Instance().IsShutdown() && _validationEvidence &&
+        ValidationEvidenceMatches(*_validationEvidence, settings))
+        evidence = _validationEvidence;
+    else if (!PluginHost::Instance().IsShutdown() && validated && validated->_initialized &&
+             validated->_validationEvidence && ValidationEvidenceMatches(*validated->_validationEvidence, settings))
+        evidence = validated->_validationEvidence;
+    else
     {
-        return result;
+        bool complete = false;
+        result = ValidatePluginDocument(settings, complete);
+        if (FAILED(result))
+            return result;
+        if (complete && !PluginHost::Instance().IsShutdown())
+            evidence = BuildValidationEvidence(settings);
     }
-    SchemaCache schemaCache;
-
-    // Static discovery covers every effective widget in the document. This maps each referenced module once and
-    // validates its immutable settings contract without creating providers or widget resources.
-    for (uint32_t pluginIndex = 0; pluginIndex < settings.pluginCount; ++pluginIndex)
-    {
-        const PluginSettings& plugin = settings.plugins[pluginIndex];
-        if (!plugin.enabled)
-        {
-            continue;
-        }
-        const RedXeBundledWidgetSpec* widgetSpec = FindBundledWidget(plugin.id.View());
-        const RedXeBundledPluginSpec* pluginSpec = FindBundledPlugin(plugin.id.View());
-        if (!widgetSpec || !pluginSpec)
-        {
-            return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
-        }
-        PluginHost::ModuleView module{};
-        const HRESULT mapResult = TryMapBundledWidgetModule(pluginSpec->pluginId, module);
-        if (mapResult == S_FALSE)
-        {
-            continue;
-        }
-        if (FAILED(mapResult))
-        {
-            return mapResult;
-        }
-    }
-
-    for (uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
-    {
-        const DashboardPageSettings& candidatePage = settings.dashboard.pages[pageIndex];
-        for (uint32_t widgetIndex = 0; widgetIndex < candidatePage.widgetCount; ++widgetIndex)
-        {
-            const WidgetInstanceSettings& widget = candidatePage.widgets[widgetIndex];
-            const RedXeBundledWidgetSpec* widgetSpec = FindBundledWidget(widget.pluginId.View(), widget.typeId.View());
-            const RedXeBundledPluginSpec* pluginSpec = FindBundledPlugin(widget.pluginId.View());
-            if (!widgetSpec || !pluginSpec)
-            {
-                return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
-            }
-            PluginHost::ModuleView module{};
-            const HRESULT mapResult = TryMapBundledWidgetModule(pluginSpec->pluginId, module);
-            if (mapResult == S_FALSE)
-            {
-                continue;
-            }
-            if (FAILED(mapResult))
-            {
-                return mapResult;
-            }
-            yyjson_val* schemaRoot = nullptr;
-            result = schemaCache.Acquire(module, pluginSpec->pluginId, schemaRoot);
-            if (FAILED(result) || !schemaRoot)
-            {
-                return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-            }
-            unique_contract_doc valueDocument{yyjson_read(widget.privateConfiguration.utf8.data(),
-                                                          widget.privateConfiguration.bytes, YYJSON_READ_NOFLAG)};
-            if (!valueDocument ||
-                !ValidateValueAgainstPublishedSchema(schemaRoot, yyjson_doc_get_root(valueDocument.get())))
-            {
-                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-            }
-        }
-    }
-
-    const DashboardPageSettings* page = FindActiveDashboardPage(settings);
+    const DashboardPageSettings* page =
+        pageIndex == UINT32_MAX
+            ? FindActiveDashboardPage(settings)
+            : (pageIndex < settings.dashboard.pageCount ? &settings.dashboard.pages[pageIndex] : nullptr);
     if (!page || page->widgetCount > kMaximumWidgetInstances)
     {
         return E_INVALIDARG;
@@ -1031,6 +1232,18 @@ HRESULT PluginManager::StageActivePage(const AppSettings& settings,
 
 HRESULT PluginManager::Initialize(const AppSettings& settings) noexcept
 {
+    return InitializePageImpl(settings, UINT32_MAX, nullptr);
+}
+HRESULT PluginManager::InitializePage(const AppSettings& settings, uint32_t pageIndex,
+                                      const PluginManager* validated) noexcept
+{
+    if (settings.dashboard.pages.size() != settings.dashboard.pageCount || pageIndex >= settings.dashboard.pageCount)
+        return E_INVALIDARG;
+    return InitializePageImpl(settings, pageIndex, validated);
+}
+HRESULT PluginManager::InitializePageImpl(const AppSettings& settings, uint32_t pageIndex,
+                                          const PluginManager* validated) noexcept
+{
     if (_initialized || _widgetCount != 0 || _providerCount != 0)
     {
         return E_INVALIDARG;
@@ -1042,7 +1255,9 @@ HRESULT PluginManager::Initialize(const AppSettings& settings) noexcept
     static_assert(sizeof(providers) + sizeof(providerKeys) + sizeof(widgets) < 28U * 1024U);
     size_t providerCount = 0;
     size_t widgetCount = 0;
-    const HRESULT result = StageActivePage(settings, providers, providerKeys, providerCount, widgets, widgetCount);
+    std::shared_ptr<const ValidationEvidence> evidence;
+    const HRESULT result = StagePage(settings, pageIndex, validated, evidence, providers, providerKeys, providerCount,
+                                     widgets, widgetCount);
     if (FAILED(result))
     {
         return result;
@@ -1055,6 +1270,7 @@ HRESULT PluginManager::Initialize(const AppSettings& settings) noexcept
     _gridColumns = settings.dashboard.gridColumns;
     _gridRows = settings.dashboard.gridRows;
     _backgroundRgb = settings.backgroundRgb;
+    _validationEvidence = std::move(evidence);
     _initialized = true;
     return S_OK;
 }
@@ -1071,7 +1287,9 @@ HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
     static_assert(sizeof(providers) + sizeof(providerKeys) + sizeof(widgets) < 28U * 1024U);
     size_t providerCount = 0;
     size_t widgetCount = 0;
-    const HRESULT result = StageActivePage(settings, providers, providerKeys, providerCount, widgets, widgetCount);
+    std::shared_ptr<const ValidationEvidence> evidence;
+    const HRESULT result = StagePage(settings, UINT32_MAX, nullptr, evidence, providers, providerKeys, providerCount,
+                                     widgets, widgetCount);
     if (FAILED(result))
     {
         return result;
@@ -1085,6 +1303,7 @@ HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
     _gridColumns = settings.dashboard.gridColumns;
     _gridRows = settings.dashboard.gridRows;
     _backgroundRgb = settings.backgroundRgb;
+    _validationEvidence = std::move(evidence);
     return S_OK;
 }
 

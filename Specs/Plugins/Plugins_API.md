@@ -384,7 +384,14 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
   `^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*){1,3}$` (validated with `RedXeIsActionNameSyntax`); and `"boolean"`.
   `$ref`, composition keywords, and any other `pattern` are rejected rather than silently accepted, so a plugin cannot
   publish a constraint the host does not enforce. A plugin schema MUST stay inside this subset.
-- The host parses each referenced plugin's schema once per staging pass, not once per widget appearance.
+- A cold validation parses each referenced plugin's schema once for that document, not once per widget appearance.
+  A page manager MAY retain an immutable, bounded witness of successful typed and published-schema validation and
+  share it with an adjacent page manager in the same live process runtime. Reuse MUST compare every logical typed
+  settings fact exactly, including inactive pages, services, private JSON, identifiers, counts and layout. A hash,
+  mutable document pointer or retained source-text identity alone is insufficient. Source comments and a valid active
+  page selector do not alter these facts. Counts, extents and terminators MUST be checked before views or indexing.
+  A miss performs complete document validation. Missing referenced modules, terminal runtime shutdown, an oversized
+  witness or witness allocation failure MUST retain the cold validation path. No caller may manufacture trusted proof.
 - One settings-visible plugin ID selects one widget kind. A DLL may publish several IDs, each with its own contract.
 - The host copies or parses borrowed strings synchronously and never frees them.
 - Rotating Triangle and GDI Orbit publish closed empty-object schemas and `{}` defaults. Matrix Rain publishes its

@@ -85,6 +85,8 @@
     <ClCompile Include="HostPlugin.Tests.FramePacing.cpp" />
     <ClInclude Include="HostPlugin.Tests.FramePacing.h" />
     <ClCompile Include="HostPlugin.Tests.RuntimeProbe.cpp" />
+    <ClCompile Include="HostPlugin.Tests.PageStaging.cpp" />
+    <ClInclude Include="HostPlugin.Tests.PageStaging.h" />
     <ClCompile Include="HostPlugin.Tests.ProcessViewerScheduling.cpp" />
     <ClCompile Include="HostPlugin.Tests.DataSourceLifetime.cpp" />
     <ClCompile Include="HostPlugin.Tests.GpuResourceRetirement.cpp" />

@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `9e79bea` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `7061976` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -64,6 +64,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | Step | State | Evidence / commit |
 | --- | --- | --- |
 | P0.1 | Complete | Production probe and accepted Release baseline; `0971350`. |
+| P3.1 | Implementation complete; latency qualification remains open | Checked borrowed selection, exact bounded shared validation witness and staged visibility rollback pass. Both Release cohorts accept 36 stages. Selection and provider work fall, but GPU/visibility dominates and total latency improvement is unestablished. Release16, Debug/ASan15, ARM64 Release and ten skills pass; 145 Viewer/eight Weather references match. runtime-2026-10-11-p31-final and -stage-*. |
 | P1.6 | Complete | Default-display/minor4 setting, overlapping one-shot/DXGI waits, motion/invalidation bypass and live apply pass. Corrected permit ownership recovers after hide/minimize at about 29.3/s; inactive zero. Final pairs reduce CPU 32.8/35.6% and submissions about 51%; all cohort frames displayed, independent flip/no hybrid. Cap private medians are 0.59/1.15 MiB higher, adapter usage unchanged; no memory saving or physical-input latency claim. Release16, Debug/ASan15, ARM64 Release and ten skills pass; 145 Viewer/eight Weather references match. runtime-2026-10-11-p16*. |
 | P2.7 | Complete | Sample-driven scheduling, full gates and matched 13.7–13.9% submission reduction; `a466363`. CPU saving remains unestablished. |
 | P0.2 | CPU attribution captured; other gates open | Accepted sampled-only System capture, 65 s normal-user Release probe: 2.392% of one core and 12.364 submissions/s. ETL has zero lost events/buffers and matching private/Microsoft symbols. A 56 s steady window has 1,251 named CPU stacks: acquisition worker 900, native process walk 578, `OpenProcess` 20 inclusive hits. These overlap, are sampled, and cover a subset of all 1,336 owned stacks. `runtime-2026-10-10-p02-cpu-sampled`. Earlier broad trace dropped 704,274 events and remains rejected. Input/presented latency and adapter-move qualification stay open. |
@@ -83,6 +84,52 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P2.8 glyph capacity | Complete | Real preceding DLLs fail reused-cell ink and exhausted-label regressions; candidate passes with unchanged atlas/storage sizes. Eight Weather PNGs match. Release 16 scopes, Debug 15 native scopes accounted across the initial run and HostSmoke repeat, ASan 15 native scopes, ARM64 Release and 10 skills pass. The initial Debug capture crash remains unexplained and retained. `runtime-2026-10-11-p28-capacity`. |
 | P2.8 Debug monitor and shared sampling | Complete | Unchanged failed preparation suppresses font/raster/upload work; all recovery, real font cleanup and held-control release tests pass. A shared glyph-cell sampling fix resolves 16 visible neighboring-ink pixels after cache/device changes. All 145 Viewer references and eight Weather PNGs match. Final Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release and ten skills pass. Two counterbalanced System pairs establish no causal CPU saving or repeatable private-memory regression; local usage is 26.26 MiB throughout. QPC-joined PresentMon cohorts show hardware-composed independent flip, all cohort frames displayed and no hybrid presents. Input latency remains unqualified. `runtime-2026-10-11-p28-monitor`, `-paired`, `-paired-reverse`, `-presented` and `-presented-reverse`. |
 | P0.4 production raised Gallery | Accounting captured; presented-frame qualification remains open | One normal, non-activating hardware Release run proves AV tile 1,474,560 bytes, raised total 5,160,960, dismissal to tile, hidden zero and restored tile. Cold/raised settled 65 s each; all source/binary hashes, page, geometry, adapter, power and foreground checks pass. Visible submissions stay about 60/s; hidden zero. `runtime-2026-10-11-p04-raised-gallery`. |
+
+### P3.1 checked selection and validation evidence (2026-10-11)
+
+The current host copied the complete typed settings document just to change its selector, then repeated typed and
+published-schema validation for every page. Staging now borrows the document with a checked target index. Promotion
+keeps its existing selector-only semantics, including source-only reload and edits during a gesture. One immutable
+logical witness is shared by the two page managers. Exact bounds/byte/scalar comparison includes inactive widgets,
+layout, services and plugin configuration; source text and a valid active selector are excluded. No hash-only trust
+or mutable pointer identity is used. A miss revalidates the full document. Missing referenced modules cannot issue
+proof, terminal runtime shutdown cannot reuse it, and documents above 64 KiB or cache allocation failure keep the
+cold path. The shipped Release witness is 6,166 bytes plus shared metadata and 16 bytes per manager; the old duplicated
+document retained 209,460 bytes of typed/vector/source capacity. These logical measurements establish no process
+memory reduction. The optional staging probe uses bounded local storage and the existing logger ring.
+
+New tests cover real cold/warm target construction, source/selector-only reuse, inactive malformed JSON, invalid
+configuration/identifiers/extents/counts/layout/services, valid edits, failed reconfiguration, non-wrapping/wrapping
+adjacency, optional cache allocation failure and a valid maximum-page document above the witness budget. The oversized
+fixture initially used invalid long IDs and placements against the parser's 1x1 adaptive canvas; its final fixture
+uses legal 128-byte IDs and an explicit 32x9 non-overlapping grid. Failed iteration logs remain. A 4,096-construction
+Debug batch records 398,343 / 85,032 us wall and 3,906,250 / 937,500 raw CPU 100-ns ticks for cold/warm validation.
+The final Release batch records 30,325 / 13,825 us wall and 312,500 / 156,250 raw CPU 100-ns ticks. These batches include actual providers and cleanup, without GPU setup; their CPU totals are quantized and do not qualify total staging CPU.
+
+Fault tests also confirm that the previous renderer retained a borrowed staged page after failed visibility, and
+retained its context bindings after failed hide. Cold retirement now clears the borrow unconditionally, returns the
+original failure and releases initialized resources. Application rollback detaches before local dashboard teardown.
+The preceding renderer fails both tests; the candidate keeps the primary's exact pixels, device and swap chain.
+
+`runtime-2026-10-11-p31-stage-control-repeat` and `-stage-candidate` each accept 36 Release stages, the same scene SHA,
+all source/binary immutability guards, the same XENEON size/DPI/adapter and no physical input. The first control helper
+run is rejected because its loop counter collided with a Boolean parameter. Every accepted stage has success,
+all seven phase bits and valid CPU readings. Repeat medians (us) are:
+
+| Target | Selection control / candidate | Validation+providers control / candidate | Total control / candidate |
+| --- | --- | --- | --- |
+| Matrix | 89 / 0 | 247 / 74 | 803 / 513 |
+| Gallery | 39 / 0 | 521 / 463 | 101,714 / 151,044 |
+| System | 71 / 0 | 411 / 273 | 9,622 / 10,713 |
+| Fourth page | 64 / 0 | 264 / 67 | 19,689 / 24,557 |
+
+Zero selection readings are microsecond-resolution wall samples. Gallery's candidate p95 is 910,071 us; GPU and
+visibility costs dominate and vary, so no total staging improvement is established. The proposed 2-ms CPU / 8-ms
+staging targets remain unmet. Cold/returned Matrix process CPU is 1.478/1.477% control versus 2.297/2.383% candidate;
+submissions are 60.112/60.170 versus 59.747/58.477 per second. The live scene and background load are unpinned; returned
+module/thread totals also differ (102/42 versus 110/46), so these values establish no causal steady CPU/rate change.
+Cold/returned private is 36.60/107.75 versus 35.39/108.77 MiB;
+local usage remains 25.01/46.26 MiB. Return retention is still open. Final Release16, Debug/ASan15 native scopes, ARM64 Release compilation and ten skills pass. p31-final-scope-accounting.json binds unchanged source and Debug artifacts; all 145 Viewer frames and eight Weather images match the preceding references. runtime-2026-10-11-p31-final retains source, binary identities and logs. Physical input latency and the 2-ms/8-ms goals remain separate open qualification.
 
 ### P1.6 optional continuous pacing (2026-10-11, complete)
 

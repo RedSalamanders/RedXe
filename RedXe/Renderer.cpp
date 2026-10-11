@@ -76,6 +76,26 @@ void Renderer::Shutdown() noexcept
     _failedWidgetMask = 0;
 }
 
+HRESULT Renderer::DropTransitionDashboard() noexcept
+{
+    DashboardHost* const previous = _transitionDashboardHost;
+    const bool ready = _transitionWidgetsDeviceReady;
+    _transitionDashboardHost = nullptr;
+    _transitionWidgetsDeviceReady = false;
+    _transitionTargetSizes = {};
+    _transitionWidgetViewports = {};
+    const HRESULT result = previous ? previous->SetWidgetsVisible(false) : S_OK;
+    if (previous && ready)
+    {
+        if (_context)
+            _context->ClearState();
+        for (size_t index = 0; index < previous->WidgetCount(); ++index)
+            if (IRedXeGpuWidget* widget = previous->GpuWidgetAt(index))
+                widget->OnDeviceLost();
+    }
+    return result;
+}
+
 HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
 {
     if (dashboardHost && dashboardHost->WidgetCount() > _transitionWidgetViewports.size())
@@ -89,24 +109,10 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
         if (FAILED(result))
             return result;
     }
-    if (_transitionWidgetsDeviceReady && _transitionDashboardHost)
-    {
-        const HRESULT result = _transitionDashboardHost->SetWidgetsVisible(false);
-        if (FAILED(result))
-            return result;
-        // The context retains bound resources even after their widget owners release them. Clear only at this cold
-        // retirement boundary; the surviving page binds everything it needs on its next draw.
-        if (_context)
-            _context->ClearState();
-        for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
-        {
-            if (IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index))
-                widget->OnDeviceLost();
-        }
-    }
-    _transitionWidgetsDeviceReady = false;
+    const HRESULT retired = DropTransitionDashboard();
+    if (FAILED(retired))
+        return retired;
     _transitionDashboardHost = dashboardHost;
-    _transitionTargetSizes = {};
     if (!dashboardHost)
     {
         return S_OK;
@@ -143,8 +149,12 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
     {
         return S_OK;
     }
-    const HRESULT result = UpdateCachedViewports();
-    return SUCCEEDED(result) ? dashboardHost->SetWidgetsVisible(incomingVisible) : result;
+    HRESULT result = UpdateCachedViewports();
+    if (SUCCEEDED(result))
+        result = dashboardHost->SetWidgetsVisible(incomingVisible);
+    if (FAILED(result))
+        (void)DropTransitionDashboard();
+    return result;
 }
 
 HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept

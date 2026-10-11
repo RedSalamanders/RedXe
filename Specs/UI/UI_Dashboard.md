@@ -85,6 +85,11 @@ Orientation is runtime state and MUST NOT appear in settings.
 - Neighbor staging MUST NOT block the first follow-finger frame. The current page may slide immediately; the
   directionally adjacent page is created on the following idle turn. Reversing through zero tears down the prior
   neighbor before staging the opposite page.
+- Staging borrows the current typed document with a checked target index; it MUST NOT deep-copy the document merely
+  to select the neighbor. Promotion changes only the current document's active selector, preserving source-only
+  reloads, dock edits and widget persists made during the gesture. Failed staging MUST clear the renderer's borrowed
+  neighbor before local ownership ends. Retirement clears that borrow even when a visibility callback fails, reports
+  the callback error and releases initialized GPU resources; it preserves the primary page and presentation resources.
 - On release the host settles with presentation-paced ease-out frames. It commits when travel reaches one quarter of
   the client width or a same-direction flick exceeds the DPI-scaled speed threshold; otherwise it returns to the
   current page. Commit promotes the already-staged neighbor in place and MUST NOT recreate the Direct3D device.

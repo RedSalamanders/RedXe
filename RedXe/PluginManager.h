@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <windows.h>
 
 #pragma warning(push)
@@ -30,6 +31,10 @@ class PluginManager final
     PluginManager& operator=(PluginManager&&) = delete;
 
     [[nodiscard]] HRESULT Initialize(const AppSettings& settings) noexcept;
+    // A checked target selector borrows the current document. A peer's immutable validation evidence is reusable
+    // only after an exact bounded comparison of all logical document facts in this process runtime.
+    [[nodiscard]] HRESULT InitializePage(const AppSettings& settings, uint32_t pageIndex,
+                                         const PluginManager* validated = nullptr) noexcept;
     [[nodiscard]] HRESULT Reconfigure(const AppSettings& settings) noexcept;
     [[nodiscard]] size_t ProviderCount() const noexcept;
     [[nodiscard]] size_t WidgetCount() const noexcept;
@@ -67,7 +72,17 @@ class PluginManager final
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct PluginManagerTestAccess;
     friend struct PluginManagerGpuResourceTestAccess;
+    friend struct PluginManagerPageStagingTestAccess;
+    [[nodiscard]] size_t ValidationEvidenceBytes() const noexcept;
+    inline static bool _failValidationEvidenceAllocation = false;
 #endif
+    struct ValidationEvidence;
+    [[nodiscard]] static std::shared_ptr<const ValidationEvidence> BuildValidationEvidence(
+        const AppSettings& settings) noexcept;
+    [[nodiscard]] static bool ValidationEvidenceMatches(const ValidationEvidence& evidence,
+                                                        const AppSettings& settings) noexcept;
+    [[nodiscard]] HRESULT InitializePageImpl(const AppSettings& settings, uint32_t pageIndex,
+                                             const PluginManager* validated) noexcept;
     struct WidgetSlot final
     {
         WidgetSlot() noexcept = default;
@@ -132,12 +147,12 @@ class PluginManager final
     void ClearWidgetStatuses() noexcept;
     static void ReleaseWidgetInterfaces(WidgetSlot& slot) noexcept;
     void ReleaseWidgets() noexcept;
-    [[nodiscard]] HRESULT StageActivePage(const AppSettings& settings,
-                                          std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
-                                          std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
-                                          size_t& providerCount,
-                                          std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
-                                          size_t& widgetCount) noexcept;
+    [[nodiscard]] HRESULT StagePage(const AppSettings& settings, uint32_t pageIndex, const PluginManager* validated,
+                                    std::shared_ptr<const ValidationEvidence>& evidence,
+                                    std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
+                                    std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
+                                    size_t& providerCount, std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
+                                    size_t& widgetCount) noexcept;
 
     // Borrowed process runtime. Every PluginManager, including the one staged for an adjacent page during a swipe,
     // shares the same modules, data sources, subscriptions, and acquisition worker.
@@ -149,4 +164,5 @@ class PluginManager final
     uint32_t _gridRows = 0;
     uint32_t _backgroundRgb = kRedXeDefaultBackgroundRgb;
     bool _initialized = false;
+    std::shared_ptr<const ValidationEvidence> _validationEvidence;
 };

@@ -73,3 +73,80 @@ uint32_t FormatRuntimeProbeLine(const RuntimeProbeSample& s, char* line, size_t 
     }
     return static_cast<uint32_t>(bytes);
 }
+
+bool RuntimePageStageProbe::QueryCpu(uint64_t& cpu) noexcept
+{
+    FILETIME created{}, exited{}, kernel{}, user{};
+    if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user))
+        return false;
+    const auto ticks = [](const FILETIME& value) noexcept
+    { return (static_cast<uint64_t>(value.dwHighDateTime) << 32) | value.dwLowDateTime; };
+    cpu = ticks(kernel) + ticks(user);
+    return true;
+}
+
+RuntimePageStageProbe::RuntimePageStageProbe(bool enabled, uint32_t fromPage, int32_t direction) noexcept
+    : _enabled(enabled)
+{
+    if (!_enabled)
+        return;
+    _sample.fromPage = fromPage;
+    _sample.direction = direction;
+    _sample.tick = GetTickCount64();
+    _cpuStartedValid = QueryCpu(_cpuStarted);
+    _started = std::chrono::steady_clock::now();
+}
+
+void RuntimePageStageProbe::Select(uint32_t page) noexcept
+{
+    if (_enabled)
+        _sample.page = page;
+}
+
+void RuntimePageStageProbe::Mark(RuntimePageStagePhase phase) noexcept
+{
+    const auto index = static_cast<size_t>(phase);
+    if (!_enabled || index >= _sample.wallMicroseconds.size())
+        return;
+    _sample.wallMicroseconds[index] = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _started).count());
+    _sample.phaseMask |= uint32_t{1} << index;
+}
+
+RuntimePageStageSample RuntimePageStageProbe::Complete(HRESULT result) noexcept
+{
+    if (!_enabled)
+        return _sample;
+    Mark(RuntimePageStagePhase::Complete);
+    _sample.result = result;
+    uint64_t cpu = 0;
+    if (_cpuStartedValid && QueryCpu(cpu) && cpu >= _cpuStarted)
+    {
+        _sample.cpuValid = 1;
+        _sample.cpu100ns = cpu - _cpuStarted;
+    }
+    return _sample;
+}
+
+uint32_t FormatRuntimePageStageLine(const RuntimePageStageSample& s, char* line, size_t capacity) noexcept
+{
+    if (!line || capacity == 0)
+        return 0;
+    SYSTEMTIME utc{};
+    GetSystemTime(&utc);
+    const auto& w = s.wallMicroseconds;
+    const int bytes = std::snprintf(
+        line, capacity,
+        "{\"ts\":\"%04u-%02u-%02uT%02u:%02u:%02u.%03uZ\",\"level\":\"info\",\"event\":\"page-stage\",\"v\":1,"
+        "\"pid\":%lu,\"tick\":%llu,\"from\":%u,\"page\":%u,\"direction\":%d,\"hr\":%u,\"phase_mask\":%u,"
+        "\"cpu_valid\":%u,\"cpu_100ns\":%llu,\"wall_us\":[%llu,%llu,%llu,%llu,%llu,%llu,%llu]}\n",
+        utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond, utc.wMilliseconds, GetCurrentProcessId(),
+        s.tick, s.fromPage, s.page, s.direction, static_cast<uint32_t>(s.result), s.phaseMask, s.cpuValid, s.cpu100ns,
+        w[0], w[1], w[2], w[3], w[4], w[5], w[6]);
+    if (bytes <= 0 || static_cast<size_t>(bytes) >= capacity)
+    {
+        line[0] = '\0';
+        return 0;
+    }
+    return static_cast<uint32_t>(bytes);
+}

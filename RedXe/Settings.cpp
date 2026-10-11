@@ -1580,7 +1580,7 @@ DashboardPageSettings* FindActiveDashboardPage(AppSettings& settings) noexcept
     return FindDashboardPage(settings, settings.dashboard.activePageId.View());
 }
 
-HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept
+HRESULT ResolveAdjacentDashboardPage(const AppSettings& settings, int direction, uint32_t& selected) noexcept
 {
     if (settings.dashboard.pageCount < 2 || settings.dashboard.pages.size() != settings.dashboard.pageCount ||
         settings.dashboard.activePageIndex >= settings.dashboard.pageCount || (direction != -1 && direction != 1))
@@ -1588,25 +1588,35 @@ HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept
         return E_INVALIDARG;
     }
     const uint32_t current = settings.dashboard.activePageIndex;
-    uint32_t selected = current;
+    uint32_t candidate = current;
     if (direction > 0)
     {
         if (current + 1U < settings.dashboard.pageCount)
-            selected = current + 1U;
+            candidate = current + 1U;
         else if (settings.dashboard.wrapPages)
-            selected = 0;
+            candidate = 0;
         else
             return HRESULT_FROM_WIN32(ERROR_NO_MORE_ITEMS);
     }
     else
     {
         if (current > 0)
-            selected = current - 1U;
+            candidate = current - 1U;
         else if (settings.dashboard.wrapPages)
-            selected = settings.dashboard.pageCount - 1U;
+            candidate = settings.dashboard.pageCount - 1U;
         else
             return HRESULT_FROM_WIN32(ERROR_NO_MORE_ITEMS);
     }
+    selected = candidate;
+    return S_OK;
+}
+
+HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept
+{
+    uint32_t selected = 0;
+    const HRESULT result = ResolveAdjacentDashboardPage(settings, direction, selected);
+    if (FAILED(result))
+        return result;
     settings.dashboard.activePageIndex = selected;
     settings.dashboard.activePageId = settings.dashboard.pages[selected].id;
     return S_OK;
@@ -1732,6 +1742,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
         settings.dashboard.gridColumns > kMaximumDashboardGridDimension ||
         settings.dashboard.gridRows > kMaximumDashboardGridDimension || settings.dashboard.pageCount == 0 ||
         settings.dashboard.pageCount > kMaximumDashboardPages ||
+        settings.dashboard.pages.size() != settings.dashboard.pageCount ||
         !IsValidStoredText(settings.dashboard.activePageId, true))
     {
         return E_INVALIDARG;

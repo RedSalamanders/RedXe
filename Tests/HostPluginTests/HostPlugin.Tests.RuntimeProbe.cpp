@@ -100,6 +100,39 @@ void TestRuntimeProbe(bool& success) noexcept
         std::array<char, 16> shortBuffer{};
         check(FormatRuntimeProbeLine(s, shortBuffer.data(), shortBuffer.size()) == 0 && shortBuffer[0] == '\0',
               L"insufficient destination refuses a partial record");
+        RuntimePageStageProbe disabledStage(false, 1, -1);
+        disabledStage.Select(2);
+        disabledStage.Mark(RuntimePageStagePhase::Providers);
+        const auto disabledSample = disabledStage.Complete(S_OK);
+        check(!disabledStage.Enabled() && disabledSample.tick == 0 && disabledSample.phaseMask == 0 &&
+                  disabledSample.cpuValid == 0,
+              L"disabled staging diagnostics publish no timing or CPU measurement");
+        RuntimePageStageProbe stage(true, 1, -1);
+        stage.Select(2);
+        stage.Mark(RuntimePageStagePhase::Retirement);
+        Sleep(2);
+        stage.Mark(RuntimePageStagePhase::SettingsCopy);
+        stage.Mark(RuntimePageStagePhase::Count);
+        auto stageSample = stage.Complete(E_INVALIDARG);
+        check(stageSample.fromPage == 1 && stageSample.page == 2 && stageSample.direction == -1 &&
+                  stageSample.result == E_INVALIDARG && stageSample.phaseMask == 67 && stageSample.cpuValid == 1 &&
+                  stageSample.wallMicroseconds[6] >= stageSample.wallMicroseconds[1] &&
+                  stageSample.wallMicroseconds[1] >= stageSample.wallMicroseconds[0],
+              L"real staging clock preserves monotonic phases, failure and independent CPU validity");
+        stageSample.tick = stageSample.cpu100ns = UINT64_MAX;
+        stageSample.fromPage = stageSample.page = stageSample.phaseMask = stageSample.cpuValid = UINT32_MAX;
+        stageSample.direction = INT32_MIN;
+        stageSample.wallMicroseconds.fill(UINT64_MAX);
+        bytes = FormatRuntimePageStageLine(stageSample, line.data(), line.size());
+        document.reset(yyjson_read(line.data(), bytes, 0));
+        check(bytes > 0 && bytes < line.size() && document &&
+                  yyjson_arr_size(yyjson_obj_get(yyjson_doc_get_root(document.get()), "wall_us")) == 7 &&
+                  yyjson_get_sint(yyjson_obj_get(yyjson_doc_get_root(document.get()), "direction")) == INT32_MIN &&
+                  yyjson_get_uint(yyjson_obj_get(yyjson_doc_get_root(document.get()), "cpu_100ns")) == UINT64_MAX,
+              L"extreme staging counters and negative direction fit the unchanged logger slot");
+        check(FormatRuntimePageStageLine(stageSample, shortBuffer.data(), shortBuffer.size()) == 0 &&
+                  shortBuffer[0] == '\0' && FormatRuntimePageStageLine(stageSample, nullptr, 0) == 0,
+              L"staging diagnostics refuse a truncated or absent destination");
         const auto root =
             std::filesystem::temp_directory_path() /
             (L"RedXe-probe-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
@@ -116,7 +149,7 @@ void TestRuntimeProbe(bool& success) noexcept
             check(host.QueryAvProbeStatistics(absent) == S_FALSE && absent.widgets == 0,
                   L"diagnostics never map an absent AV module");
             check(SUCCEEDED(host.SetLogDirectory(root.c_str())) && host.LogRuntimeProbe(s) == S_OK &&
-                      host.FlushLog(2000) == S_OK,
+                      host.LogRuntimePageStage(stageSample) == S_OK && host.FlushLog(2000) == S_OK,
                   L"structured record drains through the production logger");
         }
         SYSTEMTIME utc{};
@@ -126,6 +159,8 @@ void TestRuntimeProbe(bool& success) noexcept
         std::ifstream input(root / name.data(), std::ios::binary);
         const std::string log{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
         check(log.find("\"event\":\"probe\",\"v\":1") != std::string::npos &&
+                  log.find("\"event\":\"page-stage\",\"v\":1") != std::string::npos &&
+                  log.find("\"direction\":-2147483648") != std::string::npos &&
                   log.find("18446744073709551615") != std::string::npos,
               L"asynchronous writer preserves the full raw JSONL fields");
     }

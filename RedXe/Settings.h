@@ -357,6 +357,8 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] const DashboardPageSettings* FindActiveDashboardPage(const AppSettings& settings) noexcept;
 [[nodiscard]] DashboardPageSettings* FindActiveDashboardPage(AppSettings& settings) noexcept;
 [[nodiscard]] HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept;
+[[nodiscard]] HRESULT ResolveAdjacentDashboardPage(const AppSettings& settings, int direction,
+                                                   uint32_t& selected) noexcept;
 [[nodiscard]] HRESULT PreserveActiveDashboardPage(const AppSettings& previous, AppSettings& candidate) noexcept;
 [[nodiscard]] bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& right) noexcept;
 // True when the two differ at most in the retained source text and the retired services entries: a live reload of such
