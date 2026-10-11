@@ -79,6 +79,9 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P2.7 | Complete | Sample-driven scheduling, full gates and matched 13.7–13.9% submission reduction; `a466363`. CPU saving remains unestablished. |
 | P0.2 | CPU attribution captured; other gates open | Accepted sampled-only System capture, 65 s normal-user Release probe: 2.392% of one core and 12.364 submissions/s. ETL has zero lost events/buffers and matching private/Microsoft symbols. A 56 s steady window has 1,251 named CPU stacks: acquisition worker 900, native process walk 578, `OpenProcess` 20 inclusive hits. These overlap, are sampled, and cover a subset of all 1,336 owned stacks. `runtime-2026-10-10-p02-cpu-sampled`. Earlier broad trace dropped 704,274 events and remains rejected. Input/presented latency and adapter-move qualification stay open. |
 | P0.2 raised-state observation | Complete | Bit 8 observes the actual active raised layer, preserving v1, arrays and slot capacity. Hidden real Gallery/System raise/settle/render/dismiss checks and serialization pass Release 16, Debug 15 and ASan Debug 15 scopes; ARM64 Release compiles and ten skills pass. Disabled probes add no sampling, storage, allocation or wake. This enables strict input outcome checks; physical-input and first-pixel qualification remain open. |
+| P0.2 synthetic input sequence | Complete interaction evidence; latency open | All twelve foreground/pointer-guarded wheel, raise, dismiss and blocked-edge outcomes match production page/raised state; app and trace exit zero, 4,622 owned PresentMon frames. Input-to-photon columns are unavailable. Next submission is not first changed pixels. `runtime-2026-10-11-p0-focused-verified-state`. |
+| P0.2 adapter/DPI move | Programmatic evidence captured; visible/manual gate open | Owned non-activating Debug window: AMD/NVIDIA/AMD, 96/144/96 DPI, 2560x720/3840x1080/2560x720 client. Returned application screenshot is valid. Shared/dedicated usage follows the current adapter; old-adapter committed counters retain 4 KiB then 256 KiB. Literal single-LUID committed accounting and visible physical dragging remain unqualified. `runtime-2026-10-11-p0-adapter-move-owned`. |
+| P3.6 allocation attribution | Captured; AV coordinator cut selected | Zero-loss 140-second normal-user owned-alias heap/virtual-allocation trace resolves private application symbols. Cold/returned outstanding heap payload is about 28.46/46.01 MiB; top-100 AMD caller groups grow about 12.10 MiB. AV coordinator/preferences stacks remain outstanding with zero widget probe counts, and code retains their global owner until module shutdown. Free that cache after its last provider; preserve survivors, widget-held providers and callback quiescence. Driver-private functions, extent accounting and whole-process return budget remain open. |
 | P2.5 | Complete | `9b9cf15`: writer-owned date/policy cache removes both directory scans and path construction from ordinary lines. 1,000 same-day checks leave a late expired file untouched; policy and UTC changes reap it. Actual idle-policy flush passes. Release 16 scopes, Debug 15 native scopes and ARM64 Release compilation pass; `.build/receipts/runtime-2026-10-10-p25/`. No whole-process CPU reduction claimed for this infrequent log workload. |
 | P2.4 | Complete | Render failure debug output shares the JSONL transition guard. 400 failing primary frames emit three reports; a new primary instance emits its own report. Whole-frame recovery resets identity; partial tile/raised recovery does not. Adds a 4-byte mask and no steady slot scan/allocation. Release 16 scopes, Debug 15 native scopes and ARM64 Release compilation pass; `.build/receipts/runtime-2026-10-10-p24/`. This removes repeated failure-path debug calls, not measured ordinary CPU. |
 | P2.2 | Complete | 24-byte UI-thread reachable-rectangle cache. Production self-test proves 1,000 unchanged queries add zero display walks; a work-area notification adds exactly one. Window lifetime/geometry/style, DPI, topology and settings notifications invalidate before dispatch. All 16 Release scopes, 15 Debug native scopes, ARM64 Release compilation and 10 skills pass. Matched 65 s captures are in `runtime-2026-10-10-p22-before` / `-after`; no CPU saving established. |
@@ -378,6 +381,63 @@ and schema match the frozen build sources. Receipts: `p02-raised-state-scope-acc
 `p02-raised-state-*.log`. ASan byte peaks remain diagnostic quarantine observations, not hardware memory budgets.
 The next foreground capture must verify all page and raised outcomes; this probe does not measure first changed
 pixels, physical touch or sensor-to-photon latency.
+
+### P0.2 verified synthetic input and adapter/DPI evidence (2026-10-11)
+
+The newly agreed three-minute capture completes all twelve named wheel, System/Gallery raise/dismiss and blocked-edge
+actions. Every injection is guarded by foreground PID and pointer-window ownership; page and settled raised state
+are observed before continuing. App and PresentMon exit zero. Source, EXE/DLL/PDB/font/provenance and deployed
+settings/schema identities match before and after teardown. The scene uses the Release page layout with services
+and tray disabled; normal Launcher/location persistence changes its authored document and is retained, so this is
+not a fixed-scene causal comparison. PresentMon records 4,622 owned frames, predominantly Hardware Composed:
+Independent Flip with a short Composed: Flip interval, and no reported hybrid presents. All input-to-photon columns
+are unavailable; default input tracking is enabled in this PresentMon version. The next-submission delays observed
+for later Gallery wheels are about 98.82/114.81/115.25 ms, consistent with the separately measured staging stall,
+but neither those timestamps nor displayed-frame counts prove the first changed pixels. Double-click timestamps
+include the controller's 80-ms gap between clicks. Reversal/canceled physical swipe, touch and sensor-to-photon
+qualification remain open. Receipts: `runtime-2026-10-11-p0-focused-verified-state`, its `summary.json`, raw CSV,
+event/outcome/scene records and both identity lists.
+
+An owned, non-activating Debug triangle scene additionally moves while hidden from XENEON to the primary display and
+back. The Per-Monitor-V2 probe records DPI 96/144/96 and physical clients 2560x720/3840x1080/2560x720. Exactly three
+device logs identify AMD Radeon / NVIDIA RTX 5080 / AMD Radeon with ownership of the current monitor. No error logs
+occur, exit is zero, and the application-generated returned WGC image shows the rendered triangle. GPU Process
+Memory shared/dedicated usage is zero on the old adapter after each move; its Total Committed counter still reports
+4,096 bytes on AMD at the primary and 262,144 bytes on NVIDIA after returning. Historical engine instances are
+retained as raw/cooked counters; one cumulative sample does not establish current engine activity. This verifies
+programmatic device/DPI recovery and excludes a resident old-adapter surface in those counters. It does not pass
+literal single-LUID committed accounting or visible physical dragging/presentation. Source and Debug runtime inputs
+remain unchanged. Receipts: `runtime-2026-10-11-p0-adapter-move-owned`, including counters and `returned.png`.
+
+### P3.6 allocation attribution and corrected AV lifetime premise (2026-10-11)
+
+One separately approved administrator controller records a normal-user app copied under a fresh unique executable
+name. Its temporary IFEO heap-tracing entry is removed afterward; its named recorder is stopped without changing
+other sessions. The 140.187-second heap/virtual-allocation ETL has zero lost events/buffers, allocation/reallocation
+stacks, matching private application symbols and Microsoft symbols. The app visits all four Release pages, returns,
+hides/restores/minimizes, then stays alive until recording stops. The unchanged source/runtime identities, settings,
+phase times, memory maps, ETL hash and cleanup result are retained in `runtime-2026-10-11-p36-heap`.
+
+Cumulative phase cuts use xperf's [microsecond time ranges](https://learn.microsoft.com/en-us/windows-hardware/test/wpt/heap).
+Reported outstanding payload is 29,139.3 KiB cold and 47,112.9 KiB returned (about +17.55 MiB). Among the top hundred
+stack groups, the first non-allocator AMD module contributes 27,570.4/39,959.7 KiB (about +12.10 MiB); those private
+driver functions remain unresolved. Direct application caller groups do not explain the whole residual. AVControl
+coordinator/preferences construction stacks also remain outstanding after the production probe reports zero AV
+widgets/surfaces. Inspection confirms `Provider::~Provider` only decrements its count: the module-global coordinator
+is released by `RedXePluginShutdown`, contrary to this plan's earlier last-provider claim. Its safe last-provider
+release, including failed construction, survivors, retained widgets and revisit, is the next selected code cut.
+
+Heap tracing perturbs resource use: process private is 49.24/82.77 MiB here, so these values are not the uninstrumented
+baseline or a saving. xperf warns about decommitting more heap extents than committed; its extent totals conflict
+with process commitment and are rejected. Virtual allocation event totals overlap and do not equal process private
+bytes. Top-hundred aggregation truncates smaller stacks, and rounded KiB/counts do not certify exact object sizes or
+leaks. The initial phase-analysis command used a fractional seconds argument and failed; its log is preserved, and
+the corrected `analysis-cuts-v2` uses integer microseconds against the same immutable ETL. No recorder repeat was
+needed. These are ownership clues, not permission to unload modules or force device rebuilds on visible pages.
+Microsoft's [Trim contract](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_3/nf-dxgi1_3-idxgidevice3-trim)
+places driver trimming at extended idle and warns of first-render reallocation cost; visible Matrix remains
+continuous, so trimming on every page settle is not selected. Whole-process cold-return +4-MiB acceptance remains
+open. Reports: `allocation-attribution.json`, `analysis`, `analysis-cuts-v2`, and `probe` in that receipt root.
 
 ### P0.2 mouse/key capture attempts and next attribution (2026-10-11)
 
@@ -1473,7 +1533,7 @@ cold visit to that page, and nothing from the page that was left.
 | P3.3 | **Reconciled against current quality and lifetime contracts.** Keep first follow-finger presentation before deferred staging (`FlushPendingTransitionStage`), current plus one directional neighbor, and retire the previous neighbor on reversal. Continuous widgets keep animating during pan/settle. Blocked edges and canceled-before-staging gestures activate nothing; a canceled gesture that already exposed a neighbor can legitimately have activated it. | Current policy, partial/offscreen rendering, native-neighbor and retirement tests pass. Physical F/input/presented latency remains under P0.2. September eager recognition, both-neighbor retention and blanket staged-animation suppression are rejected. |
 | P3.4 | **Conditional staged construction.** Attribute device, visibility and preparation callbacks before choosing a bounded incremental construction mechanism if shipped first-present latency still exceeds budget. A 4 ms host slice cannot bound a single indivisible callback above 4 ms. Moving expensive work into Prepare alone does not remove its cost before first presentation. | Measure total input-to-first/settled presentation and per-callback CPU/wall time; preserve two-page ownership, cancellation, partial initialization and visual quality. The proposed 4 ms slice and 16.7 ms frame target remain unqualified. |
 | P3.5 | **Conditional snapshot product option.** A 2560x720 BGRA snapshot costs 7.031 MiB (1280x360 costs 1.758 MiB) per retained image, in addition to live pages/driver references. Sliding a frozen snapshot replaces visible animation; downsampling can reduce quality. Neither trade is accepted by this implementation request. | Decide only from measured P3.4 limits and a concrete visual/first-present comparison. Keep live animation and the two-page bound until such a decision; no snapshot code is selected. |
-| P3.6 | **Source and GPU binding cuts complete; full retention work remains in progress.** Sources retire after their last external facade/allocated subscription lease and quiescent collection/callback use; revisit preserves identity. Context bindings clear at successful page retirement, preserving device, swap chain and incoming/surviving pixels. Mapped plugin images remain. Inspect actual cache ownership before adding a trim export. AV last-provider destruction already resets its coordinator. | Production revisit, controlled collection/reservation/shutdown, GPU last-owner/pixel/failure tests and full gates pass. Source retention 87.61 → 71.75 MiB; separate GPU pair 69.54 → 69.08 and local usage 47.26 → 46.26 MiB. No CPU saving established; submissions unchanged. Whole D cold-A +4 MiB and residual +21.25 MiB local adapter usage remain open. |
+| P3.6 | **Source and GPU binding cuts complete; full retention work remains in progress.** Sources retire after their last external facade/allocated subscription lease and quiescent collection/callback use; revisit preserves identity. Context bindings clear at successful page retirement, preserving device, swap chain and incoming/surviving pixels. Mapped plugin images remain. Allocation attribution disproves the earlier AV last-provider claim: its coordinator still has a global owner until module shutdown. Last-provider cache release is the next selected cut; driver trimming on visible settles is not selected. | Production revisit, controlled collection/reservation/shutdown, GPU last-owner/pixel/failure tests and full gates pass. Source retention 87.61 → 71.75 MiB; separate GPU pair 69.54 → 69.08 and local usage 47.26 → 46.26 MiB. No CPU saving established; submissions unchanged. Whole D cold-A +4 MiB and residual driver/cache attribution remain open. |
 
 ### Phase 4 — retained memory and arenas
 
