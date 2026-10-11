@@ -137,6 +137,25 @@ Receipts: `.build/receipts/p45-final-scope-accounting.json`, `p45-content-releas
 `-p45-gallery-candidate` and `-p45-cycle-candidate`. Failed/diagnostic clock logs and the missing-loader red attempt
 remain retained with their limitations.
 
+### P0.2 mouse/key capture attempts and next attribution (2026-10-11)
+
+Three own-PID Release captures retain exact source/binary and PresentMon identities, injected x64 INPUT records and
+production logs. None qualifies the complete input sequence. The first controller mistakenly tried to raise the
+already-full-canvas Matrix tile; Escape took the normal application-close path. It retains 2,777 owned frames but
+zero reported input metrics, with unknown trace exit status. The corrected second run retains 1,817 frames and 73
+input-metric rows, then stops on foreground mismatch. The quiet retry adds fresh settled-page checks and records
+899 frames, one input-metric row, and expected Gallery/System pages before Edge PID 82560 replaces owned PID 52772
+as foreground. The foreground guard stops further input; its app and trace exit zero. Partial input rows are not
+accepted latency or first-changed-visual evidence. Real touch, reversal/canceled swipe and adapter-move qualification
+remain open. Receipts: `runtime-2026-10-11-p0-focused`, `-p0-focused-eligible`, `-p0-focused-quiet` and
+`p0-focused-rejected-accounting.json`.
+
+The first attempt's existing page-stage collector independently records a Gallery stage at 4,825,258 us, with
+4,668,114 us between layout and GPU-setup completion and 109.375 ms quantized UI CPU. This is a diagnostic cold
+stage, not a matched latency improvement or a widget attribution. P3.4 should now attribute individual device,
+target-size, visibility and first-preparation callbacks before selecting an incremental/worker design. Moving an
+indivisible slow callback behind a nominal four-ms host slice cannot make its first presented frame fit that slice.
+
 ### P4.3 temporary glyph extraction batch (2026-10-11, complete)
 
 The preceding glyph-only Release callback takes about 7-8 ms for eight icons and 29 ms for 32, with no GPU or shell
