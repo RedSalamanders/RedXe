@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `6802452` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `5cbf546` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -65,6 +65,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | --- | --- | --- |
 | P0.1 | Complete | Production probe and accepted Release baseline; `0971350`. |
 | P3.4 callback attribution | Complete; construction budgets remain open | Opt-in device/size/visibility and first-preparation timing, process stage identity, bounded two-page masks and strict completeness checks pass Debug15/Release16/ASan15, ARM64 compilation and skills10. The accepted hardware capture has 18 complete stages and 402 callbacks. Launcher visibility is the next measured target: 96.01 ms median / 244.20 ms maximum. No construction worker or visual-policy change is selected. |
+| P4.3 WIC batch | Rejected after matched measurements | A temporary shared factory passes all functional/profile gates and 20 reference frames, but Launcher visibility medians rise in both capture orders: 88.21 → 96.48 ms and 82.97 → 92.89 ms. Production code, diagnostics and experiment tests are restored. Fewer factory creations alone do not justify the observed latency regression; shell extraction remains the measured target. |
 | P4.5 | Content-sized bodies and last-widget release complete | Production-path lower offline transport, exact transactional body storage and last-widget leases are implemented. Eight two-byte responses retain 24 bytes versus 2,097,160 before, including the final Release DLL; the new real-DLL storage assertion fails on the preserved old cache. Debug/ASan 15 scopes, ARM64 Release, ten skills and unchanged images pass. Release 16 obligations are accounted across runs, preserving the initial Desk Clock peak failure. Matched Gallery establishes no causal CPU saving; current D is 36.85 → 62.29 MiB private and 25.01 → 32.26 local, hidden/minimized zero. Curl reuse and failure coalescing remain separate measured candidates. |
 | P4.6 | Current hardware baseline captured; retain current deadline/atlas | Separate five-minute Desk/Studio runs share exact Release/runtime closure and one PresentMon session. Desk short display intervals have 16.66 ms p95; Studio averages 1.06 submissions/s. All owned cohort frames display, with composed independent flip and zero hybrid presents. No lower deadline or atlas change is selected. The intermittent WARP private peak remains unattributed. |
 | P4.3 glyph extraction | Complete | Temporary isolated factory/face/coverage batch, 400 unchanged glyph references and real Debug coverage-OOM recovery pass. Matched eight/32-icon callbacks fall about 7.2->2.4 / 29->6.5 ms. Final Debug15/Release16/ASan15/ARM64/skills10 and all image references pass. Settled fixed-eight CPU/submissions stay zero, adapter18.01 MiB; no physical-input or D-retention claim. runtime-2026-10-11-p43-glyph-*. |
@@ -187,6 +188,42 @@ Receipts: `.build/receipts/p45-final-scope-accounting.json`, `p45-content-releas
 `p45-object-size.json`, `p45-fixed-cache-red`, `runtime-2026-10-11-p45-images`, `-p45-gallery-control`,
 `-p45-gallery-candidate` and `-p45-cycle-candidate`. Failed/diagnostic clock logs and the missing-loader red attempt
 remain retained with their limitations.
+
+### P4.3 WIC factory experiment (2026-10-11, rejected)
+
+One lazy temporary WIC owner per refresh replaces separate decode, copy, crop and scale factories. The experiment
+preserves extraction order, dimensions, alpha/padding and all 20 PNG/shell reference frames. Real-DLL sharing,
+empty/glyph-only zero creation, transient creation failure/retry, clean preparation and device-recovery tests pass.
+Its native inputs and artifacts are sealed: Debug 15, Release 16 and default-quarantine ASan Debug 15 scopes pass,
+alongside ARM64 Release compilation and 10 skills. Release private-growth peaks are Matrix 1,830,912, Studio
+1,593,344 and Desk 1,441,792 bytes, within the ordinary four-MiB guard. These functional passes do not accept latency.
+
+Two fresh XENEON Release pairs run the identical 20-second, one-second-probe, three-cycle sequence in opposite
+orders. Every run has 18 complete stage parents, 402 callbacks, 18 preparation terminals and no dropped records.
+Scene/collector/OS/CPU/power/geometry/build-number checks match; only Launcher.dll changes among runtime binaries.
+The final portable documents also have identical hashes. Each pair observes six Launcher visibility callbacks:
+
+| Metric | Control / candidate, first order | Control / candidate, reverse order |
+| --- | --- | --- |
+| Visibility median, ms | 88.2095 / 96.483 | 82.9675 / 92.8905 |
+| Visibility maximum, ms | 368.447 / 166.976 | 175.811 / 208.182 |
+| Quantized callback CPU median, ms | 78.125 / 85.9375 | 78.125 / 85.9375 |
+| Whole Gallery stage median, ms | 105.620 / 117.0385 | 103.224 / 118.497 |
+
+The candidate's visibility median is higher in both observations. Live shell/driver/data state is not pinned, so
+this does not identify the causal mechanism, but it does not establish the required improvement. Reject the
+batching change and retain the preceding implementation; no permanent icon cache or worker is substituted.
+First-order cold/returned Matrix CPU is 2.301/1.808 percent in control and 2.053/1.724 in candidate; submissions
+are about 60.16/s in both. Hidden/minimized submissions are zero throughout. Cold/returned local usage is
+25.01/32.26 MiB in both; private values vary by less than one MiB within each pair. None proves causal steady CPU,
+return-memory, physical-input or first-changed-pixel savings.
+
+Receipts: `.build/receipts/p43-wic-final-scope-accounting.json`, `p43-wic-pixel-comparison.json`,
+`p43-wic-matched-comparison.json`, `p43-wic-matched-comparison-reverse.json`, `runtime-2026-10-11-p43-wic`,
+`runtime-2026-10-11-p43-wic-stage-{control,candidate}` and their `-reverse` counterparts.
+`p43-wic-rejected-candidate` preserves the rejected source and Release artifacts. The first test-build syntax
+failure and the missing reference-DLL dependency attempt remain in their original logs. This experiment is a
+completed decision, not an accepted optimization or qualification of the restored tree's current build outputs.
 
 ### P0.2 mouse/key capture attempts and next attribution (2026-10-11)
 
