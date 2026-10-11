@@ -31,6 +31,7 @@
 
 void TestNativeProcessQuery();
 void TestProcessActivity(IRedXeDataSource& source, IRedXeSystemDataTestSource& test);
+void TestSystemDataArena(RedXeCreateFn create, HMODULE module);
 
 namespace
 {
@@ -847,6 +848,7 @@ void Run(bool benchmark, bool domains)
     const std::vector<std::wstring> modulesBeforeCollect = LoadedModuleNames();
 
     const RedXeCreateFn create = Resolve<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    TestSystemDataArena(create, module.get());
     const RedXeEnumeratePluginsFn enumerate =
         Resolve<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
     const RedXeGetPluginSettingsContractFn getSettings =

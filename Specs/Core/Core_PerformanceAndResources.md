@@ -31,10 +31,21 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   Its native collection opens no per-process handle and populates no legacy detail values. A combined request for
   activity and the compatible 39-column `process.list` shares one walk, population pass and history epoch, with
   activity rows borrowing the leading values. Toolhelp fallback preserves accessible leading-field quality and
-  shared rate history. One 2,048-row view array adds 49,152 bytes while fixed storage remains, accepted to avoid
-  duplicating values and preserve legacy subscribers. The entire source remains below the 16-MiB ceiling; lazy
-  per-family commitment is separate arena work. The private 64-byte diagnostics and copied-walk test seam add
-  bounded counters/clock state, no worker, timer or production acquisition mode.
+  shared rate history. One 2,048-row view array reserves 49,152 bytes, committed only for combined activity/detail
+  requests, to avoid duplicating values and preserve legacy subscribers. The private 104-byte diagnostics and
+  copied-walk test seam add bounded counters/clock state, no worker, timer or production acquisition mode.
+- Each System Data source owns one 16-MiB virtual reservation. Its control object occupies the initial committed
+  pages; page-aligned acquisition families and output tables commit on first use. Process-only walks validate every
+  thread range without copying optional thread scratch. Activity commits an eight-value prefix; legacy detail
+  extends the same value region to 39 columns. Collection preflights commitment before sampling or replacing rate
+  history. A failure publishes no batch or sequence and preserves pending samples/history; successfully committed
+  earlier families remain reusable. Nontrivial GPU/network/power owners construct only on first use, and every
+  constructed family is destroyed before final COM release returns the entire reservation. Unused owners/history
+  must never be read. Steady reuse commits no additional pages and allocates no plugin heap storage. The maximum
+  used layout and fully-used commitment remain strictly below 16 MiB; reservation capacity is exactly 16 MiB.
+  Cold uncollected commitment MUST be at most 64 KiB; the shipped System subscriptions MUST commit at most
+  10 MiB. Actual x64 receipts are 4 KiB cold, 9,920,512 bytes shipped and 16,531,456 full, without additional
+  commitments on repeated collection. Final source release returns every reserved/committed arena page.
 - Steady-state frame construction and rendering must not allocate or free heap memory after initialization.
 - Per-frame and per-widget storage must be bounded and reused. Capacity exhaustion fails one widget frame safely; it
   must not trigger unbounded growth on the render path.
@@ -395,7 +406,7 @@ allocation checks pass in all 16 Release scopes and 15 Debug/15 ASan Debug nativ
 
 The 2026-10-11 activity consumer cut preserves the legacy 39-column detail dataset and adds an eight-column
 native path with zero per-PID handle opens. Combined requests share one population/history epoch and borrow the
-leading values. Fixed source storage is 16,487,056 bytes, up 49,296 for a 49,152-byte row-view array and bounded
+leading values. Before the subsequent arena cut, fixed source storage was 16,487,056 bytes, up 49,296 for a 49,152-byte row-view array and bounded
 metadata/test state; this compatibility cost is accepted below the 16-MiB ceiling. All 145 Viewer references are
 identical. Real native zero-opens, request ordering, PID reuse/rates, abort recovery, row/name caps and fallback
 quality pass all 16 Release scopes, 15 Debug/ASan native scopes, ARM64 Release compilation and 10 skills. Row-cap
@@ -408,6 +419,23 @@ QPC-joined PresentMon cohorts use hardware-composed independent flip, all cohort
 hybrid. The reversed candidate's maximum display-change interval is 1,928.487 ms; sparse update intervals include
 idle and do not qualify input/callback latency. Receipts: `.build/receipts/runtime-2026-10-11-p21-activity`,
 `-control`, `-images`, `-paired`, `-paired-reverse`, `-presented` and `-presented-reverse`.
+
+The independent 2026-10-11 source-arena cut passes actual region/fault/history/COM/native-owner tests,
+all Release/Debug/ASan scope obligations, ARM64 compilation and ten skills. A final correction changes only the
+source test's subscription set; fresh source scopes cover it and frozen comparisons preserve the remaining Full
+scope evidence. All 145 Viewer frames match. Actual 15 shipped subscriptions use system.summary and no gpu.engine:
+default commitment is 9,920,512 bytes, full 16,531,456, maximum layout 16,592,896 and controller 2,816. The 105,840
+layout-byte increase for alignment/control reserve is accepted within the one 16-MiB reservation; unused pages stay
+uncommitted. Private diagnostics are 104 bytes and cold module counters cost 28 bytes before linker alignment.
+Public-factory median construction is 1,830.05/2.35 us and counterbalanced 1,978.3/2.3 us, including equal FFI
+overhead. Matched System private falls 58.67/51.43 and 58.50/51.25 MiB; CPU is 1.248/2.312 and 2.005/1.691%
+of one core, submissions 5.507/11.985 and 12.147/12.184/s. Live data and first-pair thread/module counts vary;
+no causal CPU/cadence saving is claimed. All PresentMon cohort frames display through hardware-composed independent
+flip, hybrid zero. Three exact-PID/DLL/PDB observations each show one 9,920,512-byte arena on System and zero
+source/reservation/commit/GPU/network/power owners after return. D cold private is 35.79/36.69 MiB, returned
+104.46/105.65; local usage 25.01 cold/46.26 returned in both, inactive submissions zero. Source retirement does
+not accept the proposed whole-process +4-MiB budget. The failed observer guard and final PDB-copy hash recovery
+are retained; production DLL bytes remain unchanged. Receipts: .build/receipts/runtime-2026-10-11-p41-arena*.
 
 The independent CPU-atlas lifetime cut replaces ProcessViewer and Weather's inline one-MiB arrays with lazy,
 shared virtual-memory owners. Real DLL tests reject the old lifetime and verify cold construction, two users,
@@ -434,8 +462,9 @@ wall time per collection; the corresponding 64-collection CPU probe medians were
 reported zero busy-heap block/byte growth, zero handle growth, zero private-byte growth, and a 4 KiB working-set delta.
 This evidence accepts the current Toolhelp/per-process-query baseline; future metric expansion must remeasure before
 raising storage, cadence, worker, or per-row work. The expansion fast-lane ceiling is 16 MiB of source-owned storage
-with compact previous samples; the shipped source object MUST remain under 16 MiB. After the CPU/memory/process,
-network/storage, GPU, and power/thermal expansion, x64 `sizeof(SystemDataSource)` is 15,920,696 bytes. Release x64
+with compact previous samples. The current arena rule above bounds fully-used commitment and the maximum used
+layout below 16 MiB within one 16-MiB reservation. After the historical CPU/memory/process,
+network/storage, GPU, and power/thermal expansion, x64 `sizeof(SystemDataSource)` was 15,920,696 bytes. Release x64
 `--domains` (2026-09-01, eight samples on a hot source after the contract suite) measured cheap datasets under 0.4 ms,
 live `process.list` (673 rows) at 73.9 ms, truncated `thread.list` (8,192 rows) at 43.8 ms, `thermal.sensor` at 11.3 ms,
 `gpu.engine` at 9.6 ms, and one 18-dataset batch at 127.5 ms; the hang budget is five seconds per collection. Network
@@ -674,8 +703,12 @@ remain with the AV owner.
   by the scheduler decision seam additionally require a live check that inactive windows do not spin and recovery
   resumes rendering.
 - System-data validation must exercise two 2,048-row steady collections through the production row-population path,
-  report CPU/wall time, private bytes, working set, heap, handles, and fixed source storage, and fail on heap or handle
-  growth or source storage of 16 MiB or more. Release x64 must also time each catalog dataset and one full-catalog batch
+  report CPU/wall time, private bytes, working set, heap, handles, and bounded source storage, and fail on heap or handle
+  growth or a maximum used layout/fully-used commitment of 16 MiB or more. Actual `VirtualQuery` state must agree with
+  cold, single-family, default and full-catalog diagnostics; cold commitment is at most 64 KiB and the 15 default
+  System datasets use at most 10 MiB. Reserve/control/first-use/partial/detail-expansion failure, history preservation,
+  steady reuse, malformed native thread ranges with and without scratch, copied fixture ownership, COM identity and
+  final reservation/nontrivial-owner release must pass. Release x64 must also time each catalog dataset and one full-catalog batch
   (`SystemDataTests --domains`) and fail only on collect failure or a hang exceeding five seconds per collection.
   Collecting every dataset MUST NOT load `wbemprox.dll`, `fastprox.dll`, or `wbemcomn.dll`. The host integration test
   must leave Process Viewer and the System page hidden for longer than the dataset interval and observe no additional

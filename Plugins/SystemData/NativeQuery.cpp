@@ -603,7 +603,7 @@ bool RedXeNativeQueryCheap(RedXeNativeState& state, RedXeNativeCheapSample& samp
     return sample.handleCountsValid || sample.processorTimesValid || sample.topologyValid;
 }
 
-bool RedXeNativeQueryWalk(RedXeNativeState& state, RedXeNativeWalkSample& sample) noexcept
+bool RedXeNativeQueryWalk(std::span<std::byte> buffer, RedXeNativeWalkSample& sample) noexcept
 {
     sample.valid = false;
     sample.processesTruncated = false;
@@ -612,13 +612,28 @@ bool RedXeNativeQueryWalk(RedXeNativeState& state, RedXeNativeWalkSample& sample
     sample.threadCount = 0;
     sample.imageArenaUsed = 0;
     const NtQuerySystemInformationFn query = ResolveNtQuerySystem();
-    if (!query)
+    ULONG returned = 0;
+    if (!query || !RedXeNativeProcessQuery::Collect(query, buffer, returned))
     {
+        sample.valid = false;
         return false;
     }
+    return RedXeNativeDecodeWalk(buffer, returned, sample);
+}
 
-    ULONG returned = 0;
-    if (!RedXeNativeProcessQuery::Collect(query, state.processBuffer, returned))
+bool RedXeNativeDecodeWalk(std::span<const std::byte> buffer, uint32_t readableBytes,
+                           RedXeNativeWalkSample& sample) noexcept
+{
+    sample.valid = false;
+    sample.processesTruncated = false;
+    sample.threadsTruncated = false;
+    sample.processCount = 0;
+    sample.threadCount = 0;
+    sample.imageArenaUsed = 0;
+    const size_t returned = readableBytes;
+    if (returned == 0 || returned > buffer.size() || buffer.size() > kRedXeNtProcessBufferBytes ||
+        reinterpret_cast<uintptr_t>(buffer.data()) % alignof(RedXeNtProcessRecord) != 0 ||
+        sample.threads.size() > kRedXeMaximumNativeThreads || (!sample.threads.empty() && !sample.threads.data()))
     {
         return false;
     }
@@ -629,18 +644,18 @@ bool RedXeNativeQueryWalk(RedXeNativeState& state, RedXeNativeWalkSample& sample
     size_t offset = 0;
     for (;;)
     {
-        if (offset + sizeof(RedXeNtProcessRecord) > returned)
+        if (offset % alignof(RedXeNtProcessRecord) != 0 || offset + sizeof(RedXeNtProcessRecord) > returned)
         {
             return false;
         }
-        const auto* record = reinterpret_cast<const RedXeNtProcessRecord*>(state.processBuffer.data() + offset);
+        const auto* record = reinterpret_cast<const RedXeNtProcessRecord*>(buffer.data() + offset);
         const size_t threadBytes = static_cast<size_t>(record->numberOfThreads) * sizeof(RedXeNtThreadRecord);
         if (offset + sizeof(RedXeNtProcessRecord) + threadBytes > returned)
         {
             return false;
         }
-        const auto* threads = reinterpret_cast<const RedXeNtThreadRecord*>(state.processBuffer.data() + offset +
-                                                                           sizeof(RedXeNtProcessRecord));
+        const auto* threads =
+            reinterpret_cast<const RedXeNtThreadRecord*>(buffer.data() + offset + sizeof(RedXeNtProcessRecord));
 
         if (sample.processCount < sample.processes.size())
         {
@@ -677,7 +692,7 @@ bool RedXeNativeQueryWalk(RedXeNativeState& state, RedXeNativeWalkSample& sample
                 row.privateBytes =
                     static_cast<uint64_t>(record->privatePageCount) * static_cast<uint64_t>(systemInfo.dwPageSize);
             }
-            if (!CopyImageName(record->imageName, state.processBuffer.data(), returned, sample, row))
+            if (!CopyImageName(record->imageName, buffer.data(), returned, sample, row))
             {
                 return false;
             }
@@ -688,7 +703,7 @@ bool RedXeNativeQueryWalk(RedXeNativeState& state, RedXeNativeWalkSample& sample
             sample.processesTruncated = true;
         }
 
-        for (uint32_t threadIndex = 0; threadIndex < record->numberOfThreads; ++threadIndex)
+        for (uint32_t threadIndex = 0; !sample.threads.empty() && threadIndex < record->numberOfThreads; ++threadIndex)
         {
             if (sample.threadCount < sample.threads.size())
             {
@@ -718,7 +733,8 @@ bool RedXeNativeQueryWalk(RedXeNativeState& state, RedXeNativeWalkSample& sample
             sample.valid = true;
             return true;
         }
-        if (record->nextEntryOffset < sizeof(RedXeNtProcessRecord) || offset + record->nextEntryOffset > returned)
+        if (record->nextEntryOffset < sizeof(RedXeNtProcessRecord) + threadBytes ||
+            offset + record->nextEntryOffset > returned)
         {
             return false;
         }

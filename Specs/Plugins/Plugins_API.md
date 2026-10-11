@@ -1069,7 +1069,18 @@ restart at a smaller size or allocate on a length mismatch. A failed query, zero
 query reporting beyond that capacity exposes no readable bytes and retains the existing Toolhelp fallback. Record,
 thread and image parsing remains bounded by the successful measured `ReturnLength`; all published columns and caps
 are unchanged.
-CPU deltas use fixed prior-sample tables; collection allocates no plugin heap storage after source creation and creates
+The source control object and all storage share one 16-MiB virtual reservation. Page-aligned acquisition families
+and each output table commit on first use, with C++ construction only after successful commitment. Shared GPU,
+network/storage and power acquisition state retains its existing bounded internal caches. The control object stays
+in the first pages; the maximum used layout and fully-used commitment are below 16 MiB. Native process walks borrow
+the committed four-MiB query buffer and copy normalized thread rows only when requested, while always validating
+their complete ranges. Activity commits the eight-value prefix; legacy detail extends that same region without
+moving it. The additional activity row views commit only for a combined request.
+Every requested family's commitment is preflighted before sampling/history mutation. Failed reserve/commit clears
+outputs, publishes no sequence and retains pending normalized test samples/rate history. Partial successful
+commitments remain reusable. Final COM release destroys only constructed families, including their nontrivial
+owners, before returning the entire reservation through its WIL owner. Uncommitted histories are never accessed.
+CPU deltas use bounded prior-sample tables; steady collection commits no pages, allocates no plugin heap storage and creates
 no worker, timer, outbound network request, or persistent process handle. The source may retain one IP Helper
 `NotifyIpInterfaceChange` registration (callback sets a dirty flag only) and bounded read-only disk and battery handles,
 both released when the source is destroyed. Only `PluginHost` calls `CollectSnapshots`. Consumers obtain the
@@ -1078,8 +1089,12 @@ adapter, battery, or thermal sensor is a valid empty or `Unavailable` snapshot; 
 host-specific churn rather than a second catalog shape. ARM64 shares the x64 64-bit native record layouts; a live ARM64
 host is not required for the shipped catalog.
 
-`SystemData.Tests.Contract.h` declares a test-only sibling interface with a pinned 64-byte diagnostic record that
-reports source bounds, process population passes, handle-open attempts, history replacements, value stride and backend.
+`SystemData.Tests.Contract.h` declares a test-only sibling interface with a pinned 104-byte diagnostic record that
+reports source bounds, process population passes, handle-open attempts, history replacements, value stride/backend,
+reservation/commitment, base, control size and commitment attempts. Private module controls expose a 40-byte
+ownership record and deterministic reserve/control failures, plus the production native decoder. Per-source
+first-use failure injection leaves steady reused families alone. These counters run only on cold construction,
+commitment and teardown; the six module atomics occupy 28 bytes before linker alignment.
 It drives the same legacy row path with a requested synthetic count and can copy one bounded normalized walk/system-time
 epoch for the next process/thread batch, including invalid-walk fallback. No caller pointer is retained. It is not
 a published plugin ABI, dataset, host dependency, or production acquisition mode. Its controlling `IUnknown`, exact record size, excessive-row
