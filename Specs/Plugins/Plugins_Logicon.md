@@ -216,6 +216,18 @@ name's Unicode glyphs and its middle-dot separator there. Changed 48×48 glyph c
 Render allocates no fonts and uploads neither atlas nor face texture; late service state waits for the next
 preparation. Device recreation MUST preserve the prepared pixels.
 
+The visible publication stamp includes the displayed host name/index/count/raised state, so changing only a
+dashboard name requests a monitor frame. Stamp and snapshot publication/copy share the service lock; frame requests
+occur after unlocking. With no monitor attached, publication copies service diagnostics without hashing monitor
+fields or requesting a frame. Other-mouse/motion packet counters still cannot wake the monitor.
+One temporary font session serves the preparation's strings and releases every owner before drawing, including
+failure. An unchanged failed preparation returns `S_FALSE` before font/raster/upload work; a changed visible
+publication, DPI/tile/raised extent, visibility transition or device recreation permits recovery. Its bounded key
+is 32 bytes plus a failure flag, with no extra snapshot, worker, timer or allocation. Hidden or unprepared paint
+MUST NOT draw or accept new control taps; Up/Cancel still releases an already held virtual control. Reshow and
+device creation invalidate paint/input until preparation succeeds. Linear glyph sampling clamps to that cell's
+half-texel bounds to prevent a cached neighboring accent from changing unrelated text pixels.
+
 Taps: a key cell in `Press` mode injects a press on pointer down and the release on pointer up, running that key's
 binding exactly as the hardware would; `Color` mode pushes the next palette color to the key; `Picture` mode pushes a
 generated gradient test picture; `Clear` mode restores the configured face; page-button and dialpad-button cells
@@ -251,7 +263,10 @@ cleared by a new settings object. Release builds keep the tile catalogued but re
   listener's start fails with `ERROR_ALREADY_EXISTS`, creates no window, and leaves that registration; a stop leaves
   a later owner's registration in place and removes only the listener's own); and the shipped DLL's
   metadata, contract, monitor provider (constructs in Debug, refuses in Release), Debug WARP preparation/drawing
-  with Unicode host names, late-state stability and identical pixels after device recreation, service creation and rejection,
+  with Unicode host names, name-only frame publication, late-state stability and identical pixels after device
+  recreation (including a history of different cached accents), real font acquisition followed by injected failure,
+  100 unchanged failed preparations with zero added font/upload work, extent/new-data/visibility/device recovery,
+  hidden/unprepared input/draw suppression and held virtual-control Up/Cancel release, service creation and rejection,
   identity, lane start and drain, host state, synthetic connect, faces, actions from injected and raw presses reaching the fake host's `RequestAction`,
   bindings validated through the fake host's `ValidateAction`, `keys.down` / `mouse.down` bindings on a key, a
   dialpad button, and a turn that apply, log `binding-invalid` naming their control, skip `ValidateAction`, and request

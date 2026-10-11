@@ -77,6 +77,12 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   including failure. Weather adds one bounded 9,904-byte paint snapshot plus revision/phase bookkeeping per widget,
   accepted to preserve complete forecast/alert data and tile/raised coherence. Render performs no atlas upload or
   worker-snapshot copy/lock. Clean preparation allocates/uploads nothing; unchanged failed preparation does not retry.
+  The Debug Logicon monitor applies the same temporary-font and failed-preparation rule, with one 32-byte
+  publication/extent key plus a flag. It draws/accepts new input only after successful visible preparation, while
+  Up/Cancel still releases held virtual input. No attached monitor means no monitor hash/frame-request work.
+  Viewer/monitor linear font filtering clamps to each cell's half-texel bounds. This retains the full glyph, one
+  texture sample and existing atlas/instance/draw budgets, accepting the bounded clamp instructions and one flat
+  GPU varying to prevent visible neighboring-ink leakage after cache changes or device recreation.
 - Derived display state such as DPI, design-canvas transforms, and widget viewports must be cached and recomputed only
   when its inputs change.
   Provider staging retains at most 1 KiB of compact keys instead of 32 copied 8 KiB envelopes. Key comparisons

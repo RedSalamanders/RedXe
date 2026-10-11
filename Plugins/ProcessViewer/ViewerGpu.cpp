@@ -512,8 +512,6 @@ HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t character
         return S_OK;
     }
 
-    if (g_failNextGlyphPreparationForTest.exchange(false, std::memory_order_relaxed))
-        return E_OUTOFMEMORY;
     HRESULT result = S_OK;
     if (!_preparationFontFace)
     {
@@ -526,6 +524,9 @@ HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t character
         _preparationFontFace = std::move(session.face);
         g_livePreparationFonts.fetch_add(1, std::memory_order_relaxed);
     }
+    // Inject after acquiring the real font owners so callers' failure cleanup is exercised too.
+    if (g_failNextGlyphPreparationForTest.exchange(false, std::memory_order_relaxed))
+        return E_OUTOFMEMORY;
     for (uint32_t index = 0; index < characters; ++index)
     {
         const wchar_t character = text[index];

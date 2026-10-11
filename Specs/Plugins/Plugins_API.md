@@ -191,13 +191,16 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   the cold initialization faults `RedXeProcessViewerFailNextAtlasInitialization` and
   `RedXeWeatherFailNextAtlasInitialization` (one failure after CPU atlas construction, consumed by the next actual
   resource initialization rather than a shared-resource acquisition),
-  `RedXeProcessViewerFailNextGlyphPreparation` (one failure on the next missing-glyph preparation),
+  `RedXeProcessViewerFailNextGlyphPreparation` (one failure after acquiring temporary fonts for the next missing glyph),
   `RedXeWeatherFailNextGlyphPreparation` (one failure after acquiring temporary fonts for the next missing glyph),
   `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
   `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`, and the Logicon surface
   `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconUseSyntheticDialpad`,
   `RedXeLogiconInjectControl`, `RedXeLogiconInjectSyntheticReport`, `RedXeLogiconSetFaceOverride`, and
-  `RedXeLogiconSetBrightness`. AV synthetic mode is accepted only before providers exist and is never exposed as a
+  `RedXeLogiconSetBrightness`, `RedXeLogiconGetMonitorTestDiagnostics`, and
+  `RedXeLogiconFailNextMonitorGlyphPreparation`. The two monitor exports are UI-thread Debug accounting/fault hooks;
+  Release returns a zero-resource `E_NOTIMPL` diagnostic and the fault is a no-op. The monitor fault occurs after
+  acquiring the real temporary font owners, so cleanup on failure is validated. AV synthetic mode is accepted only before providers exist and is never exposed as a
   user setting or environment toggle; the Logicon synthetic keypad is selected only through its exports or the Debug
   monitor tile, and the synthetic dialpad only through its export, never by a setting.
 - Every factory call names one non-empty plugin ID. Null and empty IDs are invalid, including in single-plugin DLLs.

@@ -451,6 +451,11 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
     {
+        if (_visible != (visible != FALSE))
+        {
+            _snapshotValid = false;
+            _preparationFailed = false;
+        }
         _visible = visible != FALSE;
         if (_visible && _host)
         {
@@ -476,6 +481,8 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             return E_INVALIDARG;
         }
         _faceGeneration = 0;
+        _snapshotValid = false;
+        _preparationFailed = false;
         return _gpu.Initialize(context->device);
     }
 
@@ -483,6 +490,8 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     {
         _gpu.Reset();
         _faceGeneration = 0;
+        _snapshotValid = false;
+        _preparationFailed = false;
     }
 
     HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
@@ -509,6 +518,16 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             _snapshotValid = false;
             return S_FALSE;
         }
+        uint64_t visibleStamp = 0;
+        service->CopyMonitorSnapshot(_snapshot, &visibleStamp);
+        const std::array extents{context->dpi, context->tileWidthPixels, context->tileHeightPixels,
+                                 context->raisedWidthPixels, context->raisedHeightPixels};
+        if (_preparationFailed && _failedPreparation.visibleStamp == visibleStamp &&
+            _failedPreparation.extents == extents)
+            return S_FALSE;
+        // Every failure below is suppressed until the published visible state, extent or lifecycle changes.
+        _failedPreparation = PreparationKey{visibleStamp, extents};
+        _preparationFailed = true;
         if (!_faces)
         {
             _faces.reset(new (std::nothrow) uint32_t[kGridPixels]);
@@ -518,7 +537,6 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             }
             std::fill_n(_faces.get(), kGridPixels, 0xFF000000U);
         }
-        service->CopyMonitorSnapshot(_snapshot);
         if (service->CopyFaceSurface(_faces.get(), kGridPixels, _faceGeneration))
         {
             _gpu.UploadFaces(_faces.get());
@@ -537,6 +555,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         if (FAILED(result))
             return result;
         gpu->UploadDirtyGlyphs();
+        _preparationFailed = false;
         _snapshotValid = true;
         return S_OK;
     }
@@ -557,7 +576,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         {
             return E_UNEXPECTED;
         }
-        if (!_snapshotValid)
+        if (!_visible || !_snapshotValid)
             return S_FALSE;
         const float width = static_cast<float>(widget.widthPixels);
         const float height = static_cast<float>(widget.heightPixels);
@@ -596,8 +615,6 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             return S_FALSE;
         }
         LogiconService* service = LogiconService::Current();
-        const Layout layout =
-            ComputeLayout(static_cast<float>(event->widthPixels), static_cast<float>(event->heightPixels));
         if (event->phase == RedXePointerPhaseUp || event->phase == RedXePointerPhaseCancel)
         {
             if (_heldKind != 0xFF && service)
@@ -608,6 +625,10 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             _heldKind = 0xFF;
             return consumed ? S_OK : S_FALSE;
         }
+        if (!_visible || !_snapshotValid || !_gpu.Ready())
+            return S_FALSE;
+        const Layout layout =
+            ComputeLayout(static_cast<float>(event->widthPixels), static_cast<float>(event->heightPixels));
         for (uint32_t slot = 0; slot < kKeyCount; ++slot)
         {
             if (layout.keys[slot].Contains(event->x, event->y))
@@ -950,6 +971,14 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     ViewerDrawList _list;
     MonitorSnapshot _snapshot{};
     bool _snapshotValid = false;
+    bool _preparationFailed = false;
+    struct PreparationKey final
+    {
+        uint64_t visibleStamp = 0;
+        std::array<uint32_t, 5> extents{};
+    };
+    static_assert(sizeof(PreparationKey) == 32);
+    PreparationKey _failedPreparation{};
     std::unique_ptr<uint32_t[]> _faces;
     uint32_t _faceGeneration = 0;
     bool _visible = false;

@@ -8,6 +8,7 @@ struct ViewerInput
     float2 atlasUv : TEXCOORD1;
     nointerpolation float4 color : COLOR0;
     nointerpolation float4 params : TEXCOORD2;
+    nointerpolation float4 atlasBounds : TEXCOORD3;
 };
 
 float RoundedCoverage(float2 uv, float2 size, float radius)
@@ -40,7 +41,11 @@ float4 PixelMain(ViewerInput input) : SV_Target
     float coverage = 0.0f;
     if (kind == 3U)
     {
-        coverage = glyphAtlas.Sample(glyphSampler, input.atlasUv);
+        // Linear filtering must never fetch an adjacent glyph's ink at a fractional-size quad edge.
+        // Keep the full glyph cell and its filtering; the shared atlas is exactly 1024x1024.
+        const float2 halfTexel = float2(0.5f / 1024.0f, 0.5f / 1024.0f);
+        const float2 uv = clamp(input.atlasUv, input.atlasBounds.xy + halfTexel, input.atlasBounds.zw - halfTexel);
+        coverage = glyphAtlas.Sample(glyphSampler, uv);
     }
     else if (kind == 2U)
     {

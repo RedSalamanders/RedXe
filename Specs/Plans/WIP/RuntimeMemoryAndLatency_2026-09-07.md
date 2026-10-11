@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `793fe52` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `3e79fb2` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -75,9 +75,10 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P3.6 | In progress; source and GPU binding cuts complete | `7c1f72b`: quiescent last-consumer source reclamation preserves facade identity, inactive/staged subscriptions and external leases. Matched retained private 87.61 → 71.75 MiB. The separate GPU binding cut proves last-owner release, identical pixels and no device/swap-chain rebuild. All 16 Release scopes, 15 Debug and ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Its matched retained private is 69.54 → 69.08 MiB and local usage 47.26 → 46.26 MiB, versus cold 25.01. Submissions remain about 60/s, hidden/minimized zero; no CPU saving established. Remaining return budget and cache attribution stay open. `runtime-2026-10-10-p36-source`, `-p36-before`, `-p36-after`, `-p36-gpu`. |
 | P2.1 | Single-capacity query cut complete; activity/storage proposal remains | Native walk queries its existing four-MiB buffer once; columns, caps, history and fallback remain. Capacity red/green, failure/invalid-length and real DLL field/catalog/row-cap/history/allocation checks pass. All 16 Release scopes, 15 Debug and 15 ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Source storage remains 16,437,760 bytes. Standalone 64 pairs: two calls → one, median 20.121 → 11.678 ms. Matched 65 s System control / after-1 / after-2: CPU 2.186 / 2.653 / 2.238%, submissions 12.324 / 13.166 / 11.991/s; no whole-process saving established. `runtime-2026-10-10-p21-*`. |
 | P2.8 / P3.6 CPU atlas lifetime | Complete; preparation cuts recorded below | Cold construction, shared users, idempotent device loss, last release and failure/retry pass against real DLLs. Both one-MiB CPU owners reach zero. Unicode recovery pixels and eight Weather images remain identical. Matched D private: cold 38.23 → 35.51 MiB, returned 106.39 → 105.06; returned working set 98.16 → 96.16. Submissions about 60/s and inactive zero, local usage unchanged. Return-over-cold 68.16 → 69.55 MiB still misses the budget; no causal CPU saving claimed. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-10-p28-before`, `runtime-2026-10-11-atlas-after` and `-p28-atlas`. |
-| P2.8 Viewer preparation | Complete; monitor failure follow-up remains | Worker delivery freezes at UI preparation; a dirty glyph uploads 2,304 bytes, Render uploads none, and one temporary font session serves a preparation batch with zero retained owners. Added pending storage is 11,160 bytes per widget. All 145 preceding frame checksums match. Fresh matched control/candidate: CPU 2.134 / 2.055%, submissions 12.244 / 11.954/s, private 57.62 / 57.92 MiB, local 26.26 in both. Rate improvement remains unestablished. Release 16 scopes, Debug 15 native scopes accounted across the initial run and final HostPlugin/HostSmoke run, ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-11-p28-prepare-paired` and `-p28-prepare`. |
+| P2.8 Viewer preparation | Complete | Worker delivery freezes at UI preparation; a dirty glyph uploads 2,304 bytes, Render uploads none, and one temporary font session serves a preparation batch with zero retained owners. Added pending storage is 11,160 bytes per widget. All 145 preceding frame checksums match. Fresh matched control/candidate: CPU 2.134 / 2.055%, submissions 12.244 / 11.954/s, private 57.62 / 57.92 MiB, local 26.26 in both. Rate improvement remains unestablished. Release 16 scopes, Debug 15 native scopes accounted across the initial run and final HostPlugin/HostSmoke run, ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-11-p28-prepare-paired` and `-p28-prepare`. |
 | P2.8 Weather preparation | Complete | One 9,904-byte UI paint snapshot; one temporary batch font session, zero retained owners, 2,304-byte dirty-cell uploads and no worker font/Render upload work. Real worker, failure/recovery and eight identical PNGs pass. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release and 10 skills pass. Two counterbalanced Gallery pairs remain about 60.15 submissions/s; CPU has no established saving or repeatable regression. `runtime-2026-10-11-p28-weather`, `-paired` and `-paired-reverse`. |
 | P2.8 glyph capacity | Complete | Real preceding DLLs fail reused-cell ink and exhausted-label regressions; candidate passes with unchanged atlas/storage sizes. Eight Weather PNGs match. Release 16 scopes, Debug 15 native scopes accounted across the initial run and HostSmoke repeat, ASan 15 native scopes, ARM64 Release and 10 skills pass. The initial Debug capture crash remains unexplained and retained. `runtime-2026-10-11-p28-capacity`. |
+| P2.8 Debug monitor and shared sampling | Complete | Unchanged failed preparation suppresses font/raster/upload work; all recovery, real font cleanup and held-control release tests pass. A shared glyph-cell sampling fix resolves 16 visible neighboring-ink pixels after cache/device changes. All 145 Viewer references and eight Weather PNGs match. Final Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release and ten skills pass. Two counterbalanced System pairs establish no causal CPU saving or repeatable private-memory regression; local usage is 26.26 MiB throughout. QPC-joined PresentMon cohorts show hardware-composed independent flip, all cohort frames displayed and no hybrid presents. Input latency remains unqualified. `runtime-2026-10-11-p28-monitor`, `-paired`, `-paired-reverse`, `-presented` and `-presented-reverse`. |
 | P0.4 production raised Gallery | Accounting captured; presented-frame qualification remains open | One normal, non-activating hardware Release run proves AV tile 1,474,560 bytes, raised total 5,160,960, dismissal to tile, hidden zero and restored tile. Cold/raised settled 65 s each; all source/binary hashes, page, geometry, adapter, power and foreground checks pass. Visible submissions stay about 60/s; hidden zero. `runtime-2026-10-11-p04-raised-gallery`. |
 
 ### P2.8 Viewer preparation cut (2026-10-11)
@@ -158,7 +159,7 @@ candidate reading. `runtime-2026-10-11-p28-weather-paired` and `-paired-reverse`
 comparison. The demonstrated change is removal of worker font work, Render snapshot copying/locking and full-atlas
 uploads: one new cell uploads 2,304 bytes in Prepare, and a clean preparation or Render adds zero font/upload work.
 That cut exposed Weather's exhausted dynamic cursor and Viewer's reused-cell ink. The separate capacity cut below
-resolves both with real-DLL regressions. Debug monitor failure retry keeps the full P2.8 item open.
+resolves both with real-DLL regressions. The later Debug monitor cut completes failure retry and P2.8.
 
 ### P2.8 glyph capacity follow-up (2026-10-11)
 
@@ -180,6 +181,48 @@ ARM64 Release compiles with zero warnings/errors and all 10 skills pass. `runtim
 source/artifact hashes and logs; supporting receipts include `-capacity-control`, `-capacity-images` and
 `-capacity-capture-investigation`. This is a quality/capacity fix; no new whole-process CPU saving is claimed.
 Debug monitor failure retry remains the next preparation follow-up.
+
+### P2.8 Debug monitor preparation follow-up (2026-10-11)
+
+The preceding monitor with the new real-font fault seam fails the unchanged-failure retry regression. The candidate
+latches a 32-byte publication/extent key plus a flag, releases all temporary font owners on failure and suppresses
+100 unchanged preparation calls before font/raster/upload work. New published content (including a name-only host
+update), DPI/tile/raised extent, visibility or device changes permit recovery. Hidden/unprepared drawing and new
+control taps are suppressed, while Up/Cancel still releases a held virtual control; reshow/recreation requires
+successful preparation. Snapshot and visible-stamp publication/copy share the service lock. No attached monitor
+means no monitor hash or frame-request work. Private 32-byte Debug glyph diagnostics leave the existing 232-byte
+service diagnostic and production probe unchanged; Release has a resource-free `E_NOTIMPL` stub.
+
+The deeper device-recovery test also exposed neighboring atlas ink: after several cached accents, 16 unrelated
+label-edge pixels differ by up to 84 channel levels when the atlas is rebuilt. Clamping one linear glyph sample to
+its own half-texel cell bounds fixes the exact-pixel regression without shrinking/clipping glyphs, enlarging an
+atlas/instance buffer or adding draws/texture samples. The bounded shader clamp and flat bounds varying are
+justified by this visible quality defect. Final Release Full (16 scopes), Debug and ASan Debug Full native
+(15 scopes each, default sanitizer quarantine), ARM64 Release compilation and ten skill validations pass. The queued
+Debug run built before the final publication/diagnostic changes was cancelled and is not accepted evidence; the
+final Debug gate rebuilt the current sources. All 145 preceding Viewer references and eight Weather PNGs match.
+Focused Debug WARP passes failure/font release, clean work, name-only publication, recovery, exact device pixels,
+actual mode-chip hit controls and virtual-control Cancel/Up release. The fixture originally checked physical key
+state for a virtual press; it now proves press/release edges reach only the fake host. `-p28-monitor-control`
+retains the failing implementation and `-p28-monitor-release-control` the preceding Release Viewer and shaders.
+
+The shared shader has a matched 65-second System comparison in both orders, with one common PresentMon session per
+pair. Only the Viewer runtime DLL differs; scenes, all other runtime binaries, pin/provenance, version 1.0.282,
+AC power, OS/CPU, 2560×720/96-DPI geometry, page and AMD output-owned device match. Candidate restoration is verified.
+Live process data is not pinned; services/tray are disabled and no physical input or activation is sent.
+
+| Capture order | Control / candidate CPU, one core | Control / candidate submissions/s | Control / candidate private MiB | Control / candidate working set MiB |
+| --- | --- | --- | --- | --- |
+| Control first | 2.341 / 2.888% | 12.667 / 13.556 | 57.98 / 67.81 | 73.95 / 89.98 |
+| Candidate first | 2.835 / 2.185% | 12.450 / 12.168 | 57.79 / 57.78 | 74.09 / 74.37 |
+
+Both pairs keep 43 median threads, 78 modules, zero AV surface bytes and 26.26 MiB local adapter usage. The first
+private-memory difference did not repeat; its cause remains unattributed. CPU direction reverses, so no saving or
+repeatable regression is established. Both observations are retained rather than selecting the favorable run.
+QPC phase joins, trimmed by five initial seconds and one trailing second, confirm hardware-composed independent
+flip with no hybrid presents and every cohort frame displayed. Sparse settled-page intervals and CPU-start-to-display
+values include idle waiting and MUST NOT be presented as input latency or callback stalls. Physical input latency,
+other-page presentation modes and swipe qualification remain separate P0.2 work. No unreported ETW-loss claim is made.
 
 ### P0.4 composition accounting (2026-10-11)
 
@@ -373,7 +416,7 @@ attribution before treating it as proof of a particular collection cost.
 | SystemData | `CollectProcessesFromWalk` still opens each process; source members still use fixed zero-initialized arrays. P3.6 now reclaims unleased sources after collection/callback quiescence, retaining facade identity. | P2.1, P4.1 and remaining cache/return attribution in P3.6 stay active. The later normative contract accepts the current bounded per-process baseline; changing datasets needs a new measured contract change. |
 | ProcessViewer | P2.7 parks settled viewers (`S_FALSE`), snaps unchanged/sub-pixel targets, and schedules only visible easing/pulses at 33 ms. Eases use a fixed start pose and one host timestamp for both views; auxiliary observations do not restart them. `PluginHost::Deliver` still coalesces the initial invalidation. | Matched control: 14.126 submissions/s, 2.986% of one core. Two after-runs: 12.163/12.184 submissions/s, 3.515/3.069% CPU. Submission reduction is 13.7–13.9%; CPU improvement is not established. Proposed System budgets remain open. |
 | Logging/settings | P2.5 caches the writer's UTC date and swept policy; ordinary lines perform no directory enumeration or path allocation. Settings persistence flushes its temp file and checks the loaded document before replacement, but still runs synchronously. | P2.5 is complete. P2.6 must preserve the current flush, merge and stamp guarantees; the old proposed write-through replacement is obsolete. |
-| Retained plugin work | Launcher still reserves 32 GPU icon slices even for an empty authored list. Viewer and Weather upload changed glyph cells in preparation, with full gates and matched receipts. DeskClock's 1 ms animation deadline still exists. | P2.8 capacity/failure follow-ups and P4.3/P4.6 need current evidence; the September cost/line-number table below must not be used as current proof. |
+| Retained plugin work | Launcher still reserves 32 GPU icon slices even for an empty authored list. Viewer and Weather upload changed glyph cells in preparation; capacity, Debug monitor failure and shared sampling pass with full gates and matched receipts. DeskClock's 1 ms animation deadline still exists. | P4.3/P4.6 and Debug monitor face-copy lifetime need current evidence; the September cost/line-number table below must not be used as current proof. |
 | Probe | Opt-in `RuntimeProbe` shares existing message/frame-latency waits and the 32×1024 JSONL ring; disabled path has no diagnostic deadline/query. AV queries never load a module or prepare a view. | P0.1 changes diagnostics, not page rendering or service behavior. Invalid/unavailable counters stay explicitly marked. |
 
 ### P0.1 implementation and evidence
@@ -748,7 +791,7 @@ contract and validation updates.
 | P2.5 | **Complete 2026-10-10.** Writer-owned UTC date/policy cache: sweep on open, date change or changed retention value. Policy updates wake the idle writer and synchronize with flush; ordinary lines construct no path. | Same-day, unchanged/shortened policy, forward/backward UTC correction and actual idle-worker flush tests pass in Debug/Release; ARM64 Release compiles. Removes two enumerations per ordinary line; adds 20 bytes of cached date/policy, no thread or wake. |
 | P2.6 | **Candidate: settings persistence latency.** Coalesce and move durable writes off the UI thread only if measured promote stalls justify a bounded owner/worker design. Temp-file flushing and loaded-document/stamp/merge protections already exist; preserve them. Reusing the log worker is undecided. | No UI-thread disk-write stall at promote; concurrent edits, shutdown, failure recovery and stamps retain current guarantees. |
 | P2.7 | **Implemented and measured 2026-10-10: ProcessViewer wake discipline.** Settled viewers park; unchanged/sub-pixel values snap; real 320 ms easing and 420 ms pulses use a 33 ms deadline without immediate requests. Fixed-pose interpolation preserves tile/raised timestamps, ranks and endpoints. Tests cover all ten types, auxiliary deliveries, bursts, recovery, allocation and a scheduled production-host soak. | Fresh matched 14.126/s becomes 12.163/12.184/s (13.7–13.9% lower). CPU 2.986% becomes 3.515/3.069%; no CPU saving established. Proposed ≤2/s and ≤1.5% process CPU remain unmet; UI-thread ≤0.3% is unmeasured. Keep budget acceptance open and use P0.2 attribution to choose further work. |
-| P2.8 | **CPU lifetime, Viewer/Weather preparation/batching and capacity recovery complete.** Dirty 48×48 cells upload from Prepare, paint stays frozen across delivery and Render, and one temporary font session serves each changed batch with zero steady ownership. Reused cells clear old ink and Weather recycles above its reserved rows. Debug monitor failure retry remains. A trim export is optional only if actual ownership requires it. | Viewer: 145 preceding frame checksums identical and required gates accounted above. Weather: eight unchanged PNGs and capacity red/green tests; Release/Debug/ASan scopes, ARM64 compilation and skills are accounted above. Two Gallery pairs hold about 60.15 submissions/s; CPU moves in opposite directions and no saving or repeatable regression is established. |
+| P2.8 | **Complete: CPU lifetime, Viewer/Weather/Debug monitor preparation/batching, failure suppression and capacity recovery.** Dirty 48×48 cells upload from Prepare, paint stays frozen across delivery and Render, and one temporary font session serves each changed batch with zero steady ownership. Reused cells clear old ink, Weather recycles above its reserved rows, and shared linear sampling cannot fetch neighboring ink. Debug hidden/unprepared input waits, while held Up/Cancel still releases. | All 145 Viewer references and eight Weather PNGs match; real-DLL red/green and final Release/Debug/ASan scopes, ARM64 compilation and skills are recorded above. Counterbalanced Gallery and System observations establish no causal CPU saving or repeatable regression. A trim export remains conditional on actual retained ownership under P3.6. |
 | P2.9 | Measure callback drain stalls before redesigning waits. Network and subscription drains include `INFINITE` waits; a timeout cannot free state while a callback can still use it. Reuse current bounded/tombstoned control/device-lane patterns only where ownership permits. | Slow-fixture recovery bounds UI delay while preserving callback quiescence, cancellation and teardown lifetimes. |
 
 ### Phase 3 — fluid swipe, nothing left behind

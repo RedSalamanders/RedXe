@@ -18,6 +18,7 @@
 #include "PlugInterfaces/Service.h"
 #include "PlugInterfaces/Widget.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -1528,6 +1529,8 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
 #if defined(_DEBUG)
 [[nodiscard]] HRESULT TestMonitorPreparedDrawing(RedXeCreateFn create, TestHost& host, IRedXeService& service,
                                                  RedXeLogiconGetTestDiagnosticsFn diagnostics,
+                                                 RedXeLogiconGetMonitorTestDiagnosticsFn monitorDiagnostics,
+                                                 RedXeLogiconFailNextMonitorGlyphPreparationFn failGlyphs,
                                                  const RedXeHostState& original) noexcept
 {
     // Exercise the shipped Debug monitor against the synthetic lane; no HWND, physical input or device access.
@@ -1567,12 +1570,16 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     wil::com_ptr_nothrow<IRedXeWidget> widget;
     wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
     wil::com_ptr_nothrow<IRedXePreparedGpuWidget> prepared;
+    wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
     LOGICON_CHECK(SUCCEEDED(provider->CreateWidget(Logicon::kMonitorWidgetTypeId, "monitor.draw", widget.put())) &&
-                      SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(prepared.put())),
+                      SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(prepared.put())) &&
+                      SUCCEEDED(widget.query_to(interactive.put())),
                   "monitor drawing interfaces create");
     const auto cleanup = wil::scope_exit(
         [&]() noexcept
         {
+            const RedXePointerEvent cancel{sizeof(cancel), 1, RedXePointerKindMouse, RedXePointerPhaseCancel};
+            (void)interactive->OnPointer(&cancel);
             (void)widget->SetVisible(FALSE);
             gpu->OnDeviceLost();
             (void)service.OnHostState(&original);
@@ -1582,7 +1589,7 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
                   "monitor GPU and visibility initialize");
     const RedXeGpuPreparationContext preparation{sizeof(preparation), 96, width, height, 0, 0, {}};
     LOGICON_CHECK(prepared->Prepare(&preparation) == S_OK, "monitor snapshot and faces prepare");
-    const auto draw = [&](uint64_t& hash) noexcept -> HRESULT
+    const auto draw = [&](uint64_t& hash, uint8_t* pixels = nullptr) noexcept -> HRESULT
     {
         ID3D11RenderTargetView* view = target.get();
         context->OMSetRenderTargets(1, &view, nullptr);
@@ -1593,7 +1600,7 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
             sizeof(drawContext), &frame, context.get(), {0, 0, float(width), float(height), 0, 1}, 0};
         context->RSSetViewports(1, &drawContext.viewport);
         HRESULT result = gpu->Render(&drawContext);
-        if (FAILED(result))
+        if (result != S_OK)
             return result;
         context->CopyResource(readback.get(), texture.get());
         D3D11_MAPPED_SUBRESOURCE mapped{};
@@ -1602,8 +1609,14 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
             return result;
         hash = 14695981039346656037ULL;
         for (uint32_t y = 0; y < height; ++y)
+        {
+            if (pixels)
+                std::memcpy(pixels + static_cast<size_t>(y) * width * 4,
+                            static_cast<const uint8_t*>(mapped.pData) + static_cast<size_t>(y) * mapped.RowPitch,
+                            width * 4);
             for (uint32_t x = 0; x < width * 4; ++x)
                 hash = (hash ^ static_cast<const uint8_t*>(mapped.pData)[y * mapped.RowPitch + x]) * 1099511628211ULL;
+        }
         context->Unmap(readback.get(), 0);
         return S_OK;
     };
@@ -1623,6 +1636,155 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK && prepared->Prepare(&preparation) == S_OK &&
                       draw(late) == S_OK && late == after,
                   "monitor device recovery changed prepared pixels");
+    RedXeLogiconMonitorTestDiagnostics glyphs{sizeof(glyphs)};
+    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.livePreparationFonts == 0,
+                  "monitor retains no preparation fonts");
+    const auto unchanged = glyphs;
+    LOGICON_CHECK(prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK && late == after &&
+                      monitorDiagnostics(&glyphs) == S_OK && glyphs.fontSessions == unchanged.fontSessions &&
+                      glyphs.glyphUploadBytes == unchanged.glyphUploadBytes,
+                  "clean monitor preparation/drawing did font or upload work");
+
+    // At 1280x720 the Color chip is a real control in the status column (x=816.5..963, y=215.32..260.62).
+    RedXePointerEvent pointer{sizeof(pointer), 1,     RedXePointerKindMouse, RedXePointerPhaseDown, 870, 240, 0,
+                              width,           height};
+    LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK && draw(late) == S_OK && late != after,
+                  "monitor control-hit reference did not change Color mode");
+    pointer.x = 700; // Press mode: restore the exact original pixels without injecting a device control.
+    LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK && draw(late) == S_OK && late == after,
+                  "monitor control reference did not restore Press mode pixels");
+    pointer.x = 870;
+
+    updated.pageIndex = 3;
+    updated.pageName = L"Failure \u0101";
+    LOGICON_CHECK(
+        service.OnHostState(&updated) == S_OK &&
+            WaitUntil([&]() noexcept { return diagnostics(&report) == S_OK && report.hostPageIndex == 3; }, 2000),
+        "monitor failure snapshot arrives");
+    failGlyphs();
+    LOGICON_CHECK(prepared->Prepare(&preparation) == E_OUTOFMEMORY && draw(late) == S_FALSE &&
+                      monitorDiagnostics(&glyphs) == S_OK && glyphs.livePreparationFonts == 0 &&
+                      glyphs.fontSessions == unchanged.fontSessions + 1 &&
+                      glyphs.glyphUploadBytes == unchanged.glyphUploadBytes,
+                  "failed monitor preparation did not release acquired fonts or suppress drawing");
+    const auto failed = glyphs;
+    for (uint32_t repeat = 0; repeat < 100; ++repeat)
+        LOGICON_CHECK(prepared->Prepare(&preparation) == S_FALSE,
+                      "unchanged failed monitor preparation retried automatically");
+    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.fontSessions == failed.fontSessions &&
+                      glyphs.glyphUploadBytes == failed.glyphUploadBytes,
+                  "failed monitor retry loop did font/upload work");
+
+    LOGICON_CHECK(interactive->OnPointer(&pointer) == S_FALSE, "unprepared monitor accepted a control tap");
+    auto resized = preparation;
+    --resized.tileWidthPixels;
+    LOGICON_CHECK(prepared->Prepare(&resized) == S_OK && draw(after) == S_OK && monitorDiagnostics(&glyphs) == S_OK &&
+                      glyphs.glyphUploadCells == failed.glyphUploadCells + 1 &&
+                      glyphs.glyphUploadBytes == failed.glyphUploadBytes + 2304 && glyphs.livePreparationFonts == 0,
+                  "monitor extent recovery did not upload exactly the missing cell");
+
+    const uint32_t framesBeforeRename = host.frames.load(std::memory_order_relaxed);
+    updated.pageName = L"Name only \u0179";
+    LOGICON_CHECK(service.OnHostState(&updated) == S_OK &&
+                      WaitUntil([&]() noexcept
+                                { return host.frames.load(std::memory_order_relaxed) > framesBeforeRename; }, 2000),
+                  "name-only host update did not publish a monitor frame");
+    failGlyphs();
+    LOGICON_CHECK(prepared->Prepare(&resized) == E_OUTOFMEMORY && prepared->Prepare(&resized) == S_FALSE,
+                  "monitor name-only failure was not latched");
+    updated.pageName = L"New snapshot \u017b";
+    const uint32_t framesBeforeRecovery = host.frames.load(std::memory_order_relaxed);
+    LOGICON_CHECK(service.OnHostState(&updated) == S_OK &&
+                      WaitUntil([&]() noexcept
+                                { return host.frames.load(std::memory_order_relaxed) > framesBeforeRecovery; }, 2000) &&
+                      prepared->Prepare(&resized) == S_OK && draw(after) == S_OK,
+                  "new monitor snapshot did not recover failed preparation");
+    LOGICON_CHECK(widget->SetVisible(FALSE) == S_OK && prepared->Prepare(&preparation) == S_FALSE &&
+                      draw(late) == S_FALSE && interactive->OnPointer(&pointer) == S_FALSE,
+                  "hidden monitor prepared, drew or accepted input");
+    LOGICON_CHECK(widget->SetVisible(TRUE) == S_OK && interactive->OnPointer(&pointer) == S_FALSE &&
+                      prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK && late == after,
+                  "monitor reshow did not require preparation or preserve pixels");
+    const std::unique_ptr<uint8_t[]> oldPixels(new (std::nothrow) uint8_t[static_cast<size_t>(width) * height * 4]);
+    const std::unique_ptr<uint8_t[]> newPixels(new (std::nothrow) uint8_t[static_cast<size_t>(width) * height * 4]);
+    LOGICON_CHECK(oldPixels && newPixels, "monitor comparison buffers allocate");
+    LOGICON_CHECK(draw(after, oldPixels.get()) == S_OK, "monitor pixel reference captures");
+    gpu->OnDeviceLost();
+    LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK, "monitor recreated device setup failed");
+    LOGICON_CHECK(draw(late) == S_FALSE, "monitor recreated device drew before preparation");
+    LOGICON_CHECK(interactive->OnPointer(&pointer) == S_FALSE, "monitor recreated device accepted unprepared input");
+    LOGICON_CHECK(prepared->Prepare(&preparation) == S_OK, "monitor recreated device preparation failed");
+    LOGICON_CHECK(draw(late, newPixels.get()) == S_OK, "monitor recreated device draw failed");
+    if (late != after)
+    {
+        uint32_t changedPixels = 0, maximumDelta = 0, minX = width, minY = height, maxX = 0, maxY = 0;
+        for (uint32_t y = 0; y < height; ++y)
+            for (uint32_t x = 0; x < width; ++x)
+            {
+                bool changedPixel = false;
+                for (uint32_t channel = 0; channel < 4; ++channel)
+                {
+                    const size_t offset = (static_cast<size_t>(y) * width + x) * 4 + channel;
+                    const auto oldValue = uint32_t(oldPixels[offset]), newValue = uint32_t(newPixels[offset]);
+                    const uint32_t delta = oldValue > newValue ? oldValue - newValue : newValue - oldValue;
+                    maximumDelta = std::max(maximumDelta, delta);
+                    changedPixel |= delta != 0;
+                }
+                if (changedPixel)
+                {
+                    ++changedPixels;
+                    minX = std::min(minX, x);
+                    minY = std::min(minY, y);
+                    maxX = std::max(maxX, x);
+                    maxY = std::max(maxY, y);
+                }
+            }
+        std::printf("monitor_recreation before_hash=%llu after_hash=%llu\n", static_cast<unsigned long long>(after),
+                    static_cast<unsigned long long>(late));
+        std::printf("monitor_pixel_difference count=%u max_channel_delta=%u bounds=%u,%u-%u,%u\n", changedPixels,
+                    maximumDelta, minX, minY, maxX, maxY);
+    }
+    LOGICON_CHECK(late == after, "monitor recreated device changed prepared pixels");
+
+    // A control already held before failure must still receive Cancel while new input is suppressed.
+    const auto key = Logicon::KeyRegion(1); // The fake host receives page.next; no real action executes.
+    const float panelScale = 640.0f / static_cast<float>(Logicon::kPanelSize);
+    pointer.x = 12 + (static_cast<float>(key.x) + static_cast<float>(key.width) * 0.5f) * panelScale;
+    pointer.y = 12 + (static_cast<float>(key.y) + static_cast<float>(key.height) * 0.5f) * panelScale;
+    const uint32_t actionsBeforePress = host.actions.load(std::memory_order_relaxed);
+    LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK &&
+                      WaitUntil([&]() noexcept
+                                { return host.actions.load(std::memory_order_relaxed) == actionsBeforePress + 1; },
+                                2000) &&
+                      host.LastActionIs("page.next"),
+                  "monitor held-control fixture did not deliver its virtual press edge");
+    updated.pageIndex = 4;
+    updated.pageName = L"Held failure \u04e2";
+    LOGICON_CHECK(
+        service.OnHostState(&updated) == S_OK &&
+            WaitUntil([&]() noexcept { return diagnostics(&report) == S_OK && report.hostPageIndex == 4; }, 2000),
+        "held-control failure snapshot arrives");
+    failGlyphs();
+    LOGICON_CHECK(prepared->Prepare(&preparation) == E_OUTOFMEMORY && draw(late) == S_FALSE,
+                  "held-control fixture did not fail preparation");
+    pointer.phase = RedXePointerPhaseCancel;
+    LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK && interactive->OnPointer(&pointer) == S_FALSE,
+                  "unprepared monitor did not cancel and clear its held control");
+    gpu->OnDeviceLost();
+    LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK && prepared->Prepare(&preparation) == S_OK &&
+                      draw(late) == S_OK && monitorDiagnostics(&glyphs) == S_OK && glyphs.livePreparationFonts == 0,
+                  "device recreation did not recover a latched failure or release fonts");
+    pointer.phase = RedXePointerPhaseDown;
+    LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK &&
+                      WaitUntil([&]() noexcept
+                                { return host.actions.load(std::memory_order_relaxed) == actionsBeforePress + 2; },
+                                2000) &&
+                      host.LastActionIs("page.next"),
+                  "Cancel did not release the lane's virtual control before the next press");
+    LOGICON_CHECK(widget->SetVisible(FALSE) == S_OK, "held monitor hides");
+    pointer.phase = RedXePointerPhaseUp;
+    LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK && interactive->OnPointer(&pointer) == S_FALSE,
+                  "hidden monitor did not release and clear its held control on Up");
     LOGICON_CHECK(service.OnHostState(&original) == S_OK &&
                       WaitUntil([&]() noexcept
                                 { return diagnostics(&report) == S_OK && report.hostPageIndex == original.pageIndex; },
@@ -1654,6 +1816,27 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     LOGICON_CHECK(create && enumerate && contract && diagnostics && useSynthetic && inject && setOverride &&
                       setBrightness,
                   "required and test exports resolve");
+    const auto monitorDiagnostics =
+        Resolve<RedXeLogiconGetMonitorTestDiagnosticsFn>(module.get(), kRedXeLogiconGetMonitorTestDiagnosticsExport);
+    const auto failGlyphs = Resolve<RedXeLogiconFailNextMonitorGlyphPreparationFn>(
+        module.get(), kRedXeLogiconFailNextMonitorGlyphPreparationExport);
+    LOGICON_CHECK(monitorDiagnostics && failGlyphs, "monitor accounting/fault exports resolve");
+    RedXeLogiconMonitorTestDiagnostics monitorReport{sizeof(monitorReport)};
+    LOGICON_CHECK(monitorDiagnostics(nullptr) == E_POINTER, "monitor diagnostic pointer validation");
+    monitorReport.sizeBytes = 0;
+    LOGICON_CHECK(monitorDiagnostics(&monitorReport) == E_INVALIDARG, "monitor diagnostic exact-size validation");
+    monitorReport.sizeBytes = sizeof(monitorReport);
+#if defined(_DEBUG)
+    LOGICON_CHECK(monitorDiagnostics(&monitorReport) == S_OK && monitorReport.livePreparationFonts == 0 &&
+                      monitorReport.cpuAtlasBytes == 0 && monitorReport.resourceSets == 0,
+                  "cold Debug monitor owns no GPU/atlas/font resources");
+#else
+    LOGICON_CHECK(monitorDiagnostics(&monitorReport) == E_NOTIMPL && monitorReport.fontSessions == 0 &&
+                      monitorReport.livePreparationFonts == 0 && monitorReport.cpuAtlasBytes == 0 &&
+                      monitorReport.resourceSets == 0 && monitorReport.glyphUploadCells == 0 &&
+                      monitorReport.glyphUploadBytes == 0,
+                  "Release monitor diagnostic stub owns no resources");
+#endif
 
     const RedXePluginMetadata* metadata = nullptr;
     uint32_t count = 0;
@@ -1931,8 +2114,9 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
         "the held dialpad button press was seen");
     LOGICON_CHECK(host.frames.load(std::memory_order_relaxed) == 0, "no frame requests without a monitor tile");
 #if defined(_DEBUG)
-    LOGICON_CHECK(TestMonitorPreparedDrawing(create, host, *service, diagnostics, state) == S_OK,
-                  "Debug monitor prepares glyphs/faces, freezes late state and recovers identical pixels");
+    LOGICON_CHECK(
+        TestMonitorPreparedDrawing(create, host, *service, diagnostics, monitorDiagnostics, failGlyphs, state) == S_OK,
+        "Debug monitor prepares glyphs/faces, freezes late state and recovers identical pixels");
 #endif
 
     // System Data faces: the feed subscribes only once a system face is bound, values reach the faces, and an
