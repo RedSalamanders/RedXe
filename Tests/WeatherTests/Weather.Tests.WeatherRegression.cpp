@@ -5,8 +5,11 @@
 #include "WeatherIcons.h"
 #include "WeatherModel.h"
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdio>
+#include <cstring>
 #include <d3d11.h>
 #include <iterator>
 #include <string>
@@ -697,6 +700,34 @@ HRESULT PreparedDrawingTests(HMODULE module, RedXeCreateFn create)
           prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK && late == tile);
     CHECK(diagnostics(&info) == S_OK && info.livePreparationFonts == 0 &&
           info.paintSnapshotBytes == sizeof(WeatherSnapshot));
+    // Exhaust even the full 21-by-21 cell count using successive labels, then add a new accent. The smaller
+    // dynamic area must wrap above the reserved hero/icon rows, and a cold rebuild must produce identical pixels.
+    for (uint32_t start = 0; start < kWeatherGlyphCapacity; start += 32)
+    {
+        std::array<char, 512> place{};
+        constexpr char prefix[] = R"({"lat":"48.8566","lon":"2.3522","address":{"city":")";
+        std::memcpy(place.data(), prefix, sizeof(prefix) - 1);
+        size_t bytes = sizeof(prefix) - 1;
+        const uint32_t count = std::min(32U, kWeatherGlyphCapacity - start);
+        for (uint32_t index = 0; index < count; ++index)
+        {
+            CHECK(std::snprintf(place.data() + bytes, place.size() - bytes, "\\u%04x", 0x0400U + start + index) == 6);
+            bytes += 6;
+        }
+        CHECK(std::snprintf(place.data() + bytes, place.size() - bytes, "%s", R"(","country_code":"fr"}})") > 0);
+        CHECK(deliver(place.data()) == S_OK && prepared->Prepare(&preparation) == S_OK);
+    }
+    constexpr char accent[] = R"({"lat":"48.8566","lon":"2.3522","address":{"city":"\u0179","country_code":"fr"}})";
+    CHECK(diagnostics(&info) == S_OK);
+    const WeatherTestDiagnostics fullAtlas = info;
+    CHECK(deliver(accent) == S_OK && prepared->Prepare(&preparation) == S_OK && draw(tile) == S_OK);
+    CHECK(diagnostics(&info) == S_OK && info.glyphUploadCells == fullAtlas.glyphUploadCells + 1 &&
+          info.glyphUploadBytes == fullAtlas.glyphUploadBytes + 2304 && info.livePreparationFonts == 0 &&
+          info.heroTwinCells == initial.heroTwinCells && info.iconCells == initial.iconCells);
+    CHECK(widget->SetVisible(FALSE) == S_OK);
+    gpu->OnDeviceLost();
+    CHECK(gpu->OnDeviceCreated(&created) == S_OK && widget->SetVisible(TRUE) == S_OK &&
+          prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK && late == tile);
     std::printf("Weather prepared_snapshot_bytes=%u glyph_upload_bytes_per_cell=2304\n", info.paintSnapshotBytes);
     return S_OK;
 }

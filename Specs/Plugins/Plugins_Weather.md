@@ -126,7 +126,9 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
   for complete forecast/alert data and coherent drawing, without a thread, timer or Render-side copy/lock.
   New label glyphs rasterize and upload only in Prepare, using one temporary font session across its strings.
   All font owners release before drawing, including failure. Changed 48×48 cells upload 2,304 bytes each at their
-  stored atlas coordinates; the reserved 96 px icons and hero twins remain unchanged. Clean preparation returns
+  stored atlas coordinates; the reserved 96 px icons and hero twins remain unchanged. Dynamic label capacity
+  recycles complete 48 px rows above the reserved twins; reaching that boundary MUST NOT stop caching subsequent
+  labels or overwrite the 96 px reserve. The CPU/GPU atlas remains one MiB each. Clean preparation returns
   `S_FALSE` without allocation, rasterization or upload. Failed preparation suppresses drawing and input and MUST
   NOT automatically retry unchanged data/extents; a new snapshot, changed extent or device recreation permits
   recovery. Network cadence, stale attribution and cancellation retain their existing behavior.
@@ -188,3 +190,5 @@ cells and one font session across changed strings, and prove zero owners after p
 Cover clean/no-retry suppression, input suppression, extent/new-snapshot recovery, device loss/re-acquisition and
 hidden preparation. All eight established layout PNG references MUST remain identical for an internal-only
 preparation change; new intended visual behavior requires its own reviewed reference and contract.
+After more distinct labels than atlas capacity, a new accent MUST still upload one 48 px cell and draw the same
+pixels as a fresh device rebuild. Reserved hero/icon counts and all eight established layout PNGs stay unchanged.

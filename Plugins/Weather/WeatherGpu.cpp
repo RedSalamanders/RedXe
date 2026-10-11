@@ -34,10 +34,10 @@ constexpr uint32_t kLargeCellColumns = kWeatherAtlasSize / kWeatherIconCell;
 constexpr uint32_t kLargeCellRows = 3;
 constexpr uint32_t kLargeCellCapacity = kLargeCellColumns * kLargeCellRows;
 constexpr uint32_t kLargeCellReserveY = kWeatherAtlasSize - kWeatherIconCell * kLargeCellRows;
+constexpr uint32_t kSmallGlyphCapacity = (kLargeCellReserveY / kWeatherGlyphCell) * kWeatherGlyphColumns;
 constexpr uint32_t kMissingGlyph = 0xFFFFFFFFu;
 // Every large twin consumes a slot index, and slot indices map onto 48 px cell positions above the reserve.
-static_assert(kStaticReservedCount + 2 * kIconGlyphCount + kHeroGlyphCount <
-              (kLargeCellReserveY / kWeatherGlyphCell) * kWeatherGlyphColumns);
+static_assert(kStaticReservedCount + 2 * kIconGlyphCount + kHeroGlyphCount < kSmallGlyphCapacity);
 static_assert(kIconGlyphCount + kHeroGlyphCount <= kLargeCellCapacity);
 static_assert(kLargeCellCapacity <= kWeatherGlyphCapacity);
 
@@ -817,18 +817,14 @@ HRESULT WeatherGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characte
         {
             continue;
         }
-        if (_dynamicCursor >= kWeatherGlyphCapacity)
+        // Slot indices for 96 px twins are reserved too; only complete 48 px rows above them can be reused.
+        if (_dynamicCursor >= kSmallGlyphCapacity)
         {
             _dynamicCursor = _staticGlyphCount == 0 ? kStaticReservedCount : _staticGlyphCount;
         }
         const uint32_t slot = _dynamicCursor++;
         const uint32_t atlasX = (slot % kWeatherGlyphColumns) * kWeatherGlyphCell;
         const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
-        if (atlasY + kWeatherGlyphCell > kLargeCellReserveY)
-        {
-            --_dynamicCursor;
-            break;
-        }
         float advance = 0.5f;
         result = RasterizeIntoAtlas(*_preparationFontFactory, *_preparationFontFace, character, atlasX, atlasY,
                                     kWeatherGlyphCell, _atlasPixels.get(), advance, false, _glyphInk[slot]);

@@ -486,6 +486,9 @@ ten), accepted for cadence-independent interpolation and avoiding repeated empty
 thread, timer, GPU resource or synchronization to scheduling. Sample/draw-list storage otherwise remains unchanged.
 Dynamic glyph rasterization runs in UI preparation and static glyphs are built at device creation, never on the
 acquisition worker or inside `Render`.
+Viewer's bounded dynamic pool recycles only its non-static slots. A reused 48×48 cell MUST be cleared before
+rasterization, including an unsupported or empty glyph, so previous ink cannot survive. Clearing touches only
+the reused cell; fresh cells are already blank and the shared CPU/GPU atlas budgets do not grow.
 A settled System page MUST NOT set continuous animation. Hidden, minimized, suspended, occluded, and
 display-off states stop eases and drain subscriptions; recovery draws current values and does not replay missed
 motion. Snapshot ingestion stays on the acquisition worker; UI preparation promotes the bounded paint sample.

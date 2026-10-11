@@ -2,6 +2,7 @@
 #include "PlugInterfaces/Widget.h"
 #include "ProcessViewer.Tests.Contract.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -624,6 +625,48 @@ void CheckPreparedGlyphs(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn
     Require(viewer.widget->SetVisible(FALSE) == S_OK && viewer.Prepare() == S_FALSE, "hidden preparation did work");
 }
 
+void CheckGlyphCellReuse(RedXeCreateFn create, Surface& surface)
+{
+    // U+FFFF has no font glyph. A fresh blank cell is the reference after a previously inked cell is reused.
+    uint64_t emptyGlyph = 0;
+    {
+        Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer");
+        Observation sample("process.list", 7);
+        sample.Integer(0, 17);
+        sample.Text(1, L"\uffff");
+        sample.Number(2, 10);
+        sample.Integer(3, 1'000'000);
+        viewer.Send(sample);
+        Require(viewer.Draw(1) == S_OK, "fresh unsupported glyph draw failed");
+        emptyGlyph = surface.Pixels();
+    }
+    {
+        Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer");
+        Observation sample("process.list", 7);
+        sample.Integer(0, 17);
+        sample.Text(1, L"\u00e9");
+        sample.Number(2, 10);
+        sample.Integer(3, 1'000'000);
+        viewer.Send(sample);
+        Require(viewer.Draw(1) == S_OK && surface.Pixels() != emptyGlyph, "inked reuse control was empty");
+        // The 21-by-21 atlas reserves 96 static cells. Fill the other 344 dynamic slots after the first accent.
+        for (uint32_t start = 0; start < 344; start += 32)
+        {
+            std::array<wchar_t, 33> name{};
+            const uint32_t count = std::min(32U, 344U - start);
+            for (uint32_t index = 0; index < count; ++index)
+                name[index] = static_cast<wchar_t>(0x0400U + start + index);
+            sample.Text(1, name.data());
+            viewer.Send(sample);
+            Require(viewer.Prepare() == S_OK, "viewer capacity fill failed");
+        }
+        sample.Text(1, L"\uffff");
+        viewer.Send(sample);
+        Require(viewer.Draw(1, 0, 0) == S_OK && surface.Pixels() == emptyGlyph,
+                "reused unsupported glyph retained the preceding glyph's ink");
+    }
+}
+
 void CheckAtlasLifetime(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn diagnostics,
                         decltype(&RedXeProcessViewerFailNextAtlasInitialization) failNext, Surface& surface)
 {
@@ -889,6 +932,7 @@ void TestProcessViewerScheduling(bool& success) noexcept
             Require(failGlyphs != nullptr, "viewer glyph preparation fault export missing");
             CheckPreparedGlyphs(create, diagnostics, failGlyphs, surface);
             CheckAtlasLifetime(create, diagnostics, failNext, surface);
+            CheckGlyphCellReuse(create, surface);
         }
         else
         {

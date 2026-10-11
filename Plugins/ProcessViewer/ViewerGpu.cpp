@@ -545,6 +545,13 @@ HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t character
         const uint32_t atlasX = (slot % kViewerGlyphColumns) * kViewerGlyphCell;
         const uint32_t atlasY = (slot / kViewerGlyphColumns) * kViewerGlyphCell;
         float advance = 0.5f;
+        // Fresh cells are already zeroed. Reused cells must also be blank before missing/empty glyph returns.
+        if (slot < _glyphCount)
+        {
+            for (uint32_t row = 0; row < kViewerGlyphCell; ++row)
+                std::memset(_atlasPixels.get() + static_cast<size_t>(atlasY + row) * kViewerAtlasSize + atlasX, 0,
+                            kViewerGlyphCell);
+        }
         result = RasterizeIntoAtlas(*_preparationFontFactory, *_preparationFontFace, character, atlasX, atlasY,
                                     _atlasPixels.get(), advance);
         if (FAILED(result))
