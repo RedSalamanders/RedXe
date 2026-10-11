@@ -18,6 +18,13 @@ external COM references remain safe after module shutdown. All device/model/cont
 This image-retention cost must be included in application accessibility resource measurements; the active AV plan
 does not yet claim matched resource acceptance or full real-client validation.
 
+AV's module coordinator and graphics weak caches release at the last provider reference, independently of module
+shutdown. Widget-held providers and host-owned control-work leases preserve survivors and quiescent teardown; a
+revisit has fresh state even while old work drains. Failed provider allocation must not leave a new unused cache.
+Fresh model construction on a revisit is the cold-path cost of last-owner reclamation; it adds no steady render
+allocation or wake. Image pinning remains process scoped. This removes an explicit cache owner; it does not promise that the allocator
+or driver returns every committed byte to the operating system.
+
 When several correct designs exist, RedXe must use the design with the lowest steady-state resource cost unless a
 measured result or a materially simpler and safer implementation justifies another choice. A resource regression must
 be explicit, measured in the affected configuration, and justified in the owning normative contract or active plan.

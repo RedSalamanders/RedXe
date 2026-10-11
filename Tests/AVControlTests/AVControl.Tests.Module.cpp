@@ -192,9 +192,13 @@ uint32_t RunModuleTests()
         second.reset();
         provider.reset();
         host.Drain();
-        shutdown();
     };
-    auto cleanup = wil::scope_exit([&]() noexcept { releaseModuleObjects(); });
+    auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            releaseModuleObjects();
+            shutdown();
+        });
     const RedXePluginMetadata* metadata = nullptr;
     uint32_t count = 0;
     Check(enumerate(&metadata, &count) == S_OK && count == 1 && std::string_view(metadata->id) == "builtin.av-control",
@@ -213,6 +217,74 @@ uint32_t RunModuleTests()
     Check(FAILED(create(__uuidof(IRedXeWidgetProvider), &invalidOptions, &host, metadata->id, provider.put_void())) &&
               !provider,
           "AV factory validates profile definitions through the same strict model");
+    {
+        auto coldState = std::make_unique<AVControl::Inventory>();
+        Check(snapshot(coldState.get(), sizeof(*coldState)) == E_UNEXPECTED && synthetic(TRUE) == S_OK,
+              "failed cold factories leave no shared coordinator");
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> firstProvider, survivingProvider, nextProvider;
+        wil::com_ptr_nothrow<IRedXeWidget> retainedWidget;
+        Check(create(__uuidof(IRedXeWidgetProvider), nullptr, &host, metadata->id, firstProvider.put_void()) == S_OK &&
+                  create(__uuidof(IRedXeWidgetProvider), nullptr, &host, metadata->id, survivingProvider.put_void()) ==
+                      S_OK,
+              "independent AV providers share one coordinator without starting helper work");
+        const RedXeWidgetTypeDescriptor* coldType = nullptr;
+        Check(firstProvider->GetWidgetTypes(&coldType, &count) == S_OK && count == 1 &&
+                  firstProvider->CreateWidget(coldType->typeId, "av.retained-owner", retainedWidget.put()) == S_OK,
+              "a cold widget retains its actual provider");
+        firstProvider.reset();
+        Check(snapshot(coldState.get(), sizeof(*coldState)) == S_OK &&
+                  synthetic(FALSE) == HRESULT_FROM_WIN32(ERROR_BUSY),
+              "releasing one AV provider preserves the surviving shared model");
+        survivingProvider.reset();
+        Check(snapshot(coldState.get(), sizeof(*coldState)) == S_OK &&
+                  synthetic(FALSE) == HRESULT_FROM_WIN32(ERROR_BUSY),
+              "a widget-held provider preserves the coordinator after caller references are released");
+        Host differentHost;
+        Check(create(__uuidof(IRedXeWidgetProvider), nullptr, &differentHost, metadata->id, nextProvider.put_void()) ==
+                      HRESULT_FROM_WIN32(ERROR_INVALID_STATE) &&
+                  !nextProvider && snapshot(coldState.get(), sizeof(*coldState)) == S_OK,
+              "a failed foreign-host factory preserves the live coordinator");
+        retainedWidget.reset();
+        Check(snapshot(coldState.get(), sizeof(*coldState)) == E_UNEXPECTED && synthetic(TRUE) == S_OK && !host.pending,
+              "the last widget-held AV provider releases the shared coordinator without module shutdown");
+        Check(create(__uuidof(IRedXeWidgetProvider), nullptr, &differentHost, metadata->id, nextProvider.put_void()) ==
+                      S_OK &&
+                  snapshot(coldState.get(), sizeof(*coldState)) == S_OK && !differentHost.pending,
+              "a cold revisit constructs a coordinator for the new host without retained old-host state");
+        nextProvider.reset();
+        Check(snapshot(coldState.get(), sizeof(*coldState)) == E_UNEXPECTED && synthetic(TRUE) == S_OK,
+              "a provider with no widgets releases its last shared model owner");
+    }
+    {
+        const auto failAllocation = reinterpret_cast<decltype(&RedXeAVControlFailNextProviderAllocation)>(
+            GetProcAddress(module.get(), "RedXeAVControlFailNextProviderAllocation"));
+        auto coldState = std::make_unique<AVControl::Inventory>();
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> failedProvider, survivingProvider;
+        Check(failAllocation && synthetic(FALSE) == S_OK &&
+                  failAllocation() == HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) && synthetic(TRUE) == S_OK,
+              "provider allocation faults require explicit synthetic backend selection");
+        Check(failAllocation() == S_OK &&
+                  create(__uuidof(IRedXeWidgetProvider), nullptr, &host, metadata->id, failedProvider.put_void()) ==
+                      E_OUTOFMEMORY &&
+                  !failedProvider && snapshot(coldState.get(), sizeof(*coldState)) == E_UNEXPECTED && !host.pending,
+              "provider allocation failure releases a newly published unused coordinator");
+        Check(create(__uuidof(IRedXeWidgetProvider), nullptr, &host, metadata->id, survivingProvider.put_void()) ==
+                      S_OK &&
+                  snapshot(coldState.get(), sizeof(*coldState)) == S_OK,
+              "a cold allocation fault is consumed and a retry constructs a fresh coordinator");
+        Check(failAllocation() == S_OK &&
+                  create(__uuidof(IRedXeWidgetProvider), nullptr, &host, metadata->id, failedProvider.put_void()) ==
+                      E_OUTOFMEMORY &&
+                  !failedProvider && snapshot(coldState.get(), sizeof(*coldState)) == S_OK &&
+                  synthetic(FALSE) == HRESULT_FROM_WIN32(ERROR_BUSY),
+              "a second-provider allocation failure preserves the surviving coordinator");
+        Check(create(__uuidof(IRedXeWidgetProvider), nullptr, &host, metadata->id, failedProvider.put_void()) == S_OK,
+              "a live allocation fault is consumed and the next provider joins the surviving coordinator");
+        failedProvider.reset();
+        survivingProvider.reset();
+        Check(snapshot(coldState.get(), sizeof(*coldState)) == E_UNEXPECTED && synthetic(TRUE) == S_OK && !host.pending,
+              "allocation-fault retries leave no cached coordinator after their last owner releases");
+    }
     Check(create(__uuidof(IRedXeWidgetProvider), nullptr, &host, metadata->id, provider.put_void()) == S_OK && provider,
           "AV provider constructs without starting helper work");
     Check(!host.pending && host.runs == 0 && synthetic(FALSE) == HRESULT_FROM_WIN32(ERROR_BUSY),
@@ -495,6 +567,42 @@ uint32_t RunModuleTests()
     releaseModuleObjects();
     Check(probe(&statistics) == S_OK && statistics.widgets == 0 && statistics.surfaceBytes == 0,
           "AV diagnostic list releases every destroyed widget");
+    Check(snapshot(state.get(), sizeof(*state)) == E_UNEXPECTED && synthetic(TRUE) == S_OK,
+          "prepared AV teardown releases the shared coordinator before module shutdown");
+    {
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> pendingProvider, revisitedProvider;
+        wil::com_ptr_nothrow<IRedXeWidget> pendingWidget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> pendingGpu;
+        wil::com_ptr_nothrow<IRedXePreparedGpuWidget> pendingPrepare;
+        Check(
+            create(__uuidof(IRedXeWidgetProvider), nullptr, &host, metadata->id, pendingProvider.put_void()) == S_OK &&
+                pendingProvider->CreateWidget(type->typeId, "av.pending-owner", pendingWidget.put()) == S_OK &&
+                pendingWidget.query_to(pendingGpu.put()) == S_OK &&
+                pendingWidget.query_to(pendingPrepare.put()) == S_OK && pendingGpu->OnDeviceCreated(&supplied) == S_OK,
+            "the actual AV DLL creates a new prepared owner after retirement");
+        Check(pendingWidget->SetVisible(TRUE) == S_OK && SUCCEEDED(pendingPrepare->Prepare(&preparation)) &&
+                  host.pending && pendingWidget->SetVisible(FALSE) == S_OK,
+              "an outgoing AV widget leaves a host-owned control-work lease to drain");
+        pendingGpu->OnDeviceLost();
+        pendingPrepare.reset();
+        pendingGpu.reset();
+        pendingWidget.reset();
+        pendingProvider.reset();
+        Check(host.pending && snapshot(state.get(), sizeof(*state)) == E_UNEXPECTED && synthetic(TRUE) == S_OK,
+              "last-provider release drops the cache while queued control work retains its retiring coordinator");
+        Check(create(__uuidof(IRedXeWidgetProvider), nullptr, &host, metadata->id, revisitedProvider.put_void()) ==
+                      S_OK &&
+                  snapshot(state.get(), sizeof(*state)) == S_OK && state->outputCount == 0 && state->inputCount == 0,
+              "a revisit before the old work drains has an independent unobserved model");
+        host.Drain();
+        Check(!host.pending && snapshot(state.get(), sizeof(*state)) == S_OK && state->outputCount == 0 &&
+                  state->inputCount == 0,
+              "retired work completes safely without publishing into the new coordinator");
+        revisitedProvider.reset();
+        Check(snapshot(state.get(), sizeof(*state)) == E_UNEXPECTED && synthetic(TRUE) == S_OK,
+              "all revisit and control-work owners release without a module shutdown sweep");
+    }
+    shutdown();
     cleanup.release();
     module.reset();
     VARIANT retired{};

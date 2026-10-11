@@ -10,6 +10,8 @@ extern "C"
 {
     // Explicit test-only construction, before any provider is alive; no settings/environment switch enables this.
     REDXE_AV_TEST_API HRESULT __stdcall RedXeAVControlUseSyntheticBackend(BOOL enabled) noexcept;
+    // UI-thread, synthetic-only fault at the next provider allocation, after coordinator publication.
+    REDXE_AV_TEST_API HRESULT __stdcall RedXeAVControlFailNextProviderAllocation() noexcept;
     REDXE_AV_TEST_API HRESULT __stdcall RedXeAVControlTestSnapshot(AVControl::Inventory* inventory,
                                                                    uint32_t bytes) noexcept;
 }
