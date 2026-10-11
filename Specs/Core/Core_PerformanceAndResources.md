@@ -612,14 +612,53 @@ frame. Delayed samples restart the interval from their completion, without a cat
 earlier scheduled-frame deadline. A valid probe is ignored by `--self-test`.
 
 With this probe enabled, each newly staged dashboard page also emits a bounded `page-stage`, version 1 record into
-the same log ring. This cold operation uses a local collector, with no worker, owned handle, periodic wake-up or
-retained timing state. A disabled probe performs no timing, CPU query or logging for staging. The record includes
+the same log ring. This cold operation uses a local collector, with no worker, owned handle or periodic wake-up.
+A disabled probe performs no timing, CPU query or logging for staging or its callbacks. The record includes
 the source and selected page indices, signed direction, start tick and actual HRESULT. `phase_mask` bits 0–6 identify
 cumulative `wall_us` entries for retirement, settings selection/copy, validation and providers, layout, GPU setup,
 visibility and completion (including local cleanup on failure). A clear bit means unavailable. `cpu_valid: 1`
 identifies the calling UI thread's kernel-plus-user `cpu_100ns` delta. Short CPU measurements can be quantized;
 a zero does not establish a two-millisecond CPU budget. Repeated CPU batches or external attribution are required
 alongside wall timing. Logging happens after measurement and diagnostic failure does not change the stage result.
+
+An enabled stage receives a nonzero process-local `stage_id`. Its forward `OnDeviceCreated`,
+`OnTargetSizeChanged` and `SetVisible` calls emit individual `page-callback`, version 1 records, including failed
+attempts. `kind` is 0 device creation, 1 target size, 2 visibility, or 3 first preparation; `widget` is the selected
+page's immutable zero-based placement ordinal. `detail` is 0 hidden / 1 shown for visibility and 0 otherwise.
+Each record carries UTC `ts`, `pid`, `stage_id` and `page`, plus at most six numeric `calls`, each in this order:
+start tick; widget ordinal; kind; detail; actual unsigned HRESULT; elapsed wall microseconds; CPU-valid bit;
+calling-thread CPU delta in 100 ns. Packing preserves every individual sample and lets a production hidden-incoming
+32-widget setup and first-preparation burst fit at most 24 logger lines, including parent and terminal, without enlarging the ring
+or waiting for its writer. These timers surround the callback itself; host subscription/network draining,
+factory construction, rollback, retirement and later promotion are outside them. Aggregate phase costs include timing and
+enqueue overhead and MUST NOT be compared to uninstrumented stages as a callback saving.
+
+The local collector uses one fixed six-sample batch, flushed when full and at stage completion; the final tail is
+flushed after the stage clock stops. The first-preparation collector flushes before its terminal record. A batch
+contains only one stage/page identity and is refused whole on enqueue failure; its drop count is in samples.
+
+The first attempted `IRedXePreparedGpuWidget::Prepare` for each staged widget is traced even if the page is promoted
+before that attempt. A later retry or frame is not traced. Enabled staging MAY acquire one 784-byte pending table
+for at most two borrowed page identities and their 32-bit ordinal masks; those identities are never dereferenced.
+Promotion retains only the incoming identity. Cancellation, successful retirement, device loss and shutdown clear
+pending identities before their pages can be destroyed. A terminal `page-prepared`, version 1 record contains the
+stage/page identity, `expected` interface count, remaining `pending_mask`, `hr` (S_OK when all first attempts ran,
+E_ABORT when retired), `callbacks` and `callback_dropped`. S_OK here establishes attempt completeness, not success
+of every callback or a presented frame. Placeholders that skip Prepare remain pending until retirement. A page with
+no prepared interfaces emits a zero-count terminal without retaining the table. The table is freed when empty;
+allocation failure leaves product behavior unchanged and is reported by the parent `prepare_trace_hr`.
+This attribution costs one 8-byte owner in Renderer, one process-local 8-byte stage counter and 40 additional
+bytes in the local stage sample, plus a 376-byte local callback collector, in exchange for identifying indivisible cold callbacks before choosing a staging
+architecture. It adds no per-widget field, permanent font cache, thread, timer or Render work.
+
+`page-stage.callbacks` counts attempted setup/size/visibility calls, in kind order; `page-prepared.callbacks`
+counts only first-preparation attempts, in the same four-element order. Both include `callback_dropped` for records
+the diagnostic enqueue refused. Stage/callback/terminal enqueues refuse a full ring instead of replacing its oldest
+line; they return immediately, with no flush or enlarged queue. Other log traffic retains its existing overwrite
+policy. Before using a callback cohort, require its parent, a successful `prepare_trace_hr`, its terminal, zero
+reported drops, exact per-kind/ordinal record counts, and matching PID/stage/page identity. A missing parent or
+terminal, count mismatch, canceled required preparation, or reported drop makes that cohort incomplete even when
+other records say zero drops. Numeric extremes MUST fit a complete 1024-byte slot; partial records are refused.
 
 Page validation evidence has at most 64 KiB of logical payload, plus one shared vector/control object and a 16-byte
 shared owner per page manager. Only a successful complete typed/published-contract validation may create it; a warm
@@ -655,6 +694,10 @@ Required automated coverage: disabled/no-deadline behavior, competing frame/prob
 wrap, missing/disjoint statistics, generation and clock resets, extreme-width complete JSON, logger drain, real
 process-resource sampling, read-only hidden WARP queries, and two-instance AV aggregation/hide/destruction. The
 end-to-end screenshot fixture also runs `--probe=1` to exercise the real application loop without focus or input.
+Callback coverage additionally requires disabled exactly-once/result preservation, independent CPU validity,
+six extreme samples per slot, short/absent destinations and mixed-identity refusal, two-page mask bounds/reuse, real staged setup failure/rollback, promotion before
+first preparation, cancellation, device loss, shutdown and saturated writer refusal accounting. No such fixture
+qualifies physical input or hardware presented-frame latency.
 
 `measure-runtime.ps1` is the reusable Release x64 receipt collector. It uses portable template copies, fresh
 processes per starting page and an all-page return/inactive run. It records scene, phase/window/machine context,

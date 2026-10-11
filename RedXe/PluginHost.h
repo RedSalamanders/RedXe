@@ -79,6 +79,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // UI-thread diagnostics use the existing 32x1024 logger ring. AV queries never map an absent module.
     [[nodiscard]] HRESULT LogRuntimeProbe(const RuntimeProbeSample& sample) noexcept;
     [[nodiscard]] HRESULT LogRuntimePageStage(const RuntimePageStageSample& sample) noexcept;
+    [[nodiscard]] HRESULT LogRuntimePageCallback(const RuntimePageCallbackSample& sample) noexcept;
+    [[nodiscard]] HRESULT LogRuntimePageCallbacks(const RuntimePageCallbackSample* samples, uint32_t count) noexcept;
+    [[nodiscard]] HRESULT LogRuntimePagePreparation(const RuntimePagePreparationSample& sample) noexcept;
     [[nodiscard]] HRESULT QueryAvProbeStatistics(AVControl::ProbeStatistics& statistics) noexcept;
     [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
                                           ModuleView* module) noexcept;
@@ -433,7 +436,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT EnsureCurrentLogFile() noexcept;
     [[nodiscard]] HRESULT EnsureLogFileForDate(const SYSTEMTIME& utc) noexcept;
     void PurgeExpiredLogs(const SYSTEMTIME& today, uint32_t retention) noexcept;
-    [[nodiscard]] HRESULT EnqueueLogLine(const char* line, uint32_t bytes) noexcept;
+    [[nodiscard]] HRESULT EnqueueLogLine(const char* line, uint32_t bytes, bool reportLoss = false) noexcept;
     void RequestHostActionDrain() noexcept;
     // The launch worker's completion callback (any thread): posts the coalesced host-action message.
     static void NotifyLaunchFinished(void* context) noexcept;

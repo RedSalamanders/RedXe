@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `307599b` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `6802452` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -64,6 +64,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | Step | State | Evidence / commit |
 | --- | --- | --- |
 | P0.1 | Complete | Production probe and accepted Release baseline; `0971350`. |
+| P3.4 callback attribution | Complete; construction budgets remain open | Opt-in device/size/visibility and first-preparation timing, process stage identity, bounded two-page masks and strict completeness checks pass Debug15/Release16/ASan15, ARM64 compilation and skills10. The accepted hardware capture has 18 complete stages and 402 callbacks. Launcher visibility is the next measured target: 96.01 ms median / 244.20 ms maximum. No construction worker or visual-policy change is selected. |
 | P4.5 | Content-sized bodies and last-widget release complete | Production-path lower offline transport, exact transactional body storage and last-widget leases are implemented. Eight two-byte responses retain 24 bytes versus 2,097,160 before, including the final Release DLL; the new real-DLL storage assertion fails on the preserved old cache. Debug/ASan 15 scopes, ARM64 Release, ten skills and unchanged images pass. Release 16 obligations are accounted across runs, preserving the initial Desk Clock peak failure. Matched Gallery establishes no causal CPU saving; current D is 36.85 → 62.29 MiB private and 25.01 → 32.26 local, hidden/minimized zero. Curl reuse and failure coalescing remain separate measured candidates. |
 | P4.6 | Current hardware baseline captured; retain current deadline/atlas | Separate five-minute Desk/Studio runs share exact Release/runtime closure and one PresentMon session. Desk short display intervals have 16.66 ms p95; Studio averages 1.06 submissions/s. All owned cohort frames display, with composed independent flip and zero hybrid presents. No lower deadline or atlas change is selected. The intermittent WARP private peak remains unattributed. |
 | P4.3 glyph extraction | Complete | Temporary isolated factory/face/coverage batch, 400 unchanged glyph references and real Debug coverage-OOM recovery pass. Matched eight/32-icon callbacks fall about 7.2->2.4 / 29->6.5 ms. Final Debug15/Release16/ASan15/ARM64/skills10 and all image references pass. Settled fixed-eight CPU/submissions stay zero, adapter18.01 MiB; no physical-input or D-retention claim. runtime-2026-10-11-p43-glyph-*. |
@@ -89,6 +90,55 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P2.8 glyph capacity | Complete | Real preceding DLLs fail reused-cell ink and exhausted-label regressions; candidate passes with unchanged atlas/storage sizes. Eight Weather PNGs match. Release 16 scopes, Debug 15 native scopes accounted across the initial run and HostSmoke repeat, ASan 15 native scopes, ARM64 Release and 10 skills pass. The initial Debug capture crash remains unexplained and retained. `runtime-2026-10-11-p28-capacity`. |
 | P2.8 Debug monitor and shared sampling | Complete | Unchanged failed preparation suppresses font/raster/upload work; all recovery, real font cleanup and held-control release tests pass. A shared glyph-cell sampling fix resolves 16 visible neighboring-ink pixels after cache/device changes. All 145 Viewer references and eight Weather PNGs match. Final Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release and ten skills pass. Two counterbalanced System pairs establish no causal CPU saving or repeatable private-memory regression; local usage is 26.26 MiB throughout. QPC-joined PresentMon cohorts show hardware-composed independent flip, all cohort frames displayed and no hybrid presents. Input latency remains unqualified. `runtime-2026-10-11-p28-monitor`, `-paired`, `-paired-reverse`, `-presented` and `-presented-reverse`. |
 | P0.4 production raised Gallery | Accounting captured; presented-frame qualification remains open | One normal, non-activating hardware Release run proves AV tile 1,474,560 bytes, raised total 5,160,960, dismissal to tile, hidden zero and restored tile. Cold/raised settled 65 s each; all source/binary hashes, page, geometry, adapter, power and foreground checks pass. Visible submissions stay about 60/s; hidden zero. `runtime-2026-10-11-p04-raised-gallery`. |
+
+### P3.4 callback attribution and completeness (2026-10-11)
+
+The opt-in probe now records individual device creation, target size, visibility and first-preparation wall/CPU
+timings by process stage identity and placement ordinal. Promotion before preparation, cancellation, setup rollback,
+device loss and shutdown have real production-host fixtures. Normal launches perform no callback timing/query/logging.
+The renderer adds one eight-byte owner; the local stage sample adds 40 bytes and its six-sample collector uses
+376 bytes. One optional 784-byte table retains at most two pending identities and is freed when empty. No per-widget
+field, worker, periodic wake, font cache, snapshot or visual-policy change is introduced.
+
+The initial one-record-per-callback prototype passed all profile gates but its hardware capture is incomplete:
+all 18 stage parents and resource phases are present, while the first System stage has no first-preparation records
+or terminal. Its parent reports zero setup drops, which cannot establish later completeness. The analysis rejects
+that cohort; the raw logs, identities and prototype artifacts are retained in `runtime-2026-10-11-p34-stage-candidate`
+and `p34-unbatched-artifacts`. The six-sample format reduces a production 32-widget setup/preparation burst to at
+most 24 lines in the unchanged 32-slot ring, retaining every sample and explicit refusal counts without a UI flush.
+Final batched Debug15/Release16/ASan15 scope accounting, ARM64 Release compilation and all ten skills pass against
+sealed native inputs and post-build artifact identities. Release Matrix/Studio/Desk peak private growth is
+1,024,000 / 1,380,352 / 2,322,432 bytes under the unchanged four-MiB guards; ASan memory is diagnostic only.
+`p34-batched-final-*` preserves exact gates and `p34-batched-debug-types.txt` preserves compiler object layouts.
+
+`runtime-2026-10-11-p34-stage-batched` accepts all 18 expected stages, 402 callbacks and 18 unique terminals,
+with matching placement ordinals, preparation masks/counts, successful stages and zero reported sample refusals.
+The preserved control is `runtime-2026-10-11-p34-stage-control`. All runtime DLLs/helpers/fonts match; only the
+host binary differs, and DxUi provenance changes only its consumer hash. The pin, public headers, archive,
+toolchain fingerprint and other consumers match. Both use build 282, services/tray disabled, the same portable
+Release scene and collector, AC power, hardware XENEON 2560x720 at 96 DPI, three directional page cycles and
+one-second probes. Production imports/live data can change; these are observations, not causal rate comparisons.
+
+| Incoming page | Stages | Stage wall median / maximum | Stage CPU median | First-Prepare wall sum median / maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Matrix Focus | 3 | 0.394 / 0.417 ms | 0 ms quantized | 0 / 0 ms |
+| Plugin Gallery | 6 | 120.114 / 400.310 ms | 101.563 ms | 1.694 / 5.234 ms |
+| System | 6 | 10.024 / 11.126 ms | 15.625 ms | 0.008 / 0.016 ms |
+| Shaders | 3 | 23.715 / 27.436 ms | 31.250 ms | 0 / 0 ms |
+
+Launcher `SetVisible(TRUE)` accounts for 96.009 ms median / 244.195 ms maximum across six Gallery stages,
+with quantized CPU median 85.938 ms. Shader device creation is 23.422 ms median / 27.093 ms maximum;
+Desk device creation 10.739 ms median, and the first Viewer and Weather device callbacks about 9.5 / 9.2 ms.
+AV device creation has a 129.020 ms cold maximum but 0.680 ms median; first AV preparation is 1.397 ms median.
+Inspect Launcher's visibility import/extraction path next, before a general construction worker, slice or lazy AV
+attachment. The old multi-second Gallery outlier is not reproduced or attributed by this capture.
+
+Control/candidate cold Matrix CPU is 1.887 / 2.133% of one core and successful submissions 60.062 / 60.114 per
+second; returned Matrix is 2.217 / 1.724% and 60.165 / 59.955 per second. Returned private is 62.04 / 62.29 MiB,
+local adapter usage 32.26 MiB in both (cold 25.01). Hidden/minimized submissions are zero in both; hidden CPU
+0.068 / 0.067%, minimized zero at this resolution. No CPU or retained-memory saving is claimed for instrumentation.
+No first-presentation or four-ms construction-slice budget is qualified by these non-activating observations;
+callback timers exclude factories, host drain waits, retirement and rollback.
 
 ### P4.5 content-sized Weather cache and leases (2026-10-11)
 
@@ -1211,7 +1261,7 @@ contract and validation updates.
 | P2.3 | **Complete 2026-10-10.** Fixed atomic slot bindings remove locked string lookup from placeholder decisions. Cold registration/release and report/reason lookup retain the bounded table. | Reads complete while the status lock is held; full Release/Debug/ASan gates, capacity/concurrency/reuse/reconfiguration and rollback lifetime tests pass. No whole-process CPU improvement is claimed. |
 | P2.4 | **Complete 2026-10-10.** Debug output shares the render-failure transition guard. A recovered drawn frame permits a fresh failure report; partial raised/tile success does not. Successful primary adoption resets slot identity. | 400 failing primary frames emit three diagnostics and preserve healthy siblings; the incoming instance reports once. Debug/Release full gates pass; ARM64 Release compiles. |
 | P2.5 | **Complete 2026-10-10.** Writer-owned UTC date/policy cache: sweep on open, date change or changed retention value. Policy updates wake the idle writer and synchronize with flush; ordinary lines construct no path. | Same-day, unchanged/shortened policy, forward/backward UTC correction and actual idle-worker flush tests pass in Debug/Release; ARM64 Release compiles. Removes two enumerations per ordinary line; adds 20 bytes of cached date/policy, no thread or wake. |
-| P2.6 | **Candidate: settings persistence latency.** Coalesce and move durable writes off the UI thread only if measured promote stalls justify a bounded owner/worker design. Temp-file flushing and loaded-document/stamp/merge protections already exist; preserve them. Reusing the log worker is undecided. | No UI-thread disk-write stall at promote; concurrent edits, shutdown, failure recovery and stamps retain current guarantees. |
+| P2.6 | **Promotion premise rejected against current code.** `PromoteTransitionPage` adopts the incoming owners, updates only the active selector, refreshes layout and retires the old page; it performs no settings save. Widget and dock persistence elsewhere remain conditional candidates if their own measured stalls justify a bounded worker. Temp-file flushing and loaded-document/stamp/merge protections already exist; preserve them. | Do not add a persistence worker to promotion without a real write/stall trigger. Any separate persistence change must preserve concurrent edits, shutdown, failure recovery and stamps. |
 | P2.7 | **Implemented and measured 2026-10-10: ProcessViewer wake discipline.** Settled viewers park; unchanged/sub-pixel values snap; real 320 ms easing and 420 ms pulses use a 33 ms deadline without immediate requests. Fixed-pose interpolation preserves tile/raised timestamps, ranks and endpoints. Tests cover all ten types, auxiliary deliveries, bursts, recovery, allocation and a scheduled production-host soak. | Fresh matched 14.126/s becomes 12.163/12.184/s (13.7–13.9% lower). CPU 2.986% becomes 3.515/3.069%; no CPU saving established. Proposed ≤2/s and ≤1.5% process CPU remain unmet; UI-thread ≤0.3% is unmeasured. Keep budget acceptance open and use P0.2 attribution to choose further work. |
 | P2.8 | **Complete: CPU lifetime, Viewer/Weather/Debug monitor preparation/batching, failure suppression and capacity recovery.** Dirty 48×48 cells upload from Prepare, paint stays frozen across delivery and Render, and one temporary font session serves each changed batch with zero steady ownership. Reused cells clear old ink, Weather recycles above its reserved rows, and shared linear sampling cannot fetch neighboring ink. Debug hidden/unprepared input waits, while held Up/Cancel still releases. | All 145 Viewer references and eight Weather PNGs match; real-DLL red/green and final Release/Debug/ASan scopes, ARM64 compilation and skills are recorded above. Counterbalanced Gallery and System observations establish no causal CPU saving or repeatable regression. A trim export remains conditional on actual retained ownership under P3.6. |
 | P2.9 | Measure callback drain stalls before redesigning waits. Network and subscription drains include `INFINITE` waits; a timeout cannot free state while a callback can still use it. Reuse current bounded/tombstoned control/device-lane patterns only where ownership permits. | Slow-fixture recovery bounds UI delay while preserving callback quiescence, cancellation and teardown lifetimes. |

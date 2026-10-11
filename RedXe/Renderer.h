@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <d3d11_1.h>
 #include <dxgi1_3.h>
+#include <memory>
 #include <windows.h>
 
 #pragma warning(push)
@@ -55,7 +56,8 @@ class Renderer final
     HRESULT SetDpi(UINT dpi) noexcept;
     HRESULT Resize(UINT width, UINT height) noexcept;
     HRESULT RefreshLayout() noexcept;
-    HRESULT SetTransitionDashboard(DashboardHost* dashboardHost) noexcept;
+    HRESULT SetTransitionDashboard(DashboardHost* dashboardHost, RuntimePageCallbackContext* callbacks = nullptr,
+                                   HRESULT* preparationTraceResult = nullptr) noexcept;
     HRESULT AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept;
     HRESULT SetRaisedOverlay(size_t widgetIndex, const RECT& content, SIZE targetPixels = {}) noexcept;
     void ClearRaisedOverlay() noexcept;
@@ -121,12 +123,12 @@ class Renderer final
     void RecordDeviceIdentity(bool warp, bool adapterOwnsWindowMonitor) noexcept;
     HRESULT CreateSwapChain() noexcept;
     HRESULT CreateRenderTarget(UINT width, UINT height) noexcept;
-    HRESULT UpdateCachedViewports() noexcept;
+    HRESULT UpdateCachedViewports(RuntimePageCallbackContext* callbacks = nullptr) noexcept;
     // Cold retirement must clear the borrowed page even if its visibility callback fails.
     HRESULT DropTransitionDashboard() noexcept;
     // Notifies widgets whose largest drawn viewport changed. Called from UpdateCachedViewports, which already runs
     // exactly on the events that can change a viewport, so this never fires per frame or for a position-only change.
-    void NotifyTargetSizes() noexcept;
+    void NotifyTargetSizes(RuntimePageCallbackContext* callbacks = nullptr) noexcept;
     void ResetTargetSizes() noexcept;
     // Fills one tile with the host placeholder wash. Used when a widget instance failed to construct or reported
     // itself unavailable, so a failed tile reads as failed instead of stale or blank.
@@ -148,6 +150,7 @@ class Renderer final
     HWND _window = nullptr;
     DashboardHost* _dashboardHost = nullptr;
     DashboardHost* _transitionDashboardHost = nullptr;
+    std::unique_ptr<RuntimePagePreparationProbe> _pagePreparationProbe;
     bool _forceWarp = false;
     bool _dockPresentation = false;
     UINT _dockWidth = 0;

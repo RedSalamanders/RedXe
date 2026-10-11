@@ -633,7 +633,7 @@ HRESULT DashboardHost::ClearRaisedNativeLayout(UINT dpi) noexcept
     return S_OK;
 }
 
-HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
+HRESULT DashboardHost::SetWidgetsVisible(bool visible, RuntimePageCallbackContext* callbacks) noexcept
 {
     if (!_pluginManager)
     {
@@ -658,7 +658,9 @@ HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
             changedCount = index + 1;
             continue;
         }
-        const HRESULT result = widget->SetVisible(visible ? TRUE : FALSE);
+        const HRESULT result = TraceRuntimePageCallback(
+            callbacks, static_cast<uint32_t>(index), RuntimePageCallbackKind::Visibility,
+            [&]() noexcept { return widget->SetVisible(visible ? TRUE : FALSE); }, visible ? 1U : 0U);
         if (FAILED(result))
         {
             for (size_t previous = 0; previous < changedCount; ++previous)

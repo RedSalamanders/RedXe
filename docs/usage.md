@@ -179,7 +179,10 @@ For a resource investigation, run `RedXe.exe --probe=5` and read the `probe` rec
 the JSONL log (beside the selected settings directory). Samples include process memory, CPU time, resource counts,
 presentation counters, driver memory and live AV surfaces. Sampling adds diagnostic work on the UI thread; its query
 cost is recorded as `sample_us`. Page changes also emit `page-stage` timing records for selection, providers, layout
-and GPU setup. Short thread CPU readings can round to zero; use repeated measurements when comparing changes.
+and GPU setup. Individual `page-callback` records identify the page's widget ordinal and callback; `page-prepared`
+ends its first-preparation trace. Match these by `stage_id` and check counts, dropped records and cancellation before
+using the timings. Missing records make the trace incomplete. Short thread CPU readings can round to zero; use
+repeated measurements when comparing changes.
 Sampling continues while hidden or minimized without drawing frames. Close the dashboard normally to finish.
 
 ## Screenshots

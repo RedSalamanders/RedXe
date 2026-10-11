@@ -26,7 +26,16 @@ struct RendererResourceTestAccess final
     {
         return renderer._transitionDashboardHost != nullptr;
     }
+    static HRESULT Recover(Renderer& renderer) noexcept
+    {
+        return renderer.RecoverDevice();
+    }
 };
+
+HRESULT RecoverPageProbeTestDevice(Renderer& renderer) noexcept
+{
+    return RendererResourceTestAccess::Recover(renderer);
+}
 
 struct PluginManagerGpuResourceTestAccess final
 {

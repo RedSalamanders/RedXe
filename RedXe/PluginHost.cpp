@@ -765,7 +765,30 @@ HRESULT PluginHost::LogRuntimePageStage(const RuntimePageStageSample& sample) no
     static_assert(kRuntimeProbeLineCapacity == kLogLineCapacity);
     std::array<char, kRuntimeProbeLineCapacity> line{};
     const uint32_t bytes = FormatRuntimePageStageLine(sample, line.data(), line.size());
-    return bytes != 0 ? EnqueueLogLine(line.data(), bytes) : HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    return bytes != 0 ? EnqueueLogLine(line.data(), bytes, true) : HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+}
+
+HRESULT PluginHost::LogRuntimePageCallback(const RuntimePageCallbackSample& sample) noexcept
+{
+    return LogRuntimePageCallbacks(&sample, 1);
+}
+
+HRESULT PluginHost::LogRuntimePageCallbacks(const RuntimePageCallbackSample* samples, uint32_t count) noexcept
+{
+    if (_shutdown)
+        return E_UNEXPECTED;
+    std::array<char, kRuntimeProbeLineCapacity> line{};
+    const uint32_t bytes = FormatRuntimePageCallbackBatch(samples, count, line.data(), line.size());
+    return bytes != 0 ? EnqueueLogLine(line.data(), bytes, true) : HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+}
+
+HRESULT PluginHost::LogRuntimePagePreparation(const RuntimePagePreparationSample& sample) noexcept
+{
+    if (_shutdown)
+        return E_UNEXPECTED;
+    std::array<char, kRuntimeProbeLineCapacity> line{};
+    const uint32_t bytes = FormatRuntimePagePreparationLine(sample, line.data(), line.size());
+    return bytes != 0 ? EnqueueLogLine(line.data(), bytes, true) : HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 }
 
 HRESULT PluginHost::QueryAvProbeStatistics(AVControl::ProbeStatistics& statistics) noexcept
@@ -879,7 +902,7 @@ HRESULT PluginHost::FlushLog(uint32_t timeoutMilliseconds) noexcept
     return HRESULT_FROM_WIN32(GetLastError());
 }
 
-HRESULT PluginHost::EnqueueLogLine(const char* line, uint32_t bytes) noexcept
+HRESULT PluginHost::EnqueueLogLine(const char* line, uint32_t bytes, bool reportLoss) noexcept
 {
     if (!line || bytes == 0 || bytes >= kLogLineCapacity)
     {
@@ -887,12 +910,17 @@ HRESULT PluginHost::EnqueueLogLine(const char* line, uint32_t bytes) noexcept
     }
     if (_logDirectory.empty())
     {
-        return S_OK;
+        return reportLoss ? S_FALSE : S_OK;
     }
 
     AcquireSRWLockExclusive(&_logLock);
     if (_logCount == kLogRingSlots)
     {
+        if (reportLoss)
+        {
+            ReleaseSRWLockExclusive(&_logLock);
+            return S_FALSE;
+        }
         _logTail = (_logTail + 1) % kLogRingSlots;
         --_logCount;
         _logQueued.store(static_cast<uint32_t>(_logCount), std::memory_order_release);

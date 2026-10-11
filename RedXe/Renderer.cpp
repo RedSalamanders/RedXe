@@ -79,6 +79,12 @@ void Renderer::Shutdown() noexcept
 HRESULT Renderer::DropTransitionDashboard() noexcept
 {
     DashboardHost* const previous = _transitionDashboardHost;
+    if (_pagePreparationProbe)
+    {
+        _pagePreparationProbe->Retire(previous);
+        if (_pagePreparationProbe->Empty())
+            _pagePreparationProbe.reset();
+    }
     const bool ready = _transitionWidgetsDeviceReady;
     _transitionDashboardHost = nullptr;
     _transitionWidgetsDeviceReady = false;
@@ -96,8 +102,11 @@ HRESULT Renderer::DropTransitionDashboard() noexcept
     return result;
 }
 
-HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
+HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost, RuntimePageCallbackContext* callbacks,
+                                         HRESULT* preparationTraceResult) noexcept
 {
+    if (preparationTraceResult)
+        *preparationTraceResult = S_FALSE;
     if (dashboardHost && dashboardHost->WidgetCount() > _transitionWidgetViewports.size())
     {
         return E_INVALIDARG;
@@ -105,7 +114,7 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
     const bool incomingVisible = dashboardHost && dashboardHost->WidgetsVisible();
     if (dashboardHost)
     {
-        const HRESULT result = dashboardHost->SetWidgetsVisible(false);
+        const HRESULT result = dashboardHost->SetWidgetsVisible(false, callbacks);
         if (FAILED(result))
             return result;
     }
@@ -126,7 +135,9 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
     {
         if (IRedXeGpuWidget* widget = dashboardHost->GpuWidgetAt(index))
         {
-            const HRESULT result = widget->OnDeviceCreated(&context);
+            const HRESULT result = TraceRuntimePageCallback(callbacks, static_cast<uint32_t>(index),
+                                                            RuntimePageCallbackKind::DeviceCreated, [&]() noexcept
+                                                            { return widget->OnDeviceCreated(&context); });
             if (FAILED(result))
             {
                 (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
@@ -143,15 +154,31 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
         }
     }
     _transitionWidgetsDeviceReady = true;
+    if (callbacks && callbacks->stageId != 0)
+    {
+        static_assert(kMaximumWidgetViewports <= 32);
+        uint32_t pending = 0;
+        for (size_t index = 0; index < dashboardHost->WidgetCount(); ++index)
+            if (dashboardHost->PreparedGpuWidgetAt(index))
+                pending |= uint32_t{1} << index;
+        if (!_pagePreparationProbe)
+            _pagePreparationProbe.reset(new (std::nothrow) RuntimePagePreparationProbe());
+        const HRESULT traced =
+            _pagePreparationProbe ? _pagePreparationProbe->Arm(dashboardHost, *callbacks, pending) : E_OUTOFMEMORY;
+        if (preparationTraceResult)
+            *preparationTraceResult = traced;
+        if (_pagePreparationProbe && _pagePreparationProbe->Empty())
+            _pagePreparationProbe.reset();
+    }
     // During device recovery both pages are initialized before the new render target exists. Its creation will
     // calculate viewports and send the initial size notifications for both pages together.
     if (_width == 0 || _height == 0)
     {
         return S_OK;
     }
-    HRESULT result = UpdateCachedViewports();
+    HRESULT result = UpdateCachedViewports(callbacks);
     if (SUCCEEDED(result))
-        result = dashboardHost->SetWidgetsVisible(incomingVisible);
+        result = dashboardHost->SetWidgetsVisible(incomingVisible, callbacks);
     if (FAILED(result))
         (void)DropTransitionDashboard();
     return result;
@@ -165,6 +192,12 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
     }
     if (_dashboardHost == &dashboardHost)
     {
+        if (_pagePreparationProbe)
+        {
+            _pagePreparationProbe->Retain(&dashboardHost);
+            if (_pagePreparationProbe->Empty())
+                _pagePreparationProbe.reset();
+        }
         _transitionDashboardHost = nullptr;
         _transitionWidgetsDeviceReady = false;
         return (_width == 0 || _height == 0) ? S_OK : UpdateCachedViewports();
@@ -234,6 +267,12 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
     }
 
     const bool retirePrimary = previousGpuReady && previousPrimary && previousPrimary != &dashboardHost;
+    if (_pagePreparationProbe)
+    {
+        _pagePreparationProbe->Retain(&dashboardHost);
+        if (_pagePreparationProbe->Empty())
+            _pagePreparationProbe.reset();
+    }
     const bool retireTransition = previousTransitionReady && previousTransition && previousTransition != &dashboardHost;
     if (retirePrimary)
     {
@@ -828,11 +867,12 @@ void Renderer::ResetTargetSizes() noexcept
     _transitionTargetSizes = {};
 }
 
-void Renderer::NotifyTargetSizes() noexcept
+void Renderer::NotifyTargetSizes(RuntimePageCallbackContext* callbacks) noexcept
 {
-    const auto notify =
-        [this](DashboardHost* dashboard, const std::array<D3D11_VIEWPORT, kMaximumWidgetViewports>& viewports,
-               std::array<ReportedTarget, kMaximumWidgetViewports>& reported, bool includeRaised) noexcept
+    const auto notify = [this, callbacks](DashboardHost* dashboard,
+                                          const std::array<D3D11_VIEWPORT, kMaximumWidgetViewports>& viewports,
+                                          std::array<ReportedTarget, kMaximumWidgetViewports>& reported,
+                                          bool includeRaised) noexcept
     {
         if (!dashboard)
         {
@@ -872,7 +912,9 @@ void Renderer::NotifyTargetSizes() noexcept
                 _dpi,
             };
             // A failed rebuild is isolated: the widget keeps whatever resources it already had and still renders.
-            const HRESULT sized = widget->OnTargetSizeChanged(&context);
+            const HRESULT sized = TraceRuntimePageCallback(
+                dashboard == _transitionDashboardHost ? callbacks : nullptr, static_cast<uint32_t>(index),
+                RuntimePageCallbackKind::TargetSize, [&]() noexcept { return widget->OnTargetSizeChanged(&context); });
             if (FAILED(sized))
             {
                 OutputDebugStringW(L"A GPU widget failed to resize its resources; keeping the previous ones.\n");
@@ -889,7 +931,7 @@ void Renderer::NotifyTargetSizes() noexcept
     notify(_transitionDashboardHost, _transitionWidgetViewports, _transitionTargetSizes, false);
 }
 
-HRESULT Renderer::UpdateCachedViewports() noexcept
+HRESULT Renderer::UpdateCachedViewports(RuntimePageCallbackContext* callbacks) noexcept
 {
     // Render indexes the cached viewport arrays with a widget count bounded by PluginManager, so the two limits must
     // not drift apart. Raising kMaximumWidgetsPerPage alone fails here instead of overrunning a frame.
@@ -947,7 +989,7 @@ HRESULT Renderer::UpdateCachedViewports() noexcept
             viewport.MaxDepth = 1.0f;
         }
     }
-    NotifyTargetSizes();
+    NotifyTargetSizes(callbacks);
     return S_OK;
 }
 
@@ -1004,6 +1046,11 @@ HRESULT Renderer::NotifyDeviceCreated() noexcept
 
 void Renderer::NotifyDeviceLost() noexcept
 {
+    if (_pagePreparationProbe)
+    {
+        _pagePreparationProbe->Retain(nullptr);
+        _pagePreparationProbe.reset();
+    }
     if (!_gpuWidgetsDeviceReady || !_dashboardHost)
     {
         return;
@@ -1122,7 +1169,11 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
                                                                         : _raisedViewport.Height + 0.5f)
                        : 0U,
                 _appearance};
-            const HRESULT result = widget->Prepare(&context);
+            RuntimePageCallbackContext* const probeContext =
+                _pagePreparationProbe ? _pagePreparationProbe->Take(dashboard, static_cast<uint32_t>(index)) : nullptr;
+            const HRESULT result = TraceRuntimePageCallback(probeContext, static_cast<uint32_t>(index),
+                                                            RuntimePageCallbackKind::FirstPreparation,
+                                                            [&]() noexcept { return widget->Prepare(&context); });
             if (observedChanged && dashboard == _dashboardHost && index == observedWidget && result == S_OK)
                 *observedChanged = true;
             if (changedWidgets && dashboard == _dashboardHost && index < 64 && result == S_OK)
@@ -1130,6 +1181,12 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
             if (IsDeviceLost(result))
                 return result;
             // Other failures are local to the prepared widget, which suppresses stale input/composition.
+        }
+        if (_pagePreparationProbe)
+        {
+            _pagePreparationProbe->Finish(dashboard);
+            if (_pagePreparationProbe->Empty())
+                _pagePreparationProbe.reset();
         }
         return S_OK;
     };

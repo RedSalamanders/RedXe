@@ -74,6 +74,7 @@ void TestProcessViewerScheduling(bool& success) noexcept;
 void TestProcessViewerPixelReference(const wchar_t* path, bool& success) noexcept;
 void TestDataSourceLifetime(bool& success) noexcept;
 void TestGpuResourceRetirement(bool& success) noexcept;
+HRESULT RecoverPageProbeTestDevice(Renderer& renderer) noexcept;
 
 struct PluginHostTestAccess final
 {
@@ -320,6 +321,18 @@ struct PluginHostTestAccess final
         host.StopLogService();
         host._logDirectory.clear();
         host._logFilePath.clear();
+        host._logWriterGate.reset();
+    }
+
+    [[nodiscard]] static bool BlockLogWriter(PluginHost& host) noexcept
+    {
+        host._logWriterGate.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+        return !!host._logWriterGate;
+    }
+    static void UnblockLogWriter(PluginHost& host) noexcept
+    {
+        if (host._logWriterGate)
+            SetEvent(host._logWriterGate.get());
     }
 
     // No writer is started: date rollover can be tested without changing the machine clock or a live worker.
@@ -4558,6 +4571,179 @@ void TestGpuPageLifetime(bool& success)
           L"all data and network widget device callbacks run while the widget is quiescent", success);
 }
 
+void TestPageCallbackProbe(bool& success)
+{
+    std::wcout << L"[ RUN      ] production page callback probe: promotion, cancellation, device loss and ring loss\n";
+    const auto root =
+        std::filesystem::temp_directory_path() /
+        (L"RedXe.PageCallback." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    PluginHost& host = PluginHost::Instance();
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            PluginHostTestAccess::UnblockLogWriter(host);
+            PluginHostTestAccess::DetachLog(host);
+            std::error_code ignored;
+            std::filesystem::remove_all(root, ignored);
+        });
+    if (error || FAILED(host.SetLogDirectory(root.c_str())) || host.FlushLog(10'000) != S_OK ||
+        !PluginHostTestAccess::BlockLogWriter(host))
+    {
+        Check(false, L"callback probe owns a blocked temporary logger", success);
+        return;
+    }
+    RuntimePageStageProbe overflow(true, 0, 1);
+    overflow.Select(1);
+    bool resultsPreserved = true;
+    for (uint32_t index = 0; index < 384; ++index)
+        resultsPreserved =
+            TraceRuntimePageCallback(overflow.Callbacks(), index % 32, RuntimePageCallbackKind::DeviceCreated,
+                                     []() noexcept { return E_ABORT; }) == E_ABORT &&
+            resultsPreserved;
+    FlushRuntimePageCallbacks(*overflow.Callbacks());
+    Check(resultsPreserved && overflow.Callbacks()->counts[0] == 384 && overflow.Callbacks()->dropped == 192,
+          L"a full 32-slot ring reports refused callbacks and never changes the callback HRESULT", success);
+    PluginHostTestAccess::UnblockLogWriter(host);
+    Check(host.FlushLog(10'000) == S_OK, L"the blocked callback log drains", success);
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(
+        R"json({"version":{"major":5},"pages":[{"id":"primary","columns":[{"plugin":"builtin.rotating-triangle"}]},)json"
+        R"json({"id":"incoming","columns":[{"plugin":"builtin.launcher"},{"plugin":"builtin.launcher"}]}]})json",
+        settings);
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+        result = window.Initialize(kHostWidth, kHostHeight);
+    auto primaryPlugins = std::make_unique<PluginManager>();
+    PluginManager incomingPlugins, canceledPlugins;
+    if (SUCCEEDED(result))
+        result = primaryPlugins->Initialize(settings);
+    if (SUCCEEDED(result))
+        result = MoveDashboardPage(settings, 1);
+    if (SUCCEEDED(result))
+        result = incomingPlugins.Initialize(settings);
+    DashboardHost primary, incoming, canceled;
+    if (SUCCEEDED(result))
+        result = primary.Initialize(*primaryPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    if (SUCCEEDED(result))
+        result = incoming.Initialize(incomingPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    Renderer renderer;
+    if (SUCCEEDED(result))
+        result = renderer.Initialize(window.Get(), true, primary);
+    Check(SUCCEEDED(result) && incoming.WidgetCount() == 2 && incoming.PreparedGpuWidgetAt(0) &&
+              incoming.PreparedGpuWidgetAt(1),
+          L"real WARP primary and two prepared Launcher widgets construct", success);
+    if (FAILED(result))
+        return;
+
+    RuntimePageStageProbe promoted(true, 0, 1);
+    promoted.Select(1);
+    HRESULT tracing = E_UNEXPECTED;
+    result = renderer.SetTransitionDashboard(&incoming, promoted.Callbacks(), &tracing);
+    if (SUCCEEDED(result))
+        result = incoming.SetWidgetsVisible(true, promoted.Callbacks());
+    Check(SUCCEEDED(result) && tracing == S_OK && promoted.Callbacks()->dropped == 0 &&
+              promoted.Callbacks()->counts == std::array<uint32_t, 4>{2, 2, 2, 0},
+          L"real staging traces device, size and shown visibility exactly once per widget", success);
+    if (FAILED(result))
+        return;
+    result = renderer.AdoptPrimaryDashboard(incoming);
+    primary.Shutdown();
+    primaryPlugins.reset();
+    if (SUCCEEDED(result))
+        result = renderer.PrepareWidgets();
+    if (SUCCEEDED(result))
+        result = renderer.PrepareWidgets();
+    if (SUCCEEDED(result))
+        result = renderer.Render(0.0f, 0.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 2,
+          L"promotion before first preparation preserves incoming identity, then both real widgets draw", success);
+    if (FAILED(result))
+        return;
+    Check(host.FlushLog(10'000) == S_OK, L"the promoted trace drains", success);
+
+    result = canceledPlugins.Initialize(settings);
+    if (SUCCEEDED(result))
+        result = canceled.Initialize(canceledPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    RuntimePageStageProbe aborted(true, 1, -1);
+    aborted.Select(1);
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(&canceled, aborted.Callbacks(), &tracing);
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(nullptr);
+    Check(SUCCEEDED(result) && tracing == S_OK, L"cancel before Prepare retires the incoming page", success);
+    Check(host.FlushLog(10'000) == S_OK, L"the cancellation trace drains", success);
+
+    RuntimePageStageProbe lost(true, 1, -1);
+    lost.Select(1);
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(&canceled, lost.Callbacks(), &tracing);
+    if (SUCCEEDED(result))
+        result = RecoverPageProbeTestDevice(renderer);
+    if (SUCCEEDED(result))
+        result = renderer.PrepareWidgets();
+    Check(SUCCEEDED(result), L"device loss retires pending trace identities before rebuilding the two pages", success);
+    Check(host.FlushLog(10'000) == S_OK, L"the device-loss trace drains", success);
+    (void)renderer.SetTransitionDashboard(nullptr);
+    RuntimePageStageProbe stopped(true, 1, -1);
+    stopped.Select(1);
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(&canceled, stopped.Callbacks(), &tracing);
+    renderer.Shutdown();
+    Check(SUCCEEDED(result) && host.FlushLog(10'000) == S_OK, L"shutdown emits a terminal record for pending work",
+          success);
+
+    const std::string log = ReadTodayLog(root);
+    std::array<uint32_t, 4> firstPreparations{}, terminals{};
+    bool complete = true;
+    size_t start = 0;
+    while (start < log.size())
+    {
+        const size_t end = log.find('\n', start);
+        const size_t length = (end == std::string::npos ? log.size() : end) - start;
+        using Document = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
+        Document document(yyjson_read(log.data() + start, length, 0));
+        if (document)
+        {
+            auto* record = yyjson_doc_get_root(document.get());
+            const uint64_t id = yyjson_get_uint(yyjson_obj_get(record, "stage_id"));
+            const std::array<uint64_t, 4> ids{promoted.Callbacks()->stageId, aborted.Callbacks()->stageId,
+                                              lost.Callbacks()->stageId, stopped.Callbacks()->stageId};
+            for (size_t index = 0; index < ids.size(); ++index)
+            {
+                if (id != ids[index])
+                    continue;
+                auto* event = yyjson_obj_get(record, "event");
+                if (yyjson_equals_str(event, "page-callback"))
+                {
+                    auto* calls = yyjson_obj_get(record, "calls");
+                    for (size_t call = 0; call < yyjson_arr_size(calls); ++call)
+                        if (yyjson_get_uint(yyjson_arr_get(yyjson_arr_get(calls, call), 2)) == 3)
+                            ++firstPreparations[index];
+                }
+                if (yyjson_equals_str(event, "page-prepared"))
+                {
+                    ++terminals[index];
+                    complete = complete && yyjson_get_uint(yyjson_obj_get(record, "expected")) == 2 &&
+                               yyjson_get_uint(yyjson_obj_get(record, "pending_mask")) == (index == 0 ? 0U : 3U) &&
+                               yyjson_get_uint(yyjson_obj_get(record, "hr")) ==
+                                   static_cast<uint32_t>(index == 0 ? S_OK : E_ABORT) &&
+                               yyjson_get_uint(yyjson_obj_get(record, "callback_dropped")) == 0 &&
+                               yyjson_get_uint(yyjson_arr_get(yyjson_obj_get(record, "callbacks"), 3)) ==
+                                   (index == 0 ? 2U : 0U);
+                }
+            }
+        }
+        start = end == std::string::npos ? log.size() : end + 1;
+    }
+    Check(complete && firstPreparations == std::array<uint32_t, 4>{2, 0, 0, 0} &&
+              terminals == std::array<uint32_t, 4>{1, 1, 1, 1},
+          L"raw production log has exactly two first attempts after promotion and one accurate terminal per lifecycle",
+          success);
+}
+
 // Wraps one placed GPU widget so a host test can fail its device or size callback on demand and count what the host
 // calls; everything else is forwarded. A failed call never reaches the wrapped widget, which keeps what it had.
 class FaultInjectingGpuWidget final : public RedXeComObject<FaultInjectingGpuWidget, IRedXeGpuWidget>
@@ -4750,7 +4936,11 @@ void TestGpuWidgetCallbackFailures(bool& success)
     // Staging for a swipe: the third widget fails; the staged page is dropped and the current page keeps drawing.
     stagedFaults[2]->deviceCreatedFailure = kStagingFailure;
     const bool stagedVisible = staged.WidgetsVisible();
-    result = renderer.SetTransitionDashboard(&staged);
+    RuntimePageStageProbe failedStage(true, 0, 1);
+    failedStage.Select(1);
+    result = renderer.SetTransitionDashboard(&staged, failedStage.Callbacks());
+    Check(failedStage.Callbacks()->counts == std::array<uint32_t, 4>{3, 0, 3, 0},
+          L"failed setup traces each attempted callback while preserving rollback", success);
     Check(stagedVisible && result == kStagingFailure && stagedFaults[0]->deviceLostCalls == 1 &&
               stagedFaults[1]->deviceLostCalls == 1 && stagedFaults[2]->deviceCreatedCalls == 1 &&
               stagedFaults[2]->deviceLostCalls == 0 && !staged.WidgetsVisible(),
@@ -9130,6 +9320,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestGpuPageLifetime(success);
     TestGpuResourceRetirement(success);
     TestGpuWidgetCallbackFailures(success);
+    TestPageCallbackProbe(success);
     TestSharedPluginRuntime(success);
     TestHostRequestFrameAndWidgetStatus(success);
     TestWidgetSettingsPersist(success);

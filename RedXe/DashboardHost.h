@@ -31,7 +31,7 @@ class DashboardHost final
     [[nodiscard]] HRESULT Initialize(PluginManager& pluginManager, HWND parent, UINT width, UINT height, UINT dpi,
                                      bool visible) noexcept;
     [[nodiscard]] HRESULT Resize(UINT width, UINT height, UINT dpi) noexcept;
-    [[nodiscard]] HRESULT SetWidgetsVisible(bool visible) noexcept;
+    [[nodiscard]] HRESULT SetWidgetsVisible(bool visible, RuntimePageCallbackContext* callbacks = nullptr) noexcept;
     [[nodiscard]] bool WidgetsVisible() const noexcept
     {
         return _widgetsVisible;

@@ -3232,11 +3232,15 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
         if (SUCCEEDED(result))
             stageProbe.Mark(RuntimePageStagePhase::Layout);
         if (SUCCEEDED(result))
-            result = _renderer.SetTransitionDashboard(dashboard.get());
+        {
+            HRESULT preparationTrace = S_FALSE;
+            result = _renderer.SetTransitionDashboard(dashboard.get(), stageProbe.Callbacks(), &preparationTrace);
+            stageProbe.PreparationTraceResult(preparationTrace);
+        }
         if (SUCCEEDED(result))
             stageProbe.Mark(RuntimePageStagePhase::GpuSetup);
         if (SUCCEEDED(result))
-            result = dashboard->SetWidgetsVisible(visible);
+            result = dashboard->SetWidgetsVisible(visible, stageProbe.Callbacks());
         if (SUCCEEDED(result))
             stageProbe.Mark(RuntimePageStagePhase::Visibility);
         if (FAILED(result))
