@@ -1470,6 +1470,27 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         {
             return FailSelfTest(L"The dashboard page/private settings reconfiguration smoke test failed.", result);
         }
+        for (size_t widget = 0; widget < _dashboardHost->WidgetCount(); ++widget)
+        {
+            result = TryRaiseWidgetAt(_window.get(), widget);
+            if (result == HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED))
+                continue;
+            if (FAILED(result))
+                return FailSelfTest(L"The hidden raised-state probe setup failed.", result);
+            const auto dismiss = wil::scope_exit([this]() noexcept { CompleteDismissImmediate(); });
+            CompleteRaiseSettle();
+            if (!(RuntimeProbeState() & kRuntimeProbeRaisedState))
+                return FailSelfTest(L"A settled real widget raise is absent from the runtime probe state.");
+            result = _renderer.PrepareWidgets();
+            if (SUCCEEDED(result))
+                result = _renderer.Render(0.0f, 0.0f);
+            if (FAILED(result))
+                return FailSelfTest(L"The hidden raised-state probe frame failed.", result);
+            DismissWidgetRaise(false);
+            if (RuntimeProbeState() & kRuntimeProbeRaisedState)
+                return FailSelfTest(L"An immediate widget dismissal retained the runtime probe raised state.");
+            break;
+        }
     }
 
     // A source-only reload (a comment saved mid-swipe) keeps a staged swipe and becomes the document; committing the
@@ -6080,6 +6101,15 @@ void Application::ApplyContinuousFrameRate(ContinuousFrameRate previous) noexcep
     _frameInvalidated = true;
 }
 
+uint32_t Application::RuntimeProbeState() const noexcept
+{
+    return (DashboardRequiresContinuousFrames() ? 1u : 0u) | (_windowVisible ? 2u : 0u) |
+           (_displayPoweredOn ? 4u : 0u) | (_renderer.IsSuspended() ? 8u : 0u) | (_renderer.IsOccluded() ? 16u : 0u) |
+           (DockHidden() ? 32u : 0u) | (PageNavigationInProgress() ? 64u : 0u) |
+           (OverlayMotionInProgress() || _dockSlideActive ? 128u : 0u) |
+           (_raisedActive ? kRuntimeProbeRaisedState : 0u);
+}
+
 void Application::TickRuntimeProbe() noexcept
 {
     if (!_probe.Enabled() || !_probe.Due(GetTickCount64()))
@@ -6087,10 +6117,7 @@ void Application::TickRuntimeProbe() noexcept
     const auto started = std::chrono::steady_clock::now();
     RuntimeProbeSample sample;
     sample.page = _settings->dashboard.activePageIndex;
-    sample.state =
-        (DashboardRequiresContinuousFrames() ? 1u : 0u) | (_windowVisible ? 2u : 0u) | (_displayPoweredOn ? 4u : 0u) |
-        (_renderer.IsSuspended() ? 8u : 0u) | (_renderer.IsOccluded() ? 16u : 0u) | (DockHidden() ? 32u : 0u) |
-        (PageNavigationInProgress() ? 64u : 0u) | (OverlayMotionInProgress() || _dockSlideActive ? 128u : 0u);
+    sample.state = RuntimeProbeState();
     sample.scheduledDeadline = _scheduledFrameDeadlineTick;
     sample.process = QueryProcessResources();
     sample.graphics = _renderer.QueryProbeGraphics();

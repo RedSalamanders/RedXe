@@ -695,9 +695,11 @@ The numeric arrays keep even maximum-width values within one logger slot:
 
 HRESULTs are unsigned 32-bit values. Only S_OK (0) supplies a successful value; AV S_FALSE (1) means the module is
 absent. Process validity bits 0–6 correspond to memory, CPU, handles, threads, modules, GDI and USER queries. Host
-state bits 0–7 mean continuous, visible, display on, renderer suspended, DXGI occluded, dock hidden, navigation and
-overlay/dock motion. Visible is the host's show state and can remain set while minimized; renderer suspended
-identifies that inactive case. Present delta bits 0/1 mean count/statistics deltas. A first sample, resize/recreation,
+state bits 0–8 mean continuous, visible, display on, renderer suspended, DXGI occluded, dock hidden, navigation,
+overlay/dock motion and an active raised widget. The raised bit remains set through raise/dismiss motion and clears
+when dismissal completes; with motion clear it identifies a settled raised widget. Consumers MUST tolerate unknown
+state bits. Visible is the host's show state and can remain set while minimized; renderer suspended identifies that
+inactive case. Present delta bits 0/1 mean count/statistics deltas. A first sample, resize/recreation,
 disjoint/failing statistics, or regressing QPC/GPU clock makes the affected delta unavailable until two matching
 successful samples exist. UINT counters wrap modulo 2^32. Zero without its validity bit MUST NOT be treated as a
 measured zero. Frame-statistics refresh/QPC/GPU deltas are DXGI counters, not input latency or hardware FPS.
@@ -709,6 +711,10 @@ Required automated coverage: disabled/no-deadline behavior, competing frame/prob
 wrap, missing/disjoint statistics, generation and clock resets, extreme-width complete JSON, logger drain, real
 process-resource sampling, read-only hidden WARP queries, and two-instance AV aggregation/hide/destruction. The
 end-to-end screenshot fixture also runs `--probe=1` to exercise the real application loop without focus or input.
+The hidden production self-test MUST raise an eligible real Gallery/System widget, settle and render its frame,
+observe the raised bit, dismiss immediately and observe it clear. Serialization MUST retain that bit without
+changing the record version, arrays or logger capacity. Periodic samples do not guarantee capture of shorter
+transitions; input qualification must wait for an observed raised state before testing dismissal.
 Callback coverage additionally requires disabled exactly-once/result preservation, independent CPU validity,
 six extreme samples per slot, short/absent destinations and mixed-identity refusal, two-page mask bounds/reuse, real staged setup failure/rollback, promotion before
 first preparation, cancellation, device loss, shutdown and saturated writer refusal accounting. No such fixture

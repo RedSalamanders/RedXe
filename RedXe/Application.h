@@ -456,6 +456,7 @@ class Application final
     RuntimeProbe _probe;
     uint32_t _probeSeconds = 0;
     void TickRuntimeProbe() noexcept;
+    [[nodiscard]] uint32_t RuntimeProbeState() const noexcept;
     TrayIcon _trayIcon;
     // Set by Run once the main window is up; RunSelfTest never shows the icon, whatever the document says.
     bool _trayIconAllowed = false;

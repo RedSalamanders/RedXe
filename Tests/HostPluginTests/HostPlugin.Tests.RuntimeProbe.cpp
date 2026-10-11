@@ -70,10 +70,12 @@ void TestRuntimeProbe(bool& success) noexcept
                   s.process.threads > 0 && s.process.modules > 0 && s.process.handles > 0,
               L"real process resources have independent validity bits");
         std::array<char, kRuntimeProbeLineCapacity> line{};
+        s.state = 6u | kRuntimeProbeRaisedState;
         auto bytes = FormatRuntimeProbeLine(s, line.data(), line.size());
         using Document = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
         Document document(yyjson_read(line.data(), bytes, 0));
-        check(document && yyjson_arr_size(yyjson_obj_get(yyjson_doc_get_root(document.get()), "process")) == 11 &&
+        check(document && yyjson_get_uint(yyjson_obj_get(yyjson_doc_get_root(document.get()), "state")) == 262 &&
+                  yyjson_arr_size(yyjson_obj_get(yyjson_doc_get_root(document.get()), "process")) == 11 &&
                   yyjson_arr_size(yyjson_obj_get(yyjson_doc_get_root(document.get()), "present")) == 11,
               L"record is structured JSON with every diagnostic field");
         s.tick = s.intervalMilliseconds = s.sampleMicroseconds = s.scheduledDeadline = UINT64_MAX;

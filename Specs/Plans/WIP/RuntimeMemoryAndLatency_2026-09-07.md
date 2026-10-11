@@ -78,6 +78,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P1.6 | Complete | Default-display/minor4 setting, overlapping one-shot/DXGI waits, motion/invalidation bypass and live apply pass. Corrected permit ownership recovers after hide/minimize at about 29.3/s; inactive zero. Final pairs reduce CPU 32.8/35.6% and submissions about 51%; all cohort frames displayed, independent flip/no hybrid. Cap private medians are 0.59/1.15 MiB higher, adapter usage unchanged; no memory saving or physical-input latency claim. Release16, Debug/ASan15, ARM64 Release and ten skills pass; 145 Viewer/eight Weather references match. runtime-2026-10-11-p16*. |
 | P2.7 | Complete | Sample-driven scheduling, full gates and matched 13.7–13.9% submission reduction; `a466363`. CPU saving remains unestablished. |
 | P0.2 | CPU attribution captured; other gates open | Accepted sampled-only System capture, 65 s normal-user Release probe: 2.392% of one core and 12.364 submissions/s. ETL has zero lost events/buffers and matching private/Microsoft symbols. A 56 s steady window has 1,251 named CPU stacks: acquisition worker 900, native process walk 578, `OpenProcess` 20 inclusive hits. These overlap, are sampled, and cover a subset of all 1,336 owned stacks. `runtime-2026-10-10-p02-cpu-sampled`. Earlier broad trace dropped 704,274 events and remains rejected. Input/presented latency and adapter-move qualification stay open. |
+| P0.2 raised-state observation | Complete | Bit 8 observes the actual active raised layer, preserving v1, arrays and slot capacity. Hidden real Gallery/System raise/settle/render/dismiss checks and serialization pass Release 16, Debug 15 and ASan Debug 15 scopes; ARM64 Release compiles and ten skills pass. Disabled probes add no sampling, storage, allocation or wake. This enables strict input outcome checks; physical-input and first-pixel qualification remain open. |
 | P2.5 | Complete | `9b9cf15`: writer-owned date/policy cache removes both directory scans and path construction from ordinary lines. 1,000 same-day checks leave a late expired file untouched; policy and UTC changes reap it. Actual idle-policy flush passes. Release 16 scopes, Debug 15 native scopes and ARM64 Release compilation pass; `.build/receipts/runtime-2026-10-10-p25/`. No whole-process CPU reduction claimed for this infrequent log workload. |
 | P2.4 | Complete | Render failure debug output shares the JSONL transition guard. 400 failing primary frames emit three reports; a new primary instance emits its own report. Whole-frame recovery resets identity; partial tile/raised recovery does not. Adds a 4-byte mask and no steady slot scan/allocation. Release 16 scopes, Debug 15 native scopes and ARM64 Release compilation pass; `.build/receipts/runtime-2026-10-10-p24/`. This removes repeated failure-path debug calls, not measured ordinary CPU. |
 | P2.2 | Complete | 24-byte UI-thread reachable-rectangle cache. Production self-test proves 1,000 unchanged queries add zero display walks; a work-area notification adds exactly one. Window lifetime/geometry/style, DPI, topology and settings notifications invalidate before dispatch. All 16 Release scopes, 15 Debug native scopes, ARM64 Release compilation and 10 skills pass. Matched 65 s captures are in `runtime-2026-10-10-p22-before` / `-after`; no CPU saving established. |
@@ -357,6 +358,26 @@ Receipts: `.build/receipts/p43-wic-final-scope-accounting.json`, `p43-wic-pixel-
 `p43-wic-rejected-candidate` preserves the rejected source and Release artifacts. The first test-build syntax
 failure and the missing reference-DLL dependency attempt remain in their original logs. This experiment is a
 completed decision, not an accepted optimization or qualification of the restored tree's current build outputs.
+
+### P0.2 raised-widget observation (2026-10-11, complete)
+
+The optional production probe now exposes bit 8 from the host's actual active raised layer. It stays set through
+raise/dismiss motion and clears at completed dismissal. A sample with motion clear can therefore verify a settled
+raise before a controller sends Escape. The existing eight state bits, v1 record, arrays and 1,024-byte logger slot
+remain unchanged. The disabled path still returns before any state query, sampling or logging; this adds no owned
+storage, allocation, timer, thread or wake.
+
+The hidden production application self-test raises the first eligible real widget on each page, settles and renders
+it, checks the bit, dismisses immediately and checks it clear. Gallery's Triangle and System's viewer exercise the
+real paths; full-canvas pages skip unsupported raises. Structured serialization checks state 262 in addition to the
+existing extreme-width test. Release's two focused scopes plus fourteen remaining obligations pass; Debug and ASan
+Debug each pass fifteen native scopes. All builds have zero warnings/errors, ARM64 Release compiles, and ten skills
+validate. The 384 native inputs and profile artifact identities remain unchanged after testing; deployed settings
+and schema match the frozen build sources. Receipts: `p02-raised-state-scope-accounting.json`,
+`p02-raised-state-inputs.json`, `p02-raised-state-*-artifacts.json`, `p02-raised-state-runtime-settings.json` and
+`p02-raised-state-*.log`. ASan byte peaks remain diagnostic quarantine observations, not hardware memory budgets.
+The next foreground capture must verify all page and raised outcomes; this probe does not measure first changed
+pixels, physical touch or sensor-to-photon latency.
 
 ### P0.2 mouse/key capture attempts and next attribution (2026-10-11)
 
