@@ -67,7 +67,8 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P3.4 callback attribution | Complete; construction budgets remain open | Opt-in device/size/visibility and first-preparation timing, process stage identity, bounded two-page masks and strict completeness checks pass Debug15/Release16/ASan15, ARM64 compilation and skills10. The accepted hardware capture has 18 complete stages and 402 callbacks. Launcher visibility is the next measured target: 96.01 ms median / 244.20 ms maximum. No construction worker or visual-policy change is selected. |
 | P4.3 WIC batch | Rejected after matched measurements | A temporary shared factory passes all functional/profile gates and 20 reference frames, but Launcher visibility medians rise in both capture orders: 88.21 → 96.48 ms and 82.97 → 92.89 ms. Production code, diagnostics and experiment tests are restored. Fewer factory creations alone do not justify the observed latency regression; shell extraction remains the measured target. |
 | Release link correctness | Complete | `cdfcfca`: a production capture exposed stale member offsets in incremental LTCG despite passing hidden gates. Full LTCG retains optimization and prevents cache reuse. All 68 evaluated project configurations, 16 Release scopes, clean ARM64 Release compilation and ten skills pass. The recovered candidate completes 18 hardware page activations with 402 callbacks. The failed executable, linker cache, local dump and stacks remain preserved; no baseline is accepted for it. |
-| P4.2 provider records | Complete; private JSON remains next | Count-sized scheduling ownership removes 140,576 logical bytes with the real System provider live, and adds one cold allocation. Validation precedes publication and records retire outside the lock at source quiescence. Descriptor caps/final delivery, allocation failure/retry, facade identity and lease/drain scenarios pass. Provider-only Debug15/ASan15 and recovered full-LTCG Release16, clean ARM64 compile and skills10 have sealed identities. Matched hardware arms have identical plugin DLLs and 18 complete stages/402 callbacks each. Returned private is 63.30 → 63.60 MiB; no process-memory, CPU or staging-latency saving is established. |
+| P4.2 provider records | Complete | Count-sized scheduling ownership removes 140,576 logical bytes with the real System provider live, and adds one cold allocation. Validation precedes publication and records retire outside the lock at source quiescence. Descriptor caps/final delivery, allocation failure/retry, facade identity and lease/drain scenarios pass. Provider-only Debug15/ASan15 and recovered full-LTCG Release16, clean ARM64 compile and skills10 have sealed identities. Matched hardware arms have identical plugin DLLs and 18 complete stages/402 callbacks each. Returned private is 63.30 → 63.60 MiB; no process-memory, CPU or staging-latency saving is established. |
+| P4.2 private JSON | Implemented and measured; screenshot investigation open | 24-byte immutable values replace 4,104-byte inline reserves, with exact payloads and no default ownership. Release shipped logical storage is 209,460 → 56,450 bytes, plus 288 bytes of shared control blocks and unmeasured allocator overhead. Ownership/bounds/two-phase failure/parser/persist/stable concurrent-copy tests pass Debug15, recovered Release16 and ASan15; ARM64 compile and skills10 pass. Matched arms each have 18 stages/402 callbacks and unchanged plugin DLLs. Cold/returned private is 36.59/63.45 → 35.96/62.63 MiB; working set rises, and no causal CPU or latency saving is established. The initial Release screenshot access violation remains unexplained despite subsequent full/isolated/retained passes. |
 | P4.5 | Content-sized bodies and last-widget release complete | Production-path lower offline transport, exact transactional body storage and last-widget leases are implemented. Eight two-byte responses retain 24 bytes versus 2,097,160 before, including the final Release DLL; the new real-DLL storage assertion fails on the preserved old cache. Debug/ASan 15 scopes, ARM64 Release, ten skills and unchanged images pass. Release 16 obligations are accounted across runs, preserving the initial Desk Clock peak failure. Matched Gallery establishes no causal CPU saving; current D is 36.85 → 62.29 MiB private and 25.01 → 32.26 local, hidden/minimized zero. Curl reuse and failure coalescing remain separate measured candidates. |
 | P4.6 | Current hardware baseline captured; retain current deadline/atlas | Separate five-minute Desk/Studio runs share exact Release/runtime closure and one PresentMon session. Desk short display intervals have 16.66 ms p95; Studio averages 1.06 submissions/s. All owned cohort frames display, with composed independent flip and zero hybrid presents. No lower deadline or atlas change is selected. The intermittent WARP private peak remains unattributed. |
 | P4.3 glyph extraction | Complete | Temporary isolated factory/face/coverage batch, 400 unchanged glyph references and real Debug coverage-OOM recovery pass. Matched eight/32-icon callbacks fall about 7.2->2.4 / 29->6.5 ms. Final Debug15/Release16/ASan15/ARM64/skills10 and all image references pass. Settled fixed-eight CPU/submissions stay zero, adapter18.01 MiB; no physical-input or D-retention claim. runtime-2026-10-11-p43-glyph-*. |
@@ -166,7 +167,63 @@ module unloading or a driver-cache claim. The returned A+4-MiB budget and adapte
 Receipts: `runtime-2026-10-11-p42-provider-full-ltcg-control`, `-candidate`, their callback/region summaries,
 `p42-provider-full-ltcg-matched-comparison.json`, `p42-provider-full-ltcg-control-closure.json`,
 `p42-provider-recovery-*.json`, `p42-provider-final-*.json` and `runtime-2026-10-11-p42-provider`. The earlier rejected
-short-phase and hung captures remain separate. Private JSON storage is the next measured P4.2 candidate.
+short-phase and hung captures remain separate. The following record covers the private JSON candidate.
+
+### P4.2 immutable private JSON (2026-10-11, implementation and matched measurement)
+
+`JsonObjectSettings` now holds a 24-byte immutable shared owner and an exact payload plus terminator. Default `{}`
+owns nothing. Copies/moves allocate nothing, moved-from values expose a safe default, and equality compares logical
+bytes across distinct owners. Changed non-default values add two cold allocations; both complete before replacement.
+Cold JSON/plugin validation, the 4096-byte object/8192-byte envelope/1-MiB authored source limits and `sourceDocument`
+persistence remain. No frame/collection allocation, shader, settings-visible behavior or visual trade is added.
+
+The real shipped Release fixture reports 56,450 bytes versus 209,460 before, including 1,882 unique payload bytes
+across twelve owners. PDBs independently confirm 24-byte values and 24-byte shared control blocks: 56,738 bytes with
+those blocks, excluding allocator overhead. Debug/ASan report 56,522 logical bytes because their container layout
+differs. These are owned logical extents, not independent physical-heap measurements or a universal 64-KiB guarantee.
+Authored source and validation witness remain 4,876 and 6,166 bytes. Tests prove exact terminators/caps, immutable
+sharing/replacement, distinct-owner equality, last-payload release, safe moves, first/replacement allocation faults
+and retries, parser/persist rollback and 8,192 concurrent copies of a stable value. Fault phases are test-only seams,
+not a global allocator spy; shared-owner failure is injected before its construction with RAII payload cleanup.
+
+Debug Full15, recovered Release Full16 and ASan Full15 pass on 384 frozen native inputs with artifacts unchanged
+after execution. ARM64 Release compiles with zero warnings/errors; ten skills pass. The initial Debug test fixture
+incorrectly assumed resolved plugin defaults were absent; it failed, was corrected to retain independent prior
+bytes, and the focused/final gates pass. Its failed log is retained. The initial Release Full run completed native
+integration and all three resource guards, then its ordinary screenshot child PID 6708 exited with `0xC0000005`
+without a PNG or retained crash stack. That failure is unresolved, not erased by the later successful Full16 run.
+Separate exact-artifact Release/ASan screenshot checks, three alternating debugger captures per arm, and five
+alternating normal captures per arm pass. No code change or root-cause attribution is made from these passes.
+Final uninstrumented private guard peaks are Matrix 3,526,656, Studio 790,528 and Desk 3,088,384 bytes, all below
+4 MiB; their current stable object/resource assertions pass. ASan byte growth is diagnostic under quarantine.
+
+Both hardware arms use full LTCG, version 1.0.282, equal scenes/collectors, all identical deployed plugin DLLs and
+18 complete stages/402 callbacks. The control's 382 recorded native inputs are accounted against `3a5874c`, with
+exact recorded checkout bytes and EOL handling; candidate source/artifact identities remain unchanged throughout.
+
+| Hardware Matrix phase | Inline private JSON | Immutable private JSON |
+| --- | --- | --- |
+| Cold private / working set | 36.59 / 49.86 MiB | 35.96 / 51.63 MiB |
+| Returned private / working set | 63.45 / 87.71 MiB | 62.63 / 89.34 MiB |
+| Cold / returned CPU, percent of one core | 1.952 / 2.031 | 1.926 / 2.186 |
+| Cold / returned submissions per second | 59.869 / 60.101 | 59.736 / 60.069 |
+| Cold / returned adapter-local usage | 25.01 / 32.26 MiB | 25.01 / 32.26 MiB |
+| Hidden / minimized submissions per second | 0 / 0 | 0 / 0 |
+| Hidden / minimized CPU, percent of one core | 0 / 0 | 0.078 / 0 |
+
+This single-order pair observes lower private commit and higher working set; live data, shell/driver/system mappings
+and heap history are uncontrolled. It establishes no causal CPU, staging or whole-process memory saving. Gallery
+stage medians are 138.50 → 119.47 ms (maxima 400.89 / 381.19); the unchanged Launcher DLL still dominates visibility
+at 111.05 → 97.62 ms. Those observations do not prove a JSON latency improvement or qualify the construction/input
+budgets. Private committed regions grow 27,459,584 / 27,254,784 bytes; the non-atomic maps do not identify live heap
+owners or retained free segments. Returned process private remains about 27 MiB above cold and local usage +7.25 MiB.
+Heap allocation/ownership attribution and Launcher shell extraction remain the next measured investigations.
+
+Receipts: `runtime-2026-10-11-p42-json-control`, `-candidate`, `p42-json-matched-comparison.json`, their callback and
+region summaries, `p42-json-recovered-scope-accounting.json`, final native/artifact seals, control committed-source
+accounting, runtime closure and PDB owner layouts. `p42-json-release-screenshot-failure`, `p42-json-screenshots-normal`
+and the individual debugger roots retain failure/repetition evidence. The full plan stays ACTIVE for the unexplained
+screenshot failure, retention and remaining physical-input/presentation/manual AV gates.
 
 ### P3.4 callback attribution and completeness (2026-10-11)
 
@@ -1402,7 +1459,7 @@ cold visit to that page, and nothing from the page that was left.
 | ID | Item | Pass condition |
 | --- | --- | --- |
 | P4.1 | **Complete: arena-backed SystemDataSource.** One 16-MiB reservation with first-use page-aligned families/tables, optional thread scratch and in-place activity/detail value expansion. Preflight and typed teardown preserve histories, caps, ownership and allocation-free reuse. | Actual shipped commit 9.461 MiB, full 15.766 MiB, cold 4 KiB; constructor median about 2.3 us. Fault/region/history/lifetime tests and all required scope accounting pass; 145 frames match; matched private reduction 7.24/7.25 MiB; three settled D observations show zero arenas/native owners. Whole retention remains P3.6. |
-| P4.2 | **Count-sized provider scheduling records complete:** 142,232 → 1,656 logical bytes with System live; full descriptor validation and quiescent leases remain. Content-sized private JSON is next, retaining loaded `sourceDocument`, cold validation and persistence. Pages/widgets already use vectors. Current-page-only module mapping requires an independently justified design preserving inactive-page validation. | Provider bounds/failure/retry/drain tests, recovered Release16, provider-only Debug15/ASan15, clean ARM64, skills10 and matched hardware identities pass. Returned private 63.30 → 63.60 MiB establishes no process saving. Private JSON still requires ownership, persistence/concurrent-edit, failure tests and matched measurements. The old only-Matrix-module and ≤64-KiB shadow goals are unqualified proposals. |
+| P4.2 | **Count-sized provider records and immutable private JSON implemented.** Records are 142,232 → 1,656 logical bytes with System live. Release shipped settings are 209,460 → 56,450 logical bytes plus 288 bytes of shared-control blocks; allocator overhead is excluded. Loaded `sourceDocument`, inactive-page validation, caps, transactional persistence and quiescent ownership remain. Pages/widgets already use vectors. Current-page-only module mapping requires independent justification. | Provider bounds/failure/retry/drain and private-object ownership/cap/parser/persist/failure/stable concurrent-copy tests pass their recorded exact profile gates, ARM64 compilation and skills. Matched hardware comparisons are recorded above; JSON returned private is 63.45 → 62.63 MiB with higher working set and no causal CPU/latency saving. Its initial screenshot access violation remains unexplained. The old only-Matrix-module and universal ≤64-KiB shadow goals stay unqualified. |
 | P4.3 | **Count-sized Launcher icon GPU storage complete.** Empty/8/32 entries use 0/2/8 MiB, with unchanged 256-pixel quality and shaders. Dirty icon allocation/upload moves to preparation; clean frames allocate/upload nothing. CPU pixels already use only displayed entries. The measured temporary glyph batch is complete at about 2.4/6.5 ms for eight/32 icons with unchanged pixels. Shell caching/control-lane changes remain conditional on callback attribution; no retained font cache is introduced. | Preceding real DLL, 15 exact WARP pixels, pin/import/drop/device-loss and fault ownership tests; matched fixed-eight/Gallery observations and Debug15/Release16/ASan15 scope accounting, ARM64 and skills are recorded above. Intermittent Matrix growth stays open; no CPU or D-return saving is claimed. |
 | P4.4 | **Surface lifetime landed and retained at the current pin.** Hidden tile and unraised overlay surfaces are released without detaching control trees. The raised hardware P0.4 run confirms exact tile/overlay bytes, dismissal, hidden zero and restore. Lazy control-tree attachment, hidden-view update skipping, profile-control destruction and inventory diffing remain separate proposals. | Native fixtures and production hardware accounting agree; unchanged-observation copy cost and any new control-tree proposal still require measurements. Real AV release gates remain in the HOLD RFC. |
 | P4.5 | **Content-sized Weather cache and last-widget release implemented.** Cold bodies remain unallocated; each used entry owns payload plus terminator, with equal-size reuse and transactional new/grow/shrink/eviction. Surviving/hidden widgets retain shared data; final strong callback leases release it. Existing validators, 304, cancellation and refresh clamps remain. Curl connection reuse and failure coalescing are separate conditional candidates. | Real-DLL lower offline transport proves 2,097,160 → 24 bytes for eight two-byte responses, capacity/OOM/expiry/validator/failure and last-owner scenarios, with red/green against the old cache. Exact images and profile accounting are recorded above. Matched Gallery observations establish no causal whole-process CPU or memory saving. |

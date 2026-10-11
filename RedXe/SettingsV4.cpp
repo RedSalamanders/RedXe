@@ -565,12 +565,7 @@ struct DiagnosticSink final
     {
         return false;
     }
-    JsonObjectSettings copied{};
-    std::memcpy(copied.utf8.data(), json.get(), bytes);
-    copied.utf8[bytes] = '\0';
-    copied.bytes = static_cast<uint32_t>(bytes);
-    destination = copied;
-    return true;
+    return SUCCEEDED(destination.Assign({json.get(), bytes}));
 }
 
 [[nodiscard]] bool ColorIsRgbHex(yyjson_val* value) noexcept

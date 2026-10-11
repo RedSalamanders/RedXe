@@ -2657,7 +2657,7 @@ HRESULT PluginHost::ApplyServiceSettings(const AppSettings& settings) noexcept
             continue;
         }
         slot.settings = configured->privateConfiguration;
-        HRESULT result = slot.service->ApplySettings(slot.settings.utf8.data(), slot.settings.bytes);
+        HRESULT result = slot.service->ApplySettings(slot.settings.Data(), slot.settings.Bytes());
         if (FAILED(result))
         {
             (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, slot.spec->pluginId, nullptr,

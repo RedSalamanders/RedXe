@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <unordered_set>
 
 struct PluginManagerPageStagingTestAccess final
 {
@@ -80,9 +81,8 @@ void TestCheckedPageStaging(bool& success) noexcept
               L"source-only and valid selector changes reuse validation");
         changed.dashboard.pages[1].widgets[0].privateConfiguration = {};
         constexpr char invalidJson[] = "{bad}";
-        std::memcpy(changed.dashboard.pages[1].widgets[0].privateConfiguration.utf8.data(), invalidJson,
-                    sizeof(invalidJson));
-        changed.dashboard.pages[1].widgets[0].privateConfiguration.bytes = sizeof(invalidJson) - 1;
+        check(changed.dashboard.pages[1].widgets[0].privateConfiguration.Assign(invalidJson) == S_OK,
+              L"malformed-byte fixture is representable before cold contract validation");
         PluginManager invalid;
         check(FAILED(invalid.InitializePage(changed, 0, &primary)) && invalid.WidgetCount() == 0,
               L"malformed inactive-page JSON rejects staging of an otherwise valid target");
@@ -92,9 +92,8 @@ void TestCheckedPageStaging(bool& success) noexcept
         changed = settings;
         changed.dashboard.pages[1].widgets[0].privateConfiguration = {};
         constexpr char invalidRange[] = "{\"topN\":99,\"hideIdle\":true}";
-        std::memcpy(changed.dashboard.pages[1].widgets[0].privateConfiguration.utf8.data(), invalidRange,
-                    sizeof(invalidRange));
-        changed.dashboard.pages[1].widgets[0].privateConfiguration.bytes = sizeof(invalidRange) - 1;
+        check(changed.dashboard.pages[1].widgets[0].privateConfiguration.Assign(invalidRange) == S_OK,
+              L"range fixture is representable before inactive-page validation");
         check(FAILED(invalid.InitializePage(changed, 0, &primary)),
               L"inactive-page configuration constraints cannot be bypassed by old proof");
         changed = settings;
@@ -102,9 +101,10 @@ void TestCheckedPageStaging(bool& success) noexcept
         check(FAILED(invalid.InitializePage(changed, 0, &primary)),
               L"invalid inactive text extent is rejected before creating a view");
         changed = settings;
-        changed.dashboard.pages[1].widgets[0].privateConfiguration.bytes = UINT32_MAX;
-        check(FAILED(invalid.InitializePage(changed, 0, &primary)),
-              L"invalid inactive JSON extent is rejected before comparison");
+        const std::string oversizedJson(kPrivateConfigurationCapacity + 1, 'x');
+        check(changed.dashboard.pages[1].widgets[0].privateConfiguration.Assign(oversizedJson) == E_INVALIDARG &&
+                  changed == settings,
+              L"an invalid inactive JSON extent cannot replace the previous immutable owner");
         changed = settings;
         changed.dashboard.pages[1].widgets.pop_back();
         check(FAILED(invalid.InitializePage(changed, 0, &primary)),
@@ -233,8 +233,26 @@ void TestCheckedPageStaging(bool& success) noexcept
                          shipped.services.capacity() * sizeof(ServiceSettings) +
                          shipped.retiredServices.capacity() * sizeof(SettingsText) +
                          shipped.dashboard.pages.capacity() * sizeof(DashboardPageSettings);
+        std::unordered_set<const char*> owners;
+        size_t payload = 0;
+        const auto countJson = [&](const JsonObjectSettings& json)
+        {
+            if (json.OwnedPayloadBytes() && owners.insert(json.Data()).second)
+                payload += json.OwnedPayloadBytes();
+        };
+        for (const auto& plugin : shipped.plugins)
+            countJson(plugin.privateConfiguration);
+        for (const auto& service : shipped.services)
+            countJson(service.privateConfiguration);
         for (const auto& page : shipped.dashboard.pages)
+        {
             storage += page.widgets.capacity() * sizeof(WidgetInstanceSettings);
+            for (const auto& placedWidget : page.widgets)
+                countJson(placedWidget.privateConfiguration);
+        }
+        storage += payload;
+        std::wcout << L"page_stage_shipped json_payload_bytes=" << payload << L" json_owners=" << owners.size()
+                   << L" (shared-control-block and allocator overhead excluded)\n";
         std::wcout << L"page_stage_shipped settings_storage_bytes=" << storage << L" source_bytes="
                    << shipped.sourceDocument.size() << L" witness_payload_bytes="
                    << PluginManagerPageStagingTestAccess::EvidenceBytes(shippedPage) << L'\n';

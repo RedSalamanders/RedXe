@@ -157,18 +157,45 @@ struct SettingsText final
     bool operator==(const SettingsText&) const noexcept = default;
 };
 
-struct JsonObjectSettings final
+// Immutable bounded bytes. The default borrows static "{}"; non-default values share one exact-sized buffer.
+// Parsing and plugin-contract validation remain cold operations. Copies cannot mutate an existing owner.
+class JsonObjectSettings final
 {
-    std::array<char, kPrivateConfigurationCapacity + 1> utf8{'{', '}'};
-    uint32_t bytes = 2;
-
+  public:
+    [[nodiscard]] HRESULT Assign(std::string_view utf8) noexcept;
+    [[nodiscard]] const char* Data() const noexcept
+    {
+        return _utf8 ? _utf8.get() : "{}";
+    }
+    [[nodiscard]] uint32_t Bytes() const noexcept
+    {
+        return _utf8 ? _bytes : 2;
+    }
+    [[nodiscard]] uint32_t OwnedPayloadBytes() const noexcept
+    {
+        return _utf8 ? _bytes + 1 : 0;
+    }
     [[nodiscard]] std::string_view View() const noexcept
     {
-        return std::string_view(utf8.data(), bytes);
+        return {Data(), Bytes()};
+    }
+    bool operator==(const JsonObjectSettings& other) const noexcept
+    {
+        return _utf8 == other._utf8 || View() == other.View();
     }
 
-    bool operator==(const JsonObjectSettings&) const noexcept = default;
+  private:
+#if defined(REDXE_SETTINGS_TESTS)
+    friend struct JsonObjectSettingsTestAccess;
+#endif
+    std::shared_ptr<const char[]> _utf8;
+    uint32_t _bytes = 2;
 };
+static_assert(sizeof(JsonObjectSettings) == 24);
+#if defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS)
+// Thread-local one-shot faults at payload (1) and shared-owner (2) allocation. Absent from production builds.
+void FailJsonObjectAllocationForTesting(uint32_t phase) noexcept;
+#endif
 
 struct PluginSettings final
 {

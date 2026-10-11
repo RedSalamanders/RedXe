@@ -62,6 +62,8 @@
     <ClCompile Include="Settings.Tests.Runner.cpp" />
     <ClCompile Include="Settings.Tests.FrameRate.cpp" />
     <ClInclude Include="Settings.Tests.FrameRate.h" />
+    <ClCompile Include="Settings.Tests.JsonStorage.cpp" />
+    <ClInclude Include="Settings.Tests.JsonStorage.h" />
     <ClCompile Include="..\..\RedXe\Settings.cpp" />
     <ClCompile Include="..\..\Plugins\AVControl\AVControlModel.cpp" />
     <ClCompile Include="..\..\Plugins\Logicon\LogiconSettings.cpp" />

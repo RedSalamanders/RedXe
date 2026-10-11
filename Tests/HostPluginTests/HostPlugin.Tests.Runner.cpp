@@ -7747,7 +7747,7 @@ void TestHostDefaultsMatchPublishedDefaults(bool& success) noexcept
         if (SUCCEEDED(result) && contract)
         {
             const JsonObjectSettings& merged = settings.dashboard.pages[0].widgets[0].privateConfiguration;
-            unique_doc host{yyjson_read(merged.utf8.data(), merged.bytes, YYJSON_READ_NOFLAG)};
+            unique_doc host{yyjson_read(merged.Data(), merged.Bytes(), YYJSON_READ_NOFLAG)};
             unique_doc published{yyjson_read(contract->defaultsJsonUtf8, contract->defaultsBytes, YYJSON_READ_NOFLAG)};
             matches = host && published &&
                       yyjson_equals(yyjson_doc_get_root(host.get()), yyjson_doc_get_root(published.get()));

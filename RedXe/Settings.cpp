@@ -470,14 +470,12 @@ template <size_t Count>
 
 [[nodiscard]] unique_yyjson_doc ParseStoredObject(const JsonObjectSettings& settings) noexcept
 {
-    if (settings.bytes < 2 || settings.bytes > kPrivateConfigurationCapacity || settings.utf8[settings.bytes] != '\0')
-    {
-        return {};
-    }
-    std::array<char, kPrivateConfigurationCapacity + 1> mutableJson = settings.utf8;
+    std::array<char, kPrivateConfigurationCapacity + 1> mutableJson;
+    std::memcpy(mutableJson.data(), settings.Data(), settings.Bytes());
+    mutableJson[settings.Bytes()] = '\0';
     yyjson_read_err error{};
     unique_yyjson_doc document{
-        yyjson_read_opts(mutableJson.data(), settings.bytes, YYJSON_READ_NOFLAG, nullptr, &error)};
+        yyjson_read_opts(mutableJson.data(), settings.Bytes(), YYJSON_READ_NOFLAG, nullptr, &error)};
     if (!document || !yyjson_is_obj(yyjson_doc_get_root(document.get())))
     {
         return {};
@@ -620,12 +618,7 @@ template <size_t Count>
         return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
     }
 
-    JsonObjectSettings copied{};
-    copied.utf8.fill('\0');
-    std::memcpy(copied.utf8.data(), serialized.get(), length);
-    copied.bytes = static_cast<uint32_t>(length);
-    destination = copied;
-    return S_OK;
+    return destination.Assign({serialized.get(), length});
 }
 
 [[nodiscard]] HRESULT MergeSettingsObject(const JsonObjectSettings& base, yyjson_val* patch,
@@ -670,12 +663,7 @@ template <size_t Count>
     {
         return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
     }
-    JsonObjectSettings copied{};
-    copied.utf8.fill('\0');
-    std::memcpy(copied.utf8.data(), written.get(), length);
-    copied.bytes = static_cast<uint32_t>(length);
-    destination = copied;
-    return S_OK;
+    return destination.Assign({written.get(), length});
 }
 
 [[nodiscard]] HRESULT ParsePlugin(yyjson_val* value, PluginSettings& plugin) noexcept
@@ -1520,6 +1508,62 @@ class DocumentTemporary final
 }
 } // namespace
 
+#if defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS)
+namespace
+{
+thread_local uint32_t g_jsonObjectAllocationFailure = 0;
+bool ConsumeJsonObjectAllocationFailure(uint32_t phase) noexcept
+{
+    if (g_jsonObjectAllocationFailure != phase)
+        return false;
+    g_jsonObjectAllocationFailure = 0;
+    return true;
+}
+} // namespace
+void FailJsonObjectAllocationForTesting(uint32_t phase) noexcept
+{
+    g_jsonObjectAllocationFailure = phase;
+}
+#endif
+
+HRESULT JsonObjectSettings::Assign(std::string_view utf8) noexcept
+{
+    if (utf8.size() < 2 || utf8.size() > kPrivateConfigurationCapacity || std::memchr(utf8.data(), '\0', utf8.size()))
+        return E_INVALIDARG;
+    if (utf8 == View())
+        return S_OK;
+    if (utf8 == "{}")
+    {
+        _utf8.reset();
+        _bytes = 2;
+        return S_OK;
+    }
+#if defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS)
+    if (ConsumeJsonObjectAllocationFailure(1))
+        return E_OUTOFMEMORY;
+#endif
+    std::unique_ptr<char[]> buffer{new (std::nothrow) char[utf8.size() + 1]};
+    if (!buffer)
+        return E_OUTOFMEMORY;
+    std::memcpy(buffer.get(), utf8.data(), utf8.size());
+    buffer[utf8.size()] = '\0';
+    try
+    {
+#if defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS)
+        if (ConsumeJsonObjectAllocationFailure(2))
+            throw std::bad_alloc{};
+#endif
+        std::shared_ptr<const char[]> owner{std::move(buffer)};
+        _utf8 = std::move(owner);
+        _bytes = static_cast<uint32_t>(utf8.size());
+        return S_OK;
+    }
+    catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
+}
+
 bool SettingsIdEquals(std::string_view left, std::string_view right) noexcept
 {
     if (left.size() != right.size())
@@ -1949,7 +1993,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
             {
                 AVControl::Configuration configuration;
                 if (FAILED(AVControl::ParseConfiguration(
-                        {widget.privateConfiguration.utf8.data(), widget.privateConfiguration.bytes}, configuration)))
+                        {widget.privateConfiguration.Data(), widget.privateConfiguration.Bytes()}, configuration)))
                     return E_INVALIDARG;
             }
             else if (!IsEmptyPrivate(widget.privateConfiguration))
@@ -2017,17 +2061,17 @@ HRESULT SerializeFactoryConfigurationJson(const PluginSettings& plugin, const Wi
 {
     json.fill('\0');
     jsonBytes = 0;
-    if (plugin.privateConfiguration.bytes == 0 || instance.privateConfiguration.bytes == 0 ||
-        plugin.privateConfiguration.bytes > kPrivateConfigurationCapacity ||
-        instance.privateConfiguration.bytes > kPrivateConfigurationCapacity)
+    if (plugin.privateConfiguration.Bytes() == 0 || instance.privateConfiguration.Bytes() == 0 ||
+        plugin.privateConfiguration.Bytes() > kPrivateConfigurationCapacity ||
+        instance.privateConfiguration.Bytes() > kPrivateConfigurationCapacity)
     {
         return E_INVALIDARG;
     }
 
     const int written =
         sprintf_s(json.data(), json.size(), "{\"plugin\":%.*s,\"instance\":%.*s}",
-                  static_cast<int>(plugin.privateConfiguration.bytes), plugin.privateConfiguration.utf8.data(),
-                  static_cast<int>(instance.privateConfiguration.bytes), instance.privateConfiguration.utf8.data());
+                  static_cast<int>(plugin.privateConfiguration.Bytes()), plugin.privateConfiguration.Data(),
+                  static_cast<int>(instance.privateConfiguration.Bytes()), instance.privateConfiguration.Data());
     if (written <= 0 || static_cast<size_t>(written) >= json.size())
     {
         json.fill('\0');
@@ -2043,13 +2087,14 @@ HRESULT SerializeServiceConfigurationJson(const ServiceSettings& service,
 {
     json.fill('\0');
     jsonBytes = 0;
-    if (service.privateConfiguration.bytes == 0 || service.privateConfiguration.bytes > kPrivateConfigurationCapacity)
+    if (service.privateConfiguration.Bytes() == 0 ||
+        service.privateConfiguration.Bytes() > kPrivateConfigurationCapacity)
     {
         return E_INVALIDARG;
     }
     const int written =
         sprintf_s(json.data(), json.size(), "{\"plugin\":{},\"instance\":%.*s}",
-                  static_cast<int>(service.privateConfiguration.bytes), service.privateConfiguration.utf8.data());
+                  static_cast<int>(service.privateConfiguration.Bytes()), service.privateConfiguration.Data());
     if (written <= 0 || static_cast<size_t>(written) >= json.size())
     {
         json.fill('\0');

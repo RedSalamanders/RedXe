@@ -144,6 +144,15 @@ then existing plugin validators run (including launcher `iconSize`). After parse
 remains the compact plugin object (for example launcher `{shortcuts, iconSize}`) even when the file stored flattened
 keys.
 
+The typed compact object is immutable, bounded to 4096 bytes excluding its terminator, and content-sized. Its
+24-byte value shares one exact payload plus terminator across settings copies; the default `{}` owns no payload.
+Copies and moves do not allocate. A moved-from value remains a safe default object. Comparison uses logical bytes,
+not owner identity. A changed object allocates its payload and shared owner before replacing prior state; failure
+preserves every old copy and the authored source. Cold parsing and full inactive-page plugin/schema validation
+remain mandatory. Raw byte storage does not certify JSON validity. The 8192-byte factory envelope and 1-MiB source
+limit remain unchanged. `sourceDocument` remains the authored persistence authority, including comments, BOM and
+flattened syntax. The storage change adds no frame/collection allocation or settings reload wake.
+
 `backgroundColor` on a widget object (a declare entry, a flattened plugin object, or a use-object) is accepted for
 every catalogued plugin. It is an exact `#RRGGBB` string; any other value rejects the complete candidate. It
 participates in declare/use merging like any flattened key (a use-object may replace it or remove it with `null`),
@@ -627,6 +636,11 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   load of the replacing document is then written by the next persist; and with the POSIX rename refused, a file another
   program opened once the guard was released defers the persist, and the classic replacement then commits. No temporary
   file stays behind in any case.
+- Settings tests MUST cover immutable private-object ownership, allocation-free copies and moves, safe moved-from
+  views, logical equality across distinct owners, the 4096-byte boundary, last-payload release and concurrent copies
+  of a stable value. Payload and shared-owner allocation failures during first assignment, replacement, parsing and
+  persistence MUST preserve prior typed/authored state and permit retry. Raw storage bounds do not replace cold JSON
+  and inactive-page plugin-contract validation.
 - Tests prove compact/idempotent formatting, inline small objects and long single-path records, multiline sections
   and arrays, fewer lines than fully expanded output, escaped/Unicode paths, named/inline/use-object widget round
   trips, compatible unknown-field retention, and transactional rejection of oversized formatted output.

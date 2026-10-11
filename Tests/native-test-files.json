@@ -43,6 +43,8 @@
   "Tests/PluginContractTests/PluginContract.Tests.Runner.cpp",
   "Tests/SettingsTests/Settings.Tests.FrameRate.cpp",
   "Tests/SettingsTests/Settings.Tests.FrameRate.h",
+  "Tests/SettingsTests/Settings.Tests.JsonStorage.cpp",
+  "Tests/SettingsTests/Settings.Tests.JsonStorage.h",
   "Tests/SettingsTests/Settings.Tests.ReleasedTemplates.h",
   "Tests/SettingsTests/Settings.Tests.Runner.cpp",
   "Tests/StudioClockTests/StudioClock.Tests.Runner.cpp",

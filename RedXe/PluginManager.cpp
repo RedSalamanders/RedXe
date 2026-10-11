@@ -607,7 +607,7 @@ class SettingsEvidenceStream final
     }
     [[nodiscard]] bool Json(const JsonObjectSettings& json)
     {
-        return Stored(json.utf8, json.bytes, true);
+        return Scalar(json.Bytes()) && Append(json.Data(), json.Bytes());
     }
     [[nodiscard]] size_t Size() const noexcept
     {
@@ -778,8 +778,8 @@ class SettingsEvidenceStream final
             {
                 return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
-            unique_contract_doc valueDocument{yyjson_read(widget.privateConfiguration.utf8.data(),
-                                                          widget.privateConfiguration.bytes, YYJSON_READ_NOFLAG)};
+            unique_contract_doc valueDocument{yyjson_read(widget.privateConfiguration.Data(),
+                                                          widget.privateConfiguration.Bytes(), YYJSON_READ_NOFLAG)};
             if (!valueDocument ||
                 !ValidateValueAgainstPublishedSchema(schemaRoot, yyjson_doc_get_root(valueDocument.get())))
             {
@@ -1115,8 +1115,7 @@ bool PluginManager::ProviderConfigurationMatches(const ProviderBuildKey& key, co
     // the fixed concatenation of that plugin object and the instance object; comparing the latter's original bytes
     // proves equality even if the 64-bit filter collides, without retaining or re-serializing another 8 KiB buffer.
     const JsonObjectSettings& original = page.widgets[key.widgetIndex].privateConfiguration;
-    return original.bytes == instance.privateConfiguration.bytes &&
-           std::memcmp(original.utf8.data(), instance.privateConfiguration.utf8.data(), original.bytes) == 0;
+    return original == instance.privateConfiguration;
 }
 
 HRESULT PluginManager::StagePage(const AppSettings& settings, uint32_t pageIndex, const PluginManager* validated,

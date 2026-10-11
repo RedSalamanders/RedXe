@@ -7,6 +7,7 @@
 #include "../../RedXe/DockOptions.h"
 #include "../../RedXe/SettingsWatcher.h"
 #include "Settings.Tests.FrameRate.h"
+#include "Settings.Tests.JsonStorage.h"
 #include "Settings.Tests.ReleasedTemplates.h"
 
 #include <array>
@@ -4266,6 +4267,7 @@ int wmain()
                        {L"dock thickness layout", ValidateDockThicknessLayout},
                        {L"tray icon", ValidateTrayIconSettings},
                        {L"continuous frame rate", TestContinuousFrameRateSettings},
+                       {L"immutable JSON storage", TestJsonObjectSettingsStorage},
                        {L"runtime settings", ValidateRuntimeSettingsEqual},
                        {L"command line", ValidateCommandLineCatalog},
                        {L"AV profile configuration", ValidateAvControlSettings},

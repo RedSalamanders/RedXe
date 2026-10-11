@@ -118,7 +118,14 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   before wraparound; widget callbacks/interfaces drain before the final pin is released. The cache adds at most
   1.5 KiB across two full 32-widget pages, no allocation, thread, timer or additional invalidation wake.
 - Subscription deactivation and release MUST drain running and reserved callbacks using an event-blocked wait.
-  Provider scheduling metadata uses a 48-byte fixed owner per catalog slot and one 24-byte record per validated
+- Typed private JSON MUST use bounded immutable content-sized ownership, with allocation-free shared copies and
+  a default without heap ownership. Replacement is transactional across both payload and owner allocation failures;
+  old settings copies remain valid and failed persistence restores typed and authored state. Account fixed values,
+  unique payloads, shared-control blocks and allocator overhead separately; logical payload savings alone MUST NOT
+  be reported as whole-process private-commit savings. No steady frame or acquisition allocation is introduced.
+  Changed non-default objects use two cold allocations (payload and shared owner) in exchange for removing the
+  4-KiB inline reserve and full-buffer copies. Unchanged/default assignments and shared copies allocate nothing.
+- Provider scheduling metadata uses a 48-byte fixed owner per catalog slot and one 24-byte record per validated
   descriptor. It MUST NOT reserve 256 records for every unused slot. Records allocate only during cold publication
   or rehydration, after validation, and release outside the registry lock after external/subscription leases and
   borrowed collection/callback storage are quiescent. Allocation failure preserves the prior facade/state.
@@ -127,7 +134,7 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   The 256-descriptor cap, final-descriptor delivery, inactive/shared consumers, failure/retry, blocked collection,
   reserved callbacks and shutdown MUST be tested. Source snapshots remain borrowed and are not duplicated.
   Per-slot in-flight counters and fixed delivery arrays preserve the 32-subscription bound without heap allocation.
-  Widgets MUST be quiescent before GPU teardown. Worker-side GPU lifetime checks and access share the resource lock;
+- Widgets MUST be quiescent before GPU teardown. Worker-side GPU lifetime checks and access share the resource lock;
   an atomic ownership flag alone is insufficient to protect a device resource.
 - A DxUi `EmbeddedHost` that is hidden or has zero extent holds no cached surface, and it becomes dirty only through
   control invalidation, never merely because the host ticked it (library contract at the pinned DxUi commit). AV
