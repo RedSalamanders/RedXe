@@ -1451,7 +1451,15 @@ through DirectWrite (`Common/Actions/GlyphIcon.cpp`) into the same 256×256 slic
 binding draws the `Warning` glyph, `png:` via WIC (PNG container only, long edge capped at 256),
 else `IExtractIconW` 256, else `IShellItemImageFactory::GetImage` 256 with `SIIGBF_BIGGERSIZEOK`, else
 `SHGFI_SYSICONINDEX` plus `IImageList::GetIcon` from `SHIL_JUMBO` then XL/LARGE/SMALL. Never `SHGFI_ICON`. Jumbo
-padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second shell extract. A refresh batch shares one
+padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second shell extract.
+The `IExtractIconW` call requests only its consumed large 256-pixel output: `phiconSmall` is null and the high word
+of `nIconSize` is zero. The large handle enters WIL ownership before checking the extraction result, including a
+handler that supplies a handle with `S_FALSE` or failure. An unsuccessful or null result continues through the
+existing image-factory/image-list fallback. Do not request a second jumbo image that drawing never consumes.
+The optional automated-host-only `RedXeLauncherTestShellHandler` borrows an extractor for one UI-thread call through
+that production handler/decoder and returns its pixel checksum and source edge. It retains no override or COM
+reference; refused/failed calls zero their outputs.
+A refresh batch shares one
 lazy isolated DirectWrite factory and font face across glyph/warning icons, retaining the same family fallback,
 metrics, hinting, centering and premultiplied pixels. Its clipped coverage buffer grows only to the largest used glyph
 and survives allocation failure unchanged; old/new overlap is bounded at twice the maximum clipped coverage. Font initialization is attempted once per batch; all temporary owners
@@ -1698,7 +1706,9 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
 19. Verify Launcher factory/settings rejection (unknown members, 33 items, empty launch target, `iconPng`, a
     non-launch item without `icon`, overlong string), the warning tile for a relative or schemeless launch target,
     a glyph-icon non-launch item dispatched through `ExecuteAction`, injected pin-directory fallback, automated empty list without live taskbar reads,
-    jumbo-or-PNG extraction, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
+    jumbo-or-PNG extraction, one optional large output at 256 pixels with no small output, exact BGRA conversion,
+    null/failed/location-refused results and partial-handle cleanup, automated-only test access and borrowed-extractor
+    lifetime, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
     with zero `ShellExecuteExW`, imported-pin persistence/recreation, queue/commit failure and collect fallback,
     drop append/cap/rollback, overflow paging with a bottom page-dot strip, named `iconSize` spread-grid layout
     (uniform half-extents, even gutters of at least 8 DIP between icon edges and 8 DIP edge inset, no mid-tile cluster

@@ -517,6 +517,24 @@ static_assert(sizeof(LauncherIconInstance) == 32);
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
 
+[[nodiscard]] HRESULT ExtractFromShellHandler(IExtractIconW* extractor, ShortcutRecord& record) noexcept
+{
+    std::array<wchar_t, MAX_PATH> iconPath{};
+    int iconIndex = 0;
+    UINT flags = 0;
+    const HRESULT located = extractor->GetIconLocation(GIL_FORSHELL, iconPath.data(),
+                                                       static_cast<UINT>(iconPath.size()), &iconIndex, &flags);
+    if (FAILED(located))
+        return located;
+    wil::unique_hicon icon;
+    // Only the large image is consumed. Asking for a second 256-pixel image repeats shell work.
+    const HRESULT extracted =
+        extractor->Extract(iconPath.data(), static_cast<UINT>(iconIndex), icon.put(), nullptr, MAKELONG(kIconEdge, 0));
+    if (extracted != S_OK)
+        return extracted;
+    return icon ? ExtractFromHicon(icon.get(), record) : E_UNEXPECTED;
+}
+
 [[nodiscard]] HRESULT ExtractShellIcon(const wchar_t* target, ShortcutRecord& record) noexcept
 {
     gExtractCalls.fetch_add(1, std::memory_order_relaxed);
@@ -527,24 +545,9 @@ static_assert(sizeof(LauncherIconInstance) == 32);
         wil::com_ptr_nothrow<IExtractIconW> extractIcon;
         if (SUCCEEDED(item->BindToHandler(nullptr, BHID_SFUIObject, IID_PPV_ARGS(extractIcon.put()))) && extractIcon)
         {
-            std::array<wchar_t, MAX_PATH> iconPath{};
-            int iconIndex = 0;
-            UINT flags = 0;
-            if (SUCCEEDED(extractIcon->GetIconLocation(GIL_FORSHELL, iconPath.data(),
-                                                       static_cast<UINT>(iconPath.size()), &iconIndex, &flags)))
+            if (ExtractFromShellHandler(extractIcon.get(), record) == S_OK)
             {
-                HICON largeIcon = nullptr;
-                HICON smallIcon = nullptr;
-                if (extractIcon->Extract(iconPath.data(), static_cast<UINT>(iconIndex), &largeIcon, &smallIcon,
-                                         MAKELONG(kIconEdge, kIconEdge)) == S_OK)
-                {
-                    wil::unique_hicon ownedLarge{largeIcon};
-                    wil::unique_hicon ownedSmall{smallIcon};
-                    if (ownedLarge && SUCCEEDED(ExtractFromHicon(ownedLarge.get(), record)))
-                    {
-                        return S_OK;
-                    }
-                }
+                return S_OK;
             }
         }
         wil::com_ptr_nothrow<IShellItemImageFactory> images;
@@ -2324,6 +2327,30 @@ extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId
 }
 
 extern "C" void __stdcall RedXePluginShutdown() noexcept {}
+
+extern "C" HRESULT __stdcall RedXeLauncherTestShellHandler(IExtractIconW* extractor, uint64_t* pixelHash,
+                                                           uint32_t* sourceEdge) noexcept
+{
+    if (pixelHash)
+        *pixelHash = 0;
+    if (sourceEdge)
+        *sourceEdge = 0;
+    if (!IsAutomatedHost())
+        return E_ACCESSDENIED;
+    if (!extractor || !pixelHash || !sourceEdge)
+        return E_POINTER;
+    ShortcutRecord record{};
+    const HRESULT result = ExtractFromShellHandler(extractor, record);
+    if (result == S_OK)
+    {
+        uint64_t hash = 14695981039346656037ULL;
+        for (uint32_t index = 0; index < kIconEdge * kIconEdge * 4; ++index)
+            hash = (hash ^ record.bgra[index]) * 1099511628211ULL;
+        *pixelHash = hash;
+        *sourceEdge = record.sourceEdge;
+    }
+    return result;
+}
 
 extern "C" HRESULT __stdcall RedXeLauncherSetTestIconFailure(uint32_t phase) noexcept
 {

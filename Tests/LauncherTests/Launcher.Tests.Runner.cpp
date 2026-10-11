@@ -213,6 +213,154 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
     std::string persistJson;
 };
 
+class TestShellIconExtractor final : public IExtractIconW
+{
+  public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** result) noexcept override
+    {
+        if (!result)
+            return E_POINTER;
+        *result = nullptr;
+        if (iid != IID_IUnknown && iid != __uuidof(IExtractIconW))
+            return E_NOINTERFACE;
+        *result = static_cast<IExtractIconW*>(this);
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return ++references;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        return --references;
+    }
+    HRESULT STDMETHODCALLTYPE GetIconLocation(UINT flags, PWSTR path, UINT capacity, int* index,
+                                              UINT* resultFlags) noexcept override
+    {
+        ++locationCalls;
+        if (flags != GIL_FORSHELL || capacity != MAX_PATH || !path || !index || !resultFlags)
+            return E_INVALIDARG;
+        (void)wcscpy_s(path, capacity, L"synthetic-icon-resource");
+        *index = -7;
+        *resultFlags = GIL_NOTFILENAME | GIL_PERINSTANCE;
+        return locationResult;
+    }
+    HRESULT STDMETHODCALLTYPE Extract(PCWSTR path, UINT index, HICON* largeIcon, HICON* smallIcon,
+                                      UINT size) noexcept override
+    {
+        ++extractCalls;
+        if (!path || std::wcscmp(path, L"synthetic-icon-resource") != 0 || index != static_cast<UINT>(-7) ||
+            !largeIcon || smallIcon || LOWORD(size) != 256 || HIWORD(size) != 0)
+            return E_INVALIDARG;
+        if (returnIcon)
+        {
+            lastIcon = CopyIcon(source.get());
+            *largeIcon = lastIcon;
+            if (!lastIcon)
+                return HRESULT_FROM_WIN32(GetLastError());
+        }
+        return extractResult;
+    }
+    HRESULT Initialize() noexcept
+    {
+        BITMAPINFO info{};
+        info.bmiHeader.biSize = sizeof(info.bmiHeader);
+        info.bmiHeader.biWidth = 256;
+        info.bmiHeader.biHeight = -256;
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+        void* pixels = nullptr;
+        wil::unique_hbitmap color{CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &pixels, nullptr, 0)};
+        wil::unique_hbitmap mask{CreateBitmap(256, 256, 1, 1, nullptr)};
+        if (!color || !mask || !pixels)
+            return E_OUTOFMEMORY;
+        std::fill_n(static_cast<uint32_t*>(pixels), 256 * 256, 0xFFD25028U);
+        ICONINFO icon{};
+        icon.fIcon = TRUE;
+        icon.hbmColor = color.get();
+        icon.hbmMask = mask.get();
+        source.reset(CreateIconIndirect(&icon));
+        return source ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    }
+    bool LastIconReleased() const noexcept
+    {
+        if (!lastIcon)
+            return true;
+        ICONINFO info{};
+        const BOOL alive = GetIconInfo(lastIcon, &info);
+        wil::unique_hbitmap color{info.hbmColor};
+        wil::unique_hbitmap mask{info.hbmMask};
+        return alive == FALSE;
+    }
+    wil::unique_hicon source;
+    HICON lastIcon = nullptr; // Observed handle only; the production helper takes ownership.
+    ULONG references = 1;
+    uint32_t locationCalls = 0;
+    uint32_t extractCalls = 0;
+    HRESULT locationResult = S_OK;
+    HRESULT extractResult = S_OK;
+    bool returnIcon = true;
+};
+
+[[nodiscard]] HRESULT ValidateSingleShellIcon(LauncherTestShellHandlerFn extract) noexcept
+{
+    if (!extract)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    TestShellIconExtractor extractor;
+    if (FAILED(extractor.Initialize()))
+        return kTestFailure;
+    uint64_t hash = 123;
+    uint32_t edge = 123;
+    if (extract(nullptr, &hash, &edge) != E_POINTER || hash || edge ||
+        extract(&extractor, nullptr, &edge) != E_POINTER || extract(&extractor, &hash, nullptr) != E_POINTER ||
+        extractor.locationCalls || extractor.extractCalls)
+        return kTestFailure;
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", nullptr);
+    const HRESULT denied = extract(&extractor, &hash, &edge);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (denied != E_ACCESSDENIED || hash || edge || extractor.locationCalls || extractor.extractCalls)
+        return kTestFailure;
+    uint64_t expected = 14695981039346656037ULL;
+    constexpr std::array<uint8_t, 4> bgra{0x28, 0x50, 0xD2, 0xFF};
+    for (uint32_t pixel = 0; pixel < 256 * 256; ++pixel)
+        for (uint8_t byte : bgra)
+            expected = (expected ^ byte) * 1099511628211ULL;
+    if (extract(&extractor, &hash, &edge) != S_OK || hash != expected || edge != 256 || extractor.locationCalls != 1 ||
+        extractor.extractCalls != 1 || !extractor.LastIconReleased() || extractor.references != 1)
+    {
+        std::wprintf(L"Shell handler did not produce exactly one full-quality icon.\n");
+        return kTestFailure;
+    }
+    const DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    const DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    for (const HRESULT result : {S_FALSE, E_FAIL, E_OUTOFMEMORY})
+    {
+        extractor.extractResult = result;
+        for (uint32_t repeat = 0; repeat < 16; ++repeat)
+        {
+            hash = 123;
+            edge = 123;
+            if (extract(&extractor, &hash, &edge) != result || hash || edge || !extractor.LastIconReleased())
+                return kTestFailure;
+        }
+    }
+    extractor.extractResult = S_OK;
+    extractor.returnIcon = false;
+    extractor.lastIcon = nullptr;
+    if (extract(&extractor, &hash, &edge) != E_UNEXPECTED || hash || edge)
+        return kTestFailure;
+    extractor.locationResult = E_ACCESSDENIED;
+    const uint32_t calls = extractor.extractCalls;
+    if (extract(&extractor, &hash, &edge) != E_ACCESSDENIED || hash || edge || extractor.extractCalls != calls ||
+        extractor.references != 1 || GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
+        GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
+        return kTestFailure;
+    std::wprintf(L"Single 256-pixel shell output, exact BGRA, refusal and partial-handle cleanup passed.\n");
+    return S_OK;
+}
+
 struct RenderTarget final
 {
     uint32_t width = 0;
@@ -1938,7 +2086,82 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     return S_OK;
 }
 
-[[nodiscard]] HRESULT Run(const wchar_t* pixelsPath) noexcept
+[[nodiscard]] HRESULT ValidateShellPixels(RedXeCreateFn create, const wchar_t* configurationPath, FILE* pixels) noexcept
+{
+    FILE* input = nullptr;
+    if (_wfopen_s(&input, configurationPath, L"rb") != 0 || !input)
+        return E_INVALIDARG;
+    const auto close = wil::scope_exit([input]() noexcept { (void)std::fclose(input); });
+    std::array<char, 4097> json{};
+    const size_t bytes = std::fread(json.data(), 1, json.size(), input);
+    if (std::ferror(input) || bytes == 0 || bytes > 4096)
+        return E_INVALIDARG;
+    TestHost host;
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+    HRESULT result = CreateProvider(create, std::string_view(json.data(), bytes), &host, provider);
+    if (FAILED(result))
+        return result;
+    wil::com_ptr_nothrow<IRedXeWidget> widget;
+    if (FAILED(result = provider->CreateWidget(kWidgetTypeId, "launcher.shell-pixels", widget.put())))
+        return result;
+    RenderTarget target;
+    if (FAILED(result = CreateRenderTarget(800, 720, target)))
+        return result;
+    wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+    if (FAILED(result = AttachGpu(*widget, target, gpu.put())) || FAILED(result = widget->SetVisible(TRUE)))
+        return result;
+    for (const auto& extent : std::array<std::array<uint32_t, 3>, 5>{
+             {{160, 160, 96}, {480, 480, 96}, {256, 720, 96}, {799, 559, 144}, {480, 480, 192}}})
+    {
+        uint64_t hash = 0;
+        if (FAILED(result = RenderFrame(*gpu, target, 0, 0, 0, extent[0], extent[1], true, extent[2])) ||
+            FAILED(result = FrameChecksum(target, extent[0], extent[1], hash)))
+            return result;
+        if (std::fprintf(pixels, "frame %u %u %u %016llX\n", extent[0], extent[1], extent[2],
+                         static_cast<unsigned long long>(hash)) < 0)
+            return E_FAIL;
+    }
+    wil::com_ptr_nothrow<ID3D11Texture2D> icons;
+    if (FAILED(result = BoundIconTexture(target, icons)) || !icons)
+        return FAILED(result) ? result : E_UNEXPECTED;
+    D3D11_TEXTURE2D_DESC description{};
+    icons->GetDesc(&description);
+    if (description.Width != 256 || description.Height != 256 || description.ArraySize > 32)
+        return kTestFailure;
+    description.Usage = D3D11_USAGE_STAGING;
+    description.BindFlags = 0;
+    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    description.MiscFlags = 0;
+    wil::com_ptr_nothrow<ID3D11Texture2D> staging;
+    if (FAILED(result = target.device->CreateTexture2D(&description, nullptr, staging.put())))
+        return result;
+    target.context->CopyResource(staging.get(), icons.get());
+    for (uint32_t slice = 0; slice < description.ArraySize; ++slice)
+    {
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(result = target.context->Map(staging.get(), slice, D3D11_MAP_READ, 0, &mapped)))
+            return result;
+        const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(staging.get(), slice); });
+        uint64_t hash = 14695981039346656037ULL;
+        uint32_t inkPixels = 0;
+        for (uint32_t y = 0; y < 256; ++y)
+        {
+            const auto* row = static_cast<const uint8_t*>(mapped.pData) + y * mapped.RowPitch;
+            for (uint32_t x = 0; x < 256 * 4; ++x)
+                hash = (hash ^ row[x]) * 1099511628211ULL;
+            for (uint32_t x = 0; x < 256; ++x)
+                inkPixels += row[x * 4 + 3] != 0;
+        }
+        if (!inkPixels ||
+            std::fprintf(pixels, "slice %u %u %016llX\n", slice, inkPixels, static_cast<unsigned long long>(hash)) < 0)
+            return kTestFailure;
+    }
+    gpu->OnDeviceLost();
+    target.context->ClearState();
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT Run(const wchar_t* pixelsPath, const wchar_t* shellConfiguration = nullptr) noexcept
 {
     const bool compilerLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
@@ -1988,13 +2211,19 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
         else
         {
             const auto close = wil::scope_exit([file]() noexcept { (void)std::fclose(file); });
-            result = ValidateIconStorage(create, setPin, getDiagnostics, setFailure, file);
+            result = shellConfiguration ? ValidateShellPixels(create, shellConfiguration, file)
+                                        : ValidateIconStorage(create, setPin, getDiagnostics, setFailure, file);
         }
         shutdown();
         OleUninitialize();
         return result;
     }
-    result = ValidateLauncherGlyphRasterization();
+    result =
+        ValidateSingleShellIcon(Resolve<LauncherTestShellHandlerFn>(module.get(), kLauncherTestShellHandlerExport));
+    if (FAILED(result))
+        std::wprintf(L"ValidateSingleShellIcon failed: 0x%08X\n", static_cast<unsigned int>(result));
+    if (SUCCEEDED(result))
+        result = ValidateLauncherGlyphRasterization();
     if (FAILED(result))
         std::wprintf(L"ValidateLauncherGlyphRasterization failed: 0x%08X\n", static_cast<unsigned int>(result));
     if (SUCCEEDED(result))
@@ -2047,6 +2276,8 @@ int wmain(int argc, wchar_t** argv) noexcept
     RedXeFailureReports::RouteAwayFromDialogs();
     if (argc == 3 && std::wcscmp(argv[1], L"--glyph-pixels") == 0)
         return SUCCEEDED(ValidateLauncherGlyphRasterization(argv[2])) ? 0 : 1;
+    if (argc == 4 && std::wcscmp(argv[1], L"--shell-pixels") == 0)
+        return SUCCEEDED(Run(argv[2], argv[3])) ? 0 : 1;
     if (argc != 1 && (argc != 3 || std::wcscmp(argv[1], L"--icon-pixels") != 0))
         return 2;
     const HRESULT result = Run(argc == 3 ? argv[2] : nullptr);

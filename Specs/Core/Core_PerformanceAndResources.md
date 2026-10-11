@@ -164,6 +164,10 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   binds no icon texture for an empty grid and only maps existing buffers. CPU BGRA sources allocate only used icons,
   bounded at 32×256×256×4, and rebuild the GPU array after device loss without a second extract. A used icon without
   decoded pixels needs at most one temporary 256-KiB transparent fallback; unused slices are never cleared/uploaded.
+  Shell handler extraction requests only the large 256-pixel icon and omits the unused second output. The handle
+  is owned before its HRESULT is checked, so partial outputs release on every fallback. Cropping, high-quality
+  WIC conversion, glyph rendering, fallback order and GPU storage remain unchanged; this adds no cache, worker,
+  per-widget field or steady-frame work. The private automated handler test adds no retained override or COM owner.
   Glyph extraction shares one lazy isolated DirectWrite factory/face and clipped coverage buffer within its bounded
   refresh batch. Coverage is reused up to the largest glyph, at most 512x512x3 bytes per buffer; transactional
   growth can temporarily hold two buffers (1.5 MiB maximum, or 384 KiB at Launcher's fixed 256 edge), and allocation failure

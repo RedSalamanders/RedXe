@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <shlobj.h>
 #include <windows.h>
 
 struct LauncherTestDiagnostics final
@@ -45,16 +46,23 @@ extern "C"
     REDXE_LAUNCHER_TEST_API void __stdcall RedXeLauncherResetTestDiagnostics() noexcept;
     // 0 clears; 1 fails replacement texture creation; 2 fails its view, after texture allocation. Automated hosts only.
     REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherSetTestIconFailure(uint32_t phase) noexcept;
+    // Automated hosts only, UI thread. Borrows the extractor only for this call; exercises the production
+    // handler/decode path. Outputs are zero on refusal/failure. Adds no retained test override or COM owner.
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestShellHandler(IExtractIconW* extractor,
+                                                                            uint64_t* pixelHash,
+                                                                            uint32_t* sourceEdge) noexcept;
 }
 
 using LauncherSetTestPinDirectoryFn = decltype(&RedXeLauncherSetTestPinDirectory);
 using LauncherGetTestDiagnosticsFn = decltype(&RedXeLauncherGetTestDiagnostics);
 using LauncherResetTestDiagnosticsFn = decltype(&RedXeLauncherResetTestDiagnostics);
 using LauncherSetTestIconFailureFn = decltype(&RedXeLauncherSetTestIconFailure);
+using LauncherTestShellHandlerFn = decltype(&RedXeLauncherTestShellHandler);
 
 inline constexpr char kLauncherSetTestPinDirectoryExport[] = "RedXeLauncherSetTestPinDirectory";
 inline constexpr char kLauncherGetTestDiagnosticsExport[] = "RedXeLauncherGetTestDiagnostics";
 inline constexpr char kLauncherResetTestDiagnosticsExport[] = "RedXeLauncherResetTestDiagnostics";
 inline constexpr char kLauncherSetTestIconFailureExport[] = "RedXeLauncherSetTestIconFailure";
+inline constexpr char kLauncherTestShellHandlerExport[] = "RedXeLauncherTestShellHandler";
 
 #undef REDXE_LAUNCHER_TEST_API

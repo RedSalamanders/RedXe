@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against current `codex/runtime-probe` code, including last-provider AV cache release; one commit per implemented step
+Refreshed: 2026-10-11 against current `codex/runtime-probe` code, including last-provider AV cache release and single-output Launcher shell extraction; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -64,8 +64,9 @@ its validation and measurement; failed or unavailable qualification remains expl
 | Step | State | Evidence / commit |
 | --- | --- | --- |
 | P0.1 | Complete | Production probe and accepted Release baseline; `0971350`. |
-| P3.4 callback attribution | Complete; construction budgets remain open | Opt-in device/size/visibility and first-preparation timing, process stage identity, bounded two-page masks and strict completeness checks pass Debug15/Release16/ASan15, ARM64 compilation and skills10. The accepted hardware capture has 18 complete stages and 402 callbacks. Launcher visibility is the next measured target: 96.01 ms median / 244.20 ms maximum. No construction worker or visual-policy change is selected. |
+| P3.4 callback attribution | Complete; construction budgets remain open | Opt-in device/size/visibility and first-preparation timing, process stage identity, bounded two-page masks and strict completeness checks pass Debug15/Release16/ASan15, ARM64 compilation and skills10. The original accepted hardware capture has 18 complete stages and 402 callbacks, with Launcher visibility at 96.01 ms median / 244.20 ms maximum. The later single-output extraction step reduces a measured cost; remaining shell/binding/decode attribution is still the next target. No construction worker or visual-policy change is selected. |
 | P4.3 WIC batch | Rejected after matched measurements | A temporary shared factory passes all functional/profile gates and 20 reference frames, but Launcher visibility medians rise in both capture orders: 88.21 → 96.48 ms and 82.97 → 92.89 ms. Production code, diagnostics and experiment tests are restored. Fewer factory creations alone do not justify the observed latency regression; shell extraction remains the measured target. |
+| P4.3 single shell output | Complete; remaining activation budget open | The shell handler now supplies one consumed 256-pixel icon instead of two, with failure-safe ownership. Shipped-DLL tests and all profile obligations pass; final tooling covers the completed documents. Five shell WARP frame, thirteen icon-slice and fifteen glyph/empty-frame checksums match the control. Visibility medians fall in both capture orders, 106.05 → 87.71 ms and 216.33 → 93.99 ms, with substantial uncontrolled tail variability. Release 16 scope accounting, Debug15/ASan15, clean ARM64 Release compilation and skills10 are recorded below. Construction/first-pixel budgets stay open. |
 | Release link correctness | Complete | `cdfcfca`: a production capture exposed stale member offsets in incremental LTCG despite passing hidden gates. Full LTCG retains optimization and prevents cache reuse. All 68 evaluated project configurations, 16 Release scopes, clean ARM64 Release compilation and ten skills pass. The recovered candidate completes 18 hardware page activations with 402 callbacks. The failed executable, linker cache, local dump and stacks remain preserved; no baseline is accepted for it. |
 | P4.2 provider records | Complete | Count-sized scheduling ownership removes 140,576 logical bytes with the real System provider live, and adds one cold allocation. Validation precedes publication and records retire outside the lock at source quiescence. Descriptor caps/final delivery, allocation failure/retry, facade identity and lease/drain scenarios pass. Provider-only Debug15/ASan15 and recovered full-LTCG Release16, clean ARM64 compile and skills10 have sealed identities. Matched hardware arms have identical plugin DLLs and 18 complete stages/402 callbacks each. Returned private is 63.30 → 63.60 MiB; no process-memory, CPU or staging-latency saving is established. |
 | P4.2 private JSON | Implemented and measured; screenshot investigation open | 24-byte immutable values replace 4,104-byte inline reserves, with exact payloads and no default ownership. Release shipped logical storage is 209,460 → 56,450 bytes, plus 288 bytes of shared control blocks and unmeasured allocator overhead. Ownership/bounds/two-phase failure/parser/persist/stable concurrent-copy tests pass Debug15, recovered Release16 and ASan15; ARM64 compile and skills10 pass. Matched arms each have 18 stages/402 callbacks and unchanged plugin DLLs. Cold/returned private is 36.59/63.45 → 35.96/62.63 MiB; working set rises, and no causal CPU or latency saving is established. The initial Release screenshot access violation remains unexplained despite subsequent full/isolated/retained passes. |
@@ -362,6 +363,73 @@ Receipts: `.build/receipts/p43-wic-final-scope-accounting.json`, `p43-wic-pixel-
 `p43-wic-rejected-candidate` preserves the rejected source and Release artifacts. The first test-build syntax
 failure and the missing reference-DLL dependency attempt remain in their original logs. This experiment is a
 completed decision, not an accepted optimization or qualification of the restored tree's current build outputs.
+
+### P4.3 single-output shell extraction (2026-10-11)
+
+Current inspection finds that `IExtractIconW::Extract` receives both large and small output pointers, with both
+requested edges set to 256, but drawing consumes only the large result. The
+[Windows extraction contract](https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-iextracticonw-extract)
+allows the unused output to be null. Request one 256-pixel large icon and a zero small edge, keeping the existing
+handler/image-factory/image-list order, WIC conversion/cropping, glyph quality, shaders and count-sized storage.
+WIL owns the returned handle before status inspection, including partial outputs from a failing handler. This
+adds no retained icon/font cache, worker, timer, per-widget state or steady render/preparation work. The rejected
+WIC factory batch stays rejected.
+
+A private automated-only export borrows a supplied shell handler for one call through the actual production
+handler/decoder. Real-DLL tests check exact location/index/size and omitted small output, full opaque BGRA, null
+success, location refusal, `S_FALSE`/failure with a supplied handle, repeated release without GDI/USER growth,
+borrow lifetime, null outputs and access refusal. A fixed thirteen-entry scene includes all eight hashed taskbar
+links, a direct executable, URI, missing file, glyph and invalid-binding warning. The identical Release test
+executable loads each preserved DLL: five WARP frames at 96/144/192 DPI, all thirteen 256-pixel texture slices and
+fifteen empty/eight/32-glyph frames have matching complete frame and per-slice checksums. Existing pin/import/drop, preparation failure/retry,
+device-loss and allocation-free composition checks pass the initial focused scopes.
+
+Both build-282 hardware pairs have identical initial/final portable scenes, pin contents, collector, XENEON
+2560x720/96-DPI geometry, AC power and DxUi closure. Only Launcher DLL/PDB differ; provenance is identical because
+Launcher does not consume DxUi. Every arm has 18 complete stages and 402 callbacks, with complete first-preparation
+terminals and zero dropped records. The second pair runs candidate before control.
+
+| Control / candidate metric | First order | Reverse order |
+| --- | --- | --- |
+| Launcher visibility median, ms | 106.053 / 87.708 | 216.333 / 93.994 |
+| Launcher visibility maximum, ms | 239.028 / 226.504 | 1,214.457 / 345.597 |
+| Quantized visibility CPU median, ms | 93.750 / 78.125 | 132.813 / 93.750 |
+| Whole Gallery stage median, ms | 132.583 / 108.931 | 253.216 / 120.769 |
+| Returned Matrix CPU, percent of one core | 2.303 / 2.230 | 2.799 / 2.450 |
+| Returned Matrix submissions per second | 60.291 / 59.941 | 59.989 / 60.152 |
+| Returned private / working set, MiB | 63.06 / 87.35 → 62.66 / 86.77 | 63.43 / 87.09 → 62.60 / 87.32 |
+| Cold private, MiB | 35.25 / 34.95 | 36.26 / 35.46 |
+| Returned adapter-local usage, MiB | 32.26 / 32.26 | 32.26 / 32.26 |
+| Hidden/minimized submissions per second | 0 / 0 in both arms | 0 / 0 in both arms |
+
+The visibility median is lower in both observations, but the reverse control's large wall-time outliers and the
+variable CPU/memory values prevent a fixed percentage or causal steady CPU/memory claim. One candidate cold
+activation still costs 345.597 ms. In a separate STA diagnostic, sixteen alternating eight-pin API pairs return
+128 discarded small icons in the old path and none in the new one. `IExtractIconW::Extract` alone, after location
+resolution, has batch medians 65.763/54.574 ms. This establishes actual redundant output work and a measured
+extraction reduction; managed COM overhead, binding, location, decoding and first pixels are outside that timing.
+
+Release's three focused scopes plus twelve remaining native scopes pass without repeating the focused work. The
+final BuildProcess closeout covers the completed plan/contracts and supplies the sixteenth Release obligation.
+Debug Full and ASan Debug each pass fifteen native scopes; all builds have zero warnings/errors, ARM64 Release
+compiles and ten skills validate. ARM64 execution remains unqualified on this x64 host. ASan uses its default
+quarantine and its process byte growth is diagnostic, separate from ordinary resource-budget acceptance.
+The sealed 468-input closure includes tracked/unignored non-prose inputs and the schema. Each profile's
+EXE/DLL/PDB/fonts, DxUi provenance and deployed settings/schema are also sealed. Inputs and artifacts remain
+unchanged through testing and the matched measurements; native inventory stays at 62. No appearance, input, launch, settings or user-guide change
+is selected. Durable requirements are in `Plugins_API.md` and `Core_PerformanceAndResources.md`.
+
+Live shell/driver/data histories remain uncontrolled. These observations do not qualify physical-input latency or
+first changed pixels. The proposed 4-ms construction slice
+and 16.7-ms frame budget remain open. Next work must attribute the remaining handler/location/decode cost before
+selecting caching or host-owned background construction that preserves correct first icons and two-page lifetime.
+
+Receipts: `p43-single-shell-{inputs,pixel-comparison,matched-comparison,matched-outcome}.json`,
+`runtime-2026-10-11-p43-single-shell-{control,candidate}` and their reverse-order counterparts,
+`p43-single-shell-api-pairs.json`, `p43-single-shell-pin-inputs.json`, `p43-single-shell-scope-accounting.json`,
+profile artifact seals and `p43-single-shell-closeout.json`. Initial compiler
+and malformed helper-CLI failures are retained. The initial comparison expected an unnecessary provenance change;
+the repaired exact DLL/PDB comparison uses the same immutable captures, without another capture.
 
 ### P0.2 raised-widget observation (2026-10-11, complete)
 
@@ -1209,7 +1277,7 @@ attribution before treating it as proof of a particular collection cost.
 | SystemData | Default viewers use eight-column `process.activity` with zero native per-PID opens; legacy 39-column detail remains. Both share one walk/history. One 16-MiB reservation commits acquisition families/output tables on first use: 4 KiB cold, 9.461 MiB shipped, 15.766 MiB full. P3.6 reclaims unleased sources after collection/callback quiescence, retaining facade identity. | P2.1 and P4.1 are complete, preserving activity/detail contracts, caps and rollback. Constructor/default-commit targets pass; settled D has zero source arenas/native owners. Remaining return/cache attribution stays in P3.6. |
 | ProcessViewer | P2.7 parks settled viewers (`S_FALSE`), snaps unchanged/sub-pixel targets, and schedules only visible easing/pulses at 33 ms. Eases use a fixed start pose and one host timestamp for both views; auxiliary observations do not restart them. `PluginHost::Deliver` still coalesces the initial invalidation. | Matched control: 14.126 submissions/s, 2.986% of one core. Two after-runs: 12.163/12.184 submissions/s, 3.515/3.069% CPU. Submission reduction is 13.7–13.9%; CPU improvement is not established. Proposed System budgets remain open. |
 | Logging/settings | P2.5 caches the writer's UTC date and swept policy; ordinary lines perform no directory enumeration or path allocation. Settings persistence flushes its temp file and checks the loaded document before replacement, but still runs synchronously. | P2.5 is complete. P2.6 must preserve the current flush, merge and stamp guarantees; the old proposed write-through replacement is obsolete. |
-| Retained plugin work | Launcher icon storage is count-sized and qualified at 0/8/32 entries; a temporary glyph-extraction batch is selected by current timing. Viewer and Weather upload changed glyph cells in preparation; capacity, Debug monitor failure and shared sampling pass with full gates and matched receipts. DeskClock's 1 ms animation deadline still exists. | P4.3 extraction/P4.6 need current evidence; Debug monitor face-copy lifetime is complete; the September cost/line-number table below must not be used as current proof. |
+| Retained plugin work | Launcher icon storage is count-sized and qualified at 0/8/32 entries; temporary glyph batching and single-output shell extraction are measured and qualified. Remaining shell/binding/decode work still stalls activation. Viewer and Weather upload changed glyph cells in preparation; capacity, Debug monitor failure and shared sampling pass with full gates and matched receipts. DeskClock's 1 ms animation deadline still exists. | P4.3 further extraction/P4.6 need current evidence; Debug monitor face-copy lifetime is complete; the September cost/line-number table below must not be used as current proof. |
 | Probe | Opt-in `RuntimeProbe` shares existing message/frame-latency waits and the 32×1024 JSONL ring; disabled path has no diagnostic deadline/query. AV queries never load a module or prepare a view. | P0.1 changes diagnostics, not page rendering or service behavior. Invalid/unavailable counters stay explicitly marked. |
 
 ### P0.1 implementation and evidence
@@ -1607,7 +1675,7 @@ cold visit to that page, and nothing from the page that was left.
 | --- | --- | --- |
 | P4.1 | **Complete: arena-backed SystemDataSource.** One 16-MiB reservation with first-use page-aligned families/tables, optional thread scratch and in-place activity/detail value expansion. Preflight and typed teardown preserve histories, caps, ownership and allocation-free reuse. | Actual shipped commit 9.461 MiB, full 15.766 MiB, cold 4 KiB; constructor median about 2.3 us. Fault/region/history/lifetime tests and all required scope accounting pass; 145 frames match; matched private reduction 7.24/7.25 MiB; three settled D observations show zero arenas/native owners. Whole retention remains P3.6. |
 | P4.2 | **Count-sized provider records and immutable private JSON implemented.** Records are 142,232 → 1,656 logical bytes with System live. Release shipped settings are 209,460 → 56,450 logical bytes plus 288 bytes of shared-control blocks; allocator overhead is excluded. Loaded `sourceDocument`, inactive-page validation, caps, transactional persistence and quiescent ownership remain. Pages/widgets already use vectors. Current-page-only module mapping requires independent justification. | Provider bounds/failure/retry/drain and private-object ownership/cap/parser/persist/failure/stable concurrent-copy tests pass their recorded exact profile gates, ARM64 compilation and skills. Matched hardware comparisons are recorded above; JSON returned private is 63.45 → 62.63 MiB with higher working set and no causal CPU/latency saving. Its initial screenshot access violation remains unexplained. The old only-Matrix-module and universal ≤64-KiB shadow goals stay unqualified. |
-| P4.3 | **Count-sized Launcher icon GPU storage complete.** Empty/8/32 entries use 0/2/8 MiB, with unchanged 256-pixel quality and shaders. Dirty icon allocation/upload moves to preparation; clean frames allocate/upload nothing. CPU pixels already use only displayed entries. The measured temporary glyph batch is complete at about 2.4/6.5 ms for eight/32 icons with unchanged pixels. Shell caching/control-lane changes remain conditional on callback attribution; no retained font cache is introduced. | Preceding real DLL, 15 exact WARP pixels, pin/import/drop/device-loss and fault ownership tests; matched fixed-eight/Gallery observations and Debug15/Release16/ASan15 scope accounting, ARM64 and skills are recorded above. Intermittent Matrix growth stays open; no CPU or D-return saving is claimed. |
+| P4.3 | **Count-sized Launcher icons, glyph batch and single shell output complete.** Empty/8/32 entries use 0/2/8 MiB, with unchanged 256-pixel quality and shaders. Dirty icon allocation/upload moves to preparation; clean frames allocate/upload nothing. CPU pixels use only displayed entries. The temporary glyph batch is complete at about 2.4/6.5 ms for eight/32 icons. Single-output shell extraction removes the unused second icon, with unchanged frame/slice checksums and safe failure cleanup. Further shell caching/control-lane changes remain conditional on remaining binding/handler/decode attribution and correct-first-icon/two-page qualification; no retained font cache is introduced. | Real-DLL output/ownership, pin/import/drop/device-loss and fault tests, two matched callback pairs and all Debug15/Release16/ASan15 obligations, ARM64 and skills are recorded above. Worst cold activation and construction/first-pixel budgets remain open, alongside intermittent Matrix growth. No causal steady CPU or D-return saving is claimed. |
 | P4.4 | **Surface lifetime landed and retained at the current pin.** Hidden tile and unraised overlay surfaces are released without detaching control trees. The raised hardware P0.4 run confirms exact tile/overlay bytes, dismissal, hidden zero and restore. Lazy control-tree attachment, hidden-view update skipping, profile-control destruction and inventory diffing remain separate proposals. | Native fixtures and production hardware accounting agree; unchanged-observation copy cost and any new control-tree proposal still require measurements. Real AV release gates remain in the HOLD RFC. |
 | P4.5 | **Content-sized Weather cache and last-widget release implemented.** Cold bodies remain unallocated; each used entry owns payload plus terminator, with equal-size reuse and transactional new/grow/shrink/eviction. Surviving/hidden widgets retain shared data; final strong callback leases release it. Existing validators, 304, cancellation and refresh clamps remain. Curl connection reuse and failure coalescing are separate conditional candidates. | Real-DLL lower offline transport proves 2,097,160 → 24 bytes for eight two-byte responses, capacity/OOM/expiry/validator/failure and last-owner scenarios, with red/green against the old cache. Exact images and profile accounting are recorded above. Matched Gallery observations establish no causal whole-process CPU or memory saving. |
 | P4.6 | **Current baseline captured; no deadline/atlas change selected.** Shared multi-tier atlas and one-ms Desk active-flip requests are retained. Five-minute hardware Desk/Studio cadence and memory are recorded above, with current scale/resize/sharing/rollover/teardown test accounting. GdiOrbit remains absent from shipped Gallery. | Desk short display intervals have 16.66 ms p95; idle gaps are intentional and neither they nor PresentMon CPU-frame intervals measure callback cost. No sustained hardware private growth is established. Preserve typography/rollover quality; the intermittent WARP peak still needs attribution. |
