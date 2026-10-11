@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `3e79fb2` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `d033b0c` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -73,6 +73,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P0.3 | Complete | Three isolated 60 s soaks now run in the HostPlugin scope. Clocks warm at scheduled cadence for 20 s; Matrix warms for 1,024 frames. Five-second/end samples enforce uninstrumented peak growth of 4 MiB private / 8 MiB working set, plus resource/cadence/teardown bounds in every profile. Release and Debug each pass 16 scopes; ASan Debug passes 15 native scopes with default quarantine and diagnostic byte reporting; ARM64 Release compiles and 10 skills pass. Final Release private peaks: Matrix 0, Studio 1,306,624, Desk 942,080 bytes. `runtime-2026-10-10-p03`. |
 | P2.3 | Complete | Move-only 16-byte status pins; one atomic read per placeholder decision, no locked ID scan in Render/Prepare. Adds at most 1.5 KiB across two full pages, no allocation/thread/wake. 10,000 reads complete under the exclusively held status lock; concurrent reports, move/reuse/shutdown, same-ID replacement and 64-slot capacity pass. Slot destruction/move drains network registration and interface/callback lifetime before final release, including rollback. 100,000 Release reads: cached 72.8 us / last-slot cold lookup 80.6 ms, diagnostic only. Release 16 scopes; Debug and ASan Debug 15 native scopes; ARM64 Release compile; 10 skills. `runtime-2026-10-10-p23`; P3.2 commit `55da17f`. |
 | P3.6 | In progress; source and GPU binding cuts complete | `7c1f72b`: quiescent last-consumer source reclamation preserves facade identity, inactive/staged subscriptions and external leases. Matched retained private 87.61 → 71.75 MiB. The separate GPU binding cut proves last-owner release, identical pixels and no device/swap-chain rebuild. All 16 Release scopes, 15 Debug and ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Its matched retained private is 69.54 → 69.08 MiB and local usage 47.26 → 46.26 MiB, versus cold 25.01. Submissions remain about 60/s, hidden/minimized zero; no CPU saving established. Remaining return budget and cache attribution stay open. `runtime-2026-10-10-p36-source`, `-p36-before`, `-p36-after`, `-p36-gpu`. |
+| P3.6 Debug monitor face copy | Complete; broader P3.6 remains open | Lazy 753,424-byte virtual-memory owner returns 753,664 private-commit bytes on hide in focused Debug and final Debug/ASan tests. Cold black faces, clean reuse, allocation failure/latch, extent recovery, repeated hide/loss, final release and exact recovery pixels pass. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release and 10 skills pass. Debug-only ownership; no Release CPU/return-budget claim. `runtime-2026-10-11-p36-monitor-scratch` and `-control`. |
 | P2.1 | Single-capacity query cut complete; activity/storage proposal remains | Native walk queries its existing four-MiB buffer once; columns, caps, history and fallback remain. Capacity red/green, failure/invalid-length and real DLL field/catalog/row-cap/history/allocation checks pass. All 16 Release scopes, 15 Debug and 15 ASan Debug native scopes, ARM64 Release compilation and 10 skills pass. Source storage remains 16,437,760 bytes. Standalone 64 pairs: two calls → one, median 20.121 → 11.678 ms. Matched 65 s System control / after-1 / after-2: CPU 2.186 / 2.653 / 2.238%, submissions 12.324 / 13.166 / 11.991/s; no whole-process saving established. `runtime-2026-10-10-p21-*`. |
 | P2.8 / P3.6 CPU atlas lifetime | Complete; preparation cuts recorded below | Cold construction, shared users, idempotent device loss, last release and failure/retry pass against real DLLs. Both one-MiB CPU owners reach zero. Unicode recovery pixels and eight Weather images remain identical. Matched D private: cold 38.23 → 35.51 MiB, returned 106.39 → 105.06; returned working set 98.16 → 96.16. Submissions about 60/s and inactive zero, local usage unchanged. Return-over-cold 68.16 → 69.55 MiB still misses the budget; no causal CPU saving claimed. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-10-p28-before`, `runtime-2026-10-11-atlas-after` and `-p28-atlas`. |
 | P2.8 Viewer preparation | Complete | Worker delivery freezes at UI preparation; a dirty glyph uploads 2,304 bytes, Render uploads none, and one temporary font session serves a preparation batch with zero retained owners. Added pending storage is 11,160 bytes per widget. All 145 preceding frame checksums match. Fresh matched control/candidate: CPU 2.134 / 2.055%, submissions 12.244 / 11.954/s, private 57.62 / 57.92 MiB, local 26.26 in both. Rate improvement remains unestablished. Release 16 scopes, Debug 15 native scopes accounted across the initial run and final HostPlugin/HostSmoke run, ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-11-p28-prepare-paired` and `-p28-prepare`. |
@@ -223,6 +224,27 @@ QPC phase joins, trimmed by five initial seconds and one trailing second, confir
 flip with no hybrid presents and every cohort frame displayed. Sparse settled-page intervals and CPU-start-to-display
 values include idle waiting and MUST NOT be presented as input latency or callback stalls. Physical input latency,
 other-page presentation modes and swipe qualification remain separate P0.2 work. No unreported ETW-loss claim is made.
+
+### P3.6 Debug monitor face-copy lifetime (2026-10-11)
+
+Current code retained a 753,424-byte heap-owned monitor face copy after hide and device loss. The preceding behavior
+with truthful private ownership accounting fails the real-DLL hide regression; `runtime-2026-10-11-p36-monitor-scratch-control`
+retains its source, Debug DLL/PDB/runner and failing log. The candidate uses one lazy virtual-memory owner, releases it
+on hide/device loss/creation/final destruction, and reconstructs the latest grid before drawing. A fresh copy uploads
+initialized opaque black even when the service has no composed grid. GPU texture and service-grid lifetimes are unchanged.
+One cold allocation fault follows the existing preparation latch; 100 failed retries do no allocation/font work, and
+changed extent recovers exact pixels. One hundred clean preparations reuse the copy without font/upload work.
+
+Focused Debug WARP passes cold faces, hide/reshow, repeated hide/device loss, failed allocation/extent recovery,
+unchanged retries, final zero ownership and exact recovery pixels. Independent process-memory sampling reports
+753,664 private-commit bytes returned on hide, the 184-page rounded allocation for 753,424 payload bytes on this host.
+Private monitor diagnostics grow from 32 to 40 bytes, with eight bytes of ownership/allocation counters and one fault
+flag in the Debug module; Release remains a zero-resource diagnostic/fault stub. The 232-byte service record and
+production probe remain unchanged. Final Debug and default-quarantine ASan tests report the same 753,664-byte release.
+All 16 Release scopes, 15 Debug and 15 ASan native scopes, ARM64 Release compilation with zero warnings/errors, and
+10 skill checks pass. Frozen native input hashes match the completed runs. Receipts: `runtime-2026-10-11-p36-monitor-scratch`
+and `-control`. This is Debug-only resource ownership, so no additional Release hardware pair is required for this cut;
+no Release CPU or whole-process return-budget improvement is claimed. P3.6's broader retained-cache attribution remains open.
 
 ### P0.4 composition accounting (2026-10-11)
 

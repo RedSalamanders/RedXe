@@ -80,6 +80,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   The Debug Logicon monitor applies the same temporary-font and failed-preparation rule, with one 32-byte
   publication/extent key plus a flag. It draws/accepts new input only after successful visible preparation, while
   Up/Cancel still releases held virtual input. No attached monitor means no monitor hash/frame-request work.
+  Its 434×434 BGRA CPU face copy (753,424 payload bytes, page-rounded commit) uses one lazy virtual-memory owner
+  per monitor. Visible preparation reuses it; hide, device loss/creation and final destruction release it immediately,
+  independently of CRT heap retention or sanitizer quarantine. A new copy uploads the latest composed grid, or
+  initialized opaque black while the service has no grid, before drawing. Failed allocation follows the same
+  publication/extent latch and adds no font/upload work or periodic retry.
   Viewer/monitor linear font filtering clamps to each cell's half-texel bounds. This retains the full glyph, one
   texture sample and existing atlas/instance/draw budgets, accepting the bounded clamp instructions and one flat
   GPU varying to prevent visible neighboring-ink leakage after cache changes or device recreation.

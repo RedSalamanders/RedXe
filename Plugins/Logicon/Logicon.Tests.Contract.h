@@ -79,8 +79,10 @@ struct RedXeLogiconMonitorTestDiagnostics final
     uint64_t glyphUploadBytes;
     uint32_t cpuAtlasBytes;
     uint32_t resourceSets;
+    uint32_t faceCopyBytes;
+    uint32_t faceAllocations;
 };
-static_assert(sizeof(RedXeLogiconMonitorTestDiagnostics) == 32);
+static_assert(sizeof(RedXeLogiconMonitorTestDiagnostics) == 40);
 
 extern "C"
 {
@@ -107,6 +109,7 @@ extern "C"
     REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconGetMonitorTestDiagnostics(
         RedXeLogiconMonitorTestDiagnostics* diagnostics) noexcept;
     REDXE_LOGICON_TEST_API void __stdcall RedXeLogiconFailNextMonitorGlyphPreparation() noexcept;
+    REDXE_LOGICON_TEST_API void __stdcall RedXeLogiconFailNextMonitorFacePreparation() noexcept;
 }
 
 using RedXeLogiconGetTestDiagnosticsFn = decltype(&RedXeLogiconGetTestDiagnostics);
@@ -118,6 +121,7 @@ using RedXeLogiconSetFaceOverrideFn = decltype(&RedXeLogiconSetFaceOverride);
 using RedXeLogiconSetBrightnessFn = decltype(&RedXeLogiconSetBrightness);
 using RedXeLogiconGetMonitorTestDiagnosticsFn = decltype(&RedXeLogiconGetMonitorTestDiagnostics);
 using RedXeLogiconFailNextMonitorGlyphPreparationFn = decltype(&RedXeLogiconFailNextMonitorGlyphPreparation);
+using RedXeLogiconFailNextMonitorFacePreparationFn = decltype(&RedXeLogiconFailNextMonitorFacePreparation);
 
 inline constexpr char kRedXeLogiconGetTestDiagnosticsExport[] = "RedXeLogiconGetTestDiagnostics";
 inline constexpr char kRedXeLogiconUseSyntheticDeviceExport[] = "RedXeLogiconUseSyntheticDevice";
@@ -129,5 +133,7 @@ inline constexpr char kRedXeLogiconSetBrightnessExport[] = "RedXeLogiconSetBrigh
 inline constexpr char kRedXeLogiconGetMonitorTestDiagnosticsExport[] = "RedXeLogiconGetMonitorTestDiagnostics";
 inline constexpr char kRedXeLogiconFailNextMonitorGlyphPreparationExport[] =
     "RedXeLogiconFailNextMonitorGlyphPreparation";
+inline constexpr char kRedXeLogiconFailNextMonitorFacePreparationExport[] =
+    "RedXeLogiconFailNextMonitorFacePreparation";
 
 #undef REDXE_LOGICON_TEST_API

@@ -228,6 +228,15 @@ MUST NOT draw or accept new control taps; Up/Cancel still releases an already he
 device creation invalidate paint/input until preparation succeeds. Linear glyph sampling clamps to that cell's
 half-texel bounds to prevent a cached neighboring accent from changing unrelated text pixels.
 
+The monitor's CPU face-copy storage is one lazy 434×434 BGRA virtual-memory owner (753,424 payload bytes plus
+page rounding). The first visible preparation allocates it and clean preparations reuse it. Hide, device loss,
+device creation and final destruction MUST release it; repeated lifecycle calls are idempotent. Reshow/recreation
+copies the latest service grid and preserves its pixels. If no composed grid exists, the newly initialized opaque
+black copy is still uploaded before drawing, so an uninitialized texture is never sampled. An allocation failure
+invalidates paint/input and latches the existing publication/extent key before font work; unchanged retry does no
+allocation/font/upload work and changed extent/data/lifecycle permits recovery. The service's own composed grid and
+the monitor's GPU texture retain their separate ownership rules.
+
 Taps: a key cell in `Press` mode injects a press on pointer down and the release on pointer up, running that key's
 binding exactly as the hardware would; `Color` mode pushes the next palette color to the key; `Picture` mode pushes a
 generated gradient test picture; `Clear` mode restores the configured face; page-button and dialpad-button cells
@@ -266,7 +275,10 @@ cleared by a new settings object. Release builds keep the tile catalogued but re
   with Unicode host names, name-only frame publication, late-state stability and identical pixels after device
   recreation (including a history of different cached accents), real font acquisition followed by injected failure,
   100 unchanged failed preparations with zero added font/upload work, extent/new-data/visibility/device recovery,
-  hidden/unprepared input/draw suppression and held virtual-control Up/Cancel release, service creation and rejection,
+  hidden/unprepared input/draw suppression and held virtual-control Up/Cancel release, cold opaque-black faces,
+  lazy/reused face-copy allocation, hide/device-loss/final ownership release and actual page-rounded private-commit
+  return, idempotent lifecycle calls, allocation-failure suppression and extent recovery with identical pixels,
+  service creation and rejection,
   identity, lane start and drain, host state, synthetic connect, faces, actions from injected and raw presses reaching the fake host's `RequestAction`,
   bindings validated through the fake host's `ValidateAction`, `keys.down` / `mouse.down` bindings on a key, a
   dialpad button, and a turn that apply, log `binding-invalid` naming their control, skip `ValidateAction`, and request

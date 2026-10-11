@@ -9,21 +9,25 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
-#include <memory>
 #include <new>
 #include <utility>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
 #include <wil/com.h>
+#include <wil/resource.h>
 #pragma warning(pop)
 
 namespace Logicon
 {
 namespace
 {
+std::atomic<uint32_t> g_cpuFaceCopyBytes{0};
+std::atomic<uint32_t> g_faceAllocations{0};
+std::atomic<bool> g_failNextFacePreparationForTest{false};
 constexpr float kPadding = 12.0f;
 constexpr float kPageButtonRowHeight = 38.0f;
 constexpr uint32_t kTraceLines = 8;
@@ -440,6 +444,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
 
     ~MonitorWidget()
     {
+        ReleaseFaceCopy();
         if (_attached)
         {
             if (LogiconService* service = LogiconService::Current())
@@ -457,6 +462,8 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             _preparationFailed = false;
         }
         _visible = visible != FALSE;
+        if (!_visible)
+            ReleaseFaceCopy();
         if (_visible && _host)
         {
             (void)_host->RequestFrame();
@@ -480,7 +487,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         {
             return E_INVALIDARG;
         }
-        _faceGeneration = 0;
+        ReleaseFaceCopy();
         _snapshotValid = false;
         _preparationFailed = false;
         return _gpu.Initialize(context->device);
@@ -489,7 +496,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
     {
         _gpu.Reset();
-        _faceGeneration = 0;
+        ReleaseFaceCopy();
         _snapshotValid = false;
         _preparationFailed = false;
     }
@@ -528,16 +535,23 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         // Every failure below is suppressed until the published visible state, extent or lifecycle changes.
         _failedPreparation = PreparationKey{visibleStamp, extents};
         _preparationFailed = true;
+        const bool newFaceCopy = !_faces;
         if (!_faces)
         {
-            _faces.reset(new (std::nothrow) uint32_t[kGridPixels]);
+            if (g_failNextFacePreparationForTest.exchange(false, std::memory_order_relaxed))
+                return E_OUTOFMEMORY;
+            _faces.reset(static_cast<uint32_t*>(
+                VirtualAlloc(nullptr, kGridPixels * sizeof(uint32_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
             if (!_faces)
             {
                 return E_OUTOFMEMORY;
             }
             std::fill_n(_faces.get(), kGridPixels, 0xFF000000U);
+            g_cpuFaceCopyBytes.fetch_add(kGridPixels * sizeof(uint32_t), std::memory_order_relaxed);
+            g_faceAllocations.fetch_add(1, std::memory_order_relaxed);
         }
-        if (service->CopyFaceSurface(_faces.get(), kGridPixels, _faceGeneration))
+        const bool changedFaces = service->CopyFaceSurface(_faces.get(), kGridPixels, _faceGeneration);
+        if (newFaceCopy || changedFaces)
         {
             _gpu.UploadFaces(_faces.get());
         }
@@ -707,6 +721,16 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     }
 
   private:
+    void ReleaseFaceCopy() noexcept
+    {
+        if (_faces)
+        {
+            g_cpuFaceCopyBytes.fetch_sub(kGridPixels * sizeof(uint32_t), std::memory_order_relaxed);
+            _faces.reset();
+        }
+        _faceGeneration = 0;
+    }
+
     void RequestFrame() noexcept
     {
         if (_host)
@@ -979,7 +1003,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     };
     static_assert(sizeof(PreparationKey) == 32);
     PreparationKey _failedPreparation{};
-    std::unique_ptr<uint32_t[]> _faces;
+    wil::unique_virtualalloc_ptr<uint32_t> _faces;
     uint32_t _faceGeneration = 0;
     bool _visible = false;
     bool _attached = false;
@@ -1050,6 +1074,21 @@ class MonitorProvider final : public RedXeComObject<MonitorProvider, IRedXeWidge
     IRedXeHost* _host;
 };
 } // namespace
+
+uint32_t MonitorCpuFaceCopyBytesForTest() noexcept
+{
+    return g_cpuFaceCopyBytes.load(std::memory_order_relaxed);
+}
+
+uint32_t MonitorFaceAllocationCountForTest() noexcept
+{
+    return g_faceAllocations.load(std::memory_order_relaxed);
+}
+
+void FailNextMonitorFacePreparationForTest() noexcept
+{
+    g_failNextFacePreparationForTest.store(true, std::memory_order_relaxed);
+}
 
 HRESULT CreateMonitorProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                               void** result) noexcept

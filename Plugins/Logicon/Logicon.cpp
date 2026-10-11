@@ -177,6 +177,8 @@ extern "C" HRESULT __stdcall RedXeLogiconGetMonitorTestDiagnostics(
     diagnostics->glyphUploadBytes = ViewerGpuUploadBytes();
     diagnostics->cpuAtlasBytes = ViewerGpuCpuAtlasBytes();
     diagnostics->resourceSets = ViewerGpuResourceSetCount();
+    diagnostics->faceCopyBytes = Logicon::MonitorCpuFaceCopyBytesForTest();
+    diagnostics->faceAllocations = Logicon::MonitorFaceAllocationCountForTest();
     return S_OK;
 #else
     return E_NOTIMPL;
@@ -187,6 +189,13 @@ extern "C" void __stdcall RedXeLogiconFailNextMonitorGlyphPreparation() noexcept
 {
 #if defined(_DEBUG)
     ViewerGpuFailNextGlyphPreparationForTest();
+#endif
+}
+
+extern "C" void __stdcall RedXeLogiconFailNextMonitorFacePreparation() noexcept
+{
+#if defined(_DEBUG)
+    Logicon::FailNextMonitorFacePreparationForTest();
 #endif
 }
 
