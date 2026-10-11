@@ -580,15 +580,15 @@ static_assert(sizeof(LauncherIconInstance) == 32);
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
 
-[[nodiscard]] HRESULT ExtractFromGlyph(wchar_t glyph, ShortcutRecord& record) noexcept
+[[nodiscard]] HRESULT ExtractFromGlyph(wchar_t glyph, ShortcutRecord& record,
+                                       RedXeActions::FluentGlyphRasterizer& rasterizer) noexcept
 {
     record.bgra.reset(new (std::nothrow) uint8_t[kIconEdge * kIconEdge * 4]);
     if (!record.bgra)
     {
         return E_OUTOFMEMORY;
     }
-    const HRESULT result =
-        RedXeActions::RasterizeFluentGlyph(glyph, kIconEdge, reinterpret_cast<uint32_t*>(record.bgra.get()));
+    const HRESULT result = rasterizer.Rasterize(glyph, kIconEdge, reinterpret_cast<uint32_t*>(record.bgra.get()));
     if (FAILED(result))
     {
         record.bgra.reset();
@@ -598,14 +598,14 @@ static_assert(sizeof(LauncherIconInstance) == 32);
     return S_OK;
 }
 
-HRESULT ExtractShortcutIcon(ShortcutRecord& record) noexcept
+HRESULT ExtractShortcutIcon(ShortcutRecord& record, RedXeActions::FluentGlyphRasterizer& rasterizer) noexcept
 {
     record.bgra.reset();
     record.sourceEdge = 0;
     if (!record.valid || record.kind == 0)
     {
         // The host refused the action or its target: the tile shows the Warning glyph and never dispatches.
-        return ExtractFromGlyph(L'\xE7BA', record);
+        return ExtractFromGlyph(L'\xE7BA', record, rasterizer);
     }
     const std::string_view icon{record.icon};
     if (icon.starts_with("png:"))
@@ -619,14 +619,14 @@ HRESULT ExtractShortcutIcon(ShortcutRecord& record) noexcept
     else if (!icon.empty())
     {
         const wchar_t glyph = RedXeActions::FluentGlyphFromName(icon);
-        if (SUCCEEDED(ExtractFromGlyph(glyph != 0 ? glyph : L'\xE897', record)))
+        if (SUCCEEDED(ExtractFromGlyph(glyph != 0 ? glyph : L'\xE897', record, rasterizer)))
         {
             return S_OK;
         }
     }
     if (record.kind == 3)
     {
-        return ExtractFromGlyph(L'\xE897', record);
+        return ExtractFromGlyph(L'\xE897', record, rasterizer);
     }
     if (record.target[0] == L'\0')
     {
@@ -1982,9 +1982,10 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
             }
         }
         bool degraded = false;
+        RedXeActions::FluentGlyphRasterizer rasterizer;
         for (uint32_t index = 0; index < _display.count; ++index)
         {
-            if (FAILED(ExtractShortcutIcon(_display.items[index])))
+            if (FAILED(ExtractShortcutIcon(_display.items[index], rasterizer)))
             {
                 degraded = true;
             }

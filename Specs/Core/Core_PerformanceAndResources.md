@@ -142,6 +142,12 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   binds no icon texture for an empty grid and only maps existing buffers. CPU BGRA sources allocate only used icons,
   bounded at 32×256×256×4, and rebuild the GPU array after device loss without a second extract. A used icon without
   decoded pixels needs at most one temporary 256-KiB transparent fallback; unused slices are never cleared/uploaded.
+  Glyph extraction shares one lazy isolated DirectWrite factory/face and clipped coverage buffer within its bounded
+  refresh batch. Coverage is reused up to the largest glyph, at most 512x512x3 bytes per buffer; transactional
+  growth can temporarily hold two buffers (1.5 MiB maximum, or 384 KiB at Launcher's fixed 256 edge), and allocation failure
+  preserves prior storage. That bounded temporary overlap is accepted for the matched decoding reduction from
+  about 7.2 to 2.4 ms for eight glyphs and 29 to 6.5 ms for 32; font/driver overhead is additional. Font initialization failure is remembered only within that batch. All owners release when extraction
+  returns; there is no retained font cache or new worker, and Render/clean preparation does no rasterization.
   The x64 instance grows from 122,808 to 122,824 bytes, including its GPU owner growing from 48 to 56 bytes.
   This 16-byte bookkeeping cost is accepted to avoid the empty 8-MiB allocation and unused-slice uploads.
 - Visible continuous animation defaults to display presentation pacing. The optional `continuousFrameRate: 30`

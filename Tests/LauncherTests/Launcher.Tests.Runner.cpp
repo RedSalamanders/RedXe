@@ -1,6 +1,7 @@
 #include "../../Common/FailureReports.h"
 #include "../../Plugins/Launcher/Launcher.Tests.Contract.h"
 #include "../../Plugins/Launcher/LauncherPaging.h"
+#include "Launcher.Tests.GlyphBatch.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
@@ -1993,9 +1994,15 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
         OleUninitialize();
         return result;
     }
-    result = ValidateIconStorage(create, setPin, getDiagnostics, setFailure);
+    result = ValidateLauncherGlyphRasterization();
     if (FAILED(result))
-        std::wprintf(L"ValidateIconStorage failed: 0x%08X\n", static_cast<unsigned int>(result));
+        std::wprintf(L"ValidateLauncherGlyphRasterization failed: 0x%08X\n", static_cast<unsigned int>(result));
+    if (SUCCEEDED(result))
+    {
+        result = ValidateIconStorage(create, setPin, getDiagnostics, setFailure);
+        if (FAILED(result))
+            std::wprintf(L"ValidateIconStorage failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
     if (SUCCEEDED(result))
     {
         result = ValidateFactoryAndSettings(create, enumerate, getContract);
@@ -2038,6 +2045,8 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
 int wmain(int argc, wchar_t** argv) noexcept
 {
     RedXeFailureReports::RouteAwayFromDialogs();
+    if (argc == 3 && std::wcscmp(argv[1], L"--glyph-pixels") == 0)
+        return SUCCEEDED(ValidateLauncherGlyphRasterization(argv[2])) ? 0 : 1;
     if (argc != 1 && (argc != 3 || std::wcscmp(argv[1], L"--icon-pixels") != 0))
         return 2;
     const HRESULT result = Run(argc == 3 ? argv[2] : nullptr);

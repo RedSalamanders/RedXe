@@ -41,7 +41,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>d3d11.lib;windowscodecs.lib;ole32.lib;shell32.lib;uuid.lib;psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;windowscodecs.lib;ole32.lib;shell32.lib;uuid.lib;psapi.lib;dwrite.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -57,11 +57,16 @@
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>d3d11.lib;windowscodecs.lib;ole32.lib;shell32.lib;uuid.lib;psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d11.lib;windowscodecs.lib;ole32.lib;shell32.lib;uuid.lib;psapi.lib;dwrite.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="Launcher.Tests.Runner.cpp" /></ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Launcher.Tests.Runner.cpp" />
+    <ClCompile Include="Launcher.Tests.GlyphBatch.cpp" />
+    <ClCompile Include="..\..\Common\Actions\GlyphIcon.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Launcher.Tests.GlyphBatch.h" />
     <ClInclude Include="..\..\Plugins\Launcher\Launcher.Tests.Contract.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Host.h" />

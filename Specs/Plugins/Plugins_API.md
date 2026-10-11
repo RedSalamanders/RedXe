@@ -1445,7 +1445,11 @@ through DirectWrite (`Common/Actions/GlyphIcon.cpp`) into the same 256×256 slic
 binding draws the `Warning` glyph, `png:` via WIC (PNG container only, long edge capped at 256),
 else `IExtractIconW` 256, else `IShellItemImageFactory::GetImage` 256 with `SIIGBF_BIGGERSIZEOK`, else
 `SHGFI_SYSICONINDEX` plus `IImageList::GetIcon` from `SHIL_JUMBO` then XL/LARGE/SMALL. Never `SHGFI_ICON`. Jumbo
-padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second shell extract.
+padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second shell extract. A refresh batch shares one
+lazy isolated DirectWrite factory and font face across glyph/warning icons, retaining the same family fallback,
+metrics, hinting, centering and premultiplied pixels. Its clipped coverage buffer grows only to the largest used glyph
+and survives allocation failure unchanged; old/new overlap is bounded at twice the maximum clipped coverage. Font initialization is attempted once per batch; all temporary owners
+release when extraction returns. Single-glyph consumers keep a per-call wrapper; there is no process font cache.
 
 Shared device resources live once per provider: embedded Shader Model 5.0 blobs, textured-quad pipeline, sampler, and
 immutable blend/rasterizer/depth state. Each instance owns a 256×256 `Texture2DArray` with one BGRA slice per displayed
