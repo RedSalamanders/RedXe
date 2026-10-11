@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `ff252e7` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `793fe52` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -78,6 +78,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P2.8 Viewer preparation | Complete; monitor failure follow-up remains | Worker delivery freezes at UI preparation; a dirty glyph uploads 2,304 bytes, Render uploads none, and one temporary font session serves a preparation batch with zero retained owners. Added pending storage is 11,160 bytes per widget. All 145 preceding frame checksums match. Fresh matched control/candidate: CPU 2.134 / 2.055%, submissions 12.244 / 11.954/s, private 57.62 / 57.92 MiB, local 26.26 in both. Rate improvement remains unestablished. Release 16 scopes, Debug 15 native scopes accounted across the initial run and final HostPlugin/HostSmoke run, ASan 15 native scopes, ARM64 Release compilation and 10 skills pass. `runtime-2026-10-11-p28-prepare-paired` and `-p28-prepare`. |
 | P2.8 Weather preparation | Complete | One 9,904-byte UI paint snapshot; one temporary batch font session, zero retained owners, 2,304-byte dirty-cell uploads and no worker font/Render upload work. Real worker, failure/recovery and eight identical PNGs pass. Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release and 10 skills pass. Two counterbalanced Gallery pairs remain about 60.15 submissions/s; CPU has no established saving or repeatable regression. `runtime-2026-10-11-p28-weather`, `-paired` and `-paired-reverse`. |
 | P2.8 glyph capacity | Complete | Real preceding DLLs fail reused-cell ink and exhausted-label regressions; candidate passes with unchanged atlas/storage sizes. Eight Weather PNGs match. Release 16 scopes, Debug 15 native scopes accounted across the initial run and HostSmoke repeat, ASan 15 native scopes, ARM64 Release and 10 skills pass. The initial Debug capture crash remains unexplained and retained. `runtime-2026-10-11-p28-capacity`. |
+| P0.4 production raised Gallery | Accounting captured; presented-frame qualification remains open | One normal, non-activating hardware Release run proves AV tile 1,474,560 bytes, raised total 5,160,960, dismissal to tile, hidden zero and restored tile. Cold/raised settled 65 s each; all source/binary hashes, page, geometry, adapter, power and foreground checks pass. Visible submissions stay about 60/s; hidden zero. `runtime-2026-10-11-p04-raised-gallery`. |
 
 ### P2.8 Viewer preparation cut (2026-10-11)
 
@@ -189,8 +190,8 @@ query measurements. With the default bloom, each Matrix widget issues two glyph 
 The accepted D receipt reports successful host submissions of 60.150/s on Focus and 60.100/s during Gallery's
 ten-second visit; the latter is not a separate settled 65-second baseline or a presented-FPS result.
 
-Gallery's actual AV tile reports 1,474,560 surface bytes, matching 512×720×4. Raising it to 1280×720 would add
-3,686,400 bytes, for an expected total of 5,160,960; production raised-gallery hardware accounting remains open.
+Gallery's actual AV tile reports 1,474,560 surface bytes, matching 512×720×4. The production hardware capture below
+confirms raising it to 1280×720 adds 3,686,400 bytes, for a total of 5,160,960.
 The canonical AV WARP fixture instead uses a 640×360 tile and 1280×720 overlay and measures 4,608,000 bytes.
 All six clean/dirty DPI scenarios retain those bytes; clean preparation is zero, and hiding releases both surfaces
 with no further preparation/composition. `measure-av-views.ps1 -Configuration Release -SkipBuild` verifies the actual
@@ -203,6 +204,27 @@ The canonical run's dirty frame-completion p95 ranges are 1.713–1.905 ms at 96
 1.853–1.953. All runs are retained; the outlier's cause is unresolved. These absolute offscreen measurements neither
 change the accepted I19 adoption envelope nor establish hardware application latency or FPS. Receipts:
 `runtime-2026-10-11-p04-accounting`, `-p04-accounting-repeat`, `-p04-accounting-canonical` and `-p04`.
+
+The production raised capture uses the exact committed `793fe52` candidate, x64 Release 1.0.282, a 2560×720 / 96-DPI
+XENEON window and AMD adapter LUID `00000000-0001C33F` owning that monitor. It disables services/tray in a portable
+Release-template copy, posts only owned AV padding double-activation and Escape, and preserves the foreground HWND.
+The helper and before/after input hashes are retained. Each settled cold/raised phase has 13 five-second samples
+and about 60 s of complete deltas; dismissal/hidden/restore have five samples and about 20 s of deltas each.
+
+| Phase | AV surface bytes | Private / working set MiB | Local usage MiB | CPU, percent of one core | Successful submissions/s |
+| --- | --- | --- | --- | --- | --- |
+| Cold Gallery | 1,474,560 | 92.21 / 93.12 | 54.24 | 2.630 | 60.034 |
+| Raised | 5,160,960 | 97.99 / 93.30 | 59.24 | 2.317 | 60.136 |
+| Dismissed | 1,474,560 | 93.21 / 93.34 | 54.24 | 2.891 | 60.100 |
+| Hidden | 0 | 93.21 / 93.13 | 54.24 | 0.078 | 0 |
+| Restored | 1,474,560 | 93.53 / 101.63 | 54.49 | 2.188 | 60.150 |
+
+Every phase has one AV widget and the expected exact surface count; no settled phase navigates or becomes inactive.
+Local adapter usage rises five MiB while raised and returns to cold usage after dismissal; hiding releases AV's
+owned surfaces while the process's reported local usage remains 54.24 MiB. The latter is not proof of a surface
+leak or full driver reclamation. Live Weather responses and transient thread counts remain unpinned, helper-process
+cost is excluded, and no causal CPU saving, real AV interoperability or presented/input latency is claimed.
+`runtime-2026-10-11-p04-raised-gallery` retains all seven phases, raw JSONL, scene, helper, context and identities.
 
 ### P2.8 / P3.6 CPU atlas lifetime cut (2026-10-11)
 
@@ -702,7 +724,7 @@ contract and validation updates.
 | P0.1 | **Complete 2026-10-10: production probe, tests and Release A/B/C/D plus inactive receipts.** See the evidence checklist and versioned Core record. Unconditional device logging was already present and is preserved. | Selected P2.7; its matched comparison is recorded above. D retains 85.80 MiB private, supporting P3.6 attribution/source reclamation; P4.1 remains a storage candidate. F/raised-G/presented-H and external attribution stay with P0.2/P0.4. |
 | P0.2 | **External captures per selected optimization:** PresentMon for PresentMode, pacing and input-to-present; WPR/WPA for CPU/thread/image attribution and whole-process GPU LUIDs. Use a quiet desktop, fresh matching sources/artifacts and the scenario's real settings/services. Do not reuse September thread totals. | Current thread/module attribution and hardware frame/input table in `.build/receipts/`. |
 | P0.3 | **Complete 2026-10-10: automated warmed soaks.** The three isolated 60 s variants run in the HostPlugin scope. Twenty scheduled seconds warm the clocks; Matrix keeps its 1,024-frame warm-up. Five-second/end samples guard uninstrumented peak growth at 4 MiB private / 8 MiB working set. ASan retains default quarantine and functional bounds, with diagnostic byte reporting. | Long Desk Clock sampling places most observed growth in the warm-up interval, without heap/driver stack attribution. Current Release/Debug/ASan full gates pass; longer plugin qualification remains separate. |
-| P0.4 | **Current grid, tile and pinned-library accounting complete; production raised Gallery remains open.** See the 2026-10-11 accounting checkpoint. | Source-calculated Matrix counts, short Gallery host submission rate, actual tile bytes and exact linked-archive identity agree. Raised hardware bytes and presented FPS are still unqualified. |
+| P0.4 | **Current grid, tile, raised Gallery and pinned-library accounting captured.** See the 2026-10-11 accounting checkpoint. | Source-calculated Matrix counts, settled hardware Gallery submissions, exact tile/raised/dismissed/hidden/restored AV bytes and linked-archive identity agree. Presented FPS/input latency remain unqualified. |
 
 ### Phase 1 — render on the GPU that owns the panel; never block on Present
 
@@ -750,7 +772,7 @@ cold visit to that page, and nothing from the page that was left.
 | P4.1 | **Arena-backed `SystemDataSource`.** Small control object plus one 16-MiB reserved region, committing page-aligned cheap/process/thread/logical/GPU/network/power families on first use. Current native state without the NT buffer plus cheap sample is already 363,840 bytes; the old <64-KiB estimate is not feasible without a separate redesign. Split optional thread-walk scratch and commit the activity value prefix before the legacy 39-column capacity. Nontrivial GPU/network/power owners require placement construction/destruction; implicit-lifetime arrays cover only committed pages. Preserve history rollback, all row caps, allocation-free collection and the <16-MiB fully-used owned-storage ceiling. | Per-family reserve/commit/failure/teardown receipts; matched construction and default-page commit measurements against the proposed ≤1 ms / ≤10 MiB targets; no source remains after D returns. |
 | P4.2 | Host storage candidates: count-sized provider descriptors and content-sized private JSON, retaining loaded `sourceDocument` and cold publication/validation correctness. Pages/widgets already use vectors. Module mapping must keep inactive-page contract validation; current-page-only mapping requires an independently justified design, not a storage shortcut. | Measure exact shipped settings/provider bytes before choosing a cut; persistence/concurrent-edit, descriptor lifetime/caps and exception-boundary tests preserve behavior. The old only-Matrix-module and ≤64-KiB shadow goals are unqualified proposals. |
 | P4.3 | **Candidate: Launcher capacity/caching.** Fixed 32-slice GPU allocation and bounded CPU icon copies are the current accepted contract. Measure empty/pinned/authored launchers before proposing count-sized storage, extraction caching or control-lane work. | Empty/8/32-icon, device-loss and taskbar-pin receipts justify new bounds; quality, fallback and persistence remain correct. |
-| P4.4 | **Surface lifetime landed and retained at the current pin.** Hidden tile and unraised overlay surfaces are released without detaching control trees. P0.1 measures their live bytes. Lazy control-tree attachment, hidden-view update skipping, profile-control destruction and inventory diffing remain separate proposals. | Tile-only extent × 4 and hidden 0 are automated; real raised state / unchanged-observation copy cost still need targeted captures. |
+| P4.4 | **Surface lifetime landed and retained at the current pin.** Hidden tile and unraised overlay surfaces are released without detaching control trees. The raised hardware P0.4 run confirms exact tile/overlay bytes, dismissal, hidden zero and restore. Lazy control-tree attachment, hidden-view update skipping, profile-control destruction and inventory diffing remain separate proposals. | Native fixtures and production hardware accounting agree; unchanged-observation copy cost and any new control-tree proposal still require measurements. Real AV release gates remain in the HOLD RFC. |
 | P4.5 | **Weather.** Cold cache bodies are already unallocated; used entries still reserve 256 KiB. Measure content-sized stored bodies and last-user release, then curl-handle reuse and same-location fetch/failure coalescing on the existing host network lane. Preserve validators, cancellation and the ≥5 min clamp. | Cold/used/eviction/teardown body-byte receipts; deterministic same-location success/failure/cancel tests; matched requests/connection reuse measurements before claiming handshake or memory savings. |
 | P4.6 | **Candidate: clocks.** Recheck today's shared multi-tier atlas and measured animation/soak behavior before changing lifetime or replacing the 1 ms animation deadline. GdiOrbit is already absent from shipped Gallery. | Matched scale/resize/soak and frame-cadence measurements justify any change; preserve typography and rollover quality. |
 

@@ -158,6 +158,13 @@ list with one pointer per widget; no frame work is added. An empty list reports 
 The production resource probe queries only an already-mapped module; it never loads AV for diagnostics. Hidden
 surfaces report zero as they do in DxUi. This accounting does not qualify real AV hardware, IME or screen readers.
 
+The 2026-10-11 Release x64 production Gallery accounting run on the 2560×720, 96-DPI XENEON confirms the tile's
+512×720×4 = 1,474,560 bytes and a raised 1280×720×4 overlay, totalling 5,160,960 bytes. Dismissal returns to tile
+bytes, hiding reports zero and restore recreates only the tile. The owned non-activating run preserves its page,
+foreground HWND and source/artifact hashes (`runtime-2026-10-11-p04-raised-gallery`). Successful host submissions
+stay about 60/s while visible and zero while hidden. These are surface/host-submission observations; real AV and
+presented-frame/input-latency acceptance remain with the active AV RFC.
+
 `AVControlView` builds retained controls through public DxUi headers. Pin, restore, CRT matching and the COM/POD
 boundary are owned by [`Core_DxUiIntegration.md`](../Core/Core_DxUiIntegration.md). RedXe restores an exact library
 commit into `.build/dependencies/DxUi/source/<commit>` and isolates outputs by commit, API revision, toolset, SDK
