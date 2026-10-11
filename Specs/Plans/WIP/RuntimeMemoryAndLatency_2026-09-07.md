@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `5cbf546` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `c04a7f5` plus the Release link correction on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -66,6 +66,8 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P0.1 | Complete | Production probe and accepted Release baseline; `0971350`. |
 | P3.4 callback attribution | Complete; construction budgets remain open | Opt-in device/size/visibility and first-preparation timing, process stage identity, bounded two-page masks and strict completeness checks pass Debug15/Release16/ASan15, ARM64 compilation and skills10. The accepted hardware capture has 18 complete stages and 402 callbacks. Launcher visibility is the next measured target: 96.01 ms median / 244.20 ms maximum. No construction worker or visual-policy change is selected. |
 | P4.3 WIC batch | Rejected after matched measurements | A temporary shared factory passes all functional/profile gates and 20 reference frames, but Launcher visibility medians rise in both capture orders: 88.21 → 96.48 ms and 82.97 → 92.89 ms. Production code, diagnostics and experiment tests are restored. Fewer factory creations alone do not justify the observed latency regression; shell extraction remains the measured target. |
+| Release link correctness | Implemented; matched hardware activation recheck pending | A production capture exposed stale member offsets in incremental LTCG despite passing hidden gates. Full LTCG retains optimization and prevents cache reuse. All 68 evaluated project configurations, 16 Release scopes, clean ARM64 Release compilation and ten skills pass. The failed executable, linker cache, local dump and stacks remain preserved; no baseline is accepted for it. |
+| P4.2 provider records | Automated validation passed; matched Release pending | Count-sized scheduling ownership replaces 23×256 inline records. Descriptor/column/duplicate validation precedes allocation and publication; retired records release outside the registry lock at source quiescence. Tests add 256th-dataset delivery, 257 rejection, first-publication and rehydration allocation failure/retry, and ownership checks across existing lease scenarios. Provider-only Debug15/ASan15 pass; the recovered full-LTCG Release16, clean ARM64 compile and skills10 have sealed identities. Both fresh hardware arms use full LTCG and identical plugin DLLs. |
 | P4.5 | Content-sized bodies and last-widget release complete | Production-path lower offline transport, exact transactional body storage and last-widget leases are implemented. Eight two-byte responses retain 24 bytes versus 2,097,160 before, including the final Release DLL; the new real-DLL storage assertion fails on the preserved old cache. Debug/ASan 15 scopes, ARM64 Release, ten skills and unchanged images pass. Release 16 obligations are accounted across runs, preserving the initial Desk Clock peak failure. Matched Gallery establishes no causal CPU saving; current D is 36.85 → 62.29 MiB private and 25.01 → 32.26 local, hidden/minimized zero. Curl reuse and failure coalescing remain separate measured candidates. |
 | P4.6 | Current hardware baseline captured; retain current deadline/atlas | Separate five-minute Desk/Studio runs share exact Release/runtime closure and one PresentMon session. Desk short display intervals have 16.66 ms p95; Studio averages 1.06 submissions/s. All owned cohort frames display, with composed independent flip and zero hybrid presents. No lower deadline or atlas change is selected. The intermittent WARP private peak remains unattributed. |
 | P4.3 glyph extraction | Complete | Temporary isolated factory/face/coverage batch, 400 unchanged glyph references and real Debug coverage-OOM recovery pass. Matched eight/32-icon callbacks fall about 7.2->2.4 / 29->6.5 ms. Final Debug15/Release16/ASan15/ARM64/skills10 and all image references pass. Settled fixed-eight CPU/submissions stay zero, adapter18.01 MiB; no physical-input or D-retention claim. runtime-2026-10-11-p43-glyph-*. |
@@ -91,6 +93,31 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P2.8 glyph capacity | Complete | Real preceding DLLs fail reused-cell ink and exhausted-label regressions; candidate passes with unchanged atlas/storage sizes. Eight Weather PNGs match. Release 16 scopes, Debug 15 native scopes accounted across the initial run and HostSmoke repeat, ASan 15 native scopes, ARM64 Release and 10 skills pass. The initial Debug capture crash remains unexplained and retained. `runtime-2026-10-11-p28-capacity`. |
 | P2.8 Debug monitor and shared sampling | Complete | Unchanged failed preparation suppresses font/raster/upload work; all recovery, real font cleanup and held-control release tests pass. A shared glyph-cell sampling fix resolves 16 visible neighboring-ink pixels after cache/device changes. All 145 Viewer references and eight Weather PNGs match. Final Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release and ten skills pass. Two counterbalanced System pairs establish no causal CPU saving or repeatable private-memory regression; local usage is 26.26 MiB throughout. QPC-joined PresentMon cohorts show hardware-composed independent flip, all cohort frames displayed and no hybrid presents. Input latency remains unqualified. `runtime-2026-10-11-p28-monitor`, `-paired`, `-paired-reverse`, `-presented` and `-presented-reverse`. |
 | P0.4 production raised Gallery | Accounting captured; presented-frame qualification remains open | One normal, non-activating hardware Release run proves AV tile 1,474,560 bytes, raised total 5,160,960, dismissal to tile, hidden zero and restored tile. Cold/raised settled 65 s each; all source/binary hashes, page, geometry, adapter, power and foreground checks pass. Visible submissions stay about 60/s; hidden zero. `runtime-2026-10-11-p04-raised-gallery`. |
+
+### Release link correction during P4.2 validation (2026-10-11)
+
+The first complete-interval provider candidate capture hung when Gallery activation acquired the network lock.
+Its normal-user executable `F9B16A26D3B3DDD56353A5761F991CB13773C110DA2DB92A3AFB6BB19CA26D19`
+had passed all 16 hidden Release scopes, but the UI stack stopped in `DashboardHost::SetWidgetsVisible`.
+Disassembly accessed `_networkLock` at 167,520 bytes and `_networkSlots` at 167,328, while the new complete
+`PluginHost` layout is 103,200 bytes with those fields at 26,392 and 26,200. The incremental-LTCG log reports
+190/6,482 functions regenerated, with the remainder copied. A clean rebuild emits the current offsets.
+The toolset's evaluated x64 default and link command both select `/LTCG:incremental`; the new regression fails on
+that default. The shared targets now require `/LTCG` for optimized Release. Whole-program optimization remains.
+
+The configuration regression checks 68 real-project metadata evaluations without compiling; recovered Release
+passes all 16 scopes, clean ARM64 Release compiles with no warnings/errors, and ten skills pass. The native inputs
+and each tested Release artifact are sealed in `p42-provider-recovery-*.json`. Prior Debug/ASan provider receipts
+retain their earlier source closure and are not relabeled as the build-policy closure. The tested candidate is
+preserved byte for byte; a new old-layout control is built under the same policy and passes a fresh hidden smoke.
+Only the host, host-test executable and host provenance differ; all deployed plugin DLLs match.
+
+`runtime-2026-10-11-p42-provider-candidate-complete` remains rejected, with its local full dump, owned-thread stacks
+and suspect executable/PDB/LTCG cache preserved. Only its owned hung PID 92928 was terminated after capture.
+Earlier short-phase controls remain rejected because they did not contain a complete probe interval. The
+complete-interval control is valid by itself, but is not paired with the hung candidate. Fresh matched hardware
+page-activation and resource measurements remain pending. This correction changes the build contract in
+`Specs/Build/Build_Process.md`; it does not establish a CPU saving or close P0.2 latency qualification.
 
 ### P3.4 callback attribution and completeness (2026-10-11)
 

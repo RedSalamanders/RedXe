@@ -1,7 +1,7 @@
 # RedXe build-process contract
 
 Status: current normative repository contract
-Last reviewed: 2026-10-10
+Last reviewed: 2026-10-11
 Owner: root build and test entrypoints
 
 ## Scope
@@ -41,6 +41,13 @@ one. The vcpkg overlay triplets and the DxUi identity files therefore do not dep
 ## Output and validation
 
 Every native project and solution mapping supports Debug, Release and ASan Debug on x64 and ARM64.
+Optimized Release projects MUST use full link-time code generation (`/LTCG`), preserving whole-program
+optimization without `/LTCG:incremental`. The v145 incremental cache has reused old inlined member offsets after a
+private `PluginHost` layout change, producing a Release page-activation hang despite successful compilation and
+hidden tests. `Directory.Build.targets` sets the effective link mode after the toolset defaults;
+`LinkConfiguration.Tests.ps1` evaluates every tracked native project's x64/ARM64 Release metadata and the host's
+Debug/ASan modes without building. A changed source layout requires current artifacts and runtime qualification;
+passing tests for the previous executable do not qualify a clean rebuild.
 ASan Debug uses `/MDd`, disabled optimization, program-database debug information and real AddressSanitizer
 instrumentation in every first-party translation unit; a forced compiler guard rejects unsanitized builds.
 The application and plugin output directories each have one sanitizer-runtime staging producer. The test
