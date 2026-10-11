@@ -27,6 +27,14 @@ or state change is pending. Normal operating-system scheduling noise is outside 
 
 ## Mandatory runtime rules
 
+- The default Process Viewer and GPU Processes name join use the eight-column `process.activity` dataset.
+  Its native collection opens no per-process handle and populates no legacy detail values. A combined request for
+  activity and the compatible 39-column `process.list` shares one walk, population pass and history epoch, with
+  activity rows borrowing the leading values. Toolhelp fallback preserves accessible leading-field quality and
+  shared rate history. One 2,048-row view array adds 49,152 bytes while fixed storage remains, accepted to avoid
+  duplicating values and preserve legacy subscribers. The entire source remains below the 16-MiB ceiling; lazy
+  per-family commitment is separate arena work. The private 64-byte diagnostics and copied-walk test seam add
+  bounded counters/clock state, no worker, timer or production acquisition mode.
 - Steady-state frame construction and rendering must not allocate or free heap memory after initialization.
 - Per-frame and per-widget storage must be bounded and reused. Capacity exhaustion fails one widget frame safely; it
   must not trigger unbounded growth on the render path.
@@ -384,6 +392,22 @@ allocation checks pass in all 16 Release scopes and 15 Debug/15 ASan Debug nativ
 16,437,760 bytes. ARM64 Release compiles and all 10 skills pass. Receipts:
 `.build/receipts/runtime-2026-10-10-p21-nt-query-before`, `-p21-before`,
 `-p21-after-1`, `-p21-after-2` and `-p21`.
+
+The 2026-10-11 activity consumer cut preserves the legacy 39-column detail dataset and adds an eight-column
+native path with zero per-PID handle opens. Combined requests share one population/history epoch and borrow the
+leading values. Fixed source storage is 16,487,056 bytes, up 49,296 for a 49,152-byte row-view array and bounded
+metadata/test state; this compatibility cost is accepted below the 16-MiB ceiling. All 145 Viewer references are
+identical. Real native zero-opens, request ordering, PID reuse/rates, abort recovery, row/name caps and fallback
+quality pass all 16 Release scopes, 15 Debug/ASan native scopes, ARM64 Release compilation and 10 skills. Row-cap
+collection has zero steady heap/handle/private/working-set growth.
+Two matched System pairs changing only SystemData.dll and ProcessViewer.dll report control/candidate CPU
+1.895/1.689 and reversed-order 1.898/1.612 percent of one core; submissions 12.760/13.106 and 12.198/11.097/s.
+Private bytes are 59.23/57.60 and 57.44/57.42 MiB; local adapter usage is 26.26 throughout. Live data is unpinned,
+submission direction reverses and memory reduction does not repeat, so no causal whole-process saving is claimed.
+QPC-joined PresentMon cohorts use hardware-composed independent flip, all cohort frames display and none is
+hybrid. The reversed candidate's maximum display-change interval is 1,928.487 ms; sparse update intervals include
+idle and do not qualify input/callback latency. Receipts: `.build/receipts/runtime-2026-10-11-p21-activity`,
+`-control`, `-images`, `-paired`, `-paired-reverse`, `-presented` and `-presented-reverse`.
 
 The independent CPU-atlas lifetime cut replaces ProcessViewer and Weather's inline one-MiB arrays with lazy,
 shared virtual-memory owners. Real DLL tests reject the old lifetime and verify cold construction, two users,

@@ -30,6 +30,7 @@
 #pragma warning(pop)
 
 void TestNativeProcessQuery();
+void TestProcessActivity(IRedXeDataSource& source, IRedXeSystemDataTestSource& test);
 
 namespace
 {
@@ -913,7 +914,7 @@ void Run(bool benchmark, bool domains)
     uint32_t descriptorCount = 99;
     Expect(source->GetDataSets(nullptr, &descriptorCount) == E_POINTER && descriptorCount == 0,
            "GetDataSets did not clear count on a null descriptor output");
-    Expect(source->GetDataSets(&descriptors, &descriptorCount) == S_OK && descriptors && descriptorCount == 22,
+    Expect(source->GetDataSets(&descriptors, &descriptorCount) == S_OK && descriptors && descriptorCount == 23,
            "SystemData descriptors are unavailable");
     for (uint32_t index = 0; index < descriptorCount; ++index)
     {
@@ -941,6 +942,19 @@ void Run(bool benchmark, bool domains)
     const RedXeDataSetDescriptor* statusDescriptor = FindDataSet(descriptors, descriptorCount, "source.status");
     const RedXeDataSetDescriptor* summaryDescriptor = FindDataSet(descriptors, descriptorCount, "system.summary");
     const RedXeDataSetDescriptor* processDescriptor = FindDataSet(descriptors, descriptorCount, "process.list");
+    const RedXeDataSetDescriptor* activityDescriptor = FindDataSet(descriptors, descriptorCount, "process.activity");
+    Expect(activityDescriptor && activityDescriptor->columnCount == 8 && activityDescriptor->maximumRows == 2048 &&
+               activityDescriptor->recommendedIntervalMilliseconds == 2000 &&
+               activityDescriptor->flags == (RedXeDataSetFlagTable | RedXeDataSetFlagLocalSensitive),
+           "process activity catalog shape differs");
+    constexpr const char* activityColumns[] = {"processId",    "imageName",   "cpuPercent",  "workingSetBytes",
+                                               "privateBytes", "threadCount", "handleCount", "parentProcessId"};
+    for (uint32_t index = 0; index != std::size(activityColumns); ++index)
+        Expect(std::strcmp(activityDescriptor->columns[index].columnId, activityColumns[index]) == 0 &&
+                   activityDescriptor->columns[index].valueType == (index == 1   ? RedXeDataValueTypeUtf16
+                                                                    : index == 2 ? RedXeDataValueTypeFloat64
+                                                                                 : RedXeDataValueTypeUInt64),
+               "process activity column order or type differs");
     const RedXeDataSetDescriptor* cpuSummaryDescriptor = FindDataSet(descriptors, descriptorCount, "cpu.summary");
     const RedXeDataSetDescriptor* cpuLogicalDescriptor = FindDataSet(descriptors, descriptorCount, "cpu.logical");
     const RedXeDataSetDescriptor* memoryDescriptor = FindDataSet(descriptors, descriptorCount, "memory.summary");
@@ -1058,7 +1072,7 @@ void Run(bool benchmark, bool domains)
     Expect(CollectOneSnapshot(*source, "source.status", &snapshot) == S_OK && snapshot,
            "source status collection failed");
     ValidateSnapshot(*snapshot, *statusDescriptor);
-    Expect(snapshot->rowCount == 22, "source status does not contain one row per dataset");
+    Expect(snapshot->rowCount == 23, "source status does not contain one row per dataset");
     const uint32_t statusIdColumn = FindColumn(*statusDescriptor, "dataSetId");
     bool foundStatusRow = false;
     bool foundSummaryRow = false;
@@ -1380,6 +1394,7 @@ void Run(bool benchmark, bool domains)
                !snapshot,
            "SystemData row-cap test seam accepted an excessive row count or retained an output");
 
+    TestProcessActivity(*source, *testSource);
     RunNativeLayoutOracles(*source, descriptors, descriptorCount);
     RunAcceleratorChecks(*source, descriptors, descriptorCount);
 

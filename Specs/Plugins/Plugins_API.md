@@ -998,6 +998,7 @@ flip V. The image entry clamps to the displayable range before the fade; a feedb
 `Plugins/SystemData` exposes `builtin.system-data` and only factory-created `IRedXeDataSource`. It currently publishes
 `source.status` (at most 32 rows, 5 s), `system.summary` (1 row, 1 s, not local-sensitive), `cpu.summary` (1 row, 1 s),
 `cpu.logical` (1,024 rows, 1 s), `memory.summary` (1 row, 1 s), `process.list` (2,048 rows, 2 s, local-sensitive),
+`process.activity` (2,048 rows, 2 s, local-sensitive),
 `thread.list` (8,192 rows, 2 s, local-sensitive), `network.interface` (256 rows, 1 s, local-sensitive),
 `network.protocol` (16 rows, 1 s), `storage.disk` (128 rows, 1 s, local-sensitive), `storage.volume` (256 rows, 5 s,
 local-sensitive), `gpu.adapter` (32 rows, 1 s), `gpu.engine` (512 rows, 1 s), `gpu.process` (2,048 rows, 2 s,
@@ -1052,8 +1053,17 @@ those proofs, `process.list` and `thread.list` take create, user, kernel, and cy
 private working set, pagefile use, parent process ID, and the six I/O counters directly from the single
 `SystemProcessInformation` walk. The second bulk parent-ID query is gone, no process handle is opened for those values,
 and they are therefore published for every walked row rather than only for processes the caller can open. A transient
-`PROCESS_QUERY_LIMITED_INFORMATION` handle remains only for affinity, architecture, critical-process state, and
-efficiency mode.
+`PROCESS_QUERY_LIMITED_INFORMATION` handle remains in the legacy 39-column `process.list` only for affinity,
+architecture, critical-process state, and efficiency mode.
+`process.activity` publishes exactly the leading eight columns: process ID, image name, CPU percent, working-set
+bytes, private bytes, thread count, handle count, and parent process ID. Its native path MUST take all eight from
+the shared walk/history and open no per-process handle. A batch decides whether legacy detail is required before
+population, collects process rows and replaces history once regardless of request order, and lets activity rows
+borrow the same leading values when both datasets are requested. Activity-only population uses an eight-value stride
+in the reusable value table; it MUST NOT populate the other 31 fields. CPU, I/O and fault history retains PID/creation
+identity across activity/detail changes; an aborted batch reinitializes rates under the normal rollback rule.
+The existing Toolhelp fallback retains the per-process queries needed for leading-field quality, including the
+I/O history needed by a later detail subscriber, and skips optional detail queries when only activity is requested.
 The process/thread walk queries its already-owned four-MiB buffer at full capacity once per shared walk. It MUST NOT
 restart at a smaller size or allocate on a length mismatch. A failed query, zero `ReturnLength` or a successful
 query reporting beyond that capacity exposes no readable bytes and retains the existing Toolhelp fallback. Record,
@@ -1068,10 +1078,14 @@ adapter, battery, or thermal sensor is a valid empty or `Unavailable` snapshot; 
 host-specific churn rather than a second catalog shape. ARM64 shares the x64 64-bit native record layouts; a live ARM64
 host is not required for the shipped catalog.
 
-`SystemData.Tests.Contract.h` declares a test-only sibling interface that reports fixed source bounds and drives the same
-per-process row-population path with a requested synthetic row count. It is not a published plugin ABI, dataset,
-host dependency, or production acquisition mode. Its controlling `IUnknown`, exact record size, excessive-row
+`SystemData.Tests.Contract.h` declares a test-only sibling interface with a pinned 64-byte diagnostic record that
+reports source bounds, process population passes, handle-open attempts, history replacements, value stride and backend.
+It drives the same legacy row path with a requested synthetic count and can copy one bounded normalized walk/system-time
+epoch for the next process/thread batch, including invalid-walk fallback. No caller pointer is retained. It is not
+a published plugin ABI, dataset, host dependency, or production acquisition mode. Its controlling `IUnknown`, exact record size, excessive-row
 rejection, and 2,048-row Release resource measurement are validated by `SystemDataTests`.
+These private test methods are serialized on the test caller's collection lane; diagnostics are read only while
+collection is quiescent. They do not promise concurrent observation of mutable counters.
 
 `Plugins/ProcessViewer` remains `ProcessViewer.dll` and publishes ten settings-visible plugin IDs, each mapped to one
 widget type. Every widget exposes sibling `IRedXeGpuWidget` and `IRedXeScheduledWidget` interfaces on one controlling
@@ -1081,22 +1095,22 @@ ask for 1/4, 1/3, 1/2, or 1/1 before raising a tile that is not already full-cli
 
 | Plugin ID | Type ID | Settings | Datasets |
 | --- | --- | --- | --- |
-| `builtin.process-viewer` | `process-viewer` | `topN` 1–32, default 10; `hideIdle`, default `true` | `process.list` (2 s) |
+| `builtin.process-viewer` | `process-viewer` | `topN` 1–32, default 10; `hideIdle`, default `true` | `process.activity` (2 s) |
 | `builtin.system-pulse` | `system-pulse` | `{}` | `system.summary` (1 s) |
 | `builtin.cpu-meter` | `cpu-meter` | `{}` | `cpu.summary` + `cpu.logical` (1 s) |
 | `builtin.memory-meter` | `memory-meter` | `{}` | `memory.summary` (1 s) |
 | `builtin.network-meter` | `network-meter` | `topN` 1–16, default 8 | `network.interface` + `network.protocol` (1 s) |
 | `builtin.storage-meter` | `storage-meter` | `{}` | `storage.volume` (5 s) + `storage.disk` (1 s) |
 | `builtin.gpu-meter` | `gpu-meter` | `{}` | `gpu.adapter` (1 s) |
-| `builtin.gpu-processes` | `gpu-processes` | `topN` 1–16, default 8 | `gpu.process` + `process.list` (2 s) |
+| `builtin.gpu-processes` | `gpu-processes` | `topN` 1–16, default 8 | `gpu.process` + `process.activity` (2 s) |
 | `builtin.power-meter` | `power-meter` | `{}` | `power.summary` + `battery.list` (5 s) |
 | `builtin.thermal-meter` | `thermal-meter` | `{}` | `thermal.sensor` + `fan.sensor` (10 s) |
 
 Do not ship dashboard viewers for `source.status`, `thread.list`, or `gpu.engine`. Each widget asks the host for
 `builtin.system-data` and subscribes only while visible. Unique datasets on a fully visible System page stay at 15,
 under the host cap of 32. Widgets MAY share one host provider; identical datasets coalesce. GPU Processes also
-subscribes to `process.list` so image names can join on PID; that subscription coalesces with Process Viewer and does
-not raise the unique-dataset count. Process Viewer keeps the leading `process.list` columns, ranks available CPU
+subscribes to `process.activity` so image names can join on PID; that subscription coalesces with Process Viewer and does
+not raise the unique-dataset count. Process Viewer keeps the leading activity columns, ranks available CPU
 percentage descending with working-set and PID tie-breakers, and caches at most `topN` rows with bounded process-name
 storage. PID 0 (the System Idle Process) is left out while `hideIdle` is `true` (the default); when listed, its CPU
 percent and bar read in the OK colour whatever the value, never the warning or high band, because that figure is the

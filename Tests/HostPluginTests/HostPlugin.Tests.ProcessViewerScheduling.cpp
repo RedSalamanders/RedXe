@@ -412,7 +412,7 @@ void CheckCadence(RedXeCreateFn create, Surface& surface)
 void CheckRanksAndAuxiliaryData(RedXeCreateFn create, Surface& surface)
 {
     Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer");
-    Observation processes("process.list", 7, 2);
+    Observation processes("process.activity", 7, 2);
     for (uint32_t row = 0; row < 2; ++row)
     {
         processes.Integer(0, 100 + row, row);
@@ -472,7 +472,7 @@ void CheckIdleProcessPulse(RedXeCreateFn create, Surface& surface)
 {
     Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer",
                   R"json({"plugin":{},"instance":{"topN":10,"hideIdle":false}})json");
-    Observation sample("process.list", 7);
+    Observation sample("process.activity", 7);
     sample.Integer(0, 0);
     sample.Text(1, L"System Idle Process");
     sample.Number(2, 96);
@@ -541,7 +541,7 @@ void CheckPreparedGlyphs(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn
 {
     Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer");
     Require(viewer.prepared->Prepare(nullptr) == E_INVALIDARG, "viewer accepted missing preparation context");
-    Observation sample("process.list", 7);
+    Observation sample("process.activity", 7);
     sample.Integer(0, 17);
     sample.Text(1, L"Client");
     sample.Number(2, 10);
@@ -631,7 +631,7 @@ void CheckGlyphCellReuse(RedXeCreateFn create, Surface& surface)
     uint64_t emptyGlyph = 0;
     {
         Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer");
-        Observation sample("process.list", 7);
+        Observation sample("process.activity", 7);
         sample.Integer(0, 17);
         sample.Text(1, L"\uffff");
         sample.Number(2, 10);
@@ -642,7 +642,7 @@ void CheckGlyphCellReuse(RedXeCreateFn create, Surface& surface)
     }
     {
         Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer");
-        Observation sample("process.list", 7);
+        Observation sample("process.activity", 7);
         sample.Integer(0, 17);
         sample.Text(1, L"\u00e9");
         sample.Number(2, 10);
@@ -678,7 +678,7 @@ void CheckAtlasLifetime(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn 
     };
     check(0, 0);
     uint64_t pixels = 0;
-    Observation sample("process.list", 7);
+    Observation sample("process.activity", 7);
     sample.Integer(0, 17);
     sample.Text(1, L"Caf\u00e9 - M\u00fcnchen");
     sample.Number(2, 10);
@@ -750,7 +750,7 @@ void CheckRemainingViewers(RedXeCreateFn create, Surface& surface)
         Case{"builtin.network-meter", "network-meter", "network.interface", 22, "network.protocol", 6},
         Case{"builtin.storage-meter", "storage-meter", "storage.volume", 8, "storage.disk", 10},
         Case{"builtin.gpu-meter", "gpu-meter", "gpu.adapter", 15, nullptr, 0},
-        Case{"builtin.gpu-processes", "gpu-processes", "gpu.process", 6, "process.list", 7},
+        Case{"builtin.gpu-processes", "gpu-processes", "gpu.process", 6, "process.activity", 7},
         Case{"builtin.power-meter", "power-meter", "power.summary", 5, "battery.list", 2},
         Case{"builtin.thermal-meter", "thermal-meter", "thermal.sensor", 4, "fan.sensor", 4},
     };
@@ -937,7 +937,7 @@ void TestProcessViewerScheduling(bool& success) noexcept
         else
         {
             Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer");
-            Observation sample("process.list", 7);
+            Observation sample("process.activity", 7);
             sample.Integer(0, 17);
             sample.Text(1, L"Caf\u00e9 - M\u00fcnchen");
             sample.Number(2, 10);

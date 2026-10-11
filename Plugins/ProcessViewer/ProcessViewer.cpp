@@ -167,7 +167,7 @@ constexpr std::array kCatalog{
     ViewerCatalogEntry{ViewerKind::ProcessViewer, "builtin.process-viewer", "process-viewer", L"Process Viewer",
                        L"Ranks local processes by CPU from the RedXe system-data provider.", L"Process Viewer",
                        L"Two-column rows with working-set units, CPU percent, and heatmap-style load bars.",
-                       "process.list", nullptr, 2000, 0, 32, 10, 1280.0f, 720.0f, 240.0f, 96.0f},
+                       "process.activity", nullptr, 2000, 0, 32, 10, 1280.0f, 720.0f, 240.0f, 96.0f},
     ViewerCatalogEntry{ViewerKind::SystemPulse, "builtin.system-pulse", "system-pulse", L"System Pulse",
                        L"Machine CPU, memory, and count chips from system.summary.", L"System Pulse",
                        L"CPU hero, summary chips, and raised RAM plus CPU history from system.summary.",
@@ -196,7 +196,7 @@ constexpr std::array kCatalog{
     ViewerCatalogEntry{ViewerKind::GpuProcesses, "builtin.gpu-processes", "gpu-processes", L"GPU Processes",
                        L"Top GPU engine clients.", L"GPU Processes",
                        L"Two-column GPU clients with engine and percent; heatmap-style load bars.", "gpu.process",
-                       "process.list", 2000, 2000, 16, 8, 960.0f, 540.0f, 160.0f, 72.0f},
+                       "process.activity", 2000, 2000, 16, 8, 960.0f, 540.0f, 160.0f, 72.0f},
     ViewerCatalogEntry{ViewerKind::PowerMeter, "builtin.power-meter", "power-meter", L"Power Meter",
                        L"AC/DC state, charge, and battery rows.", L"Power Meter",
                        L"Charge ring on battery hosts; compact AC status when no battery is present.", "power.summary",
@@ -1915,7 +1915,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     [[nodiscard]] HRESULT IngestProcess(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "process.list", 7))
+        if (!SnapshotMatches(snapshot, "process.activity", 7))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2533,7 +2533,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     [[nodiscard]] HRESULT IngestGpuProcessNames(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "process.list", 2))
+        if (!SnapshotMatches(snapshot, "process.activity", 2))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }

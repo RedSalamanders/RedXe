@@ -204,7 +204,7 @@ void TestFacadeLeasesAndRevisit()
                 "revisit changed controlling provider identity");
         const RedXeDataSetDescriptor* descriptors = nullptr;
         uint32_t count = 0;
-        Require(provider->GetDataSets(&descriptors, &count) == S_OK && descriptors && count == 22,
+        Require(provider->GetDataSets(&descriptors, &count) == S_OK && descriptors && count == 23,
                 "revisit did not recreate the full production source");
         identity.reset();
         provider.reset();
@@ -241,7 +241,7 @@ void TestAllocatedAndSharedSubscriptions()
         provider = Provider(host);
         const RedXeDataSetDescriptor* descriptors = nullptr;
         uint32_t count = 0;
-        Require(provider->GetDataSets(&descriptors, &count) == S_OK && count == 22, "worker revisit metadata failed");
+        Require(provider->GetDataSets(&descriptors, &count) == S_OK && count == 23, "worker revisit metadata failed");
         auto subscription = Subscribe(provider.get(), sink.get());
         Require(subscription->SetActive(TRUE) == S_OK && subscription->SetActive(FALSE) == S_OK,
                 "worker revisit plan activation failed");

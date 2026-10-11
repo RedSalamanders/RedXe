@@ -55,6 +55,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="SystemData.Tests.Activity.cpp" />
     <ClCompile Include="SystemData.Tests.ProcessQuery.cpp" />
     <ClCompile Include="SystemData.Tests.Runner.cpp" />
   </ItemGroup>

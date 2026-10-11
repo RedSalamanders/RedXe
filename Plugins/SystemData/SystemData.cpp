@@ -34,6 +34,7 @@ constexpr char kCpuSummaryDataSetId[] = "cpu.summary";
 constexpr char kCpuLogicalDataSetId[] = "cpu.logical";
 constexpr char kMemoryDataSetId[] = "memory.summary";
 constexpr char kProcessDataSetId[] = "process.list";
+constexpr char kProcessActivityDataSetId[] = "process.activity";
 constexpr char kThreadDataSetId[] = "thread.list";
 constexpr char kNetworkInterfaceDataSetId[] = "network.interface";
 constexpr char kNetworkProtocolDataSetId[] = "network.protocol";
@@ -69,6 +70,7 @@ constexpr uint32_t kCpuSummaryColumnCount = 14;
 constexpr uint32_t kCpuLogicalColumnCount = 19;
 constexpr uint32_t kMemoryColumnCount = 12;
 constexpr uint32_t kProcessColumnCount = 39;
+constexpr uint32_t kProcessActivityColumnCount = 8;
 constexpr uint32_t kThreadColumnCount = 12;
 constexpr uint32_t kNetworkInterfaceColumnCount = 22;
 constexpr uint32_t kNetworkProtocolColumnCount = 11;
@@ -854,6 +856,17 @@ constexpr std::array kDataSets{
     },
     RedXeDataSetDescriptor{
         sizeof(RedXeDataSetDescriptor),
+        kProcessActivityDataSetId,
+        L"Process activity",
+        L"Bounded process identity, CPU, memory, thread, handle, and parent data from one shared sample.",
+        kProcessColumns.data(),
+        kProcessActivityColumnCount,
+        static_cast<uint32_t>(kMaximumProcesses),
+        kRecommendedIntervalMilliseconds,
+        RedXeDataSetFlagTable | RedXeDataSetFlagLocalSensitive,
+    },
+    RedXeDataSetDescriptor{
+        sizeof(RedXeDataSetDescriptor),
         kThreadDataSetId,
         L"Thread list",
         L"Bounded thread identity, priority, and state from the same process sample.",
@@ -1048,6 +1061,7 @@ constexpr std::array kDatasetBackends{
     DatasetBackendInfo{L"cpu.logical", kBackendNative, L"nt-processor-performance", L"1"},
     DatasetBackendInfo{L"memory.summary", kBackendWin32, L"k32-perfinfo", L"1"},
     DatasetBackendInfo{L"process.list", kBackendNative, L"nt-system-process", L"1"},
+    DatasetBackendInfo{L"process.activity", kBackendNative, L"nt-system-process", L"1"},
     DatasetBackendInfo{L"thread.list", kBackendNative, L"nt-system-process", L"1"},
     DatasetBackendInfo{L"network.interface", kBackendWin32, L"iphelper-ifentry2", L"1"},
     DatasetBackendInfo{L"network.protocol", kBackendWin32, L"iphelper-stats", L"1"},
@@ -1425,7 +1439,37 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
             static_cast<uint32_t>(kProcessNameCharacters),
             0,
             0,
+            _processCollections,
+            _processHandleOpens,
+            _processHistoryCommits,
+            _processValueStride,
+            _processBackend,
         };
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetNextProcessWalkForTest(const RedXeNativeWalkSample* sample,
+                                                        uint64_t systemTotal100ns) noexcept override
+    {
+        if (!sample)
+            return E_POINTER;
+        if (sample->processCount > sample->processes.size() || sample->threadCount > sample->threads.size() ||
+            sample->imageArenaUsed > sample->imageArena.size())
+            return E_INVALIDARG;
+        for (uint32_t index = 0; index < sample->processCount; ++index)
+        {
+            const auto& row = sample->processes[index];
+            if (row.imageOffset >= sample->imageArenaUsed ||
+                row.imageCharacters >= sample->imageArenaUsed - row.imageOffset ||
+                sample->imageArena[row.imageOffset + row.imageCharacters] != L'\0')
+                return E_INVALIDARG;
+        }
+        if (_collecting.test_and_set(std::memory_order_acquire))
+            return HRESULT_FROM_WIN32(ERROR_BUSY);
+        auto clearCollecting = wil::scope_exit([this] { _collecting.clear(std::memory_order_release); });
+        _walk = *sample;
+        _processTestSystemTotal = systemTotal100ns;
+        _walkTestPending = true;
         return S_OK;
     }
 
@@ -1450,6 +1494,7 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
         }
         auto clearCollecting = wil::scope_exit([this] { _collecting.clear(std::memory_order_release); });
 
+        _processSystemTimesForTest = false;
         uint64_t ignoredIdle = 0;
         uint64_t systemTotal = 0;
         const bool hasSystemTimes = ReadSystemTimes(ignoredIdle, systemTotal);
@@ -1457,6 +1502,11 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
                                          ? systemTotal - _processSystemTotal
                                          : 0;
 
+        _needProcessDetails = true;
+        _needProcessActivity = false;
+        _processValueStride = kProcessColumnCount;
+        _processBackend = kBackendWin32;
+        ++_processCollections;
         PROCESSENTRY32W entry{};
         entry.dwSize = static_cast<DWORD>(sizeof(entry));
         entry.th32ProcessID = GetCurrentProcessId();
@@ -1500,6 +1550,7 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
                RedXeAsciiEqualsIgnoreCase(dataSetId, kCpuLogicalDataSetId) ||
                RedXeAsciiEqualsIgnoreCase(dataSetId, kMemoryDataSetId) ||
                RedXeAsciiEqualsIgnoreCase(dataSetId, kProcessDataSetId) ||
+               RedXeAsciiEqualsIgnoreCase(dataSetId, kProcessActivityDataSetId) ||
                RedXeAsciiEqualsIgnoreCase(dataSetId, kThreadDataSetId);
     }
 
@@ -1557,6 +1608,10 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
     {
         _cheapReady = false;
         _walkReady = false;
+        _processReady = false;
+        _needProcessDetails = false;
+        _needProcessActivity = false;
+        _processSystemTimesForTest = false;
         _gpuAdaptersReady = false;
         _gpuEnginesReady = false;
         _gpuProcessesReady = false;
@@ -1587,10 +1642,12 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
             {
                 needCheap = true;
             }
-            if (RedXeAsciiEqualsIgnoreCase(id, kProcessDataSetId) || RedXeAsciiEqualsIgnoreCase(id, kThreadDataSetId))
-            {
+            if (RedXeAsciiEqualsIgnoreCase(id, kProcessDataSetId))
+                _needProcessDetails = true;
+            if (RedXeAsciiEqualsIgnoreCase(id, kProcessActivityDataSetId))
+                _needProcessActivity = true;
+            if (_needProcessDetails || _needProcessActivity || RedXeAsciiEqualsIgnoreCase(id, kThreadDataSetId))
                 needWalk = true;
-            }
             if (RedXeAsciiEqualsIgnoreCase(id, kGpuAdapterDataSetId) ||
                 RedXeAsciiEqualsIgnoreCase(id, kThermalSensorDataSetId) ||
                 RedXeAsciiEqualsIgnoreCase(id, kFanSensorDataSetId) ||
@@ -1642,7 +1699,14 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
         }
         if (needWalk)
         {
-            _walkReady = RedXeNativeQueryWalk(_nativeState, _walk);
+            if (_walkTestPending)
+            {
+                _walkReady = _walk.valid;
+                _walkTestPending = false;
+                _processSystemTimesForTest = true;
+            }
+            else
+                _walkReady = RedXeNativeQueryWalk(_nativeState, _walk);
         }
         if (needGpuAdapters)
         {
@@ -1715,9 +1779,10 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
         {
             return CollectMemory(timestamp, sequence, output);
         }
-        if (RedXeAsciiEqualsIgnoreCase(dataSetId, kProcessDataSetId))
+        if (RedXeAsciiEqualsIgnoreCase(dataSetId, kProcessDataSetId) ||
+            RedXeAsciiEqualsIgnoreCase(dataSetId, kProcessActivityDataSetId))
         {
-            return CollectProcesses(timestamp, sequence, output);
+            return CollectProcesses(dataSetId, timestamp, sequence, output);
         }
         if (RedXeAsciiEqualsIgnoreCase(dataSetId, kThreadDataSetId))
         {
@@ -3472,11 +3537,11 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
         nameCharacters += imageCharacters + 1;
 
         const DWORD desiredAccess = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ;
-        wil::unique_handle process{OpenProcess(desiredAccess, FALSE, entry.th32ProcessID)};
+        wil::unique_handle process = OpenProcessForCollection(desiredAccess, entry.th32ProcessID);
         const bool canReadMemory = static_cast<bool>(process);
         if (!process)
         {
-            process.reset(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID));
+            process = OpenProcessForCollection(PROCESS_QUERY_LIMITED_INFORMATION, entry.th32ProcessID);
         }
 
         ProcessCpuSample currentCpu{};
@@ -3530,7 +3595,7 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
                                                    ? RedXeDataQualityGood
                                                    : RedXeDataQualityUnavailable;
 
-        RedXeDataValue* values = _processValues.data() + rowCount * kProcessColumnCount;
+        RedXeDataValue* values = _processValues.data() + rowCount * _processValueStride;
         values[0] = UInt64Value(entry.th32ProcessID, RedXeDataQualityGood);
         values[1] = Utf16Value(imageName, static_cast<uint32_t>(imageCharacters), RedXeDataQualityGood);
         values[2] = Float64Value(cpuPercent, cpuQuality);
@@ -3538,10 +3603,23 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
         values[4] = UInt64Value(privateBytes, memoryQuality);
         values[5] = UInt64Value(entry.cntThreads, RedXeDataQualityGood);
         values[6] = UInt64Value(handleCount, handleQuality);
-        FillProcessExtended(values, process.get(), entry.th32ParentProcessID, true, 0, false, 0, false, 0, false, 0,
-                            false, systemDelta, currentCpu, nullptr);
+        if (_needProcessDetails)
+            FillProcessExtended(values, process.get(), entry.th32ParentProcessID, true, 0, false, 0, false, 0, false, 0,
+                                false, systemDelta, currentCpu, nullptr);
+        else
+        {
+            values[7] = UInt64Value(entry.th32ParentProcessID, RedXeDataQualityGood);
+            // Keep the legacy I/O epoch continuous if a detail subscriber joins after an activity-only fallback.
+            IO_COUNTERS io{};
+            if (process && GetProcessIoCounters(process.get(), &io) != FALSE)
+            {
+                currentCpu.ioReadBytes = io.ReadTransferCount;
+                currentCpu.ioWriteBytes = io.WriteTransferCount;
+                currentCpu.ioOtherBytes = io.OtherTransferCount;
+            }
+        }
         _currentCpu[rowCount] = currentCpu;
-        _processRows[rowCount] = RedXeDataRow{sizeof(RedXeDataRow), values, kProcessColumnCount};
+        _processRows[rowCount] = RedXeDataRow{sizeof(RedXeDataRow), values, _processValueStride};
         ++rowCount;
         return true;
     }
@@ -3549,6 +3627,7 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
     void FinishProcessCollection(size_t rowCount, bool truncated, bool hasSystemTimes, uint64_t systemTotal,
                                  uint64_t sequence, uint64_t timestamp, const RedXeDataSnapshot** output) noexcept
     {
+        ++_processHistoryCommits;
         _processHistory.fill({});
         for (size_t index = 0; index < rowCount; ++index)
         {
@@ -3570,7 +3649,43 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
             static_cast<uint32_t>(rowCount),
             kProcessColumnCount,
         };
-        *output = &_processSnapshot;
+        if (!_needProcessDetails)
+            _processSnapshot = {};
+        if (_needProcessActivity)
+        {
+            if (_needProcessDetails)
+                for (size_t index = 0; index < rowCount; ++index)
+                    _processActivityRows[index] =
+                        RedXeDataRow{sizeof(RedXeDataRow), _processRows[index].values, kProcessActivityColumnCount};
+            _processActivitySnapshot =
+                RedXeDataSnapshot{sizeof(RedXeDataSnapshot),
+                                  truncated ? RedXeDataSnapshotFlagTruncated : RedXeDataSnapshotFlagNone,
+                                  kProcessActivityDataSetId,
+                                  sequence,
+                                  timestamp,
+                                  _needProcessDetails ? _processActivityRows.data() : _processRows.data(),
+                                  static_cast<uint32_t>(rowCount),
+                                  kProcessActivityColumnCount};
+        }
+        _processReady = true;
+        *output = _needProcessDetails ? &_processSnapshot : &_processActivitySnapshot;
+    }
+
+    [[nodiscard]] bool ReadProcessSystemTimes(uint64_t& idle, uint64_t& total) const noexcept
+    {
+        if (_processSystemTimesForTest && _walkReady)
+        {
+            idle = 0;
+            total = _processTestSystemTotal;
+            return total != 0;
+        }
+        return ReadSystemTimes(idle, total);
+    }
+
+    [[nodiscard]] wil::unique_handle OpenProcessForCollection(DWORD access, DWORD pid) noexcept
+    {
+        ++_processHandleOpens;
+        return wil::unique_handle{OpenProcess(access, FALSE, pid)};
     }
 
     [[nodiscard]] HRESULT CollectProcessesFromWalk(uint64_t timestamp, uint64_t sequence,
@@ -3578,7 +3693,7 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
     {
         uint64_t ignoredIdle = 0;
         uint64_t systemTotal = 0;
-        const bool hasSystemTimes = ReadSystemTimes(ignoredIdle, systemTotal);
+        const bool hasSystemTimes = ReadProcessSystemTimes(ignoredIdle, systemTotal);
         const uint64_t systemDelta = hasSystemTimes && _hasProcessSystemTotal && systemTotal > _processSystemTotal
                                          ? systemTotal - _processSystemTotal
                                          : 0;
@@ -3598,11 +3713,11 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
             imageName[imageCharacters] = L'\0';
             nameCharacters += imageCharacters + 1;
 
-            // Times, faults, I/O, and cycle counters are already in the walked buffer, so no handle is opened for
-            // them and every row carries them — including processes this dashboard could not open. The handle that
-            // remains serves only affinity, architecture, critical state, and efficiency mode, and no longer asks for
-            // PROCESS_VM_READ because memory counters no longer come from K32GetProcessMemoryInfo.
-            wil::unique_handle process{OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, native.processId)};
+            // The activity prefix comes entirely from the walk. Only a legacy detail request opens each process
+            // for affinity, architecture, critical state, and efficiency mode.
+            wil::unique_handle process;
+            if (_needProcessDetails)
+                process = OpenProcessForCollection(PROCESS_QUERY_LIMITED_INFORMATION, native.processId);
 
             ProcessCpuSample currentCpu{};
             currentCpu.processId = native.processId;
@@ -3611,6 +3726,9 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
             currentCpu.kernelTime = native.kernelTime;
             currentCpu.processorTime = native.userTime + native.kernelTime;
             currentCpu.pageFaults = native.pageFaultCount;
+            currentCpu.ioReadBytes = native.ioReadBytes;
+            currentCpu.ioWriteBytes = native.ioWriteBytes;
+            currentCpu.ioOtherBytes = native.ioOtherBytes;
             RedXeDataQuality cpuQuality = RedXeDataQualityInitializing;
             double cpuPercent = 0.0;
             const ProcessCpuSample* previousCpu =
@@ -3622,7 +3740,7 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
                 cpuQuality = RedXeDataQualityGood;
             }
 
-            RedXeDataValue* values = _processValues.data() + rowCount * kProcessColumnCount;
+            RedXeDataValue* values = _processValues.data() + rowCount * _processValueStride;
             values[0] = UInt64Value(native.processId, RedXeDataQualityGood);
             values[1] = Utf16Value(imageName, static_cast<uint32_t>(imageCharacters),
                                    imageCharacters != 0 ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
@@ -3631,11 +3749,15 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
             values[4] = UInt64Value(native.privateBytes, RedXeDataQualityGood);
             values[5] = UInt64Value(native.threadCount, RedXeDataQualityGood);
             values[6] = UInt64Value(native.handleCount, RedXeDataQualityGood);
-            FillProcessExtended(values, process.get(), native.parentProcessId, native.hasParent, native.sessionId, true,
-                                native.basePriority, true, native.peakWorkingSetBytes, true, native.virtualBytes, true,
-                                systemDelta, currentCpu, &native);
+            if (_needProcessDetails)
+                FillProcessExtended(values, process.get(), native.parentProcessId, native.hasParent, native.sessionId,
+                                    true, native.basePriority, true, native.peakWorkingSetBytes, true,
+                                    native.virtualBytes, true, systemDelta, currentCpu, &native);
+            else
+                values[7] = UInt64Value(native.parentProcessId,
+                                        native.hasParent ? RedXeDataQualityGood : RedXeDataQualityUnavailable);
             _currentCpu[rowCount] = currentCpu;
-            _processRows[rowCount] = RedXeDataRow{sizeof(RedXeDataRow), values, kProcessColumnCount};
+            _processRows[rowCount] = RedXeDataRow{sizeof(RedXeDataRow), values, _processValueStride};
             ++rowCount;
         }
         FinishProcessCollection(rowCount, _walk.processesTruncated, hasSystemTimes, systemTotal, sequence, timestamp,
@@ -3643,9 +3765,27 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
         return S_OK;
     }
 
-    [[nodiscard]] HRESULT CollectProcesses(uint64_t timestamp, uint64_t sequence,
+    [[nodiscard]] HRESULT CollectProcesses(const char* dataSetId, uint64_t timestamp, uint64_t sequence,
                                            const RedXeDataSnapshot** output) noexcept
     {
+        if (!_processReady)
+        {
+            const RedXeDataSnapshot* ignored = nullptr;
+            const HRESULT result = CollectProcessRows(timestamp, sequence, &ignored);
+            if (FAILED(result))
+                return result;
+        }
+        *output =
+            RedXeAsciiEqualsIgnoreCase(dataSetId, kProcessDataSetId) ? &_processSnapshot : &_processActivitySnapshot;
+        return S_OK;
+    }
+
+    [[nodiscard]] HRESULT CollectProcessRows(uint64_t timestamp, uint64_t sequence,
+                                             const RedXeDataSnapshot** output) noexcept
+    {
+        _processValueStride = _needProcessDetails ? kProcessColumnCount : kProcessActivityColumnCount;
+        ++_processCollections;
+        _processBackend = static_cast<uint32_t>(_walkReady && _walk.valid ? kBackendNative : kBackendWin32);
         if (_walkReady && _walk.valid)
         {
             return CollectProcessesFromWalk(timestamp, sequence, output);
@@ -3659,7 +3799,7 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
 
         uint64_t ignoredIdle = 0;
         uint64_t systemTotal = 0;
-        const bool hasSystemTimes = ReadSystemTimes(ignoredIdle, systemTotal);
+        const bool hasSystemTimes = ReadProcessSystemTimes(ignoredIdle, systemTotal);
         const uint64_t systemDelta = hasSystemTimes && _hasProcessSystemTotal && systemTotal > _processSystemTotal
                                          ? systemTotal - _processSystemTotal
                                          : 0;
@@ -3768,6 +3908,19 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
     RedXeDataSnapshot _summarySnapshot{};
     std::array<RedXeDataValue, kMaximumProcesses * kProcessColumnCount> _processValues{};
     std::array<RedXeDataRow, kMaximumProcesses> _processRows{};
+    std::array<RedXeDataRow, kMaximumProcesses> _processActivityRows{};
+    RedXeDataSnapshot _processActivitySnapshot{};
+    uint64_t _processCollections = 0;
+    uint64_t _processHandleOpens = 0;
+    uint64_t _processHistoryCommits = 0;
+    uint64_t _processTestSystemTotal = 0;
+    uint32_t _processValueStride = 0;
+    uint32_t _processBackend = 0;
+    bool _processReady = false;
+    bool _needProcessDetails = false;
+    bool _needProcessActivity = false;
+    bool _walkTestPending = false;
+    bool _processSystemTimesForTest = false;
     std::array<wchar_t, kProcessNameCharacters> _processNames{};
     std::array<ProcessCpuSample, kProcessHistoryCapacity> _processHistory{};
     std::array<ProcessCpuSample, kMaximumProcesses> _currentCpu{};

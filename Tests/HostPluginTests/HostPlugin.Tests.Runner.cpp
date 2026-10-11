@@ -3685,7 +3685,7 @@ void TestDataProviderLookup(bool& success) noexcept
     {
         result = first->GetDataSets(&descriptors, &descriptorCount);
     }
-    Check(SUCCEEDED(result) && descriptors && descriptorCount == 22, L"host data provider exposes its source datasets",
+    Check(SUCCEEDED(result) && descriptors && descriptorCount == 23, L"host data provider exposes its source datasets",
           success);
 
     wil::com_ptr_nothrow<IRedXeDataProvider> unsupported;
