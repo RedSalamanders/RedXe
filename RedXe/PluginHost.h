@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -255,6 +256,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct PluginHostTestAccess;
     friend struct PluginHostDataSourceTestAccess;
+    std::atomic<bool> _failDataSetAllocationForTesting{false};
 #endif
     ControlWorkQueue _controlWork;
     bool _controlAccessEnabled = true;
@@ -325,6 +327,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         uint32_t activeIntervalMilliseconds = kMaximumSubscriptionIntervalMilliseconds;
         bool active = false;
     };
+    static_assert(sizeof(DataSetRuntime) == 24);
 
     struct ProviderRuntime final
     {
@@ -333,8 +336,11 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         wil::com_ptr_nothrow<IRedXeDataProvider> provider;
         const RedXeDataSetDescriptor* descriptors = nullptr;
         uint32_t descriptorCount = 0;
-        std::array<DataSetRuntime, kMaximumDataSetsPerProvider> dataSets{};
+        // Cold publication allocates exactly descriptorCount records. The acquisition worker reuses them until
+        // the source's external/subscription leases and borrowed collection/callback storage are quiescent.
+        std::unique_ptr<DataSetRuntime[]> dataSets;
     };
+    static_assert(sizeof(ProviderRuntime) == 48);
 
     struct WidgetStatusSlot final
     {

@@ -529,6 +529,12 @@ returns a host provider facade. Insert of a new provider re-checks identity unde
 two overlapping creates cannot both insert. `SetActive` MUST NOT wake the worker when the requested state already
 matches; deactivation still honors the drain guarantee. All local sources share one acquisition worker and at most
 32 subscriptions in total.
+Scheduling records are count-sized: a source owns exactly one record per validated descriptor, at most 256,
+and a cold or retired source owns none. Full descriptor/column/duplicate validation precedes the single nothrow
+allocation; allocation failure MUST publish no source, metadata, facade or scheduling plan. Failed rehydration
+preserves the existing facade identity and empty retired state. Records reuse their storage during acquisition
+and release outside the registry lock at the same quiescent boundary as their source. No descriptor or snapshot
+borrow may outlive that boundary, and no steady collection/frame allocation is added.
 External provider references and allocated subscriptions retain the source, including inactive subscriptions and
 removing slots whose reserved callbacks have not drained. After the last lease leaves, the existing worker releases
 the source only after its collection/delivery pass and borrowed storage use finish, outside the subscription lock.

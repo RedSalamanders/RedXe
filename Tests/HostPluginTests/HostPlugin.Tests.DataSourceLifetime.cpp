@@ -3,7 +3,9 @@
 
 #include <array>
 #include <atomic>
+#include <cstdio>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <thread>
 
@@ -15,6 +17,44 @@
 
 struct PluginHostDataSourceTestAccess final
 {
+    [[nodiscard]] static size_t RecordsBytes(PluginHost& host) noexcept
+    {
+        const auto guard = wil::AcquireSRWLockShared(&host._subscriptionLock);
+        size_t bytes = 0;
+        for (const auto& runtime : host._providers)
+            if (runtime.dataSets)
+                bytes += runtime.descriptorCount * sizeof(PluginHost::DataSetRuntime);
+        return bytes;
+    }
+    [[nodiscard]] static size_t RecordOwners(PluginHost& host) noexcept
+    {
+        const auto guard = wil::AcquireSRWLockShared(&host._subscriptionLock);
+        size_t count = 0;
+        for (const auto& runtime : host._providers)
+            count += runtime.dataSets ? 1U : 0U;
+        return count;
+    }
+    [[nodiscard]] static size_t Providers(PluginHost& host) noexcept
+    {
+        const auto guard = wil::AcquireSRWLockShared(&host._subscriptionLock);
+        return host._providerCount;
+    }
+    static void FailNextAllocation(PluginHost& host) noexcept
+    {
+        host._failDataSetAllocationForTesting.store(true, std::memory_order_relaxed);
+    }
+    [[nodiscard]] static HRESULT Validate(PluginHost& host, const RedXeDataSetDescriptor* descriptors,
+                                          uint32_t count) noexcept
+    {
+        PluginHost::ProviderRuntime candidate;
+        candidate.descriptors = descriptors;
+        candidate.descriptorCount = count;
+        return host.ValidateDataSets(candidate);
+    }
+    [[nodiscard]] static constexpr size_t FixedBytes() noexcept
+    {
+        return sizeof(PluginHost::_providers);
+    }
     [[nodiscard]] static size_t Sources(PluginHost& host) noexcept
     {
         const auto guard = wil::AcquireSRWLockShared(&host._subscriptionLock);
@@ -36,7 +76,7 @@ struct PluginHostDataSourceTestAccess final
                 auto& runtime = host._providers[0];
                 retired = std::move(runtime.source);
                 runtime.source = std::move(source);
-                runtime.dataSets.fill(PluginHost::DataSetRuntime{});
+                runtime.dataSets.reset();
                 result = runtime.source->GetDataSets(&runtime.descriptors, &runtime.descriptorCount);
                 if (SUCCEEDED(result))
                     result = host.ValidateDataSets(runtime);
@@ -88,7 +128,11 @@ constexpr RedXeDataSetDescriptor kDataSets[] = {
 class ControlledSource final : public RedXeComObject<ControlledSource, IRedXeDataSource>
 {
   public:
-    explicit ControlledSource(SourceProbe& probe) noexcept : _probe(probe) {}
+    explicit ControlledSource(SourceProbe& probe, const RedXeDataSetDescriptor* descriptors = kDataSets,
+                              uint32_t count = 1) noexcept
+        : _probe(probe), _descriptors(descriptors), _count(count)
+    {
+    }
     ~ControlledSource()
     {
         _probe.destructions.fetch_add(1);
@@ -99,24 +143,30 @@ class ControlledSource final : public RedXeComObject<ControlledSource, IRedXeDat
     {
         if (!descriptors || !count)
             return E_POINTER;
-        *descriptors = kDataSets;
-        *count = 1;
+        *descriptors = _descriptors;
+        *count = _count;
         return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE CollectSnapshots(const RedXeDataCollectRequest* request,
                                                const RedXeDataCollectResult** result) noexcept override
     {
-        if (!request || !result || request->dataSetCount != 1)
+        if (!request || !result || request->sizeBytes != sizeof(*request) || request->dataSetCount != 1 ||
+            !request->dataSetIds || !request->dataSetIds[0])
             return E_INVALIDARG;
         *result = nullptr;
+        bool known = false;
+        for (uint32_t index = 0; index < _count; ++index)
+            known |= RedXeAsciiEqualsIgnoreCase(_descriptors[index].dataSetId, request->dataSetIds[0]);
+        if (!known)
+            return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         _probe.collections.fetch_add(1);
         if (_probe.pauseCollection)
             _probe.collection.Wait();
         FILETIME time{};
         GetSystemTimePreciseAsFileTime(&time);
         const uint64_t timestamp = (static_cast<uint64_t>(time.dwHighDateTime) << 32U) | time.dwLowDateTime;
-        _snapshot = {sizeof(_snapshot), 0, "cpu.summary", ++_sequence, timestamp, &_row, 1, 1};
+        _snapshot = {sizeof(_snapshot), 0, request->dataSetIds[0], ++_sequence, timestamp, &_row, 1, 1};
         _result = {sizeof(_result), 1, _sequence, timestamp, _snapshots.data()};
         *result = &_result;
         return S_OK;
@@ -124,6 +174,8 @@ class ControlledSource final : public RedXeComObject<ControlledSource, IRedXeDat
 
   private:
     SourceProbe& _probe;
+    const RedXeDataSetDescriptor* _descriptors;
+    uint32_t _count;
     uint64_t _sequence = 0;
     RedXeDataValue _value{sizeof(RedXeDataValue), RedXeDataValueTypeUInt64, RedXeDataQualityGood, {42}, 0};
     RedXeDataRow _row{sizeof(RedXeDataRow), &_value, 1};
@@ -135,14 +187,18 @@ class ControlledSource final : public RedXeComObject<ControlledSource, IRedXeDat
 class ControlledSink final : public RedXeComObject<ControlledSink, IRedXeDataSink>
 {
   public:
-    explicit ControlledSink(Gate* callbackGate = nullptr) noexcept : _callbackGate(callbackGate) {}
+    explicit ControlledSink(Gate* callbackGate = nullptr, const char* dataSetId = "cpu.summary") noexcept
+        : _callbackGate(callbackGate), _dataSetId(dataSetId)
+    {
+    }
     wil::unique_event_nothrow received{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     std::atomic<uint32_t> callbacks{0};
     std::atomic<bool> valid{true};
 
     HRESULT STDMETHODCALLTYPE OnDataSnapshot(const RedXeDataSnapshot* snapshot) noexcept override
     {
-        if (!snapshot || snapshot->rowCount != 1 || !snapshot->rows || snapshot->rows[0].values[0].uint64Value != 42)
+        if (!snapshot || !RedXeAsciiEqualsIgnoreCase(snapshot->dataSetId, _dataSetId) || snapshot->rowCount != 1 ||
+            !snapshot->rows || snapshot->rows[0].values[0].uint64Value != 42)
             valid.store(false);
         callbacks.fetch_add(1);
         if (_callbackGate)
@@ -153,6 +209,7 @@ class ControlledSink final : public RedXeComObject<ControlledSink, IRedXeDataSin
 
   private:
     Gate* _callbackGate;
+    const char* _dataSetId;
 };
 
 wil::com_ptr_nothrow<IRedXeDataProvider> Provider(PluginHost& host)
@@ -162,11 +219,12 @@ wil::com_ptr_nothrow<IRedXeDataProvider> Provider(PluginHost& host)
     return provider;
 }
 
-void InstallControlledSource(PluginHost& host, SourceProbe& probe)
+void InstallControlledSource(PluginHost& host, SourceProbe& probe,
+                             const RedXeDataSetDescriptor* descriptors = kDataSets, uint32_t count = 1)
 {
     Require(probe.collection.entered && probe.collection.resume && probe.destroyed, "source barriers failed");
     wil::com_ptr_nothrow<IRedXeDataSource> source;
-    source.attach(new ControlledSource(probe));
+    source.attach(new ControlledSource(probe, descriptors, count));
     Require(SUCCEEDED(PluginHostDataSourceTestAccess::ReplaceSource(host, std::move(source))),
             "source replacement failed");
 }
@@ -182,8 +240,113 @@ wil::com_ptr_nothrow<IRedXeDataSubscription> Subscribe(IRedXeDataProvider* provi
 void ExpectRetired(PluginHost& host, SourceProbe& probe)
 {
     Require(WaitForSingleObject(probe.destroyed.get(), 5000) == WAIT_OBJECT_0, "unleased source was not reclaimed");
-    Require(probe.destructions.load() == 1 && PluginHostDataSourceTestAccess::Sources(host) == 0,
+    Require(probe.destructions.load() == 1 && PluginHostDataSourceTestAccess::Sources(host) == 0 &&
+                PluginHostDataSourceTestAccess::RecordOwners(host) == 0,
             "source cleanup was incomplete or repeated");
+}
+
+struct DescriptorFixture final
+{
+    std::array<std::array<char, 32>, 257> ids{};
+    std::array<RedXeDataSetDescriptor, 257> descriptors{};
+    DescriptorFixture() noexcept
+    {
+        for (uint32_t index = 0; index < descriptors.size(); ++index)
+        {
+            (void)sprintf_s(ids[index].data(), ids[index].size(), "fixture.data.%u", index);
+            descriptors[index] = kDataSets[0];
+            descriptors[index].dataSetId = ids[index].data();
+        }
+    }
+};
+
+void TestDescriptorBoundsAndValidationOrder()
+{
+    auto fixture = std::make_unique<DescriptorFixture>();
+    PluginHost host;
+    const HRESULT invalid = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    Require(PluginHostDataSourceTestAccess::Validate(host, nullptr, 1) == invalid &&
+                PluginHostDataSourceTestAccess::Validate(host, fixture->descriptors.data(), 0) == invalid &&
+                PluginHostDataSourceTestAccess::Validate(host, fixture->descriptors.data(), 257) == invalid,
+            "descriptor bounds did not reject before allocation");
+    const auto final = fixture->descriptors[255];
+    fixture->descriptors[255].dataSetId = fixture->descriptors[0].dataSetId;
+    Require(PluginHostDataSourceTestAccess::Validate(host, fixture->descriptors.data(), 256) ==
+                HRESULT_FROM_WIN32(ERROR_DUP_NAME),
+            "duplicate final descriptor was accepted");
+    fixture->descriptors[255] = final;
+    PluginHostDataSourceTestAccess::FailNextAllocation(host);
+    fixture->descriptors[255].columnCount = 0;
+    Require(PluginHostDataSourceTestAccess::Validate(host, fixture->descriptors.data(), 256) == invalid,
+            "invalid final descriptor consumed the allocation failure");
+    fixture->descriptors[255] = final;
+    Require(PluginHostDataSourceTestAccess::Validate(host, fixture->descriptors.data(), 256) == E_OUTOFMEMORY &&
+                PluginHostDataSourceTestAccess::Validate(host, fixture->descriptors.data(), 256) == S_OK &&
+                PluginHostDataSourceTestAccess::RecordOwners(host) == 0,
+            "validated descriptor allocation did not fail transactionally and retry");
+}
+
+void TestAllocationFailureAndFacadeRevisit()
+{
+    PluginHost host;
+    Require(PluginHostDataSourceTestAccess::RecordOwners(host) == 0 &&
+                PluginHostDataSourceTestAccess::RecordsBytes(host) == 0,
+            "cold host retained dataset records");
+    PluginHostDataSourceTestAccess::FailNextAllocation(host);
+    IRedXeDataProvider* rejected = reinterpret_cast<IRedXeDataProvider*>(1);
+    Require(host.GetDataProvider("builtin.system-data", &rejected) == E_OUTOFMEMORY && !rejected &&
+                PluginHostDataSourceTestAccess::Sources(host) == 0 &&
+                PluginHostDataSourceTestAccess::Providers(host) == 0 &&
+                PluginHostDataSourceTestAccess::RecordOwners(host) == 0,
+            "failed first publication left a source, facade or record owner");
+    auto provider = Provider(host);
+    const auto* identity = provider.get();
+    Require(PluginHostDataSourceTestAccess::RecordsBytes(host) == 23 * 24,
+            "production source did not own count-sized scheduling records");
+    std::wcout << L"provider_storage fixed_bytes=" << PluginHostDataSourceTestAccess::FixedBytes()
+               << L" system_records_bytes=" << PluginHostDataSourceTestAccess::RecordsBytes(host) << L'\n';
+    provider.reset();
+    PluginHostDataSourceTestAccess::FailNextAllocation(host);
+    rejected = reinterpret_cast<IRedXeDataProvider*>(1);
+    Require(host.GetDataProvider("builtin.system-data", &rejected) == E_OUTOFMEMORY && !rejected &&
+                PluginHostDataSourceTestAccess::Providers(host) == 1 &&
+                PluginHostDataSourceTestAccess::Sources(host) == 0 &&
+                PluginHostDataSourceTestAccess::RecordOwners(host) == 0,
+            "failed rehydration changed or populated the retained facade");
+    provider = Provider(host);
+    Require(provider.get() == identity, "allocation retry changed provider identity");
+    provider.reset();
+    Require(PluginHostDataSourceTestAccess::RecordsBytes(host) == 0,
+            "quiescent source retirement retained scheduling storage");
+}
+
+void TestLastDatasetDeliveryAtCapacity()
+{
+    auto fixture = std::make_unique<DescriptorFixture>();
+    SourceProbe probe;
+    PluginHost host;
+    auto provider = Provider(host);
+    InstallControlledSource(host, probe, fixture->descriptors.data(), 256);
+    const RedXeDataSetDescriptor* descriptors = nullptr;
+    uint32_t count = 0;
+    Require(provider->GetDataSets(&descriptors, &count) == S_OK && count == 256 &&
+                descriptors == fixture->descriptors.data() &&
+                PluginHostDataSourceTestAccess::RecordsBytes(host) == 256 * 24,
+            "full-capacity metadata or scheduling owner was truncated");
+    wil::com_ptr_nothrow<ControlledSink> sink;
+    sink.attach(new ControlledSink(nullptr, descriptors[255].dataSetId));
+    const RedXeDataSubscriptionOptions options{sizeof(options), descriptors[255].dataSetId, 1000};
+    wil::com_ptr_nothrow<IRedXeDataSubscription> subscription;
+    Require(provider->Subscribe(&options, sink.get(), subscription.put()) == S_OK &&
+                subscription->SetActive(TRUE) == S_OK &&
+                WaitForSingleObject(sink->received.get(), 5000) == WAIT_OBJECT_0 && sink->valid.load(),
+            "final descriptor could not collect and deliver its snapshot");
+    Require(subscription->SetActive(FALSE) == S_OK, "final dataset deactivation failed");
+    provider.reset();
+    Require(PluginHostDataSourceTestAccess::RecordOwners(host) == 1,
+            "inactive full-capacity subscription lost its scheduling owner");
+    subscription.reset();
+    ExpectRetired(host, probe);
 }
 
 void TestFacadeLeasesAndRevisit()
@@ -267,7 +430,8 @@ void TestBlockedCollection()
             "collection barrier was not reached");
     provider.reset();
     subscription.reset();
-    Require(PluginHostDataSourceTestAccess::Sources(host) == 1 && probe.destructions.load() == 0,
+    Require(PluginHostDataSourceTestAccess::Sources(host) == 1 && probe.destructions.load() == 0 &&
+                PluginHostDataSourceTestAccess::RecordOwners(host) == 1,
             "source was reclaimed while collection was borrowing its storage");
     SetEvent(probe.collection.resume.get());
     ExpectRetired(host, probe);
@@ -367,6 +531,9 @@ void TestDataSourceLifetime(bool& success) noexcept
     std::wcout << L"[ RUN      ] source reclamation, provider identity, collection and reserved callback leases\n";
     try
     {
+        TestDescriptorBoundsAndValidationOrder();
+        TestAllocationFailureAndFacadeRevisit();
+        TestLastDatasetDeliveryAtCapacity();
         TestFacadeLeasesAndRevisit();
         TestAllocatedAndSharedSubscriptions();
         TestBlockedCollection();

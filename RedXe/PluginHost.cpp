@@ -1402,7 +1402,7 @@ HRESULT PluginHost::GetPluginModule(const char* pluginId, uint32_t requiredCapab
 
 HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
 {
-    if (!runtime.descriptors || runtime.descriptorCount == 0 || runtime.descriptorCount > runtime.dataSets.size())
+    if (!runtime.descriptors || runtime.descriptorCount == 0 || runtime.descriptorCount > kMaximumDataSetsPerProvider)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -1442,8 +1442,17 @@ HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
                 }
             }
         }
-        runtime.dataSets[index].descriptor = &descriptor;
     }
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+    if (_failDataSetAllocationForTesting.exchange(false, std::memory_order_relaxed))
+        return E_OUTOFMEMORY;
+#endif
+    std::unique_ptr<DataSetRuntime[]> dataSets{new (std::nothrow) DataSetRuntime[runtime.descriptorCount]};
+    if (!dataSets)
+        return E_OUTOFMEMORY;
+    for (uint32_t index = 0; index < runtime.descriptorCount; ++index)
+        dataSets[index].descriptor = &runtime.descriptors[index];
+    runtime.dataSets = std::move(dataSets);
     return S_OK;
 }
 
@@ -3253,6 +3262,7 @@ void PluginHost::TrimIdleDataSources(bool onAcquisitionWorker) noexcept
     for (size_t index = 0; index < _providers.size(); ++index)
     {
         wil::com_ptr_nothrow<IRedXeDataSource> retired;
+        std::unique_ptr<DataSetRuntime[]> retiredDataSets;
         {
             const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
             if (index >= _providerCount)
@@ -3271,10 +3281,11 @@ void PluginHost::TrimIdleDataSources(bool onAcquisitionWorker) noexcept
             retired = std::move(runtime.source);
             runtime.descriptors = nullptr;
             runtime.descriptorCount = 0;
-            runtime.dataSets.fill(DataSetRuntime{});
+            retiredDataSets = std::move(runtime.dataSets);
         }
         // Source cleanup (PDH, IP Helper, device handles) may drain its own native callbacks. Never hold the registry
         // lock during that cleanup. The fixed facade and module image remain, so a revisit preserves COM identity.
+        retiredDataSets.reset();
         retired.reset();
     }
 }
