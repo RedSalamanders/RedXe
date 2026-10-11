@@ -80,6 +80,7 @@ The root members are:
 | `$schema` | No | When present, `RedXe.settings.schema.json`. |
 | `version` | Yes | Object with required `major` and optional `minor`; omitted minor is zero. |
 | `wrapPages` | No | Omitted or false stops at page ends; true wraps. |
+| `continuousFrameRate` | No | `"display"` or integer `30` (minor 4). Omitted is `"display"`. Limits settled continuous animation; explicit invalidation and page, overlay or dock motion remain immediate. Applies live without rebuilding widgets. |
 | `logRetentionDays` | No | Integer 1–365. Omitted is 15. How many UTC days of dated JSONL files to keep. |
 | `backgroundColor` | No | Exact `#RRGGBB`. Omitted is `#000000`. The dashboard background: the host canvas clear color and the background every widget paints unless its widget object overrides it (see below). |
 | `declare` | No | Reusable widget definitions keyed by authored names. |
@@ -90,7 +91,8 @@ The root members are:
 
 Version 5 begins at major 5, minor 0. Minor 1 adds the optional additive `services` member, minor 2 the optional
 additive `dock` member, and minor 3 the optional additive `trayIcon` member, the `secondary` monitor selector, and
-`dock.animationMilliseconds`; this build reads and writes minor 3 and accepts minor 0 through 2 documents unchanged. A
+`dock.animationMilliseconds`. Minor 4 adds the optional additive `continuousFrameRate` member; this build reads and
+writes minor 4 and accepts minor 0 through 3 documents unchanged. A
 new selector value is not an additive member: a build older than minor 3 rejects a document whose `dock.monitor` is
 `secondary`. This build reads major 5 only. Missing, malformed, or different-major versions (including 4) are errors
 (`ERROR_INVALID_DATA`) with a diagnostic on `$.version.major`. RedXe MUST NOT convert a version 4 layout tree. A newer

@@ -717,6 +717,7 @@ HRESULT Renderer::CreateSwapChain() noexcept
     {
         return E_UNEXPECTED;
     }
+    ++_frameLatencyGeneration;
 
     result = factory->MakeWindowAssociation(_window, DXGI_MWA_NO_ALT_ENTER);
     if (FAILED(result))

@@ -223,6 +223,7 @@ Host fields you typically edit:
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `wrapPages` | `false` | Wrap page navigation at the ends |
+| `continuousFrameRate` | `"display"` | Pace continuous animation at display refresh, or set integer `30` to cap settled animation at 30 fps. Applies when you save. |
 | `logRetentionDays` | `15` | UTC days of JSONL logs to keep (1–365) under `%LocalAppData%\RedXe\Logs\` |
 | `backgroundColor` | `#000000` | Background of the whole dashboard: the canvas and every widget tile (`#RRGGBB`) |
 | `declare` | shipped names | Reusable widget definitions (`plugin` plus flattened keys) |
@@ -231,7 +232,11 @@ Host fields you typically edit:
 | `trayIcon` | `true` in Release, `false` in Debug | Show RedXe's icon in the notification area; see [Notification-area icon](#notification-area-icon) |
 | `pages` | 1–16 | Ordered pages. Optional `name` is the label; omitted names display as `Page N` |
 
-This build reads `"version": { "major": 5 }` only (minor `1` adds `services`, minor `2` adds `dock`, minor `3` adds `trayIcon`, the `secondary` monitor, and `dock.animationMilliseconds`; older minors still load). A leftover version 4 file is invalid: the default path is backed up and replaced with the shipped template; `--settings` leaves the portable file alone.
+This build reads `"version": { "major": 5 }` only (minor `1` adds `services`, minor `2` adds `dock`, minor `3` adds `trayIcon`, the `secondary` monitor, and `dock.animationMilliseconds`, and minor `4` adds `continuousFrameRate`; older minors still load). A leftover version 4 file is invalid: the default path is backed up and replaced with the shipped template; `--settings` leaves the portable file alone.
+
+To reduce CPU and GPU work while continuous animation is settled, set `"continuousFrameRate": 30`. The image size,
+glyphs and effects stay the same; page swipes, raised-view motion and input updates keep their immediate response.
+Use `"display"` for animation at the panel's refresh rate. Changing this field keeps the current widgets running.
 
 A settings file from an earlier release, back to RedXe 1.0.102, keeps working after an upgrade. Settings that a newer release retired, such as the old `services` entry for Zoom (`builtin.zoom`, with or without its `clientId`, `redirectPort`, and `autoConnect`), are ignored, and the log notes them once per load; you can delete them. Zoom actions need no `services` entry ([Zoom](plugins/zoom.md)). A Logicon key, dialpad button, or turn bound to `keys.down` or `mouse.down` also keeps loading, but it shows a red `!` and does nothing ([Logicon](plugins/logicon.md)). Going back to an older release is not supported: it may reject settings it does not know, such as the Studio Clock `glowPercent`, and then saves your file as `RedXe.settings.invalid-<date>.json` beside its own fresh template.
 

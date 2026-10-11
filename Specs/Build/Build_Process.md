@@ -60,7 +60,9 @@ The root `test.ps1` exits zero only after every required assertion has passed. E
 negative-test children must not become the test entrypoint's success exit code.
 
 The `HostPlugin` scope also runs isolated 60-second Matrix, Studio Clock and Desk Clock production-host WARP
-soaks. Matrix warms for 1,024 frames; each clock warms for 20 seconds using its real scheduled deadlines. During
+soaks. Matrix warms for 1,024 frames at the same cadence as measurement: acquire DXGI readiness, draw, then sleep
+16 ms, with a continuous monotonic animation timeline. Each clock warms for 20 seconds using its real scheduled
+deadlines. During
 the measured interval, five-second samples and the final sample of uninstrumented builds MUST stay within 4 MiB
 private-byte and 8 MiB working-set growth above the warmed baseline. ASan reports memory diagnostically with
 its normal quarantine/shadow settings; the uninstrumented process-byte bar does not apply to that allocator.

@@ -1045,7 +1045,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             _occlusionStatusChanged = false;
         }
 
-        HostFrameAction frameAction = SelectHostFrameAction(HostFrameState{
+        HostFrameState frameState{
             _windowVisible,
             _displayPoweredOn,
             _renderer.IsSuspended(),
@@ -1057,7 +1057,8 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             // A dock slide is visible motion like a raise settle: every frame presents until it ends.
             OverlayMotionInProgress() || _dockSlideActive,
             DockHidden(),
-        });
+        };
+        HostFrameAction frameAction = SelectHostFrameAction(frameState);
         if (frameAction == HostFrameAction::ProbeOcclusion)
         {
             _occlusionStatusChanged = false;
@@ -1080,7 +1081,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                 CloseMainWindow();
                 continue;
             }
-            frameAction = SelectHostFrameAction(HostFrameState{
+            frameState = HostFrameState{
                 _windowVisible,
                 _displayPoweredOn,
                 _renderer.IsSuspended(),
@@ -1091,11 +1092,14 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                 PageNavigationInProgress(),
                 OverlayMotionInProgress() || _dockSlideActive,
                 DockHidden(),
-            });
+            };
+            frameAction = SelectHostFrameAction(frameState);
         }
 
         if (frameAction == HostFrameAction::WaitForMessage)
         {
+            _continuousFramePacer.Reset();
+            _continuousFrameWait.Cancel();
             if (_dockSlideActive)
             {
                 // No frame will show the slide's next step (a hidden window, the display off, a suspended renderer):
@@ -1114,7 +1118,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             continue;
         }
 
-        if (!WaitForFrameLatency())
+        if (!WaitForFrameLatency() || !WaitForContinuousFrameDeadline(frameState))
         {
             // Input arrived while a back buffer was still in flight: dispatch it before building the frame.
             continue;
@@ -1139,6 +1143,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         RefreshAccessibility(preparedWidgets);
         if (SUCCEEDED(result))
             result = _renderer.Render(elapsedSeconds, deltaSeconds);
+        _continuousFramePacer.ConsumeFrameLatency();
         if (FAILED(result))
         {
             RecordRuntimeFailure(result, "render-failed");
@@ -1150,6 +1155,13 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         {
             _frameInvalidated = false;
             RefreshScheduledFrameDeadline();
+            if (_settings->continuousFrameRate == ContinuousFrameRate::Thirty && frameState.continuousFramesRequired)
+                _continuousFramePacer.Presented(ContinuousFramePacer::Clock::now());
+            else
+            {
+                _continuousFramePacer.Reset();
+                _continuousFrameWait.Cancel();
+            }
         }
         FlushPendingTransitionStage();
         result = UpdateDashboardVisibility();
@@ -1405,6 +1417,38 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         return FailSelfTest(L"The plugin smoke frame did not render every GPU-widget instance.", result);
     }
 
+    // A pacing-only reload preserves the live widgets and swap chain, removes the old deadline, and invalidates once.
+    {
+        const ContinuousFrameRate original = _settings->continuousFrameRate;
+        const IRedXeWidget* first = _pluginManager->WidgetAt(0);
+        const HANDLE latency = _renderer.FrameLatencyWaitableObject();
+        const ContinuousFrameRate changedRate =
+            original == ContinuousFrameRate::Display ? ContinuousFrameRate::Thirty : ContinuousFrameRate::Display;
+        for (const ContinuousFrameRate rate : {changedRate, original})
+        {
+            std::unique_ptr<AppSettings> changed{new (std::nothrow) AppSettings{*_settings}};
+            if (!changed)
+                return FailSelfTest(L"The pacing reload test could not copy settings.", E_OUTOFMEMORY);
+            changed->continuousFrameRate = rate;
+            _frameInvalidated = false;
+            _continuousFramePacer.Presented(ContinuousFramePacer::Clock::now());
+            _continuousFramePacer.AcceptFrameLatency(_renderer.FrameLatencyGeneration());
+            bool timerReady = false;
+            result = _continuousFrameWait.Wait(std::chrono::seconds{1}, 0, timerReady);
+            if (result != S_OK || timerReady || !_continuousFrameWait.Handle())
+                return FailSelfTest(L"The pacing reload test could not arm its stale timer.", result);
+            result = ApplySettings(std::move(changed));
+            if (result != S_OK || _settings->continuousFrameRate != rate || !_frameInvalidated ||
+                _continuousFramePacer.Remaining(ContinuousFramePacer::Clock::now()) !=
+                    std::chrono::nanoseconds::zero() ||
+                !_continuousFramePacer.HasFrameLatency(_renderer.FrameLatencyGeneration()) ||
+                _pluginManager->WidgetAt(0) != first || _renderer.FrameLatencyWaitableObject() != latency ||
+                (rate == ContinuousFrameRate::Display && _continuousFrameWait.Handle()))
+                return FailSelfTest(L"A live pacing-only reload rebuilt widgets or retained its deadline.", result);
+        }
+        // The self-test seeded a model permit rather than consuming the actual DXGI signal.
+        _continuousFramePacer.ConsumeFrameLatency();
+    }
     const uint32_t pageCount = _settings->dashboard.pageCount;
     for (uint32_t page = 1; page < pageCount; ++page)
     {
@@ -2959,7 +3003,9 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
         {
             return result;
         }
+        const ContinuousFrameRate previousRate = _settings->continuousFrameRate;
         _settings = std::move(settings);
+        ApplyContinuousFrameRate(previousRate);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
         ApplyTrayIconSettings();
@@ -2993,7 +3039,9 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     if (SUCCEEDED(applyResult))
     {
+        const ContinuousFrameRate previousRate = _settings->continuousFrameRate;
         _settings = std::move(settings);
+        ApplyContinuousFrameRate(previousRate);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
         // The window already has the candidate's kind, so only same-kind dock members remain, and they never fail.
@@ -5955,12 +6003,16 @@ bool Application::WaitForFrameLatency() noexcept
     {
         return true;
     }
+    const uint64_t generation = _renderer.FrameLatencyGeneration();
+    if (_continuousFramePacer.HasFrameLatency(generation))
+        return true;
     // Handles are checked before the message queue, so a free buffer always wins over pending input; pending input
     // only defers the frame while the previous one is still being consumed.
     const DWORD timeout = _probe.Enabled() ? RuntimeProbeWaitTimeout(GetTickCount64(), 0, _probe.Deadline()) : INFINITE;
     const DWORD waitResult = MsgWaitForMultipleObjectsEx(1, &waitable, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     if (waitResult == WAIT_OBJECT_0)
     {
+        _continuousFramePacer.AcceptFrameLatency(generation);
         return true;
     }
     if (waitResult == WAIT_OBJECT_0 + 1 || waitResult == WAIT_TIMEOUT)
@@ -5971,6 +6023,33 @@ bool Application::WaitForFrameLatency() noexcept
     _runtimeFailure = error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
     CloseMainWindow();
     return false;
+}
+
+bool Application::WaitForContinuousFrameDeadline(const HostFrameState& state) noexcept
+{
+    if (!LimitContinuousFrames(_settings->continuousFrameRate, state))
+        return true;
+    const auto delay = _continuousFramePacer.Remaining(ContinuousFramePacer::Clock::now());
+    const DWORD timeout = _probe.Enabled() ? RuntimeProbeWaitTimeout(GetTickCount64(), 0, _probe.Deadline()) : INFINITE;
+    bool ready = false;
+    const HRESULT result = _continuousFrameWait.Wait(delay, timeout, ready);
+    if (FAILED(result))
+    {
+        _runtimeFailure = result;
+        CloseMainWindow();
+        return false;
+    }
+    return ready;
+}
+
+void Application::ApplyContinuousFrameRate(ContinuousFrameRate previous) noexcept
+{
+    if (_settings->continuousFrameRate == previous)
+        return;
+    ClearScheduledFrameDeadline();
+    if (_settings->continuousFrameRate == ContinuousFrameRate::Display)
+        _continuousFrameWait.Reset();
+    _frameInvalidated = true;
 }
 
 void Application::TickRuntimeProbe() noexcept
@@ -6059,7 +6138,8 @@ void Application::ResumePageSettleIfNeeded() noexcept
 
 void Application::RefreshScheduledFrameDeadline() noexcept
 {
-    ClearScheduledFrameDeadline();
+    // The current frame consumed its continuous deadline; avoid canceling an already-completed one-shot every frame.
+    _scheduledFrameDeadlineTick = 0;
     if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
         DashboardRequiresContinuousFrames() || PageNavigationInProgress() || OverlayMotionInProgress() ||
         _dockSlideActive || DockHidden())
@@ -6087,6 +6167,8 @@ void Application::RefreshScheduledFrameDeadline() noexcept
 void Application::ClearScheduledFrameDeadline() noexcept
 {
     _scheduledFrameDeadlineTick = 0;
+    _continuousFramePacer.Reset();
+    _continuousFrameWait.Cancel();
 }
 
 HRESULT Application::UpdateDashboardVisibility() noexcept

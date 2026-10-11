@@ -9,6 +9,11 @@
     "$schema": { "const": "RedXe.settings.schema.json" },
     "version": { "$ref": "#/$defs/version" },
     "wrapPages": { "type": "boolean", "default": false },
+    "continuousFrameRate": {
+      "oneOf": [{ "const": "display" }, { "const": 30 }],
+      "default": "display",
+      "description": "Continuous animation pacing (minor 4): display refresh, or 30 frames per second while settled. Input invalidation and page, overlay or dock motion remain immediate. Applies live."
+    },
     "logRetentionDays": { "type": "integer", "minimum": 1, "maximum": 365, "default": 15 },
     "backgroundColor": {
       "$ref": "#/$defs/color",

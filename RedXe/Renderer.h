@@ -86,6 +86,10 @@ class Renderer final
     // Frame-latency waitable object of the swap chain (maximum latency one). The UI thread waits on it before
     // building a frame so Present never blocks; null before device creation.
     [[nodiscard]] HANDLE FrameLatencyWaitableObject() const noexcept;
+    [[nodiscard]] uint64_t FrameLatencyGeneration() const noexcept
+    {
+        return _frameLatencyWaitable ? _frameLatencyGeneration : 0;
+    }
     [[nodiscard]] bool IsSuspended() const noexcept;
     [[nodiscard]] bool IsOccluded() const noexcept;
     [[nodiscard]] size_t LastFrameWidgetCount() const noexcept;
@@ -184,6 +188,7 @@ class Renderer final
     wil::unique_handle _frameLatencyWaitable;
     DeviceIdentity _deviceInfo{};
     uint64_t _swapChainGeneration = 0;
+    uint64_t _frameLatencyGeneration = 0;
     // Monitor the device was matched against; null on the default-adapter fallback.
     HMONITOR _deviceMonitor = nullptr;
     DWORD _occlusionStatusCookie = 0;

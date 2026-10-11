@@ -136,7 +136,21 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   (32×32-byte) dynamic structured instance buffer. That 8 MiB texture is the justified capacity cost of 32 jumbo
   icons; `Render` only maps the existing instance and constant buffers. CPU BGRA sources stay bounded at
   32×256×256×4 and rebuild the GPU array after device loss without a second extract.
-- Visible continuous animation must be paced by display presentation. Hidden, minimized, suspended, or display-off
+- Visible continuous animation defaults to display presentation pacing. The optional `continuousFrameRate: 30`
+  limits settled continuous content through a monotonic 33⅓-ms deadline, independent of display refresh. A lazy,
+  reusable auto-reset one-shot waitable timer blocks together with the message queue. The host acquires DXGI
+  readiness once before this wait and holds it across message/diagnostic interruptions, overlapping the two limits.
+  A signaled DXGI handle MUST NOT create a polling loop before that deadline. Readiness belongs to one swap-chain
+  waitable-object lifetime and is consumed by a render attempt. Deadline cancellation, hide/restore, pacing-mode
+  changes and ResizeBuffers MUST retain an acquired permit while that object survives; otherwise the next wait can
+  block forever. Replacing the waitable object invalidates old readiness even if Windows reuses the handle value.
+  The host adds a 16-byte deadline/readiness pair and one 8-byte timer owner, no worker, periodic timer, steady heap
+  allocation, or GPU storage, plus an 8-byte renderer waitable-lifetime counter independent of buffer-resize
+  diagnostics. Explicit frame
+  invalidation and active page/overlay/dock motion bypass the cap. Late frames start a fresh interval without catch-up.
+  Hidden states discard/cancel the deadline; disabling the cap releases its timer. Diagnostic timeout alone requests
+  no frame. `"display"` and omitted settings retain the existing frame policy and allocate no cap timer.
+  Hidden, minimized, suspended, or display-off
   rendering must block on events and must not build or present a frame because an unrelated message was dispatched.
   An active page pan, settle, or staged neighbor is visible motion: the host MUST keep presenting so widget animation
   and the page-scroll ease continue. A raise or dismiss settle is the same class of visible motion and MUST keep
@@ -727,7 +741,9 @@ remain with the AV owner.
   persistent DirectWrite or runtime shader/image dependencies, a five-minute scheduled flip soak with stable resources
   and hidden zero work, and complete device-loss teardown.
 - The automated `HostPlugin` scope runs separate 60-second Matrix, Studio Clock and Desk Clock WARP soaks.
-  After 1,024 Matrix frames or 20 seconds of scheduled clock warm-up, peak sampled private/working-set growth
+  Matrix's 1,024-frame warm-up and measurement both wait for DXGI readiness, sleep 16 ms after each draw and use
+  one continuous monotonic animation timeline. Each clock warms for 20 seconds with its scheduled deadlines.
+  After that warm-up, peak sampled private/working-set growth
   in uninstrumented builds MUST remain within 4/8 MiB; sample every five seconds and at the end. ASan keeps its
   normal quarantine/shadow settings, reports process bytes diagnostically and enforces the same functional
   object/resource, scheduling and teardown bounds. These coarse whole-process regression

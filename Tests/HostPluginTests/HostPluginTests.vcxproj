@@ -82,6 +82,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="HostPlugin.Tests.Runner.cpp" />
+    <ClCompile Include="HostPlugin.Tests.FramePacing.cpp" />
+    <ClInclude Include="HostPlugin.Tests.FramePacing.h" />
     <ClCompile Include="HostPlugin.Tests.RuntimeProbe.cpp" />
     <ClCompile Include="HostPlugin.Tests.ProcessViewerScheduling.cpp" />
     <ClCompile Include="HostPlugin.Tests.DataSourceLifetime.cpp" />

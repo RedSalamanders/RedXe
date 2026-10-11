@@ -1687,12 +1687,13 @@ bool RuntimeSettingsEqual(const AppSettings& left, const AppSettings& right) noe
     // reordered one is not caught, so the names below follow the declaration order in Settings.h.
     const auto runtimeMembers = [](const AppSettings& settings) noexcept
     {
-        const auto& [versionMajor, versionMinor, logRetentionDays, backgroundRgb, dock, trayIcon, sourceDocument,
-                     plugins, pluginCount, services, serviceCount, retiredServices, dashboard] = settings;
+        const auto& [versionMajor, versionMinor, logRetentionDays, backgroundRgb, dock, trayIcon, continuousFrameRate,
+                     sourceDocument, plugins, pluginCount, services, serviceCount, retiredServices, dashboard] =
+            settings;
         (void)sourceDocument;
         (void)retiredServices;
-        return std::tie(versionMajor, versionMinor, logRetentionDays, backgroundRgb, dock, trayIcon, plugins,
-                        pluginCount, services, serviceCount, dashboard);
+        return std::tie(versionMajor, versionMinor, logRetentionDays, backgroundRgb, dock, trayIcon,
+                        continuousFrameRate, plugins, pluginCount, services, serviceCount, dashboard);
     };
     return runtimeMembers(left) == runtimeMembers(right);
 }
@@ -1724,7 +1725,9 @@ HRESULT SetJsonObjectSettings(std::string_view json, JsonObjectSettings& setting
 
 HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
 {
-    if (settings.pluginCount > kMaximumSettingsPlugins || settings.plugins.size() != settings.pluginCount ||
+    if ((settings.continuousFrameRate != ContinuousFrameRate::Display &&
+         settings.continuousFrameRate != ContinuousFrameRate::Thirty) ||
+        settings.pluginCount > kMaximumSettingsPlugins || settings.plugins.size() != settings.pluginCount ||
         settings.dashboard.gridColumns == 0 || settings.dashboard.gridRows == 0 ||
         settings.dashboard.gridColumns > kMaximumDashboardGridDimension ||
         settings.dashboard.gridRows > kMaximumDashboardGridDimension || settings.dashboard.pageCount == 0 ||

@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `557f02f` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `9e79bea` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -64,6 +64,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | Step | State | Evidence / commit |
 | --- | --- | --- |
 | P0.1 | Complete | Production probe and accepted Release baseline; `0971350`. |
+| P1.6 | Complete | Default-display/minor4 setting, overlapping one-shot/DXGI waits, motion/invalidation bypass and live apply pass. Corrected permit ownership recovers after hide/minimize at about 29.3/s; inactive zero. Final pairs reduce CPU 32.8/35.6% and submissions about 51%; all cohort frames displayed, independent flip/no hybrid. Cap private medians are 0.59/1.15 MiB higher, adapter usage unchanged; no memory saving or physical-input latency claim. Release16, Debug/ASan15, ARM64 Release and ten skills pass; 145 Viewer/eight Weather references match. runtime-2026-10-11-p16*. |
 | P2.7 | Complete | Sample-driven scheduling, full gates and matched 13.7–13.9% submission reduction; `a466363`. CPU saving remains unestablished. |
 | P0.2 | CPU attribution captured; other gates open | Accepted sampled-only System capture, 65 s normal-user Release probe: 2.392% of one core and 12.364 submissions/s. ETL has zero lost events/buffers and matching private/Microsoft symbols. A 56 s steady window has 1,251 named CPU stacks: acquisition worker 900, native process walk 578, `OpenProcess` 20 inclusive hits. These overlap, are sampled, and cover a subset of all 1,336 owned stacks. `runtime-2026-10-10-p02-cpu-sampled`. Earlier broad trace dropped 704,274 events and remains rejected. Input/presented latency and adapter-move qualification stay open. |
 | P2.5 | Complete | `9b9cf15`: writer-owned date/policy cache removes both directory scans and path construction from ordinary lines. 1,000 same-day checks leave a late expired file untouched; policy and UTC changes reap it. Actual idle-policy flush passes. Release 16 scopes, Debug 15 native scopes and ARM64 Release compilation pass; `.build/receipts/runtime-2026-10-10-p25/`. No whole-process CPU reduction claimed for this infrequent log workload. |
@@ -82,6 +83,63 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P2.8 glyph capacity | Complete | Real preceding DLLs fail reused-cell ink and exhausted-label regressions; candidate passes with unchanged atlas/storage sizes. Eight Weather PNGs match. Release 16 scopes, Debug 15 native scopes accounted across the initial run and HostSmoke repeat, ASan 15 native scopes, ARM64 Release and 10 skills pass. The initial Debug capture crash remains unexplained and retained. `runtime-2026-10-11-p28-capacity`. |
 | P2.8 Debug monitor and shared sampling | Complete | Unchanged failed preparation suppresses font/raster/upload work; all recovery, real font cleanup and held-control release tests pass. A shared glyph-cell sampling fix resolves 16 visible neighboring-ink pixels after cache/device changes. All 145 Viewer references and eight Weather PNGs match. Final Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release and ten skills pass. Two counterbalanced System pairs establish no causal CPU saving or repeatable private-memory regression; local usage is 26.26 MiB throughout. QPC-joined PresentMon cohorts show hardware-composed independent flip, all cohort frames displayed and no hybrid presents. Input latency remains unqualified. `runtime-2026-10-11-p28-monitor`, `-paired`, `-paired-reverse`, `-presented` and `-presented-reverse`. |
 | P0.4 production raised Gallery | Accounting captured; presented-frame qualification remains open | One normal, non-activating hardware Release run proves AV tile 1,474,560 bytes, raised total 5,160,960, dismissal to tile, hidden zero and restored tile. Cold/raised settled 65 s each; all source/binary hashes, page, geometry, adapter, power and foreground checks pass. Visible submissions stay about 60/s; hidden zero. `runtime-2026-10-11-p04-raised-gallery`. |
+
+### P1.6 optional continuous pacing (2026-10-11, complete)
+
+Settings minor 4 adds `continuousFrameRate: "display" | 30`, omitted/display by default in both templates.
+A 30-fps selection keeps one monotonic 33⅓-ms deadline and a lazy reusable one-shot waitable timer. The message-aware
+wait overlaps DXGI readiness, acquired once and retained across message/diagnostic interruptions. It never polls
+the signaled swap-chain handle. Explicit invalidation and page,
+overlay or dock motion bypass the cap; inactive states cancel/reset it, delayed frames do not catch up, and disabling
+releases the timer. An acquired DXGI permit survives these deadline resets and mode changes until a render consumes
+it; buffer resize retains it, while replacement of the waitable object invalidates it. Adds 24 bytes of application
+pacing storage, an 8-byte renderer lifetime counter and the typed enum; no worker, periodic timer,
+steady heap allocation or GPU resource. Pacing-only live reload keeps widgets and swap-chain resources.
+Matrix dimensions, density, glyphs, bloom and shaders remain unchanged; geometry is size/DPI-derived and animation
+uses elapsed time. Native parser/schema/template, 60/120-Hz model, actual message/timer/diagnostic/reuse/release
+checks and production live-toggle self-tests are added. The initial focused settings runs exposed hard-coded
+current/future minor fixtures; these now derive their versions from the catalog. Failed logs are retained.
+The first overlapping-wait recovery stalled after hide because it discarded an
+acquired DXGI signal; powered-on/window checks passed, but the behavioral result is rejected and retained as
+`runtime-2026-10-11-p16-overlap-recovery/qualification.json`. Native tests now exercise the real auto-reset signal,
+deadline cancellation, resize and waitable-object replacement, and the collector rejects a visible Matrix phase
+with zero progress. The corrected probe-only recovery repeat gives 29.309/s cold, 29.262/s restored and 29.320/s
+after minimize; hidden/minimized both zero, private 35.11 to 34.95 MiB, local usage 25.01 MiB throughout.
+`runtime-2026-10-11-p16-permit-recovery`. P0.2 physical input/swipe latency is separate.
+
+Two intervening Matrix guard runs exceeded the unchanged 4-MiB private limit (7,761,920 and 11,440,128 bytes).
+Inspection found unpaced warm-up, no DXGI readiness waits and an animation-time rewind before paced measurement.
+The guard now uses identical readiness-bounded 16-ms-sleep cadence throughout and one monotonic timeline, retaining
+the same 1,024-frame warm-up and 4-MiB/8-MiB thresholds. The first corrected Debug run has 57,344-byte private and
+106,496-byte working-set peaks. A later paced run still exceeded the private limit (7,102,464 bytes), so pacing alone
+does not explain the failure. A read-only five-second virtual-region diagnostic did not reproduce it: private peak
+growth 1,863,680 bytes, stable handles and bounded regions. It is diagnostic evidence only. The subsequent clean
+Debug Full15 run passes, including a 1,126,400-byte Matrix private peak. These observations do not attribute earlier
+growth to a heap or driver stack; the intermittent guard failure remains unresolved. Final Release Full16 and
+Debug/ASan Full15 native scopes pass, with normal sanitizer quarantine, ARM64 Release compilation and ten skills.
+`p16-permit-scope-accounting.json` binds the unchanged source and Debug artifacts. Final Release Matrix peak is
+929,792 bytes. Logs and `runtime-2026-10-11-p16-matrix-map` are retained.
+
+Final counterbalanced Release x64 pairs use one binary/source set, identical scenes except the pacing field,
+services disabled/tray off, 65 seconds/13 samples per side, XENEON 2560×720 at 96 DPI on its AMD adapter and AC.
+Display/cap CPU is 1.666/1.120% of one core, then 1.979/1.275% in reverse order: reductions 32.77/35.57%.
+Submissions are 60.135/29.393 and 60.150/29.320 per second, about 51% fewer. Private medians are 36.11/36.70
+and 34.98/36.13 MiB; working sets 49.31/49.38 and 49.32/48.88. Both use 42 threads, 71 modules, zero AV
+surfaces and 25.01 MiB local adapter usage. The observed cap private increases (0.59/1.15 MiB) have no established
+byte attribution; bounded native added storage is 32 bytes plus the settings enum. The optional CPU/submission
+reduction accepts this measured cost while retaining display pacing by default. No process-memory saving is claimed.
+Earlier serialized-wait pairs remain historical, superseded for this implementation.
+
+Common nonadministrator PresentMon sessions cover each pair. QPC-joined cohorts show 3,549/1,734 and 3,550/1,730
+frames, all displayed through hardware-composed independent flip, one swap chain per process, zero hybrid presents.
+Displayed rates are 60.137/29.383 and 60.155/29.319/s. Displayed-interval medians are about 16.624/33.249 ms;
+default p95 is 16.656/16.657 ms and cap p95 47.754/49.868 ms (cap maxima 49.926/50.859 ms). This is an optional
+30-fps ceiling, not a uniform interval guarantee. CPU-start-to-display medians are 32.963/45.185 and
+32.942/45.709 ms; they are not physical-input latency. All 145 Viewer checksums and eight Weather PNGs match
+the preceding accepted references; deterministic Matrix tests pass with production Matrix/shader sources unchanged.
+`runtime-2026-10-11-p16-final-paired[-reverse]`, `-final-presented[-reverse]`, `-final-images` and
+`-permit-recovery` preserve scenes, raw data, scripts and source/artifact identities. Recovery identities still
+match after all profile gates. P0.2 physical input/swipe and the broader return budget remain open.
 
 ### P4.1 source arena (2026-10-11, complete)
 
@@ -893,7 +951,7 @@ contract and validation updates.
 | P1.3 | **Waitable swap chain.** `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT` (also passed to `ResizeBuffers`), `IDXGISwapChain2::SetMaximumFrameLatency(1)`, device-level latency call removed. `Application::WaitForFrameLatency` waits on the waitable handle together with the message queue before `PrepareWidgets`; a message arriving first is dispatched before the frame is built; `Present` no longer blocks. The idle path (`WaitUntilMessage`) and the scheduler table are unchanged. **Landed 2026-09-07**; `TestRendererDeviceIdentity` proves the object exists, is signaled before the first frame and after a presented frame, survives resize, and is released at shutdown. | ETW shows no blocking inside `Present`; PresentMon input-to-present ≤ 2 frames; `HostPluginTests` scheduler table green. |
 | P1.4 | **Landed later through HostChromeWithoutGdi.** The top-level window uses `WS_EX_NOREDIRECTIONBITMAP` and native containers are layered children; the September plain-child rejection is historical. | Current code/tests preserve layered native rendering; per-page PresentMode remains P0.2. |
 | P1.5 | **Template part landed.** GdiOrbit is opt-in and absent from shipped pages. Triangle and Matrix on Gallery share one host present stream; continuous widget count alone does not establish PresentMode. | Record per-page hardware PresentMode; any removal or cadence change is a product decision. |
-| P1.6 | Product option, default off: `continuousFrameRate: "display" \| 30`. Use an event-blocked 33 ms deadline for continuous content, independent of display refresh; `Present(2, 0)` would be 60 Hz on a 120-Hz display. Input, swipe and overlay motion retain immediate responsiveness. Matrix Focus stays first. | Setting, schema, templates, live apply and docs agree; 60/120-Hz decision tests and matched Matrix CPU/submission/quality receipts. |
+| P1.6 | **Complete: optional `continuousFrameRate: "display" \| 30`, display by default.** A message-blocked one-shot deadline overlaps acquired DXGI readiness and preserves its lifetime through hide/resize/live toggles. Input invalidation and page/overlay/dock motion bypass the cap; Matrix Focus stays first and its quality/settings/shaders are unchanged. | Parser/schema/templates/docs, native 60/120-Hz/message/timer/permit tests and production recovery pass. Final pairs establish 32.8/35.6% lower CPU and about 51% fewer submissions; cap process private +0.59/+1.15 MiB is recorded above. Full scopes, ARM64, skills and reference images pass. Physical input latency remains P0.2. |
 
 ### Phase 2 — make settled pages idle
 

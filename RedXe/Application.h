@@ -3,6 +3,7 @@
 #include "DashboardHost.h"
 #include "DockOptions.h"
 #include "DockPlacement.h"
+#include "FramePacing.h"
 #include "PageEdgeAffordance.h"
 #include "PluginManager.h"
 #include "Renderer.h"
@@ -311,6 +312,8 @@ class Application final
     // Waits for a free swap-chain back buffer before a frame is built. Returns false when a message arrived first,
     // so the loop dispatches input before rendering instead of blocking inside Present.
     bool WaitForFrameLatency() noexcept;
+    bool WaitForContinuousFrameDeadline(const HostFrameState& state) noexcept;
+    void ApplyContinuousFrameRate(ContinuousFrameRate previous) noexcept;
     // Adapter-of-output: after a move, size/move end, DPI change, or display-topology change, rebuild the device
     // when the window's monitor is now scanned out by another GPU.
     void CheckDeviceAdapter() noexcept;
@@ -551,6 +554,8 @@ class Application final
     bool _occlusionStatusChanged = false;
     bool _frameInvalidated = true;
     ULONGLONG _scheduledFrameDeadlineTick = 0;
+    ContinuousFramePacer _continuousFramePacer;
+    ContinuousFrameWait _continuousFrameWait;
     HRESULT _runtimeFailure = S_OK;
     UINT64 _pagePointerQpc = 0;
     UINT64 _qpcFrequency = 0;

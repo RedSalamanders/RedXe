@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DockPlacement.h"
+#include "FrameScheduler.h"
 
 #include <array>
 #include <cstddef>
@@ -18,7 +19,8 @@ inline constexpr uint32_t kRedXeSettingsVersionMajor = 5;
 // Minor 1 added the optional additive `services` root member (headless service plugins such as Logicon); minor 2
 // added the optional additive `dock` root member (the screen-edge bar); minor 3 added the optional additive `trayIcon`
 // root member (the notification-area icon), the `secondary` monitor selector, and `dock.animationMilliseconds`.
-inline constexpr uint32_t kRedXeSettingsVersionMinor = 3;
+// Minor 4 adds optional continuousFrameRate, default display pacing.
+inline constexpr uint32_t kRedXeSettingsVersionMinor = 4;
 // The minor a document needs for `dock` (PatchDockThickness, PatchFirstRunDock), for the `secondary` selector, and for
 // `dock.animationMilliseconds`.
 inline constexpr uint32_t kRedXeSettingsDockMinor = 2;
@@ -299,6 +301,7 @@ struct AppSettings final
     DockSettings dock = DefaultDockSettings();
     // The `trayIcon` root member (minor 3): the notification-area icon of an interactive run.
     bool trayIcon = kRedXeDefaultTrayIcon;
+    ContinuousFrameRate continuousFrameRate = ContinuousFrameRate::Display;
     std::string sourceDocument;
     std::vector<PluginSettings> plugins;
     uint32_t pluginCount = 0;

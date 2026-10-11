@@ -126,6 +126,7 @@
     <ClInclude Include="DockPlacement.h" />
     <ClInclude Include="NoticeWindow.h" />
     <ClInclude Include="FrameScheduler.h" />
+    <ClInclude Include="FramePacing.h" />
     <ClInclude Include="PageNavigation.h" />
     <ClInclude Include="PointerCancellation.h" />
     <ClInclude Include="PluginManager.h" />

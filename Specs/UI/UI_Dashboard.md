@@ -309,7 +309,9 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
 - After a successful frame, the application selects the earliest valid delay from the current and staged dashboards,
   converts it immediately to a monotonic deadline, and blocks in one message-aware wait. Deadline expiry coalesces one
   ordinary frame invalidation.
-- A continuous widget on either participating dashboard supersedes scheduled waits. An active pan, settle, or staged
+- A continuous widget on either participating dashboard supersedes scheduled waits, using display pacing by default
+  or the optional settled 30-fps deadline (`Core_Settings.md`, `Core_PerformanceAndResources.md`). Explicit
+  invalidation bypasses that deadline. An active pan, settle, or staged
   neighbor also supersedes them so the scroll ease and in-widget animation keep presenting. Unrelated messages do not
   render a clean static dashboard.
 - Hidden, minimized, suspended, display-off, occluded, inactive-page, transition-cancel, and shutdown paths discard

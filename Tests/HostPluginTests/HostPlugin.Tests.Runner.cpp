@@ -7,6 +7,7 @@
 #include "DockPlacement.h"
 #include "FrameScheduler.h"
 #include "HostActions.h"
+#include "HostPlugin.Tests.FramePacing.h"
 #include "Launcher.Tests.Contract.h"
 #include "MatrixRain.Tests.Contract.h"
 #include "NoticeWindow.h"
@@ -3100,6 +3101,7 @@ void TestRendererDeviceIdentity(bool& success) noexcept
           L"forced WARP reports a software device that owns no window monitor", success);
     Check(identity.adapterName[0] != L'\0', L"the device identity carries the adapter name", success);
     const HANDLE waitable = renderer.FrameLatencyWaitableObject();
+    const uint64_t waitableGeneration = renderer.FrameLatencyGeneration();
     Check(waitable != nullptr, L"the swap chain exposes its frame-latency waitable object", success);
     Check(waitable && WaitForSingleObject(waitable, 0) == WAIT_OBJECT_0,
           L"a free back buffer is signaled before the first frame", success);
@@ -3115,6 +3117,12 @@ void TestRendererDeviceIdentity(bool& success) noexcept
     Check(waitable && WaitForSingleObject(waitable, 2000) == WAIT_OBJECT_0,
           L"the waitable object signals again once the presented frame is consumed", success);
     Check(renderer.FrameLatencyWaitableObject() == waitable, L"the waitable object is stable across frames", success);
+    ContinuousFramePacer retainedPermit;
+    retainedPermit.AcceptFrameLatency(waitableGeneration);
+    retainedPermit.Reset();
+    Check(retainedPermit.HasFrameLatency(renderer.FrameLatencyGeneration()) &&
+              WaitForSingleObject(waitable, 0) == WAIT_TIMEOUT,
+          L"canceling a deadline retains consumed DXGI readiness without reacquiring its signal", success);
     result = dashboard.Resize(kHostWidth / 2, kHostHeight, window.Dpi());
     if (SUCCEEDED(result))
     {
@@ -3122,6 +3130,9 @@ void TestRendererDeviceIdentity(bool& success) noexcept
     }
     if (SUCCEEDED(result))
     {
+        Check(renderer.FrameLatencyWaitableObject() == waitable &&
+                  retainedPermit.HasFrameLatency(renderer.FrameLatencyGeneration()),
+              L"resize preserves the waitable permit even when diagnostic buffers change", success);
         result = renderer.Render(1.0f, 1.0f / 60.0f);
     }
     Check(SUCCEEDED(result) && renderer.FrameLatencyWaitableObject() != nullptr,
@@ -3129,10 +3140,17 @@ void TestRendererDeviceIdentity(bool& success) noexcept
     Check(renderer.QueryProbeGraphics().generation > probeAfter.generation,
           L"a real resize invalidates diagnostic presentation deltas", success);
     renderer.Shutdown();
+    Check(renderer.FrameLatencyGeneration() == 0 && !retainedPermit.HasFrameLatency(renderer.FrameLatencyGeneration()),
+          L"a retired waitable object cannot reuse the retained permit", success);
     Check(renderer.QueryProbeGraphics().generation == 0 && renderer.QueryProbeGraphics().presentResult == E_UNEXPECTED,
           L"a released swap chain reports unavailable diagnostic values", success);
     Check(renderer.FrameLatencyWaitableObject() == nullptr && !renderer.DeviceInfo().warp,
           L"shutdown releases the waitable object and clears the device identity", success);
+    result = renderer.Initialize(window.Get(), true, dashboard);
+    Check(SUCCEEDED(result) && renderer.FrameLatencyGeneration() > waitableGeneration &&
+              !retainedPermit.HasFrameLatency(renderer.FrameLatencyGeneration()),
+          L"recreating a waitable object rejects readiness from the previous lifetime", success);
+    renderer.Shutdown();
     dashboard.Shutdown();
 }
 
@@ -8861,13 +8879,33 @@ void TestSoakGrowthBudgets(bool& success) noexcept
         return false;
     }
 
+    // Match the measured cadence during warm-up and bound in-flight work like Application's production loop.
+    // An unpaced warm-up followed by delayed draws measured a different driver/allocator workload.
+    const auto animationStarted = std::chrono::steady_clock::now();
+    auto previous = animationStarted;
+    const auto waitForBuffer = [&renderer]() noexcept -> HRESULT
+    {
+        const HANDLE waitable = renderer.FrameLatencyWaitableObject();
+        if (!waitable)
+            return E_UNEXPECTED;
+        const DWORD waited = WaitForSingleObject(waitable, 2000);
+        if (waited == WAIT_OBJECT_0)
+            return S_OK;
+        return HRESULT_FROM_WIN32(waited == WAIT_FAILED ? GetLastError() : ERROR_TIMEOUT);
+    };
     for (uint32_t frame = 0; frame < 1024; ++frame)
     {
-        result = renderer.Render(static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        result = waitForBuffer();
+        const auto now = std::chrono::steady_clock::now();
+        if (SUCCEEDED(result))
+            result = renderer.Render(std::chrono::duration<float>(now - animationStarted).count(),
+                                     std::chrono::duration<float>(now - previous).count());
+        previous = now;
         if (FAILED(result))
         {
             return false;
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
 
     MatrixRainTestDiagnostics diagnosticsBefore{};
@@ -8886,11 +8924,13 @@ void TestSoakGrowthBudgets(bool& success) noexcept
     uint64_t frames = 0;
     const auto started = std::chrono::steady_clock::now();
     const auto deadline = started + duration;
-    auto previous = started;
     while (SUCCEEDED(result) && std::chrono::steady_clock::now() < deadline)
     {
+        result = waitForBuffer();
+        if (FAILED(result))
+            break;
         const auto now = std::chrono::steady_clock::now();
-        const float elapsed = std::chrono::duration<float>(now - started).count();
+        const float elapsed = std::chrono::duration<float>(now - animationStarted).count();
         const float delta = std::chrono::duration<float>(now - previous).count();
         previous = now;
         result = renderer.Render(elapsed, delta);
@@ -9047,6 +9087,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     PluginHost::Instance().SetNetworkAccessEnabled(false);
     PluginHost::Instance().SetControlAccessEnabled(false);
     TestFrameScheduler(success);
+    TestContinuousFramePacing(success);
     TestSoakGrowthBudgets(success);
     TestRuntimeProbe(success);
     TestAdapterSelectionPolicy(success);

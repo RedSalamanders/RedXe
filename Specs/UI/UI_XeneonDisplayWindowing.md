@@ -636,6 +636,14 @@ occlusion probes occur only after a DXGI status notification, and that static co
 Changes to the operating-system notification registration or message wiring outside that decision seam additionally
 require a live inactive/resume check.
 
+`continuousFrameRate` defaults to `"display"`; integer `30` opts into a 33⅓-ms monotonic deadline for settled
+continuous animation, overlapping the swap-chain readiness wait. It does not change Present's sync interval, render size,
+widget quality or the first page. Input invalidation and page/overlay/dock motion retain display pacing. A live rate
+change resets the deadline and invalidates once while keeping widgets and presentation resources. Tests MUST cover
+the 60/120-Hz decisions, message/diagnostic interruption, inactive deadline reset, timer reuse/release and both live
+toggles. Acquired readiness survives hide/resize/mode changes while its waitable object lives; replacement rejects
+the retired permit. Production hide/minimize recovery MUST resume presentation.
+
 Dock changes MUST keep the pure tables green: `HostPluginTests` proves the placement rectangles for every edge
 (reserving proposal and shell re-trim, overlay against a work area with a taskbar or another bar, negative coordinates),
 the app-bar registration (`TestDockAppBarRegistration`: `DockReservationFor` for both modes and both `reserveWorkArea`
