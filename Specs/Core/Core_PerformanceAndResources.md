@@ -282,6 +282,14 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   MUST reuse resize-owned buffers and GDI objects rather than allocate memory or create handles per paint.
 - Startup-only work may allocate when required, but temporary allocations must be released promptly and persistent
   caches must have a demonstrated reuse benefit.
+- Weather's eight-entry HTTP cache owns exactly payload bytes plus one terminator per used entry: zero cold,
+  one byte for an empty response, and at most 2,097,160 retained body bytes. Equal-size updates reuse storage;
+  changed-size replacement temporarily owns at most nine cache bodies (2,359,305 bytes at the maximum), with
+  allocation before publication to preserve old content and validators on failure. Separate 256-KiB-plus-terminator
+  HTTP response buffers remain heap-owned and are additional to that cache bound. The final strong widget lease
+  clears all cache entries; hiding or releasing one of several widgets keeps shared entries. The lease counter adds
+  four process-scoped bytes under the existing cache lock, no widget field, worker, timer or periodic wake. Cold
+  allocation and bounded replacement overlap are intentional to eliminate the old per-entry fixed 256-KiB retention.
 - Weather's empty-location discovery is a cold operation in a disposable helper. WinRT never enters RedXe/Weather.dll.
   Acquisition is bounded to eight seconds plus a four-second coarse fallback. Recent-report/default-position reads
   run only after acquisition failure; a 20-second parent bound covers the entire chain, including synchronous API

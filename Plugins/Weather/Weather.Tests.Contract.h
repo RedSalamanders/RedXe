@@ -48,6 +48,24 @@ struct WeatherTestDiagnostics final
 
 static_assert(sizeof(WeatherTestDiagnostics) == 400);
 
+struct WeatherHttpCacheTestDiagnostics final
+{
+    uint32_t sizeBytes;
+    uint32_t liveClients;
+    uint32_t entries;
+    uint32_t bodyCapacityBytes; // Allocated body bytes including terminators; metadata/response buffers are separate.
+};
+static_assert(sizeof(WeatherHttpCacheTestDiagnostics) == 16);
+struct WeatherHttpTestGetResult final
+{
+    uint32_t sizeBytes;
+    uint32_t status;
+    uint32_t bodyBytes;
+    uint32_t expiresDelayMilliseconds;
+    BOOL notModified;
+};
+static_assert(sizeof(WeatherHttpTestGetResult) == 20);
+
 struct WeatherTestSnapshot final
 {
     uint32_t sizeBytes;
@@ -75,6 +93,16 @@ struct WeatherTestSnapshot final
 
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherGetTestDiagnostics(
     WeatherTestDiagnostics* diagnostics) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherGetTestCacheDiagnostics(
+    WeatherHttpCacheTestDiagnostics* diagnostics) noexcept;
+// Lower offline transport and direct cache-path probe are restricted to automated hosts. Controls change only
+// while no network callback is active; tick zero restores the real monotonic clock.
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherSetTestCacheTransport(
+    WeatherHttpTestTransportFn transport, uint64_t tick) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherFailTestCacheAllocation(BOOL fail) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherTestCachedHttpGet(
+    const char* url, uint32_t urlBytes, HANDLE cancelEvent, char* body, uint32_t bodyCapacity,
+    WeatherHttpTestGetResult* result) noexcept;
 extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherFailNextAtlasInitialization() noexcept;
 extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherFailNextGlyphPreparation() noexcept;
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherApplyTestSnapshot(

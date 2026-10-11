@@ -12,8 +12,14 @@
 #include <mutex>
 #include <new>
 #include <string_view>
+#include <utility>
 
 #include <curl/curl.h>
+
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027 28182)
+#include <wil/resource.h>
+#pragma warning(pop)
 
 namespace
 {
@@ -31,8 +37,18 @@ struct CacheEntry final
 std::once_flag g_curlOnce;
 SRWLOCK g_cacheLock = SRWLOCK_INIT;
 std::array<CacheEntry, kWeatherHttpCacheEntries> g_cache{};
+uint32_t g_cacheClients = 0;
+std::atomic<bool> g_failNextCacheAllocation{false};
 bool g_curlReady = false;
 std::atomic<uint32_t> g_httpGetCount{0};
+std::atomic<WeatherHttpTestTransportFn> g_testTransport{nullptr};
+std::atomic<uint64_t> g_testCacheTick{0};
+
+[[nodiscard]] uint64_t CacheTick() noexcept
+{
+    const uint64_t test = g_testCacheTick.load(std::memory_order_relaxed);
+    return test ? test : GetTickCount64();
+}
 
 struct FetchState final
 {
@@ -170,7 +186,11 @@ size_t HeaderCallback(char* buffer, size_t size, size_t count, void* user) noexc
             {
                 break;
             }
-            seconds = seconds * 10U + static_cast<uint32_t>(value - '0');
+            const uint32_t digit = static_cast<uint32_t>(value - '0');
+            constexpr uint32_t maximumSeconds = kWeatherMaximumRefreshMilliseconds / 1000;
+            if (seconds > (maximumSeconds - digit) / 10)
+                return kWeatherMaximumRefreshMilliseconds;
+            seconds = seconds * 10U + digit;
         }
         return WeatherClampRefreshMilliseconds(seconds * 1000U);
     }
@@ -206,35 +226,133 @@ size_t HeaderCallback(char* buffer, size_t size, size_t count, void* user) noexc
     return S_OK;
 }
 
-[[nodiscard]] CacheEntry* AllocateCache(std::string_view url) noexcept
+// Called with the cache lock exclusively held. The fixed metadata is small; body allocation is exact and
+// transactional. Equal-sized successful content reuses storage; a failed replacement cannot change the entry.
+[[nodiscard]] HRESULT StoreCache(std::string_view url, const WeatherHttpResponse& response,
+                                 std::string_view headers) noexcept
 {
-    CacheEntry* empty = nullptr;
-    for (CacheEntry& entry : g_cache)
+    CacheEntry* target = FindCache(url);
+    if (!target)
     {
-        if (!entry.used)
+        for (CacheEntry& entry : g_cache)
         {
-            empty = &entry;
-            break;
+            if (!entry.used)
+            {
+                target = &entry;
+                break;
+            }
         }
     }
-    if (!empty)
+    if (!target)
+        target = &g_cache[0];
+    CacheEntry candidate;
+    if (!target->body || target->bytes != response.bytes)
     {
-        empty = &g_cache[0];
+        if (g_failNextCacheAllocation.exchange(false, std::memory_order_relaxed))
+            return E_OUTOFMEMORY;
+        candidate.body.reset(new (std::nothrow) char[static_cast<size_t>(response.bytes) + 1]);
+        if (!candidate.body)
+            return E_OUTOFMEMORY;
     }
-    uint32_t capacity = empty->body ? kWeatherMaximumBodyBytes : 0;
-    if (FAILED(EnsureBodyBuffer(empty->body, capacity)))
+    else
     {
-        return nullptr;
+        candidate.body = std::move(target->body);
     }
-    empty->url = {};
-    empty->etag = {};
-    empty->lastModified = {};
-    empty->bytes = 0;
-    empty->expiresTick = 0;
-    empty->used = true;
-    empty->body[0] = '\0';
-    WeatherCopyNarrow(url, empty->url.data(), empty->url.size());
-    return empty;
+    // All remaining operations are bounded, non-allocating and infallible after response validation.
+    if (response.bytes)
+        std::memcpy(candidate.body.get(), response.body.get(), response.bytes);
+    candidate.body[response.bytes] = '\0';
+    candidate.bytes = response.bytes;
+    candidate.used = true;
+    candidate.expiresTick = CacheTick() + response.expiresDelayMilliseconds;
+    WeatherCopyNarrow(url, candidate.url.data(), candidate.url.size());
+    WeatherCopyNarrow(HeaderValue(headers, "etag"), candidate.etag.data(), candidate.etag.size());
+    WeatherCopyNarrow(HeaderValue(headers, "last-modified"), candidate.lastModified.data(),
+                      candidate.lastModified.size());
+    *target = std::move(candidate);
+    return S_OK;
+}
+
+void ClearCache() noexcept
+{
+    for (CacheEntry& entry : g_cache)
+        entry = {};
+}
+[[nodiscard]] HRESULT FetchCurl(const char* url, HANDLE cancelEvent, WeatherHttpResponse& response,
+                                const std::array<char, 128>& etag, const std::array<char, 128>& lastModified,
+                                std::array<char, 2048>& headers) noexcept
+{
+    const HRESULT initialized = WeatherHttpInitialize();
+    if (FAILED(initialized))
+        return initialized;
+    using CurlOwner = wil::unique_any<CURL*, decltype(&curl_easy_cleanup), curl_easy_cleanup>;
+    CurlOwner owner{curl_easy_init()};
+    CURL* curl = owner.get();
+    if (!curl)
+    {
+        return E_OUTOFMEMORY;
+    }
+    FetchState state{&response, cancelEvent};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, kWeatherUserAgent);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteBody);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &state);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headers);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, Progress);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &state);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(kWeatherDefaultTimeoutMilliseconds));
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
+    curl_easy_setopt(curl, CURLOPT_MAXFILESIZE, static_cast<long>(kWeatherMaximumBodyBytes));
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    using HeadersOwner = wil::unique_any<curl_slist*, decltype(&curl_slist_free_all), curl_slist_free_all>;
+    HeadersOwner requestHeaders;
+    const auto append = [&](const char* text) noexcept -> HRESULT
+    {
+        curl_slist* head = curl_slist_append(requestHeaders.get(), text);
+        if (!head)
+            return E_OUTOFMEMORY;
+        // Successful append transfers the owned chain to its returned head.
+        (void)requestHeaders.release();
+        requestHeaders.reset(head);
+        return S_OK;
+    };
+    std::array<char, 192> ifNone{};
+    std::array<char, 192> ifModified{};
+    if (etag[0] != '\0')
+    {
+        sprintf_s(ifNone.data(), ifNone.size(), "If-None-Match: %s", etag.data());
+        const HRESULT result = append(ifNone.data());
+        if (FAILED(result))
+            return result;
+    }
+    if (lastModified[0] != '\0')
+    {
+        sprintf_s(ifModified.data(), ifModified.size(), "If-Modified-Since: %s", lastModified.data());
+        const HRESULT result = append(ifModified.data());
+        if (FAILED(result))
+            return result;
+    }
+    if (requestHeaders)
+    {
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, requestHeaders.get());
+    }
+    const CURLcode code = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    if (code == CURLE_ABORTED_BY_CALLBACK)
+    {
+        return HRESULT_FROM_WIN32(ERROR_CANCELLED);
+    }
+    if (code != CURLE_OK)
+    {
+        return HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE);
+    }
+    response.status = static_cast<uint32_t>(status);
+    return S_OK;
 }
 } // namespace
 
@@ -301,18 +419,24 @@ HRESULT WeatherBuildLocationSearchUrl(std::string_view location, char* url, uint
 
 void WeatherHttpShutdown() noexcept
 {
-    AcquireSRWLockExclusive(&g_cacheLock);
-    for (CacheEntry& entry : g_cache)
-    {
-        entry.body.reset();
-        entry.url = {};
-        entry.etag = {};
-        entry.lastModified = {};
-        entry.bytes = 0;
-        entry.expiresTick = 0;
-        entry.used = false;
-    }
-    ReleaseSRWLockExclusive(&g_cacheLock);
+    const auto guard = wil::AcquireSRWLockExclusive(&g_cacheLock);
+    ClearCache();
+}
+
+void WeatherHttpAcquireCacheClient() noexcept
+{
+    const auto guard = wil::AcquireSRWLockExclusive(&g_cacheLock);
+    ++g_cacheClients;
+}
+void WeatherHttpReleaseCacheClient() noexcept
+{
+    const auto guard = wil::AcquireSRWLockExclusive(&g_cacheLock);
+    if (g_cacheClients != 0 && --g_cacheClients == 0)
+        ClearCache();
+}
+void WeatherHttpFailNextCacheAllocationForTest(bool fail) noexcept
+{
+    g_failNextCacheAllocation.store(fail, std::memory_order_relaxed);
 }
 
 uint32_t WeatherHttpGetCount() noexcept
@@ -333,7 +457,7 @@ void WeatherHttpSetTestResponse(WeatherHttpTestResponseFn response) noexcept
 HRESULT WeatherHttpGet(std::string_view url, HANDLE cancelEvent, WeatherHttpResponse& response) noexcept
 {
     g_httpGetCount.fetch_add(1, std::memory_order_relaxed);
-    if (url.empty() || url.size() >= kWeatherMaximumUrlBytes || !cancelEvent)
+    if (url.empty() || url.size() > kWeatherMaximumUrlBytes || url.find('\0') != std::string_view::npos || !cancelEvent)
     {
         return E_INVALIDARG;
     }
@@ -358,12 +482,6 @@ HRESULT WeatherHttpGet(std::string_view url, HANDLE cancelEvent, WeatherHttpResp
         response.status = 200;
         return CopyBody(body, bytes, response.body, response.bytes, response.capacity);
     }
-    const HRESULT init = WeatherHttpInitialize();
-    if (FAILED(init))
-    {
-        return init;
-    }
-
     AcquireSRWLockShared(&g_cacheLock);
     CacheEntry* cached = FindCache(url);
     std::array<char, 128> etag{};
@@ -372,77 +490,56 @@ HRESULT WeatherHttpGet(std::string_view url, HANDLE cancelEvent, WeatherHttpResp
     {
         etag = cached->etag;
         lastModified = cached->lastModified;
-        if (cached->expiresTick != 0 && GetTickCount64() < cached->expiresTick)
+        const uint64_t now = CacheTick();
+        if (cached->expiresTick != 0 && now < cached->expiresTick)
         {
             const HRESULT copied =
                 CopyBody(cached->body.get(), cached->bytes, response.body, response.bytes, response.capacity);
             response.status = 200;
             response.expiresDelayMilliseconds =
-                WeatherClampRefreshMilliseconds(static_cast<uint32_t>(cached->expiresTick - GetTickCount64()));
+                WeatherClampRefreshMilliseconds(static_cast<uint32_t>(cached->expiresTick - now));
             ReleaseSRWLockShared(&g_cacheLock);
             return copied;
         }
     }
     ReleaseSRWLockShared(&g_cacheLock);
 
-    CURL* curl = curl_easy_init();
-    if (!curl)
-    {
-        return E_OUTOFMEMORY;
-    }
-    FetchState state{&response, cancelEvent};
     std::array<char, 2048> headers{};
-    curl_easy_setopt(curl, CURLOPT_URL, url.data());
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, kWeatherUserAgent);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteBody);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &state);
-    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headers);
-    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, Progress);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &state);
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(kWeatherDefaultTimeoutMilliseconds));
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
-    curl_easy_setopt(curl, CURLOPT_MAXFILESIZE, static_cast<long>(kWeatherMaximumBodyBytes));
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
-    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-    curl_slist* requestHeaders = nullptr;
-    std::array<char, 192> ifNone{};
-    std::array<char, 192> ifModified{};
-    if (etag[0] != '\0')
+    const auto transport = g_testTransport.load(std::memory_order_acquire);
+    HRESULT fetched = S_OK;
+    if (transport)
     {
-        sprintf_s(ifNone.data(), ifNone.size(), "If-None-Match: %s", etag.data());
-        requestHeaders = curl_slist_append(requestHeaders, ifNone.data());
+        WeatherHttpTestTransportResponse result{sizeof(WeatherHttpTestTransportResponse)};
+        fetched = transport(url.data(), static_cast<uint32_t>(url.size()), etag.data(), lastModified.data(),
+                            cancelEvent, &result);
+        if (SUCCEEDED(fetched))
+        {
+            if (result.sizeBytes != sizeof(result) || result.bodyBytes > kWeatherMaximumBodyBytes ||
+                result.headersBytes >= headers.size() || (!result.body && result.bodyBytes) ||
+                (!result.headers && result.headersBytes))
+                return E_INVALIDARG;
+            response.status = result.status;
+            if (result.bodyBytes)
+                std::memcpy(response.body.get(), result.body, result.bodyBytes);
+            response.bytes = result.bodyBytes;
+            response.body[response.bytes] = '\0';
+            if (result.headersBytes)
+                std::memcpy(headers.data(), result.headers, result.headersBytes);
+        }
     }
-    if (lastModified[0] != '\0')
+    else
     {
-        sprintf_s(ifModified.data(), ifModified.size(), "If-Modified-Since: %s", lastModified.data());
-        requestHeaders = curl_slist_append(requestHeaders, ifModified.data());
+        std::array<char, kWeatherMaximumUrlBytes + 1> terminated{};
+        WeatherCopyNarrow(url, terminated.data(), terminated.size());
+        fetched = FetchCurl(terminated.data(), cancelEvent, response, etag, lastModified, headers);
     }
-    if (requestHeaders)
-    {
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, requestHeaders);
-    }
-    const CURLcode code = curl_easy_perform(curl);
-    long status = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
-    curl_easy_cleanup(curl);
-    if (requestHeaders)
-    {
-        curl_slist_free_all(requestHeaders);
-    }
-    if (code == CURLE_ABORTED_BY_CALLBACK)
-    {
+    if (WaitForSingleObject(cancelEvent, 0) == WAIT_OBJECT_0)
         return HRESULT_FROM_WIN32(ERROR_CANCELLED);
-    }
-    if (code != CURLE_OK)
-    {
-        return HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE);
-    }
-    response.status = static_cast<uint32_t>(status);
+    if (FAILED(fetched))
+        return fetched;
+    const uint32_t status = response.status;
     const std::string_view headerText(headers.data());
-    response.expiresDelayMilliseconds = ExpiresDelayFromHeaders(headerText, GetTickCount64());
+    response.expiresDelayMilliseconds = ExpiresDelayFromHeaders(headerText, CacheTick());
     if (status == 304)
     {
         AcquireSRWLockExclusive(&g_cacheLock);
@@ -452,7 +549,7 @@ HRESULT WeatherHttpGet(std::string_view url, HANDLE cancelEvent, WeatherHttpResp
         {
             copied = CopyBody(cached->body.get(), cached->bytes, response.body, response.bytes, response.capacity);
             response.notModified = true;
-            cached->expiresTick = GetTickCount64() + response.expiresDelayMilliseconds;
+            cached->expiresTick = CacheTick() + response.expiresDelayMilliseconds;
         }
         ReleaseSRWLockExclusive(&g_cacheLock);
         return copied;
@@ -462,23 +559,29 @@ HRESULT WeatherHttpGet(std::string_view url, HANDLE cancelEvent, WeatherHttpResp
         return HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE);
     }
 
-    AcquireSRWLockExclusive(&g_cacheLock);
-    cached = FindCache(url);
-    if (!cached)
+    const auto guard = wil::AcquireSRWLockExclusive(&g_cacheLock);
+    return StoreCache(url, response, headerText);
+}
+
+void WeatherHttpSetTestTransport(WeatherHttpTestTransportFn transport) noexcept
+{
+    g_testTransport.store(transport, std::memory_order_release);
+}
+void WeatherHttpSetTestCacheTick(uint64_t tick) noexcept
+{
+    g_testCacheTick.store(tick, std::memory_order_relaxed);
+}
+void WeatherHttpCacheMetrics(uint32_t& clients, uint32_t& entries, uint32_t& bodyCapacityBytes) noexcept
+{
+    const auto guard = wil::AcquireSRWLockShared(&g_cacheLock);
+    clients = g_cacheClients;
+    entries = 0;
+    bodyCapacityBytes = 0;
+    for (const CacheEntry& entry : g_cache)
     {
-        cached = AllocateCache(url);
+        if (entry.used)
+            ++entries;
+        if (entry.body)
+            bodyCapacityBytes += entry.bytes + 1;
     }
-    HRESULT stored = E_OUTOFMEMORY;
-    if (cached && cached->body)
-    {
-        uint32_t unusedCapacity = kWeatherMaximumBodyBytes;
-        stored = CopyBody(response.body.get(), response.bytes, cached->body, cached->bytes, unusedCapacity);
-        cached->expiresTick = GetTickCount64() + response.expiresDelayMilliseconds;
-        const std::string_view newEtag = HeaderValue(headerText, "etag");
-        const std::string_view newModified = HeaderValue(headerText, "last-modified");
-        WeatherCopyNarrow(newEtag, cached->etag.data(), cached->etag.size());
-        WeatherCopyNarrow(newModified, cached->lastModified.data(), cached->lastModified.size());
-    }
-    ReleaseSRWLockExclusive(&g_cacheLock);
-    return stored;
 }

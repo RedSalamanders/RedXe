@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-11 against `bb78922` on `codex/runtime-probe`; one commit per implemented step
+Refreshed: 2026-10-11 against `307599b` on `codex/runtime-probe`; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -64,6 +64,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | Step | State | Evidence / commit |
 | --- | --- | --- |
 | P0.1 | Complete | Production probe and accepted Release baseline; `0971350`. |
+| P4.5 | Content-sized bodies and last-widget release complete | Production-path lower offline transport, exact transactional body storage and last-widget leases are implemented. Eight two-byte responses retain 24 bytes versus 2,097,160 before, including the final Release DLL; the new real-DLL storage assertion fails on the preserved old cache. Debug/ASan 15 scopes, ARM64 Release, ten skills and unchanged images pass. Release 16 obligations are accounted across runs, preserving the initial Desk Clock peak failure. Matched Gallery establishes no causal CPU saving; current D is 36.85 → 62.29 MiB private and 25.01 → 32.26 local, hidden/minimized zero. Curl reuse and failure coalescing remain separate measured candidates. |
 | P4.3 glyph extraction | Complete | Temporary isolated factory/face/coverage batch, 400 unchanged glyph references and real Debug coverage-OOM recovery pass. Matched eight/32-icon callbacks fall about 7.2->2.4 / 29->6.5 ms. Final Debug15/Release16/ASan15/ARM64/skills10 and all image references pass. Settled fixed-eight CPU/submissions stay zero, adapter18.01 MiB; no physical-input or D-retention claim. runtime-2026-10-11-p43-glyph-*. |
 | P4.3 icon storage | Complete | Count-sized 0/2/8 MiB storage for 0/8/32 entries, 15 identical WARP frames, native rendered pixels, transactional faults, all scope accounting and matched fixed-eight/Gallery observations pass. The initial intermittent Matrix guard failure is retained. Fixed-eight private 73.23 -> 41.21 MiB and local adapter 38.01 -> 18.01 MiB; no CPU saving or D-return claim. runtime-2026-10-11-p43-* and p43-matched-comparison.json. |
 | P3.3 | Plan reconciled; physical latency remains open | Current first-follow-frame/directional-two-page policy retained. Rejected September eager staging, three-live-page reversal and animation suppression conflict with UI_Dashboard. Existing policy/partially-offscreen/native-neighbor/retirement tests pass; P0.2 still owns real input and first-presentation timing. |
@@ -87,6 +88,54 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P2.8 glyph capacity | Complete | Real preceding DLLs fail reused-cell ink and exhausted-label regressions; candidate passes with unchanged atlas/storage sizes. Eight Weather PNGs match. Release 16 scopes, Debug 15 native scopes accounted across the initial run and HostSmoke repeat, ASan 15 native scopes, ARM64 Release and 10 skills pass. The initial Debug capture crash remains unexplained and retained. `runtime-2026-10-11-p28-capacity`. |
 | P2.8 Debug monitor and shared sampling | Complete | Unchanged failed preparation suppresses font/raster/upload work; all recovery, real font cleanup and held-control release tests pass. A shared glyph-cell sampling fix resolves 16 visible neighboring-ink pixels after cache/device changes. All 145 Viewer references and eight Weather PNGs match. Final Release 16 scopes, Debug/ASan 15 native scopes, ARM64 Release and ten skills pass. Two counterbalanced System pairs establish no causal CPU saving or repeatable private-memory regression; local usage is 26.26 MiB throughout. QPC-joined PresentMon cohorts show hardware-composed independent flip, all cohort frames displayed and no hybrid presents. Input latency remains unqualified. `runtime-2026-10-11-p28-monitor`, `-paired`, `-paired-reverse`, `-presented` and `-presented-reverse`. |
 | P0.4 production raised Gallery | Accounting captured; presented-frame qualification remains open | One normal, non-activating hardware Release run proves AV tile 1,474,560 bytes, raised total 5,160,960, dismissal to tile, hidden zero and restored tile. Cold/raised settled 65 s each; all source/binary hashes, page, geometry, adapter, power and foreground checks pass. Visible submissions stay about 60/s; hidden zero. `runtime-2026-10-11-p04-raised-gallery`. |
+
+### P4.5 content-sized Weather cache and leases (2026-10-11)
+
+The preceding eight-entry cache allocated 256 KiB+1 per used URL despite smaller content, independently of bounded
+heap-owned response buffers, and survived last widget destruction until module shutdown. The implemented change keeps
+response buffers unchanged, stores only exact body bytes plus terminator with transactional metadata/body replacement,
+reuses equal-sized storage and clears the cache after the last widget's strong callback references drain. A survivor
+or hide must retain shared entries. No polling, worker or process font/driver trim is selected.
+
+The existing offline response hook bypasses cache and cannot validate those rules. A lower transport hook now feeds
+the actual lookup/revalidation/store path; it never initializes or runs curl. Existing fixture behavior stays intact.
+New controls/direct GET exports require the automated-host environment. Borrowed transport pointers and POD sizes
+are pinned. Normal curl receives a bounded terminated URL and rejects embedded NUL; cache metrics count allocated
+body bytes including terminators. Curl and request-header owners use WIL, preserving the existing request options.
+The actual eight-response fixture reports 2,097,160 retained bytes before and 24 after. New real-DLL tests cover
+record/URL/body bounds, empty/maximum payloads, expiry and huge-age saturation, validators/304, equal-size reuse,
+transactional new/grow/shrink/eviction failure, eight-slot capacity, cancellation/status/transport failures and legacy
+bypass. Two real widgets prove hide/survivor retention and final strong network-reference release. The preceding
+instrumented cache fails the actual four-byte storage assertion; an initial incomplete loader fixture is retained
+as rejected evidence. The final Release DLL also reports eight entries and 24 retained body bytes. Compiler PDB
+records preserve `WeatherWidget` at 21,496 bytes and `CacheEntry` at 2,344; no per-widget lease field is added.
+
+Debug Full and ASan Debug each pass all 15 native scopes; ARM64 Release compiles without warnings/errors and all
+ten skills pass. All eight Weather PNGs and 145 Viewer reference frames remain identical. The initial Release Full
+run fails Desk Clock's unchanged four-MiB private peak guard at 5,394,432 bytes (end 3,534,848). A diagnostic VM-map
+repeat passes at 2,928,640, and a separate unchanged-artifact clean guard passes at 1,843,200. Remaining HostSmoke
+passes: all 16 Release obligations are accounted across these runs, without relabeling the initial Full as passed.
+Five-second VM sampling does not attribute that peak to a heap or driver; P4.6 retains the variability investigation.
+
+One matched build-282 Gallery pair changes only Weather.dll/pdb among its copied runtime closure. Over complete
+60-second intervals, process CPU is 2.369 / 2.577 percent of one core, submissions 60.152 / 60.152 per second,
+private 58.51 / 58.75 MiB, working set 76.86 / 77.08 and local adapter usage 34.24 / 34.24. Live location/network
+responses and shell imports are not pinned: this observation establishes neither a causal CPU saving nor an
+attributed process-memory regression. The exact retained-body and last-owner tests establish the selected cut.
+The current D-cycle visits all four shipped pages and returns to Matrix, with 65-second cold/returned settled
+phases. Private memory is 36.85 → 62.29 MiB (+25.44), working set 49.54 → 85.21, local adapter usage
+25.01 → 32.26 (+7.25), threads 42 → 43 and mapped modules 71 → 102. CPU is 1.797 → 2.083 percent of one core;
+submissions 60.150 → 60.152 per second. Hidden and minimized phases submit zero frames and report zero interval
+CPU at the probe's resolution; restore resumes presentation. Geometry, settings/services, awake display, adapter and
+source/artifact identity checks pass. This is a current observation after several committed cuts, without an
+otherwise-matched old D run: it cannot attribute the earlier retention reduction to this cache change, and still
+does not accept the proposed cold-plus-four-MiB budget. Curl connection reuse and negative failure coalescing remain
+conditional on separate request/cancellation and ownership measurements.
+
+Receipts: `.build/receipts/p45-final-scope-accounting.json`, `p45-content-release-capacity.json`,
+`p45-object-size.json`, `p45-fixed-cache-red`, `runtime-2026-10-11-p45-images`, `-p45-gallery-control`,
+`-p45-gallery-candidate` and `-p45-cycle-candidate`. Failed/diagnostic clock logs and the missing-loader red attempt
+remain retained with their limitations.
 
 ### P4.3 temporary glyph extraction batch (2026-10-11, complete)
 
@@ -1145,7 +1194,7 @@ cold visit to that page, and nothing from the page that was left.
 | P4.2 | Host storage candidates: count-sized provider descriptors and content-sized private JSON, retaining loaded `sourceDocument` and cold publication/validation correctness. Pages/widgets already use vectors. Module mapping must keep inactive-page contract validation; current-page-only mapping requires an independently justified design, not a storage shortcut. | Measure exact shipped settings/provider bytes before choosing a cut; persistence/concurrent-edit, descriptor lifetime/caps and exception-boundary tests preserve behavior. The old only-Matrix-module and ≤64-KiB shadow goals are unqualified proposals. |
 | P4.3 | **Count-sized Launcher icon GPU storage complete.** Empty/8/32 entries use 0/2/8 MiB, with unchanged 256-pixel quality and shaders. Dirty icon allocation/upload moves to preparation; clean frames allocate/upload nothing. CPU pixels already use only displayed entries. The measured temporary glyph batch is complete at about 2.4/6.5 ms for eight/32 icons with unchanged pixels. Shell caching/control-lane changes remain conditional on callback attribution; no retained font cache is introduced. | Preceding real DLL, 15 exact WARP pixels, pin/import/drop/device-loss and fault ownership tests; matched fixed-eight/Gallery observations and Debug15/Release16/ASan15 scope accounting, ARM64 and skills are recorded above. Intermittent Matrix growth stays open; no CPU or D-return saving is claimed. |
 | P4.4 | **Surface lifetime landed and retained at the current pin.** Hidden tile and unraised overlay surfaces are released without detaching control trees. The raised hardware P0.4 run confirms exact tile/overlay bytes, dismissal, hidden zero and restore. Lazy control-tree attachment, hidden-view update skipping, profile-control destruction and inventory diffing remain separate proposals. | Native fixtures and production hardware accounting agree; unchanged-observation copy cost and any new control-tree proposal still require measurements. Real AV release gates remain in the HOLD RFC. |
-| P4.5 | **Weather.** Cold cache bodies are already unallocated; used entries still reserve 256 KiB. Measure content-sized stored bodies and last-user release, then curl-handle reuse and same-location fetch/failure coalescing on the existing host network lane. Preserve validators, cancellation and the ≥5 min clamp. | Cold/used/eviction/teardown body-byte receipts; deterministic same-location success/failure/cancel tests; matched requests/connection reuse measurements before claiming handshake or memory savings. |
+| P4.5 | **Content-sized Weather cache and last-widget release implemented.** Cold bodies remain unallocated; each used entry owns payload plus terminator, with equal-size reuse and transactional new/grow/shrink/eviction. Surviving/hidden widgets retain shared data; final strong callback leases release it. Existing validators, 304, cancellation and refresh clamps remain. Curl connection reuse and failure coalescing are separate conditional candidates. | Real-DLL lower offline transport proves 2,097,160 → 24 bytes for eight two-byte responses, capacity/OOM/expiry/validator/failure and last-owner scenarios, with red/green against the old cache. Exact images and profile accounting are recorded above. Matched Gallery observations establish no causal whole-process CPU or memory saving. |
 | P4.6 | **Candidate: clocks.** Recheck today's shared multi-tier atlas and measured animation/soak behavior before changing lifetime or replacing the 1 ms animation deadline. GdiOrbit is already absent from shipped Gallery. | Matched scale/resize/soak and frame-cadence measurements justify any change; preserve typography and rollover quality. |
 
 ### Phase 5 — DxUi upstream and spec closeout

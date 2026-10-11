@@ -2,6 +2,7 @@
 #include "../../Plugins/Weather/Weather.Tests.Contract.h"
 #include "../../Plugins/Weather/WeatherHttp.h"
 #include "PlugInterfaces/Factory.h"
+#include "Weather.Tests.HttpCache.h"
 
 #include <array>
 #include <cstdint>
@@ -239,7 +240,9 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         return FAILED(result) ? result : kTestFailure;
     }
 
-    result = RunWeatherRegressionTests(module.get());
+    result = RunWeatherHttpCacheTests(module.get());
+    if (SUCCEEDED(result))
+        result = RunWeatherRegressionTests(module.get());
     shutdown();
     return result;
 }

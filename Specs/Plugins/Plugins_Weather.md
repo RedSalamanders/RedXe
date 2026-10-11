@@ -71,6 +71,16 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
   eight entries that revalidates with `If-None-Match` / `If-Modified-Since` and treats `304` as a cache hit. URLs are
   at most 2048 bytes, response bodies are 256 KiB heap buffers, and requests time out after 10 s (30 s maximum). A
   signaled cancel event returns promptly with `ERROR_CANCELLED`; the call never blocks inside curl after cancel.
+- Cache bodies allocate only after a successful response, at exactly the retained payload size plus one terminator
+  byte. Equal-sized replacements reuse storage. New entries, growth, shrinkage and eviction allocate before
+  publishing body, URL, validators or expiry; allocation failure preserves the prior entry. The existing eight-slot,
+  first-unused then slot-zero eviction policy remains. Empty bodies retain one byte, and maximum bodies retain
+  256 KiB plus one byte. Cache-Control ages saturate at the existing 60-minute ceiling without integer overflow;
+  the five-minute minimum and 15-minute default remain.
+- Every Weather widget holds a cache-client lease until its final strong reference is released. Hiding a widget
+  retains its lease; releasing one of several widgets preserves shared entries. In-flight network callbacks retain
+  their widget through the host's existing cancellation/drain lifetime. The last widget releases every cached body
+  and metadata entry without a worker, timer or per-widget lease field. Module shutdown also clears the cache.
 - Internal storage is SI (°C, m/s, mm, FILETIME); °F, km/h, and mph exist only in display strings. Strings are
   bounded UTF-16 copies: 24 hourly entries, nine daily entries, eight alerts with title, severity, start, expiry,
   description, instructions, and issuing authority.
@@ -168,6 +178,14 @@ outputs, absent/default positions, invalid coordinates, negative/missing/excessi
 and inclusive freshness/accuracy bounds. Use deterministic helper processes for fallback-to-persistence integration.
 Every automated run is offline: fixtures answer through the test response hook, never curl, and live MET Norway,
 Nominatim, MeteoAlarm, NWS, ECCC GeoMet, or HKO calls are manual-only and MUST NOT be a CI pass condition.
+The lower offline transport fixture MUST exercise the production cache lookup/store/revalidation path, without
+initializing or performing curl requests. Cover exact/overlong/embedded-NUL URL bounds, record and borrowed-payload
+bounds, empty/small/maximum bodies, fresh same-URL reuse, expiry clamps/overflow, validators and 304 restoration,
+new/grow/shrink/eviction allocation failure preserving prior state, equal-size allocation reuse, eight-slot capacity,
+transport/status/cancellation failures without cache poisoning, legacy-hook bypass and two real widgets' hidden,
+surviving and final strong-reference leases. Test transport/clock/fault mutations and direct GET probes require
+`REDXE_AUTOMATED_HOST=1`; the read-only 16-byte cache diagnostic reports actual retained body bytes including
+terminators. Controls change only with no network callback active; borrowed payloads remain valid until consumed.
 WeatherTests MUST cover country routing for every region and an unrouted country, each alert parser with trimmed
 live fixtures (severity tiers, skipped cancelled/ended/hidden entries, empty and non-JSON documents, recorded
 body), the one-URL-per-region builder (lower-cased MeteoAlarm country, NWS point, GeoMet bounding box and feature

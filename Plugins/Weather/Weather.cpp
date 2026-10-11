@@ -411,6 +411,7 @@ class WeatherWidget final
     {
         WeatherCopyNarrow(instanceId ? instanceId : "", _instanceId.data(), _instanceId.size());
         gLiveWidgetCount.fetch_add(1, std::memory_order_relaxed);
+        WeatherHttpAcquireCacheClient();
         LogWeather(_host, RedXeLogLevelInfo, _instanceId.data(), "widget-created", "weather widget constructed.");
         ReportStatus(_host, _instanceId.data(), RedXeWidgetStatusInitializing, L"Waiting for weather.");
     }
@@ -422,6 +423,7 @@ class WeatherWidget final
             WeatherGpuRelease();
         }
         gLiveWidgetCount.fetch_sub(1, std::memory_order_relaxed);
+        WeatherHttpReleaseCacheClient();
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
@@ -1606,6 +1608,69 @@ extern "C" void __stdcall RedXePluginShutdown() noexcept
 extern "C" void __stdcall RedXeWeatherFailNextAtlasInitialization() noexcept
 {
     WeatherGpuFailNextInitializationForTest();
+}
+
+extern "C" HRESULT __stdcall RedXeWeatherGetTestCacheDiagnostics(WeatherHttpCacheTestDiagnostics* diagnostics) noexcept
+{
+    if (!diagnostics)
+        return E_POINTER;
+    if (diagnostics->sizeBytes != sizeof(*diagnostics))
+        return E_INVALIDARG;
+    WeatherHttpCacheMetrics(diagnostics->liveClients, diagnostics->entries, diagnostics->bodyCapacityBytes);
+    return S_OK;
+}
+
+namespace
+{
+[[nodiscard]] bool AutomatedCacheHost() noexcept
+{
+    wchar_t value[2]{};
+    return GetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", value, 2) == 1 && value[0] == L'1';
+}
+} // namespace
+
+extern "C" HRESULT __stdcall RedXeWeatherSetTestCacheTransport(WeatherHttpTestTransportFn transport,
+                                                               uint64_t tick) noexcept
+{
+    if (!AutomatedCacheHost())
+        return E_ACCESSDENIED;
+    WeatherHttpSetTestCacheTick(tick);
+    WeatherHttpSetTestTransport(transport);
+    return S_OK;
+}
+
+extern "C" HRESULT __stdcall RedXeWeatherFailTestCacheAllocation(BOOL fail) noexcept
+{
+    if (!AutomatedCacheHost())
+        return E_ACCESSDENIED;
+    WeatherHttpFailNextCacheAllocationForTest(fail != FALSE);
+    return S_OK;
+}
+
+extern "C" HRESULT __stdcall RedXeWeatherTestCachedHttpGet(const char* url, uint32_t urlBytes, HANDLE cancelEvent,
+                                                           char* body, uint32_t bodyCapacity,
+                                                           WeatherHttpTestGetResult* result) noexcept
+{
+    if (!AutomatedCacheHost())
+        return E_ACCESSDENIED;
+    if (!url || !body || !result)
+        return E_POINTER;
+    if (result->sizeBytes != sizeof(*result) || bodyCapacity == 0)
+        return E_INVALIDARG;
+    *result = {sizeof(*result)};
+    body[0] = '\0';
+    WeatherHttpResponse response;
+    const HRESULT fetched = WeatherHttpGet(std::string_view(url, urlBytes), cancelEvent, response);
+    result->status = response.status;
+    result->bodyBytes = response.bytes;
+    result->expiresDelayMilliseconds = response.expiresDelayMilliseconds;
+    result->notModified = response.notModified ? TRUE : FALSE;
+    if (FAILED(fetched))
+        return fetched;
+    if (response.bytes >= bodyCapacity)
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    std::memcpy(body, response.body.get(), static_cast<size_t>(response.bytes) + 1);
+    return S_OK;
 }
 
 extern "C" void __stdcall RedXeWeatherFailNextGlyphPreparation() noexcept

@@ -53,6 +53,8 @@
   "Tests/SystemDataTests/SystemData.Tests.Arena.cpp",
   "Tests/SystemDataTests/SystemData.Tests.ProcessQuery.cpp",
   "Tests/SystemDataTests/SystemData.Tests.Runner.cpp",
+  "Tests/WeatherTests/Weather.Tests.HttpCache.cpp",
+  "Tests/WeatherTests/Weather.Tests.HttpCache.h",
   "Tests/WeatherTests/Weather.Tests.Runner.cpp",
   "Tests/WeatherTests/Weather.Tests.WeatherLocation.cpp",
   "Tests/WeatherTests/Weather.Tests.WeatherRegression.cpp",
