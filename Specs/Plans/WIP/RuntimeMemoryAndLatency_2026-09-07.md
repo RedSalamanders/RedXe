@@ -65,6 +65,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | --- | --- | --- |
 | P0.1 | Complete | Production probe and accepted Release baseline; `0971350`. |
 | P4.5 | Content-sized bodies and last-widget release complete | Production-path lower offline transport, exact transactional body storage and last-widget leases are implemented. Eight two-byte responses retain 24 bytes versus 2,097,160 before, including the final Release DLL; the new real-DLL storage assertion fails on the preserved old cache. Debug/ASan 15 scopes, ARM64 Release, ten skills and unchanged images pass. Release 16 obligations are accounted across runs, preserving the initial Desk Clock peak failure. Matched Gallery establishes no causal CPU saving; current D is 36.85 → 62.29 MiB private and 25.01 → 32.26 local, hidden/minimized zero. Curl reuse and failure coalescing remain separate measured candidates. |
+| P4.6 | Current hardware baseline captured; retain current deadline/atlas | Separate five-minute Desk/Studio runs share exact Release/runtime closure and one PresentMon session. Desk short display intervals have 16.66 ms p95; Studio averages 1.06 submissions/s. All owned cohort frames display, with composed independent flip and zero hybrid presents. No lower deadline or atlas change is selected. The intermittent WARP private peak remains unattributed. |
 | P4.3 glyph extraction | Complete | Temporary isolated factory/face/coverage batch, 400 unchanged glyph references and real Debug coverage-OOM recovery pass. Matched eight/32-icon callbacks fall about 7.2->2.4 / 29->6.5 ms. Final Debug15/Release16/ASan15/ARM64/skills10 and all image references pass. Settled fixed-eight CPU/submissions stay zero, adapter18.01 MiB; no physical-input or D-retention claim. runtime-2026-10-11-p43-glyph-*. |
 | P4.3 icon storage | Complete | Count-sized 0/2/8 MiB storage for 0/8/32 entries, 15 identical WARP frames, native rendered pixels, transactional faults, all scope accounting and matched fixed-eight/Gallery observations pass. The initial intermittent Matrix guard failure is retained. Fixed-eight private 73.23 -> 41.21 MiB and local adapter 38.01 -> 18.01 MiB; no CPU saving or D-return claim. runtime-2026-10-11-p43-* and p43-matched-comparison.json. |
 | P3.3 | Plan reconciled; physical latency remains open | Current first-follow-frame/directional-two-page policy retained. Rejected September eager staging, three-live-page reversal and animation suppression conflict with UI_Dashboard. Existing policy/partially-offscreen/native-neighbor/retirement tests pass; P0.2 still owns real input and first-presentation timing. |
@@ -155,6 +156,30 @@ The first attempt's existing page-stage collector independently records a Galler
 stage, not a matched latency improvement or a widget attribution. P3.4 should now attribute individual device,
 target-size, visibility and first-preparation callbacks before selecting an incremental/worker design. Moving an
 indivisible slow callback behind a nominal four-ms host slice cannot make its first presented frame fit that slice.
+
+### P4.6 current clock cadence and memory (2026-10-11)
+
+Two non-activating five-minute normal-user hardware runs use isolated full-canvas clocks on the XENEON, services
+off, matching native source/DxUi/runtime closure, AC/display-awake/rectangle/page checks and one fresh PresentMon
+session. Desk Clock averages 1.435 percent of one core and 26.688 submissions/s, with median private/working-set/local
+usage 34.60 / 49.61 / 24.51 MiB. Studio Clock is 0.063 percent, 1.056/s and 30.34 / 46.58 / 22.01 MiB. All 7,841
+Desk and 309 Studio owned frames in QPC-joined 294-second cohorts are displayed with hardware-composed independent
+flip and zero hybrid presents. This compares current widgets, not old/new optimization variants.
+
+A 100-ms display-interval partition separates intended clock idle gaps from short intervals. Desk's 7,546 short
+intervals have median 16.6245 ms, p95 16.6587 and maximum 35.7328; 111 exceed 25 ms. Its 294 idle gaps have median
+565.2541 ms. Studio's 292 idle gaps have median 997.4826 ms; 16 short intervals accompany boundary changes.
+This is cadence evidence, not rollover pixel verification, callback execution time or physical-input latency.
+The overall Desk interval p95 of 33.234 ms includes idle gaps and must not be called an animation-callback cost.
+Private memory spans only 192,512 Desk / 159,744 Studio bytes across the 60 probe samples; final values are
+24,576 / 94,208 bytes below their first samples. No sustained growth is established by these hardware observations.
+They do not attribute or erase the separate failed WARP peak guard recorded under P4.5.
+
+Keep the shared multi-tier atlas and normative one-ms Desk active-flip deadline. Replacing it with 16 ms could miss
+presentation slots; no measured lower-cost replacement is selected. Current native scale/resize, sharing, scheduling,
+rollover and teardown tests passed the unchanged P4.5 profile accounting. Receipts:
+`.build/receipts/runtime-2026-10-11-p46-clock-presented` (raw CSV, identities, phase/probe logs, per-widget summaries,
+`burst-summary.json`) and `p46-clock-memory.json`. Input/real-touch and longer WARP peak attribution remain separate.
 
 ### P4.3 temporary glyph extraction batch (2026-10-11, complete)
 
@@ -1214,7 +1239,7 @@ cold visit to that page, and nothing from the page that was left.
 | P4.3 | **Count-sized Launcher icon GPU storage complete.** Empty/8/32 entries use 0/2/8 MiB, with unchanged 256-pixel quality and shaders. Dirty icon allocation/upload moves to preparation; clean frames allocate/upload nothing. CPU pixels already use only displayed entries. The measured temporary glyph batch is complete at about 2.4/6.5 ms for eight/32 icons with unchanged pixels. Shell caching/control-lane changes remain conditional on callback attribution; no retained font cache is introduced. | Preceding real DLL, 15 exact WARP pixels, pin/import/drop/device-loss and fault ownership tests; matched fixed-eight/Gallery observations and Debug15/Release16/ASan15 scope accounting, ARM64 and skills are recorded above. Intermittent Matrix growth stays open; no CPU or D-return saving is claimed. |
 | P4.4 | **Surface lifetime landed and retained at the current pin.** Hidden tile and unraised overlay surfaces are released without detaching control trees. The raised hardware P0.4 run confirms exact tile/overlay bytes, dismissal, hidden zero and restore. Lazy control-tree attachment, hidden-view update skipping, profile-control destruction and inventory diffing remain separate proposals. | Native fixtures and production hardware accounting agree; unchanged-observation copy cost and any new control-tree proposal still require measurements. Real AV release gates remain in the HOLD RFC. |
 | P4.5 | **Content-sized Weather cache and last-widget release implemented.** Cold bodies remain unallocated; each used entry owns payload plus terminator, with equal-size reuse and transactional new/grow/shrink/eviction. Surviving/hidden widgets retain shared data; final strong callback leases release it. Existing validators, 304, cancellation and refresh clamps remain. Curl connection reuse and failure coalescing are separate conditional candidates. | Real-DLL lower offline transport proves 2,097,160 → 24 bytes for eight two-byte responses, capacity/OOM/expiry/validator/failure and last-owner scenarios, with red/green against the old cache. Exact images and profile accounting are recorded above. Matched Gallery observations establish no causal whole-process CPU or memory saving. |
-| P4.6 | **Candidate: clocks.** Recheck today's shared multi-tier atlas and measured animation/soak behavior before changing lifetime or replacing the 1 ms animation deadline. GdiOrbit is already absent from shipped Gallery. | Matched scale/resize/soak and frame-cadence measurements justify any change; preserve typography and rollover quality. |
+| P4.6 | **Current baseline captured; no deadline/atlas change selected.** Shared multi-tier atlas and one-ms Desk active-flip requests are retained. Five-minute hardware Desk/Studio cadence and memory are recorded above, with current scale/resize/sharing/rollover/teardown test accounting. GdiOrbit remains absent from shipped Gallery. | Desk short display intervals have 16.66 ms p95; idle gaps are intentional and neither they nor PresentMon CPU-frame intervals measure callback cost. No sustained hardware private growth is established. Preserve typography/rollover quality; the intermittent WARP peak still needs attribution. |
 
 ### Phase 5 — DxUi upstream and spec closeout
 
