@@ -537,7 +537,7 @@ template <typename Operation>
     return result;
 }
 
-constexpr uint32_t kIconCacheCapacity = 4;
+constexpr uint32_t kIconCacheCapacity = 8;
 constexpr uint32_t kIconBytes = kIconEdge * kIconEdge * 4;
 
 struct IconFileIdentity final
@@ -562,6 +562,7 @@ struct IconCacheKey final
 {
     std::array<wchar_t, kTargetCapacity> target{};
     std::array<wchar_t, kTargetCapacity> resource{};
+    std::array<wchar_t, MAX_PATH> location{};
     int index = 0;
     UINT flags = 0;
     IconFileIdentity targetFile{};
@@ -569,8 +570,9 @@ struct IconCacheKey final
 
     [[nodiscard]] bool operator==(const IconCacheKey& other) const noexcept
     {
-        return target == other.target && resource == other.resource && index == other.index && flags == other.flags &&
-               targetFile == other.targetFile && resourceFile == other.resourceFile;
+        return target == other.target && resource == other.resource && location == other.location &&
+               index == other.index && flags == other.flags && targetFile == other.targetFile &&
+               resourceFile == other.resourceFile;
     }
 };
 
@@ -601,8 +603,9 @@ struct IconCacheKey final
 
 [[nodiscard]] bool CacheableIconLocation(const wchar_t* path, UINT flags) noexcept
 {
-    // The filename contract permits Shell caching; opaque identifiers, overlays, and explicit refusal do not.
-    constexpr UINT supported = GIL_PERINSTANCE | GIL_PERCLASS | GIL_FORCENOSHIELD;
+    // NOTFILENAME forbids interpreting the identifier as a resource index, not caching the handler's pixels.
+    // Keep its exact token/index as identity; only ordinary, verified file paths can pass the additional probes.
+    constexpr UINT supported = GIL_PERINSTANCE | GIL_PERCLASS | GIL_FORCENOSHIELD | GIL_NOTFILENAME;
     return path[0] && wcsnlen_s(path, MAX_PATH) < MAX_PATH && (flags & ~supported) == 0;
 }
 
@@ -611,7 +614,8 @@ struct IconCacheKey final
 {
     if (!CacheableIconLocation(path, flags) || !(flags & GIL_FORCENOSHIELD) ||
         !Launcher::ShellIconParentLength(std::wstring_view(target, wcsnlen_s(target, kTargetCapacity))) ||
-        !CopyWide(target, key.target.data(), key.target.size()))
+        !CopyWide(target, key.target.data(), key.target.size()) ||
+        !CopyWide(path, key.location.data(), key.location.size()))
         return S_FALSE;
     const DWORD length = ExpandEnvironmentStringsW(path, key.resource.data(), static_cast<DWORD>(key.resource.size()));
     if (!length || length > key.resource.size())
@@ -728,7 +732,7 @@ class IconCache final
     std::array<Entry, kIconCacheCapacity> _entries{};
     uint32_t _next = 0;
 };
-static_assert(sizeof(IconCache) < 16 * 1024);
+static_assert(sizeof(IconCache) < 24 * 1024);
 IconCache gIconCache;
 
 [[nodiscard]] HRESULT ExtractFromShellHandler(IExtractIconW* extractor, ShortcutRecord& record,

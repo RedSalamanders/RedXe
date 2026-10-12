@@ -458,7 +458,7 @@ class TestShellIconExtractor final : public IExtractIconW
 }
 
 [[nodiscard]] HRESULT ValidateIconCache(LauncherTestCachedShellHandlerFn inspect, LauncherTestIconCacheFn control,
-                                        RedXePluginShutdownFn shutdown) noexcept
+                                        RedXePluginShutdownFn shutdown, bool opaque) noexcept
 {
     if (!inspect || !control || !shutdown)
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
@@ -466,9 +466,10 @@ class TestShellIconExtractor final : public IExtractIconW
     LauncherShellTimings timings{sizeof(LauncherShellTimings)};
     TestShellIconExtractor extractor;
     extractor.allowShieldCheck = true;
-    extractor.locationFlags = GIL_PERINSTANCE;
+    const UINT baseFlags = GIL_PERINSTANCE | (opaque ? GIL_NOTFILENAME : 0);
+    extractor.locationFlags = baseFlags;
     if (FAILED(extractor.Initialize()) || control(1, &diagnostics) != S_OK || diagnostics.allocatedBytes ||
-        diagnostics.residentCount || diagnostics.capacity != 4 || control(0, nullptr) != E_POINTER ||
+        diagnostics.residentCount || diagnostics.capacity != 8 || control(0, nullptr) != E_POINTER ||
         inspect(nullptr, &extractor, nullptr) != E_POINTER)
         return kTestFailure;
     --diagnostics.sizeBytes;
@@ -550,13 +551,13 @@ class TestShellIconExtractor final : public IExtractIconW
         return kTestFailure;
 
     // Refusals must discard eligibility; changed dynamic pixels must never reuse a prior entry.
-    for (UINT flags : std::array<UINT, 5>{GIL_DONTCACHE, GIL_NOTFILENAME, GIL_SIMULATEDOC, GIL_SHIELD, 0x80000000U})
+    for (UINT flags : std::array<UINT, 4>{GIL_DONTCACHE, GIL_SIMULATEDOC, GIL_SHIELD, 0x80000000U})
     {
-        extractor.locationFlags = GIL_PERINSTANCE | flags;
+        extractor.locationFlags = baseFlags | flags;
         if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1) ||
             control(0, &diagnostics) != S_OK || diagnostics.residentCount)
             return kTestFailure;
-        extractor.locationFlags = GIL_PERINSTANCE;
+        extractor.locationFlags = baseFlags;
         if (FAILED(extractor.Initialize()) || !check(files[0].data(), first, 1) || !check(files[0].data(), first, 5))
             return kTestFailure;
     }
@@ -574,8 +575,9 @@ class TestShellIconExtractor final : public IExtractIconW
             return kTestFailure;
     }
     extractor.shieldResult = S_OK;
-    for (const wchar_t* path : std::array<const wchar_t*, 4>{L"", L"C:\\RedXeMissingIconResource.bin",
-                                                             L"\\\\server\\share\\icon.ico", temporary.data()})
+    for (const wchar_t* path :
+         std::array<const wchar_t*, 6>{L"", L"C:\\RedXeMissingIconResource.bin", L"\\\\server\\share\\icon.ico",
+                                       temporary.data(), L"opaque-token", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"})
     {
         extractor.location = path;
         if (!check(files[0].data(), first, 1) || control(0, &diagnostics) != S_OK || diagnostics.residentCount)
@@ -583,6 +585,25 @@ class TestShellIconExtractor final : public IExtractIconW
     }
     extractor.location = files.back().data();
     if (!check(L"https://example.com", first, 1) || !check(files[0].data(), first, 1))
+        return kTestFailure;
+    // A token is not a filename/index pair. Distinct literal tokens that expand to the same file
+    // must not alias, and a negative opaque identifier must reach the native handler unchanged.
+    std::array<wchar_t, 64> environmentName{};
+    std::array<wchar_t, 68> locationAlias{};
+    if (swprintf_s(environmentName.data(), environmentName.size(), L"RedXeIconCacheTest-%lu", GetCurrentProcessId()) <=
+            0 ||
+        swprintf_s(locationAlias.data(), locationAlias.size(), L"%%%s%%", environmentName.data()) <= 0 ||
+        GetEnvironmentVariableW(environmentName.data(), nullptr, 0) || GetLastError() != ERROR_ENVVAR_NOT_FOUND ||
+        !SetEnvironmentVariableW(environmentName.data(), files.back().data()))
+        return kTestFailure;
+    const auto restoreEnvironment =
+        wil::scope_exit([&]() noexcept { (void)SetEnvironmentVariableW(environmentName.data(), nullptr); });
+    extractor.location = locationAlias.data();
+    if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1) ||
+        !check(files[0].data(), second, 5))
+        return kTestFailure;
+    extractor.location = files.back().data();
+    if (FAILED(extractor.Initialize()) || !check(files[0].data(), first, 1) || !check(files[0].data(), first, 5))
         return kTestFailure;
     ++extractor.locationIndex;
     if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1) ||
@@ -631,10 +652,10 @@ class TestShellIconExtractor final : public IExtractIconW
         return kTestFailure;
     for (uint32_t index = 0; index < 32; ++index)
         if (!check(files[index].data(), second, 1) || control(0, &diagnostics) != S_OK ||
-            diagnostics.residentCount != std::min(index + 1, 4U) ||
-            diagnostics.allocatedBytes != std::min(index + 1, 4U) * 256 * 256 * 4)
+            diagnostics.residentCount != std::min(index + 1, 8U) ||
+            diagnostics.allocatedBytes != std::min(index + 1, 8U) * 256 * 256 * 4)
             return kTestFailure;
-    if (diagnostics.evictions != 28 || !check(files[31].data(), second, 5) || !check(files[0].data(), second, 1) ||
+    if (diagnostics.evictions != 24 || !check(files[31].data(), second, 5) || !check(files[0].data(), second, 1) ||
         GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
         GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
         return kTestFailure;
@@ -642,8 +663,9 @@ class TestShellIconExtractor final : public IExtractIconW
     if (control(0, &diagnostics) != S_OK || diagnostics.residentCount || diagnostics.allocatedBytes ||
         diagnostics.hits || extractor.references != 1)
         return kTestFailure;
-    std::wprintf(
-        L"Bounded icon reuse, exact pixels, fresh shield/file checks, invalidation, OOM and shutdown passed.\n");
+    std::wprintf(L"Bounded %s icon reuse, exact tokens/pixels, fresh shield/file checks, invalidation, OOM and "
+                 L"shutdown passed.\n",
+                 opaque ? L"opaque" : L"filename");
     return S_OK;
 }
 
@@ -2744,9 +2766,14 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     }
     if (SUCCEEDED(result))
     {
-        result = ValidateIconCache(
-            Resolve<LauncherTestCachedShellHandlerFn>(module.get(), kLauncherTestCachedShellHandlerExport),
-            Resolve<LauncherTestIconCacheFn>(module.get(), kLauncherTestIconCacheExport), shutdown);
+        for (bool opaque : {false, true})
+        {
+            result = ValidateIconCache(
+                Resolve<LauncherTestCachedShellHandlerFn>(module.get(), kLauncherTestCachedShellHandlerExport),
+                Resolve<LauncherTestIconCacheFn>(module.get(), kLauncherTestIconCacheExport), shutdown, opaque);
+            if (FAILED(result))
+                break;
+        }
         if (FAILED(result))
             std::wprintf(L"ValidateIconCache failed: 0x%08X\n", static_cast<unsigned int>(result));
     }

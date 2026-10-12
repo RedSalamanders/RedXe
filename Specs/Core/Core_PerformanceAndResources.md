@@ -177,17 +177,26 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   PIDLs release within the refresh; no folder/location owner, worker, timer or per-widget field is retained. This
   accepts about two KiB of temporary parent/child path stack storage to remove repeated parent walks for adjacent
   shortcuts.
-  Launcher MAY reuse decoded filename-backed handler pixels in one UI-thread-owned process cache, bounded at
-  four 256-KiB buffers (1 MiB total) and less than 16 KiB of fixed bookkeeping. A fresh handler/location and
-  explicit no-shield result, exact target spelling, expanded resource filename, signed index/flags, and both files'
-  volume/file identity, creation/write/change times, size and attributes MUST match before reuse. Failed or changed
-  inputs, opaque locations, `GIL_DONTCACHE`, shield/overlay/unknown flags and unsupported files MUST bypass reuse.
+  Launcher MAY reuse decoded cacheable handler pixels in one UI-thread-owned process cache, bounded at
+  eight 256-KiB buffers (2 MiB total) and less than 24 KiB of fixed bookkeeping. A fresh handler/location and
+  explicit no-shield result, exact target spelling and original location token, expanded file spelling,
+  signed identifier/flags, and both files' volume/file identity, creation/write/change times, size and attributes
+  MUST match before reuse. Failed or changed inputs, token-only opaque locations, `GIL_DONTCACHE`,
+  shield/overlay/unknown flags and unsupported files MUST bypass reuse.
+  An opaque token that also names a verified ordinary file MAY qualify under the Shell cache contract, but its
+  exact token/identifier MUST NOT be interpreted as a filename/resource-index pair. Extraction still uses its
+  fresh native handler; distinct tokens expanding to the same file MUST NOT alias.
   File state is checked again after cloning/decoding; no failed or unstable image is published to the cache.
   Invalid entries may keep bounded reusable buffers, but `RedXePluginShutdown` MUST release all bytes. The cache
   retains no COM, HICON, HBITMAP or GPU owner and adds no steady-frame work. Allocation failure MUST preserve the
-  ordinary extraction path. This intentional inactive retention is accepted for the 2026-10-12 measured
-  1.9–5.9-ms reduction for two eligible icons in every paired repeated batch; the shipped eight-pin scene retains
-  512 KiB. Whole-batch/cold timing remains mixed, and neither a cold-start nor steady CPU saving is established.
+  ordinary extraction path. This intentional inactive retention is accepted for the 2026-10-12 measured repeated
+  eight-pin reduction from 52.54 to 39.69 ms median, improving in all six alternating native pairs. The shipped
+  scene now retains 2 MiB instead of 512 KiB. The 1.5-MiB increase and larger fixed bookkeeping preserve full-quality
+  pixels while avoiding repeated extraction/decoding of all eight icons; fresh shield evaluation remains.
+  Matched hardware visibility medians move in opposite directions across the two run orders; returned private
+  differences are +1.88 and -0.78 MiB, with unchanged local GPU usage and zero hidden/minimized submissions.
+  This accepts bounded retention for the measured native repeat-work reduction; page-activation, cold-start and
+  steady CPU savings remain unestablished. Full measurements and retained failed runs are in the active runtime plan.
   Optional automated attribution records completed shell phases in caller-owned fixed storage. Normal refreshes
   query no attribution clocks, and neither rendering nor clean preparation performs shell work.
   Glyph extraction shares one lazy isolated DirectWrite factory/face and clipped coverage buffer within its bounded

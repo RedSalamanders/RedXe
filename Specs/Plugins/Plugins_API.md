@@ -1467,20 +1467,26 @@ full-path shell-item extraction and its fallback order. A handler that already r
 extraction proceeds to the original image-factory/image-list fallback without a duplicate handler call. Folder
 ownership is temporary to the refresh, with child PIDLs and icon owners released on every exit. Every later refresh
 reads shortcut targets and icon locations anew, including retargeted links.
-One process-scoped UI-thread cache MAY reuse at most four decoded 256×256 BGRA images from filename-backed
+One process-scoped UI-thread cache MAY reuse at most eight decoded 256×256 BGRA images from cacheable
 handlers, with no retained COM/GDI/GPU owner. Eligibility follows the
-[Shell filename/cache contract](https://learn.microsoft.com/en-us/windows/win32/shell/how-to-create-icon-handlers):
-opaque `GIL_NOTFILENAME`, `GIL_DONTCACHE`, overlays, shield/unknown flags and unsupported files bypass reuse.
-Every refresh binds a fresh handler and calls `GetIconLocation(GIL_FORSHELL)`. Eligible filename locations also
+[Shell cache contract](https://learn.microsoft.com/en-us/windows/win32/shell/how-to-create-icon-handlers):
+`GIL_DONTCACHE`, overlays, shield/unknown flags and unsupported files bypass reuse.
+`GIL_NOTFILENAME` means the token/identifier cannot be passed to generic file-icon extraction; it does not forbid
+caching the handler's pixels. Such a token is eligible only when its expanded spelling also names a verified
+ordinary file. The original token and signed identifier MUST remain opaque identity, compared exactly; neither
+is interpreted as a filename/resource-index pair or substituted for the native handler's extraction.
+Every refresh binds a fresh handler and calls `GetIconLocation(GIL_FORSHELL)`. Eligible locations also
 require a fresh `GIL_CHECKSHIELD` result with `GIL_FORCENOSHIELD`; checking shield state MUST NOT be skipped on a hit.
-The exact-spelling target, expanded resource filename, signed icon identifier and flags, and both files' volume/file
-identity, creation/write/change times, size and attributes form the key. Last-access time is excluded because reads
+The exact-spelling target, unmodified location token, expanded file spelling, signed icon identifier and flags,
+and both files' volume/file identity, creation/write/change times, size and attributes form the key.
+Last-access time is excluded because reads
 may change it. Directories, UNC/device/namespace targets and failed metadata probes use ordinary extraction.
 File state is rechecked after cloning a hit and after decoding a miss; changed state or refusal withdraws eligibility.
 Each returned record owns its own BGRA buffer. Cache allocation failure is best effort and MUST NOT discard valid
 ordinary pixels. Invalidated buffers remain bounded/reusable; process shutdown releases all cached bytes. No failed,
-partial, fallback, glyph or PNG image is cached. The original 256-pixel handler/decode and fallback paths remain
-the quality reference, and only filename-backed decoded hits skip HICON extraction and WIC work.
+partial, fallback, glyph or PNG image is cached. Token-only opaque locations, directories, namespaces and failed
+file probes retain ordinary extraction. The original 256-pixel handler/decode and fallback paths remain
+the quality reference, and only validated decoded hits skip HICON extraction and WIC work.
 The optional automated-host-only `RedXeLauncherTestShellIcon` and `RedXeLauncherTestShellBatch` use this production
 path on the UI thread in an STA. The single-target form retains full-path binding as a pixel reference; the batch
 form borrows 1..32 targets through one refresh-local folder owner. Their fixed, exact-size caller-owned records
@@ -1746,9 +1752,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     parent reuse, exact-case parent keys, mixed parents with identical child names, drive-root children,
     bounded parent parsing and full-path routing of UNC roots/device paths/shell namespaces,
     missing-parent/child and URI fallback pixels, retargeted link/icon locations, the 32-entry bound and native
-    resource cleanup, filename-cache cold/hit pixels and fresh shield checks, no-cache/opaque/shield/overlay/unknown
+    resource cleanup, filename and verified-file opaque cache cold/hit pixels and fresh shield checks,
+    distinct literal tokens expanding to the same file, signed opaque identifiers, no-cache/token-only/shield/overlay/unknown
     refusal, changed identifiers/resources/instances, target/resource changes with restored write time, file
-    replacement, four-entry eviction and 32-target pressure, best-effort clone/store allocation failure,
+    replacement, eight-entry eviction and 32-target pressure, best-effort clone/store allocation failure,
     partial/null/failing outputs and shutdown release, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
     with zero `ShellExecuteExW`, imported-pin persistence/recreation, queue/commit failure and collect fallback,
     drop append/cap/rollback, overflow paging with a bottom page-dot strip, named `iconSize` spread-grid layout
