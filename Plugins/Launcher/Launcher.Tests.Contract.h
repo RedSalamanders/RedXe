@@ -43,8 +43,12 @@ enum class LauncherShellPhase : uint32_t
     GetImage,
     DecodeImage,
     ImageList,
+    ShieldCheck,
+    CacheValidation,
+    CacheRead,
+    CacheStore,
 };
-inline constexpr uint32_t kLauncherShellPhaseCount = 8;
+inline constexpr uint32_t kLauncherShellPhaseCount = 12;
 
 // Call-local wall-clock attribution. A clear completedMask bit means unavailable, not zero cost.
 // GetImage/ImageList cover fallback work; ImageList includes its decoding. Hashing is outside totalTicks.
@@ -59,11 +63,23 @@ struct LauncherShellTimings final
     HRESULT phaseResults[kLauncherShellPhaseCount];
     uint64_t pixelHash;
     uint32_t sourceEdge;
-    uint32_t sourceKind; // 0 none, 1 handler, 2 image factory, 3 image list, 4 stock image list.
+    uint32_t sourceKind; // 0 none, 1 handler, 2 image factory, 3 image list, 4 stock image list, 5 cached handler.
 };
-static_assert(sizeof(LauncherShellTimings) == 168);
+static_assert(sizeof(LauncherShellTimings) == 232);
 static_assert(offsetof(LauncherShellTimings, phaseTicks) == 24);
-static_assert(offsetof(LauncherShellTimings, pixelHash) == 152);
+static_assert(offsetof(LauncherShellTimings, pixelHash) == 216);
+
+struct LauncherIconCacheDiagnostics final
+{
+    uint32_t sizeBytes;
+    uint32_t capacity;
+    uint32_t residentCount;
+    uint32_t allocatedBytes;
+    uint64_t hits;
+    uint64_t stores;
+    uint64_t evictions;
+};
+static_assert(sizeof(LauncherIconCacheDiagnostics) == 40);
 
 #if defined(REDXE_PLUGIN_EXPORTS)
 #define REDXE_LAUNCHER_TEST_API __declspec(dllexport)
@@ -96,6 +112,13 @@ extern "C"
     // Attempts all targets and returns the first failure. Shared folder ownership ends before return.
     REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestShellBatch(const wchar_t* const* targets, uint32_t count,
                                                                           LauncherShellTimings* timings) noexcept;
+    // Automated hosts only, UI-thread/STA. Borrows a real file target and extractor for the cache path.
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestCachedShellHandler(
+        const wchar_t* target, IExtractIconW* extractor, LauncherShellTimings* timings) noexcept;
+    // Automated hosts only, UI thread. 0 reads; 1 clears; 2 fails the next clone; 3 fails the next store.
+    // Exact-size records clear before authorization/operation checks. Shutdown releases all cached bytes.
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestIconCache(
+        uint32_t operation, LauncherIconCacheDiagnostics* diagnostics) noexcept;
 }
 
 using LauncherSetTestPinDirectoryFn = decltype(&RedXeLauncherSetTestPinDirectory);
@@ -105,6 +128,8 @@ using LauncherSetTestIconFailureFn = decltype(&RedXeLauncherSetTestIconFailure);
 using LauncherTestShellHandlerFn = decltype(&RedXeLauncherTestShellHandler);
 using LauncherTestShellIconFn = decltype(&RedXeLauncherTestShellIcon);
 using LauncherTestShellBatchFn = decltype(&RedXeLauncherTestShellBatch);
+using LauncherTestCachedShellHandlerFn = decltype(&RedXeLauncherTestCachedShellHandler);
+using LauncherTestIconCacheFn = decltype(&RedXeLauncherTestIconCache);
 
 inline constexpr char kLauncherSetTestPinDirectoryExport[] = "RedXeLauncherSetTestPinDirectory";
 inline constexpr char kLauncherGetTestDiagnosticsExport[] = "RedXeLauncherGetTestDiagnostics";
@@ -113,5 +138,7 @@ inline constexpr char kLauncherSetTestIconFailureExport[] = "RedXeLauncherSetTes
 inline constexpr char kLauncherTestShellHandlerExport[] = "RedXeLauncherTestShellHandler";
 inline constexpr char kLauncherTestShellIconExport[] = "RedXeLauncherTestShellIcon";
 inline constexpr char kLauncherTestShellBatchExport[] = "RedXeLauncherTestShellBatch";
+inline constexpr char kLauncherTestCachedShellHandlerExport[] = "RedXeLauncherTestCachedShellHandler";
+inline constexpr char kLauncherTestIconCacheExport[] = "RedXeLauncherTestIconCache";
 
 #undef REDXE_LAUNCHER_TEST_API

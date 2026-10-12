@@ -1466,7 +1466,21 @@ namespaces retain the original full-path route. Unsupported targets or a refused
 full-path shell-item extraction and its fallback order. A handler that already refused
 extraction proceeds to the original image-factory/image-list fallback without a duplicate handler call. Folder
 ownership is temporary to the refresh, with child PIDLs and icon owners released on every exit. Every later refresh
-reads shortcut targets and icon locations anew, including retargeted links; this introduces no retained icon cache.
+reads shortcut targets and icon locations anew, including retargeted links.
+One process-scoped UI-thread cache MAY reuse at most four decoded 256×256 BGRA images from filename-backed
+handlers, with no retained COM/GDI/GPU owner. Eligibility follows the
+[Shell filename/cache contract](https://learn.microsoft.com/en-us/windows/win32/shell/how-to-create-icon-handlers):
+opaque `GIL_NOTFILENAME`, `GIL_DONTCACHE`, overlays, shield/unknown flags and unsupported files bypass reuse.
+Every refresh binds a fresh handler and calls `GetIconLocation(GIL_FORSHELL)`. Eligible filename locations also
+require a fresh `GIL_CHECKSHIELD` result with `GIL_FORCENOSHIELD`; checking shield state MUST NOT be skipped on a hit.
+The exact-spelling target, expanded resource filename, signed icon identifier and flags, and both files' volume/file
+identity, creation/write/change times, size and attributes form the key. Last-access time is excluded because reads
+may change it. Directories, UNC/device/namespace targets and failed metadata probes use ordinary extraction.
+File state is rechecked after cloning a hit and after decoding a miss; changed state or refusal withdraws eligibility.
+Each returned record owns its own BGRA buffer. Cache allocation failure is best effort and MUST NOT discard valid
+ordinary pixels. Invalidated buffers remain bounded/reusable; process shutdown releases all cached bytes. No failed,
+partial, fallback, glyph or PNG image is cached. The original 256-pixel handler/decode and fallback paths remain
+the quality reference, and only filename-backed decoded hits skip HICON extraction and WIC work.
 The optional automated-host-only `RedXeLauncherTestShellIcon` and `RedXeLauncherTestShellBatch` use this production
 path on the UI thread in an STA. The single-target form retains full-path binding as a pixel reference; the batch
 form borrows 1..32 targets through one refresh-local folder owner. Their fixed, exact-size caller-owned records
@@ -1474,7 +1488,11 @@ distinguish completed wall-clock phases from unavailable work and preserve compl
 sizes leave outputs untouched; otherwise outputs clear before authorization/target validation. No target in a batch
 is processed until all targets validate. Failed pixels stay zero, hashing is outside the extraction interval, and
 the batch releases shared ownership before returning the first failure. These exports retain no override, owner
-or timing state and are never called by the host. Ordinary extraction queries no attribution clocks.
+or timing state and are never called by the host. The batch may populate/use the same bounded production pixel
+cache; the single-target reference and borrowed-handler decoder bypass it. Extra call-local phases attribute fresh
+shield checks, file validation, cloning and stores. Automated-only `RedXeLauncherTestCachedShellHandler` and
+`RedXeLauncherTestIconCache` exercise eligibility, failures, capacity and cleanup without retaining an extractor
+or changing the production host ABI. Ordinary extraction queries no attribution clocks.
 A refresh batch shares one
 lazy isolated DirectWrite factory and font face across glyph/warning icons, retaining the same family fallback,
 metrics, hinting, centering and premultiplied pixels. Its clipped coverage buffer grows only to the largest used glyph
@@ -1728,7 +1746,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     parent reuse, exact-case parent keys, mixed parents with identical child names, drive-root children,
     bounded parent parsing and full-path routing of UNC roots/device paths/shell namespaces,
     missing-parent/child and URI fallback pixels, retargeted link/icon locations, the 32-entry bound and native
-    resource cleanup, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
+    resource cleanup, filename-cache cold/hit pixels and fresh shield checks, no-cache/opaque/shield/overlay/unknown
+    refusal, changed identifiers/resources/instances, target/resource changes with restored write time, file
+    replacement, four-entry eviction and 32-target pressure, best-effort clone/store allocation failure,
+    partial/null/failing outputs and shutdown release, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
     with zero `ShellExecuteExW`, imported-pin persistence/recreation, queue/commit failure and collect fallback,
     drop append/cap/rollback, overflow paging with a bottom page-dot strip, named `iconSize` spread-grid layout
     (uniform half-extents, even gutters of at least 8 DIP between icon edges and 8 DIP edge inset, no mid-tile cluster

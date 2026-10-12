@@ -166,7 +166,7 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   decoded pixels needs at most one temporary 256-KiB transparent fallback; unused slices are never cleared/uploaded.
   Shell handler extraction requests only the large 256-pixel icon and omits the unused second output. The handle
   is owned before its HRESULT is checked, so partial outputs release on every fallback. Cropping, high-quality
-  WIC conversion, glyph rendering, fallback order and GPU storage remain unchanged; this adds no cache, worker,
+  WIC conversion, glyph rendering, fallback order and GPU storage remain unchanged; single-output extraction adds no worker,
   per-widget field or steady-frame work. The private automated handler test adds no retained override or COM owner.
   One Launcher refresh may borrow one drive-qualified filesystem parent folder at a time, parse each child relative
   to it and obtain the same `IExtractIconW` through `IShellFolder::GetUIObjectOf`. Its bounded 513-wide-character parent key
@@ -174,9 +174,20 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   unavailable relative binding uses the original full-path shell-item route. UNC, device and shell-namespace
   targets retain that route. A handler that already refused extraction is not called twice before the original
   image-factory/image-list fallback. The folder and child
-  PIDLs release within the refresh; no icon/location cache, worker, timer or per-widget field is added. This
+  PIDLs release within the refresh; no folder/location owner, worker, timer or per-widget field is retained. This
   accepts about two KiB of temporary parent/child path stack storage to remove repeated parent walks for adjacent
   shortcuts.
+  Launcher MAY reuse decoded filename-backed handler pixels in one UI-thread-owned process cache, bounded at
+  four 256-KiB buffers (1 MiB total) and less than 16 KiB of fixed bookkeeping. A fresh handler/location and
+  explicit no-shield result, exact target spelling, expanded resource filename, signed index/flags, and both files'
+  volume/file identity, creation/write/change times, size and attributes MUST match before reuse. Failed or changed
+  inputs, opaque locations, `GIL_DONTCACHE`, shield/overlay/unknown flags and unsupported files MUST bypass reuse.
+  File state is checked again after cloning/decoding; no failed or unstable image is published to the cache.
+  Invalid entries may keep bounded reusable buffers, but `RedXePluginShutdown` MUST release all bytes. The cache
+  retains no COM, HICON, HBITMAP or GPU owner and adds no steady-frame work. Allocation failure MUST preserve the
+  ordinary extraction path. This intentional inactive retention is accepted for the 2026-10-12 measured
+  1.9–5.9-ms reduction for two eligible icons in every paired repeated batch; the shipped eight-pin scene retains
+  512 KiB. Whole-batch/cold timing remains mixed, and neither a cold-start nor steady CPU saving is established.
   Optional automated attribution records completed shell phases in caller-owned fixed storage. Normal refreshes
   query no attribution clocks, and neither rendering nor clean preparation performs shell work.
   Glyph extraction shares one lazy isolated DirectWrite factory/face and clipped coverage buffer within its bounded

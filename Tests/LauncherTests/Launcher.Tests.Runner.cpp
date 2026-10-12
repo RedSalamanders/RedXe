@@ -240,19 +240,25 @@ class TestShellIconExtractor final : public IExtractIconW
                                               UINT* resultFlags) noexcept override
     {
         ++locationCalls;
-        if (flags != GIL_FORSHELL || capacity != MAX_PATH || !path || !index || !resultFlags)
+        if ((flags != GIL_FORSHELL && !(allowShieldCheck && flags == (GIL_FORSHELL | GIL_CHECKSHIELD))) ||
+            capacity != MAX_PATH || !path || !index || !resultFlags)
             return E_INVALIDARG;
-        (void)wcscpy_s(path, capacity, L"synthetic-icon-resource");
-        *index = -7;
-        *resultFlags = GIL_NOTFILENAME | GIL_PERINSTANCE;
+        (void)wcscpy_s(path, capacity, location);
+        *index = locationIndex;
+        *resultFlags = locationFlags | ((flags & GIL_CHECKSHIELD) ? shieldFlags : 0);
+        if (flags & GIL_CHECKSHIELD)
+        {
+            ++shieldCalls;
+            return shieldResult;
+        }
         return locationResult;
     }
     HRESULT STDMETHODCALLTYPE Extract(PCWSTR path, UINT index, HICON* largeIcon, HICON* smallIcon,
                                       UINT size) noexcept override
     {
         ++extractCalls;
-        if (!path || std::wcscmp(path, L"synthetic-icon-resource") != 0 || index != static_cast<UINT>(-7) ||
-            !largeIcon || smallIcon || LOWORD(size) != 256 || HIWORD(size) != 0)
+        if (!path || std::wcscmp(path, location) != 0 || index != static_cast<UINT>(locationIndex) || !largeIcon ||
+            smallIcon || LOWORD(size) != 256 || HIWORD(size) != 0)
             return E_INVALIDARG;
         if (returnIcon)
         {
@@ -263,7 +269,7 @@ class TestShellIconExtractor final : public IExtractIconW
         }
         return extractResult;
     }
-    HRESULT Initialize() noexcept
+    HRESULT Initialize(uint32_t colorValue = 0xFFD25028U) noexcept
     {
         BITMAPINFO info{};
         info.bmiHeader.biSize = sizeof(info.bmiHeader);
@@ -277,7 +283,7 @@ class TestShellIconExtractor final : public IExtractIconW
         wil::unique_hbitmap mask{CreateBitmap(256, 256, 1, 1, nullptr)};
         if (!color || !mask || !pixels)
             return E_OUTOFMEMORY;
-        std::fill_n(static_cast<uint32_t*>(pixels), 256 * 256, 0xFFD25028U);
+        std::fill_n(static_cast<uint32_t*>(pixels), 256 * 256, colorValue);
         ICONINFO icon{};
         icon.fIcon = TRUE;
         icon.hbmColor = color.get();
@@ -300,9 +306,16 @@ class TestShellIconExtractor final : public IExtractIconW
     ULONG references = 1;
     uint32_t locationCalls = 0;
     uint32_t extractCalls = 0;
+    uint32_t shieldCalls = 0;
+    const wchar_t* location = L"synthetic-icon-resource";
+    int locationIndex = -7;
+    UINT locationFlags = GIL_NOTFILENAME | GIL_PERINSTANCE;
+    UINT shieldFlags = GIL_FORCENOSHIELD;
     HRESULT locationResult = S_OK;
+    HRESULT shieldResult = S_OK;
     HRESULT extractResult = S_OK;
     bool returnIcon = true;
+    bool allowShieldCheck = false;
 };
 
 [[nodiscard]] HRESULT ValidateSingleShellIcon(LauncherTestShellHandlerFn extract) noexcept
@@ -441,6 +454,196 @@ class TestShellIconExtractor final : public IExtractIconW
         GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
         return kTestFailure;
     std::wprintf(L"Call-local shell phase completeness, unchanged BGRA, refusal and failure ownership passed.\n");
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT ValidateIconCache(LauncherTestCachedShellHandlerFn inspect, LauncherTestIconCacheFn control,
+                                        RedXePluginShutdownFn shutdown) noexcept
+{
+    if (!inspect || !control || !shutdown)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    LauncherIconCacheDiagnostics diagnostics{sizeof(LauncherIconCacheDiagnostics)};
+    LauncherShellTimings timings{sizeof(LauncherShellTimings)};
+    TestShellIconExtractor extractor;
+    extractor.allowShieldCheck = true;
+    extractor.locationFlags = GIL_PERINSTANCE;
+    if (FAILED(extractor.Initialize()) || control(1, &diagnostics) != S_OK || diagnostics.allocatedBytes ||
+        diagnostics.residentCount || diagnostics.capacity != 4 || control(0, nullptr) != E_POINTER ||
+        inspect(nullptr, &extractor, nullptr) != E_POINTER)
+        return kTestFailure;
+    --diagnostics.sizeBytes;
+    if (control(1, &diagnostics) != E_INVALIDARG || diagnostics.sizeBytes != sizeof(diagnostics) - 1)
+        return kTestFailure;
+    diagnostics.sizeBytes = sizeof(diagnostics);
+    --timings.sizeBytes;
+    if (inspect(L"C:\\test", &extractor, &timings) != E_INVALIDARG || timings.sizeBytes != sizeof(timings) - 1)
+        return kTestFailure;
+    timings.sizeBytes = sizeof(timings);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", nullptr);
+    const HRESULT denied = control(1, &diagnostics);
+    const HRESULT deniedInspect = inspect(L"C:\\test", &extractor, &timings);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (denied != E_ACCESSDENIED || deniedInspect != E_ACCESSDENIED || diagnostics.capacity || timings.frequency ||
+        extractor.locationCalls || control(4, &diagnostics) != E_INVALIDARG || diagnostics.capacity ||
+        inspect(nullptr, &extractor, &timings) != E_POINTER || inspect(L"", &extractor, &timings) != E_INVALIDARG ||
+        inspect(L"C:\\test", nullptr, &timings) != E_POINTER)
+        return kTestFailure;
+
+    std::array<wchar_t, MAX_PATH> temporary{};
+    std::array<std::array<wchar_t, MAX_PATH>, 34> files{};
+    if (!GetTempPathW(static_cast<DWORD>(temporary.size()), temporary.data()))
+        return E_UNEXPECTED;
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            (void)control(1, &diagnostics);
+            for (const auto& path : files)
+                if (path[0])
+                    (void)DeleteFileW(path.data());
+        });
+    const auto writeFile = [](const wchar_t* path, uint8_t value, bool preserveWrite = false) noexcept
+    {
+        wil::unique_hfile file{CreateFileW(path, GENERIC_READ | GENERIC_WRITE,
+                                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
+                                           FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if (!file)
+            return false;
+        FILETIME oldWrite{};
+        DWORD written = 0;
+        return (!preserveWrite || GetFileTime(file.get(), nullptr, nullptr, &oldWrite)) &&
+               WriteFile(file.get(), &value, 1, &written, nullptr) && written == 1 &&
+               (!preserveWrite || SetFileTime(file.get(), nullptr, nullptr, &oldWrite));
+    };
+    for (uint32_t index = 0; index < files.size(); ++index)
+        if (swprintf_s(files[index].data(), files[index].size(), L"%sRedXeIconCache-%lu-%u.bin", temporary.data(),
+                       GetCurrentProcessId(), index) <= 0 ||
+            !writeFile(files[index].data(), 1))
+            return kTestFailure;
+    extractor.location = files.back().data();
+    const auto pixelHash = [](uint32_t color) noexcept
+    {
+        uint64_t hash = 14695981039346656037ULL;
+        for (uint32_t pixel = 0; pixel < 256 * 256; ++pixel)
+            for (uint32_t byte = 0; byte < 4; ++byte)
+                hash = (hash ^ static_cast<uint8_t>(color >> (byte * 8))) * 1099511628211ULL;
+        return hash;
+    };
+    const uint64_t first = pixelHash(0xFFD25028U);
+    const uint64_t second = pixelHash(0xFF2868D2U);
+    const auto check = [&](const wchar_t* target, uint64_t hash, uint32_t source) noexcept
+    {
+        return inspect(target, &extractor, &timings) == S_OK && ConsistentShellTimings(timings) &&
+               timings.pixelHash == hash && timings.sourceEdge == 256 && timings.sourceKind == source &&
+               extractor.references == 1 && extractor.LastIconReleased();
+    };
+    if (!check(files[0].data(), first, 1) || timings.phaseCalls[8] != 1 || timings.phaseCalls[9] != 2 ||
+        timings.phaseCalls[11] != 1)
+        return kTestFailure;
+    const uint32_t extracts = extractor.extractCalls;
+    const uint32_t locations = extractor.locationCalls;
+    const DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    const DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    if (!check(files[0].data(), first, 5) || extractor.extractCalls != extracts ||
+        extractor.locationCalls != locations + 2 || timings.phaseCalls[3] || timings.phaseCalls[4] ||
+        timings.phaseCalls[10] != 1 || control(0, &diagnostics) != S_OK || diagnostics.hits != 1 ||
+        diagnostics.allocatedBytes != 256 * 256 * 4 || diagnostics.residentCount != 1)
+        return kTestFailure;
+
+    // Refusals must discard eligibility; changed dynamic pixels must never reuse a prior entry.
+    for (UINT flags : std::array<UINT, 5>{GIL_DONTCACHE, GIL_NOTFILENAME, GIL_SIMULATEDOC, GIL_SHIELD, 0x80000000U})
+    {
+        extractor.locationFlags = GIL_PERINSTANCE | flags;
+        if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1) ||
+            control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+            return kTestFailure;
+        extractor.locationFlags = GIL_PERINSTANCE;
+        if (FAILED(extractor.Initialize()) || !check(files[0].data(), first, 1) || !check(files[0].data(), first, 5))
+            return kTestFailure;
+    }
+    for (UINT shield : {0U, static_cast<UINT>(GIL_SHIELD)})
+    {
+        extractor.shieldFlags = shield;
+        if (!check(files[0].data(), first, 1) || control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+            return kTestFailure;
+    }
+    extractor.shieldFlags = GIL_FORCENOSHIELD;
+    for (HRESULT refusal : {S_FALSE, E_FAIL, E_PENDING})
+    {
+        extractor.shieldResult = refusal;
+        if (!check(files[0].data(), first, 1) || control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+            return kTestFailure;
+    }
+    extractor.shieldResult = S_OK;
+    for (const wchar_t* path : std::array<const wchar_t*, 4>{L"", L"C:\\RedXeMissingIconResource.bin",
+                                                             L"\\\\server\\share\\icon.ico", temporary.data()})
+    {
+        extractor.location = path;
+        if (!check(files[0].data(), first, 1) || control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+            return kTestFailure;
+    }
+    extractor.location = files.back().data();
+    if (!check(L"https://example.com", first, 1) || !check(files[0].data(), first, 1))
+        return kTestFailure;
+    ++extractor.locationIndex;
+    if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1) ||
+        !check(files[0].data(), second, 5))
+        return kTestFailure;
+    extractor.location = files[32].data();
+    if (FAILED(extractor.Initialize()) || !check(files[0].data(), first, 1))
+        return kTestFailure;
+    // Equal resource/identifier but different instances cannot share per-instance pixels.
+    if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[1].data(), second, 1) ||
+        !check(files[0].data(), first, 5))
+        return kTestFailure;
+    if (!writeFile(files[0].data(), 2, true) || !check(files[0].data(), second, 1) ||
+        !writeFile(files[32].data(), 2, true) || FAILED(extractor.Initialize()) || !check(files[0].data(), first, 1))
+        return kTestFailure;
+    if (!DeleteFileW(files[32].data()) || !writeFile(files[32].data(), 3) ||
+        FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1))
+        return kTestFailure;
+
+    // A failed cache allocation must retain the successful ordinary extraction.
+    if (control(2, &diagnostics) != S_OK || !check(files[0].data(), second, 1) ||
+        timings.phaseResults[10] != E_OUTOFMEMORY || !check(files[0].data(), second, 5) ||
+        control(1, &diagnostics) != S_OK || control(3, &diagnostics) != S_OK || !check(files[0].data(), second, 1) ||
+        timings.phaseResults[11] != E_OUTOFMEMORY || control(0, &diagnostics) != S_OK || diagnostics.residentCount ||
+        diagnostics.allocatedBytes)
+        return kTestFailure;
+    for (HRESULT failure : {S_FALSE, E_FAIL, E_OUTOFMEMORY})
+    {
+        extractor.extractResult = failure;
+        if (inspect(files[0].data(), &extractor, &timings) != failure || !ConsistentShellTimings(timings) ||
+            timings.pixelHash || !extractor.LastIconReleased() || control(0, &diagnostics) != S_OK ||
+            diagnostics.residentCount)
+            return kTestFailure;
+    }
+    extractor.extractResult = S_OK;
+    extractor.returnIcon = false;
+    extractor.lastIcon = nullptr;
+    if (inspect(files[0].data(), &extractor, &timings) != E_UNEXPECTED || timings.pixelHash)
+        return kTestFailure;
+    extractor.returnIcon = true;
+    extractor.locationResult = E_FAIL;
+    if (inspect(files[0].data(), &extractor, &timings) != E_FAIL || timings.pixelHash)
+        return kTestFailure;
+    extractor.locationResult = S_OK;
+    if (control(1, &diagnostics) != S_OK)
+        return kTestFailure;
+    for (uint32_t index = 0; index < 32; ++index)
+        if (!check(files[index].data(), second, 1) || control(0, &diagnostics) != S_OK ||
+            diagnostics.residentCount != std::min(index + 1, 4U) ||
+            diagnostics.allocatedBytes != std::min(index + 1, 4U) * 256 * 256 * 4)
+            return kTestFailure;
+    if (diagnostics.evictions != 28 || !check(files[31].data(), second, 5) || !check(files[0].data(), second, 1) ||
+        GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
+        GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
+        return kTestFailure;
+    shutdown();
+    if (control(0, &diagnostics) != S_OK || diagnostics.residentCount || diagnostics.allocatedBytes ||
+        diagnostics.hits || extractor.references != 1)
+        return kTestFailure;
+    std::wprintf(
+        L"Bounded icon reuse, exact pixels, fresh shield/file checks, invalidation, OOM and shutdown passed.\n");
     return S_OK;
 }
 
@@ -829,7 +1032,9 @@ struct RenderTarget final
         {
             const auto& expected = reference[index % cases.size()];
             if (!ConsistentShellTimings(timings[index]) || timings[index].pixelHash != expected.pixelHash ||
-                timings[index].sourceEdge != expected.sourceEdge || timings[index].sourceKind != expected.sourceKind)
+                timings[index].sourceEdge != expected.sourceEdge ||
+                (timings[index].sourceKind != expected.sourceKind &&
+                 !(timings[index].sourceKind == 5 && expected.sourceKind == 1)))
                 return kTestFailure;
         }
         if (GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
@@ -2417,7 +2622,8 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     } while (count < paths.size() && FindNextFileW(find.get(), &entry));
     std::sort(paths.begin(), paths.begin() + count, [](const auto& a, const auto& b) noexcept
               { return CompareStringOrdinal(a.data(), -1, b.data(), -1, TRUE) == CSTR_LESS_THAN; });
-    constexpr std::array names{"item", "bind", "location", "extract", "decode", "image", "image_decode", "list"};
+    constexpr std::array names{"item",         "bind", "location", "extract",          "decode",     "image",
+                               "image_decode", "list", "shield",   "cache_validation", "cache_read", "cache_store"};
     static_assert(names.size() == kLauncherShellPhaseCount);
     if (std::fputs("round,icon,hr,mask,source,freq,total_ticks,pixel_hash,source_edge", output) < 0)
         return E_FAIL;
@@ -2535,6 +2741,14 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
                                  Resolve<LauncherTestShellHandlerFn>(module.get(), kLauncherTestShellHandlerExport));
         if (FAILED(result))
             std::wprintf(L"ValidateShellTimings failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ValidateIconCache(
+            Resolve<LauncherTestCachedShellHandlerFn>(module.get(), kLauncherTestCachedShellHandlerExport),
+            Resolve<LauncherTestIconCacheFn>(module.get(), kLauncherTestIconCacheExport), shutdown);
+        if (FAILED(result))
+            std::wprintf(L"ValidateIconCache failed: 0x%08X\n", static_cast<unsigned int>(result));
     }
     if (SUCCEEDED(result))
     {

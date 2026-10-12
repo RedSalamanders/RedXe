@@ -537,8 +537,203 @@ template <typename Operation>
     return result;
 }
 
+constexpr uint32_t kIconCacheCapacity = 4;
+constexpr uint32_t kIconBytes = kIconEdge * kIconEdge * 4;
+
+struct IconFileIdentity final
+{
+    FILE_ID_INFO id{};
+    LONGLONG creation = 0;
+    LONGLONG write = 0;
+    LONGLONG change = 0;
+    LONGLONG bytes = 0;
+    DWORD attributes = 0;
+
+    [[nodiscard]] bool operator==(const IconFileIdentity& other) const noexcept
+    {
+        return id.VolumeSerialNumber == other.id.VolumeSerialNumber &&
+               std::memcmp(id.FileId.Identifier, other.id.FileId.Identifier, sizeof(id.FileId.Identifier)) == 0 &&
+               creation == other.creation && write == other.write && change == other.change && bytes == other.bytes &&
+               attributes == other.attributes;
+    }
+};
+
+struct IconCacheKey final
+{
+    std::array<wchar_t, kTargetCapacity> target{};
+    std::array<wchar_t, kTargetCapacity> resource{};
+    int index = 0;
+    UINT flags = 0;
+    IconFileIdentity targetFile{};
+    IconFileIdentity resourceFile{};
+
+    [[nodiscard]] bool operator==(const IconCacheKey& other) const noexcept
+    {
+        return target == other.target && resource == other.resource && index == other.index && flags == other.flags &&
+               targetFile == other.targetFile && resourceFile == other.resourceFile;
+    }
+};
+
+[[nodiscard]] HRESULT ReadIconFileIdentity(const wchar_t* path, IconFileIdentity& identity) noexcept
+{
+    if (!Launcher::ShellIconParentLength(std::wstring_view(path, wcsnlen_s(path, kTargetCapacity))))
+        return S_FALSE;
+    wil::unique_hfile file{CreateFileW(path, FILE_READ_ATTRIBUTES,
+                                       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                       FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (!file)
+        return HRESULT_FROM_WIN32(GetLastError());
+    FILE_BASIC_INFO basic{};
+    FILE_STANDARD_INFO standard{};
+    if (!GetFileInformationByHandleEx(file.get(), FileIdInfo, &identity.id, sizeof(identity.id)) ||
+        !GetFileInformationByHandleEx(file.get(), FileBasicInfo, &basic, sizeof(basic)) ||
+        !GetFileInformationByHandleEx(file.get(), FileStandardInfo, &standard, sizeof(standard)))
+        return HRESULT_FROM_WIN32(GetLastError());
+    if (standard.Directory || standard.DeletePending)
+        return S_FALSE;
+    identity.creation = basic.CreationTime.QuadPart;
+    identity.write = basic.LastWriteTime.QuadPart;
+    identity.change = basic.ChangeTime.QuadPart;
+    identity.bytes = standard.EndOfFile.QuadPart;
+    identity.attributes = basic.FileAttributes;
+    return S_OK;
+}
+
+[[nodiscard]] bool CacheableIconLocation(const wchar_t* path, UINT flags) noexcept
+{
+    // The filename contract permits Shell caching; opaque identifiers, overlays, and explicit refusal do not.
+    constexpr UINT supported = GIL_PERINSTANCE | GIL_PERCLASS | GIL_FORCENOSHIELD;
+    return path[0] && wcsnlen_s(path, MAX_PATH) < MAX_PATH && (flags & ~supported) == 0;
+}
+
+[[nodiscard]] HRESULT MakeIconCacheKey(const wchar_t* target, const wchar_t* path, int index, UINT flags,
+                                       IconCacheKey& key) noexcept
+{
+    if (!CacheableIconLocation(path, flags) || !(flags & GIL_FORCENOSHIELD) ||
+        !Launcher::ShellIconParentLength(std::wstring_view(target, wcsnlen_s(target, kTargetCapacity))) ||
+        !CopyWide(target, key.target.data(), key.target.size()))
+        return S_FALSE;
+    const DWORD length = ExpandEnvironmentStringsW(path, key.resource.data(), static_cast<DWORD>(key.resource.size()));
+    if (!length || length > key.resource.size())
+        return S_FALSE;
+    key.index = index;
+    key.flags = flags;
+    HRESULT result = ReadIconFileIdentity(target, key.targetFile);
+    if (result != S_OK)
+        return result;
+    return ReadIconFileIdentity(key.resource.data(), key.resourceFile);
+}
+
+// UI-thread-owned process cache. Retains only decoded pixels, never a Shell/COM/GDI/GPU owner or a worker.
+class IconCache final
+{
+  public:
+    struct Entry final
+    {
+        IconCacheKey key{};
+        std::unique_ptr<uint8_t[]> pixels;
+        uint32_t sourceEdge = 0;
+        bool valid = false;
+    };
+
+    [[nodiscard]] Entry* Find(const IconCacheKey& key) noexcept
+    {
+        for (auto& entry : _entries)
+            if (entry.valid && entry.key == key)
+                return &entry;
+        return nullptr;
+    }
+
+    void Invalidate(const wchar_t* target) noexcept
+    {
+        for (auto& entry : _entries)
+            if (entry.valid && std::wcscmp(entry.key.target.data(), target) == 0)
+                entry.valid = false;
+    }
+
+    [[nodiscard]] HRESULT Read(const Entry& entry, ShortcutRecord& record) noexcept
+    {
+        const bool injected = std::exchange(failNextRead, false);
+        auto pixels = injected ? nullptr : std::unique_ptr<uint8_t[]>{new (std::nothrow) uint8_t[kIconBytes]};
+        if (!pixels)
+            return E_OUTOFMEMORY;
+        std::memcpy(pixels.get(), entry.pixels.get(), kIconBytes);
+        record.bgra = std::move(pixels);
+        record.sourceEdge = entry.sourceEdge;
+        return S_OK;
+    }
+
+    [[nodiscard]] HRESULT Store(const IconCacheKey& key, const ShortcutRecord& record) noexcept
+    {
+        if (std::exchange(failNextStore, false))
+            return E_OUTOFMEMORY;
+        Entry* chosen = Find(key);
+        if (!chosen)
+            for (auto& entry : _entries)
+                if (!entry.valid)
+                {
+                    chosen = &entry;
+                    break;
+                }
+        if (!chosen)
+        {
+            chosen = &_entries[_next];
+            _next = (_next + 1) % kIconCacheCapacity;
+        }
+        if (!chosen->pixels)
+        {
+            chosen->pixels.reset(new (std::nothrow) uint8_t[kIconBytes]);
+            if (!chosen->pixels)
+                return E_OUTOFMEMORY;
+        }
+        if (chosen->valid && !(chosen->key == key))
+            ++evictions;
+        std::memcpy(chosen->pixels.get(), record.bgra.get(), kIconBytes);
+        chosen->key = key;
+        chosen->sourceEdge = record.sourceEdge;
+        chosen->valid = true;
+        ++stores;
+        return S_OK;
+    }
+
+    void Clear() noexcept
+    {
+        for (auto& entry : _entries)
+            entry = Entry{};
+        _next = 0;
+        hits = stores = evictions = 0;
+        failNextRead = failNextStore = false;
+    }
+
+    void Inspect(LauncherIconCacheDiagnostics& diagnostics) const noexcept
+    {
+        diagnostics.capacity = kIconCacheCapacity;
+        for (const auto& entry : _entries)
+        {
+            diagnostics.residentCount += entry.valid ? 1U : 0U;
+            diagnostics.allocatedBytes += entry.pixels ? kIconBytes : 0U;
+        }
+        diagnostics.hits = hits;
+        diagnostics.stores = stores;
+        diagnostics.evictions = evictions;
+    }
+
+    uint64_t hits = 0;
+    uint64_t stores = 0;
+    uint64_t evictions = 0;
+    bool failNextRead = false;
+    bool failNextStore = false;
+
+  private:
+    std::array<Entry, kIconCacheCapacity> _entries{};
+    uint32_t _next = 0;
+};
+static_assert(sizeof(IconCache) < 16 * 1024);
+IconCache gIconCache;
+
 [[nodiscard]] HRESULT ExtractFromShellHandler(IExtractIconW* extractor, ShortcutRecord& record,
-                                              LauncherShellTimings* timings = nullptr) noexcept
+                                              LauncherShellTimings* timings = nullptr,
+                                              const wchar_t* cacheTarget = nullptr) noexcept
 {
     std::array<wchar_t, MAX_PATH> iconPath{};
     int iconIndex = 0;
@@ -551,7 +746,66 @@ template <typename Operation>
                                                                 static_cast<UINT>(iconPath.size()), &iconIndex, &flags);
                           });
     if (FAILED(located))
+    {
+        if (cacheTarget)
+            gIconCache.Invalidate(cacheTarget);
         return located;
+    }
+    IconCacheKey key{};
+    bool cacheable = false;
+    if (cacheTarget)
+    {
+        if (located == S_OK && CacheableIconLocation(iconPath.data(), flags))
+        {
+            std::array<wchar_t, MAX_PATH> checkedPath{};
+            int checkedIndex = 0;
+            UINT checkedFlags = 0;
+            const HRESULT checked =
+                MeasureShellPhase(timings, LauncherShellPhase::ShieldCheck,
+                                  [&]() noexcept
+                                  {
+                                      return extractor->GetIconLocation(
+                                          GIL_FORSHELL | GIL_CHECKSHIELD, checkedPath.data(),
+                                          static_cast<UINT>(checkedPath.size()), &checkedIndex, &checkedFlags);
+                                  });
+            if (checked == S_OK && wcsnlen_s(checkedPath.data(), checkedPath.size()) < checkedPath.size())
+            {
+                iconPath = checkedPath;
+                iconIndex = checkedIndex;
+                flags = checkedFlags;
+                cacheable =
+                    MeasureShellPhase(
+                        timings, LauncherShellPhase::CacheValidation, [&]() noexcept
+                        { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, key); }) == S_OK;
+            }
+        }
+        if (!cacheable)
+            gIconCache.Invalidate(cacheTarget);
+        else if (const auto* entry = gIconCache.Find(key))
+        {
+            if (MeasureShellPhase(timings, LauncherShellPhase::CacheRead,
+                                  [&]() noexcept { return gIconCache.Read(*entry, record); }) == S_OK)
+            {
+                IconCacheKey after{};
+                if (MeasureShellPhase(
+                        timings, LauncherShellPhase::CacheValidation, [&]() noexcept
+                        { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, after); }) == S_OK &&
+                    after == key)
+                {
+                    ++gIconCache.hits;
+                    if (timings)
+                        timings->sourceKind = 5;
+                    return S_OK;
+                }
+                record.bgra.reset();
+                record.sourceEdge = 0;
+                gIconCache.Invalidate(cacheTarget);
+                cacheable = false;
+            }
+        }
+        else
+            gIconCache.Invalidate(cacheTarget);
+    }
     wil::unique_hicon icon;
     // Only the large image is consumed. Asking for a second 256-pixel image repeats shell work.
     const HRESULT extracted =
@@ -562,17 +816,39 @@ template <typename Operation>
                                                         nullptr, MAKELONG(kIconEdge, 0));
                           });
     if (extracted != S_OK)
+    {
+        if (cacheTarget)
+            gIconCache.Invalidate(cacheTarget);
         return extracted;
+    }
     if (!icon)
+    {
+        if (cacheTarget)
+            gIconCache.Invalidate(cacheTarget);
         return E_UNEXPECTED;
+    }
     const HRESULT decoded = MeasureShellPhase(timings, LauncherShellPhase::DecodeIcon,
                                               [&]() noexcept { return ExtractFromHicon(icon.get(), record); });
     if (decoded == S_OK && timings)
         timings->sourceKind = 1;
+    if (cacheable && decoded == S_OK)
+    {
+        IconCacheKey after{};
+        if (MeasureShellPhase(timings, LauncherShellPhase::CacheValidation, [&]() noexcept
+                              { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, after); }) ==
+                S_OK &&
+            after == key)
+            (void)MeasureShellPhase(timings, LauncherShellPhase::CacheStore,
+                                    [&]() noexcept { return gIconCache.Store(key, record); });
+        else
+            gIconCache.Invalidate(cacheTarget);
+    }
+    else if (cacheTarget && decoded != S_OK)
+        gIconCache.Invalidate(cacheTarget);
     return decoded;
 }
 
-// One refresh borrows one filesystem folder at a time. No folder or decoded image survives the batch.
+// One refresh borrows one filesystem folder at a time. Folder ownership ends with the batch.
 class ShellIconBatch final
 {
   public:
@@ -643,7 +919,7 @@ class ShellIconBatch final
     gExtractCalls.fetch_add(1, std::memory_order_relaxed);
     wil::com_ptr_nothrow<IExtractIconW> extractIcon;
     const bool bound = batch && SUCCEEDED(batch->Bind(target, timings, extractIcon)) && extractIcon;
-    if (bound && ExtractFromShellHandler(extractIcon.get(), record, timings) == S_OK)
+    if (bound && ExtractFromShellHandler(extractIcon.get(), record, timings, target) == S_OK)
         return S_OK;
     extractIcon.reset();
     wil::com_ptr_nothrow<IShellItem> item;
@@ -659,7 +935,8 @@ class ShellIconBatch final
             result = MeasureShellPhase(
                 timings, LauncherShellPhase::BindHandler, [&]() noexcept
                 { return item->BindToHandler(nullptr, BHID_SFUIObject, IID_PPV_ARGS(extractIcon.put())); });
-            if (SUCCEEDED(result) && extractIcon && ExtractFromShellHandler(extractIcon.get(), record, timings) == S_OK)
+            if (SUCCEEDED(result) && extractIcon &&
+                ExtractFromShellHandler(extractIcon.get(), record, timings, batch ? target : nullptr) == S_OK)
             {
                 return S_OK;
             }
@@ -2438,7 +2715,7 @@ constexpr std::array kFactoryEntries{
 };
 
 [[nodiscard]] HRESULT InspectShellIcon(const wchar_t* target, IExtractIconW* extractor, LauncherShellTimings& timings,
-                                       ShellIconBatch* batch = nullptr) noexcept
+                                       ShellIconBatch* batch = nullptr, bool cachedHandler = false) noexcept
 {
     LARGE_INTEGER frequency{};
     if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
@@ -2448,8 +2725,9 @@ constexpr std::array kFactoryEntries{
     LARGE_INTEGER begin{};
     LARGE_INTEGER end{};
     QueryPerformanceCounter(&begin);
-    const HRESULT result = extractor ? ExtractFromShellHandler(extractor, record, &timings)
-                                     : ExtractShellIcon(target, record, &timings, batch);
+    const HRESULT result = extractor
+                               ? ExtractFromShellHandler(extractor, record, &timings, cachedHandler ? target : nullptr)
+                               : ExtractShellIcon(target, record, &timings, batch);
     QueryPerformanceCounter(&end);
     timings.totalTicks = static_cast<uint64_t>(std::max<LONGLONG>(0, end.QuadPart - begin.QuadPart));
     if (result == S_OK)
@@ -2482,7 +2760,49 @@ extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId
     return RedXeGetStaticPluginSettingsContract(kPluginId, pluginId, &kSettingsContract, contract);
 }
 
-extern "C" void __stdcall RedXePluginShutdown() noexcept {}
+extern "C" void __stdcall RedXePluginShutdown() noexcept
+{
+    gIconCache.Clear();
+}
+
+extern "C" HRESULT __stdcall RedXeLauncherTestIconCache(uint32_t operation,
+                                                        LauncherIconCacheDiagnostics* diagnostics) noexcept
+{
+    if (!diagnostics)
+        return E_POINTER;
+    if (diagnostics->sizeBytes != sizeof(LauncherIconCacheDiagnostics))
+        return E_INVALIDARG;
+    *diagnostics = LauncherIconCacheDiagnostics{sizeof(LauncherIconCacheDiagnostics)};
+    if (!IsAutomatedHost())
+        return E_ACCESSDENIED;
+    if (operation > 3)
+        return E_INVALIDARG;
+    if (operation == 1)
+        gIconCache.Clear();
+    else if (operation == 2)
+        gIconCache.failNextRead = true;
+    else if (operation == 3)
+        gIconCache.failNextStore = true;
+    gIconCache.Inspect(*diagnostics);
+    return S_OK;
+}
+
+extern "C" HRESULT __stdcall RedXeLauncherTestCachedShellHandler(const wchar_t* target, IExtractIconW* extractor,
+                                                                 LauncherShellTimings* timings) noexcept
+{
+    if (!timings)
+        return E_POINTER;
+    if (timings->sizeBytes != sizeof(LauncherShellTimings))
+        return E_INVALIDARG;
+    *timings = LauncherShellTimings{sizeof(LauncherShellTimings)};
+    if (!IsAutomatedHost())
+        return E_ACCESSDENIED;
+    if (!target || !extractor)
+        return E_POINTER;
+    if (!target[0])
+        return E_INVALIDARG;
+    return InspectShellIcon(target, extractor, *timings, nullptr, true);
+}
 
 extern "C" HRESULT __stdcall RedXeLauncherTestShellIcon(const wchar_t* target, IExtractIconW* extractor,
                                                         LauncherShellTimings* timings) noexcept
