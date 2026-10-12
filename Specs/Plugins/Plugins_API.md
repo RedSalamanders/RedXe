@@ -1475,8 +1475,15 @@ handlers, with no retained COM/GDI/GPU owner. Eligibility follows the
 caching the handler's pixels. Such a token is eligible only when its expanded spelling also names a verified
 ordinary file. The original token and signed identifier MUST remain opaque identity, compared exactly; neither
 is interpreted as a filename/resource-index pair or substituted for the native handler's extraction.
-Every refresh binds a fresh handler and calls `GetIconLocation(GIL_FORSHELL)`. Eligible locations also
-require a fresh `GIL_CHECKSHIELD` result with `GIL_FORCENOSHIELD`; checking shield state MUST NOT be skipped on a hit.
+Every refresh binds a fresh handler. The production batch calls
+`GetIconLocation(GIL_FORSHELL | GIL_CHECKSHIELD)` once to obtain both location and shield state. Its successful,
+terminated location/index/flags are authoritative, including a different opaque token or signed identifier.
+Reuse still requires a fresh `GIL_FORCENOSHIELD` result; checking shield state MUST NOT be skipped on a hit.
+`S_FALSE`, a failed/pending request or an unterminated result clears every partial path/index/flag output before
+the ordinary `GIL_FORSHELL` fallback. That fallback uses native extraction and MUST NOT read or populate the cache
+for the refresh. A valid shield-aware no-cache, shield or unknown-state response also uses native extraction.
+An unterminated ordinary location returns `E_UNEXPECTED` before extraction. The single-target pixel reference
+continues to use the original ordinary location query without cache work.
 The exact-spelling target, unmodified location token, expanded file spelling, signed icon identifier and flags,
 and both files' volume/file identity, creation/write/change times, size and attributes form the key.
 Last-access time is excluded because reads
@@ -1495,8 +1502,10 @@ sizes leave outputs untouched; otherwise outputs clear before authorization/targ
 is processed until all targets validate. Failed pixels stay zero, hashing is outside the extraction interval, and
 the batch releases shared ownership before returning the first failure. These exports retain no override, owner
 or timing state and are never called by the host. The batch may populate/use the same bounded production pixel
-cache; the single-target reference and borrowed-handler decoder bypass it. Extra call-local phases attribute fresh
-shield checks, file validation, cloning and stores. Automated-only `RedXeLauncherTestCachedShellHandler` and
+cache; the single-target reference and borrowed-handler decoder bypass it. The exact 280-byte private record has
+fifteen disjoint phases: separate parent-item creation, parent-folder binding and relative child parsing, extractor
+binding, combined shield/location checks, ordinary fallback/reference location, extraction/decoding/fallbacks,
+file validation, cloning and stores. Unavailable phases retain clear completion bits. Automated-only `RedXeLauncherTestCachedShellHandler` and
 `RedXeLauncherTestIconCache` exercise eligibility, failures, capacity and cleanup without retaining an extractor
 or changing the production host ABI. Ordinary extraction queries no attribution clocks.
 A refresh batch shares one
@@ -1752,7 +1761,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     parent reuse, exact-case parent keys, mixed parents with identical child names, drive-root children,
     bounded parent parsing and full-path routing of UNC roots/device paths/shell namespaces,
     missing-parent/child and URI fallback pixels, retargeted link/icon locations, the 32-entry bound and native
-    resource cleanup, filename and verified-file opaque cache cold/hit pixels and fresh shield checks,
+    resource cleanup, disjoint parent/item/folder/child attribution, one combined fresh shield/location query,
+    authoritative changed shield tokens/identifiers, reset partial outputs on failed/pending/refused/truncated
+    shield requests, ordinary fallback without cache reuse and malformed ordinary rejection,
+    filename and verified-file opaque cache cold/hit pixels and fresh shield checks,
     distinct literal tokens expanding to the same file, signed opaque identifiers, no-cache/token-only/shield/overlay/unknown
     refusal, changed identifiers/resources/instances, target/resource changes with restored write time, file
     replacement, eight-entry eviction and 32-target pressure, best-effort clone/store allocation failure,

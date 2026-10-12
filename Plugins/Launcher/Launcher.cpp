@@ -742,47 +742,48 @@ IconCache gIconCache;
     std::array<wchar_t, MAX_PATH> iconPath{};
     int iconIndex = 0;
     UINT flags = 0;
-    const HRESULT located =
-        MeasureShellPhase(timings, LauncherShellPhase::GetLocation,
-                          [&]() noexcept
-                          {
-                              return extractor->GetIconLocation(GIL_FORSHELL, iconPath.data(),
-                                                                static_cast<UINT>(iconPath.size()), &iconIndex, &flags);
-                          });
-    if (FAILED(located))
+    HRESULT located = E_NOTIMPL;
+    bool checked = false;
+    // The shield-aware request also supplies the location. Keep the ordinary query for handlers that
+    // cannot supply it; discard their partial outputs before that fallback, and never cache the fallback.
+    if (cacheTarget)
+    {
+        located = MeasureShellPhase(timings, LauncherShellPhase::ShieldCheck,
+                                    [&]() noexcept
+                                    {
+                                        return extractor->GetIconLocation(
+                                            GIL_FORSHELL | GIL_CHECKSHIELD, iconPath.data(),
+                                            static_cast<UINT>(iconPath.size()), &iconIndex, &flags);
+                                    });
+        checked = located == S_OK && wcsnlen_s(iconPath.data(), iconPath.size()) < iconPath.size();
+    }
+    if (!checked)
+    {
+        iconPath.fill(0);
+        iconIndex = 0;
+        flags = 0;
+        located = MeasureShellPhase(timings, LauncherShellPhase::GetLocation,
+                                    [&]() noexcept
+                                    {
+                                        return extractor->GetIconLocation(GIL_FORSHELL, iconPath.data(),
+                                                                          static_cast<UINT>(iconPath.size()),
+                                                                          &iconIndex, &flags);
+                                    });
+    }
+    if (FAILED(located) || wcsnlen_s(iconPath.data(), iconPath.size()) == iconPath.size())
     {
         if (cacheTarget)
             gIconCache.Invalidate(cacheTarget);
-        return located;
+        return FAILED(located) ? located : E_UNEXPECTED;
     }
     IconCacheKey key{};
     bool cacheable = false;
     if (cacheTarget)
     {
-        if (located == S_OK && CacheableIconLocation(iconPath.data(), flags))
-        {
-            std::array<wchar_t, MAX_PATH> checkedPath{};
-            int checkedIndex = 0;
-            UINT checkedFlags = 0;
-            const HRESULT checked =
-                MeasureShellPhase(timings, LauncherShellPhase::ShieldCheck,
-                                  [&]() noexcept
-                                  {
-                                      return extractor->GetIconLocation(
-                                          GIL_FORSHELL | GIL_CHECKSHIELD, checkedPath.data(),
-                                          static_cast<UINT>(checkedPath.size()), &checkedIndex, &checkedFlags);
-                                  });
-            if (checked == S_OK && wcsnlen_s(checkedPath.data(), checkedPath.size()) < checkedPath.size())
-            {
-                iconPath = checkedPath;
-                iconIndex = checkedIndex;
-                flags = checkedFlags;
-                cacheable =
-                    MeasureShellPhase(
-                        timings, LauncherShellPhase::CacheValidation, [&]() noexcept
-                        { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, key); }) == S_OK;
-            }
-        }
+        if (checked)
+            cacheable = MeasureShellPhase(
+                            timings, LauncherShellPhase::CacheValidation, [&]() noexcept
+                            { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, key); }) == S_OK;
         if (!cacheable)
             gIconCache.Invalidate(cacheTarget);
         else if (const auto* entry = gIconCache.Find(key))
@@ -874,12 +875,12 @@ class ShellIconBatch final
             _parent[parentLength] = L'\0';
             wil::com_ptr_nothrow<IShellItem> parent;
             HRESULT result = MeasureShellPhase(
-                timings, LauncherShellPhase::CreateItem, [&]() noexcept
+                timings, LauncherShellPhase::ParentItem, [&]() noexcept
                 { return SHCreateItemFromParsingName(_parent.data(), nullptr, IID_PPV_ARGS(parent.put())); });
             if (FAILED(result) || !parent)
                 return FAILED(result) ? result : E_UNEXPECTED;
             result = MeasureShellPhase(
-                timings, LauncherShellPhase::BindHandler,
+                timings, LauncherShellPhase::ParentFolder,
                 [&]() noexcept { return parent->BindToHandler(nullptr, BHID_SFObject, IID_PPV_ARGS(_folder.put())); });
             if (FAILED(result))
             {
@@ -893,7 +894,7 @@ class ShellIconBatch final
         std::copy_n(separator + 1, length - static_cast<size_t>(separator - target), childName.data());
         wil::unique_cotaskmem_ptr<ITEMIDLIST> child;
         HRESULT result =
-            MeasureShellPhase(timings, LauncherShellPhase::CreateItem,
+            MeasureShellPhase(timings, LauncherShellPhase::ChildParse,
                               [&]() noexcept
                               {
                                   return _folder->ParseDisplayName(nullptr, nullptr, childName.data(), nullptr,

@@ -186,6 +186,11 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   An opaque token that also names a verified ordinary file MAY qualify under the Shell cache contract, but its
   exact token/identifier MUST NOT be interpreted as a filename/resource-index pair. Extraction still uses its
   fresh native handler; distinct tokens expanding to the same file MUST NOT alias.
+  The production batch obtains location and shield state with one `GetIconLocation(GIL_FORSHELL | GIL_CHECKSHIELD)`
+  request. A successful terminated location is authoritative; no preceding ordinary query is needed. Refusal,
+  pending work or an unterminated result clears all partial outputs before the ordinary location fallback, which
+  MUST NOT read or populate the decoded cache for that refresh. An unterminated ordinary result fails before
+  native extraction. Explicit no-shield, no-cache/unknown-flag and metadata checks remain mandatory before reuse.
   File state is checked again after cloning/decoding; no failed or unstable image is published to the cache.
   Invalid entries may keep bounded reusable buffers, but `RedXePluginShutdown` MUST release all bytes. The cache
   retains no COM, HICON, HBITMAP or GPU owner and adds no steady-frame work. Allocation failure MUST preserve the
@@ -193,11 +198,17 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   eight-pin reduction from 52.54 to 39.69 ms median, improving in all six alternating native pairs. The shipped
   scene now retains 2 MiB instead of 512 KiB. The 1.5-MiB increase and larger fixed bookkeeping preserve full-quality
   pixels while avoiding repeated extraction/decoding of all eight icons; fresh shield evaluation remains.
-  Matched hardware visibility medians move in opposite directions across the two run orders; returned private
+  For that cache-expansion comparison, hardware visibility medians move in opposite directions; returned private
   differences are +1.88 and -0.78 MiB, with unchanged local GPU usage and zero hidden/minimized submissions.
   This accepts bounded retention for the measured native repeat-work reduction; page-activation, cold-start and
-  steady CPU savings remain unestablished. Full measurements and retained failed runs are in the active runtime plan.
-  Optional automated attribution records completed shell phases in caller-owned fixed storage. Normal refreshes
+  steady CPU savings remain unestablished. The subsequent combined-query comparison preserves this storage bound
+  and lowers repeated native batches from 40.7547 to 39.0762 ms median. Hardware visibility improves in both orders,
+  but cold CPU is mixed and returned private memory rises by 1.25/0.55 MiB. These observations do not accept the
+  whole-process memory, cold-construction, first-pixel or steady CPU budgets. Full measurements and retained failed
+  runs are in the active runtime plan.
+  Optional automated attribution records fifteen completed shell phases in caller-owned fixed storage, separating
+  parent-item creation, parent-folder binding and relative child parsing from extractor binding. The combined
+  location query belongs to shield time; ordinary location time is fallback/reference work. Normal refreshes
   query no attribution clocks, and neither rendering nor clean preparation performs shell work.
   Glyph extraction shares one lazy isolated DirectWrite factory/face and clipped coverage buffer within its bounded
   refresh batch. Coverage is reused up to the largest glyph, at most 512x512x3 bytes per buffer; transactional

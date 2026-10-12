@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -243,8 +244,21 @@ class TestShellIconExtractor final : public IExtractIconW
         if ((flags != GIL_FORSHELL && !(allowShieldCheck && flags == (GIL_FORSHELL | GIL_CHECKSHIELD))) ||
             capacity != MAX_PATH || !path || !index || !resultFlags)
             return E_INVALIDARG;
-        (void)wcscpy_s(path, capacity, location);
-        *index = locationIndex;
+        if (!(flags & GIL_CHECKSHIELD))
+        {
+            ++ordinaryCalls;
+            if (requireClearedOrdinary &&
+                (*index || *resultFlags ||
+                 std::any_of(path, path + capacity, [](wchar_t value) noexcept { return value != 0; })))
+                return E_UNEXPECTED;
+        }
+        expectedLocation = (flags & GIL_CHECKSHIELD) && shieldLocation ? shieldLocation : location;
+        expectedIndex = (flags & GIL_CHECKSHIELD) && shieldLocation ? shieldIndex : locationIndex;
+        if ((flags & GIL_CHECKSHIELD) ? (unterminatedShield || poisonShieldOutput) : unterminatedLocation)
+            std::fill_n(path, capacity, L'x');
+        else
+            (void)wcscpy_s(path, capacity, expectedLocation);
+        *index = poisonShieldOutput && (flags & GIL_CHECKSHIELD) ? INT_MIN : expectedIndex;
         *resultFlags = locationFlags | ((flags & GIL_CHECKSHIELD) ? shieldFlags : 0);
         if (flags & GIL_CHECKSHIELD)
         {
@@ -257,8 +271,8 @@ class TestShellIconExtractor final : public IExtractIconW
                                       UINT size) noexcept override
     {
         ++extractCalls;
-        if (!path || std::wcscmp(path, location) != 0 || index != static_cast<UINT>(locationIndex) || !largeIcon ||
-            smallIcon || LOWORD(size) != 256 || HIWORD(size) != 0)
+        if (!path || std::wcscmp(path, expectedLocation) != 0 || index != static_cast<UINT>(expectedIndex) ||
+            !largeIcon || smallIcon || LOWORD(size) != 256 || HIWORD(size) != 0)
             return E_INVALIDARG;
         if (returnIcon)
         {
@@ -307,8 +321,13 @@ class TestShellIconExtractor final : public IExtractIconW
     uint32_t locationCalls = 0;
     uint32_t extractCalls = 0;
     uint32_t shieldCalls = 0;
+    uint32_t ordinaryCalls = 0;
     const wchar_t* location = L"synthetic-icon-resource";
     int locationIndex = -7;
+    const wchar_t* shieldLocation = nullptr;
+    int shieldIndex = -17;
+    const wchar_t* expectedLocation = nullptr;
+    int expectedIndex = 0;
     UINT locationFlags = GIL_NOTFILENAME | GIL_PERINSTANCE;
     UINT shieldFlags = GIL_FORCENOSHIELD;
     HRESULT locationResult = S_OK;
@@ -316,6 +335,10 @@ class TestShellIconExtractor final : public IExtractIconW
     HRESULT extractResult = S_OK;
     bool returnIcon = true;
     bool allowShieldCheck = false;
+    bool requireClearedOrdinary = false;
+    bool poisonShieldOutput = false;
+    bool unterminatedShield = false;
+    bool unterminatedLocation = false;
 };
 
 [[nodiscard]] HRESULT ValidateSingleShellIcon(LauncherTestShellHandlerFn extract) noexcept
@@ -538,16 +561,29 @@ class TestShellIconExtractor final : public IExtractIconW
                extractor.references == 1 && extractor.LastIconReleased();
     };
     if (!check(files[0].data(), first, 1) || timings.phaseCalls[8] != 1 || timings.phaseCalls[9] != 2 ||
-        timings.phaseCalls[11] != 1)
+        timings.phaseCalls[11] != 1 || timings.phaseCalls[2] || extractor.ordinaryCalls || extractor.locationCalls != 1)
         return kTestFailure;
     const uint32_t extracts = extractor.extractCalls;
     const uint32_t locations = extractor.locationCalls;
     const DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
     const DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
     if (!check(files[0].data(), first, 5) || extractor.extractCalls != extracts ||
-        extractor.locationCalls != locations + 2 || timings.phaseCalls[3] || timings.phaseCalls[4] ||
-        timings.phaseCalls[10] != 1 || control(0, &diagnostics) != S_OK || diagnostics.hits != 1 ||
-        diagnostics.allocatedBytes != 256 * 256 * 4 || diagnostics.residentCount != 1)
+        extractor.locationCalls != locations + 1 || timings.phaseCalls[2] || timings.phaseCalls[3] ||
+        timings.phaseCalls[4] || timings.phaseCalls[10] != 1 || control(0, &diagnostics) != S_OK ||
+        diagnostics.hits != 1 || diagnostics.allocatedBytes != 256 * 256 * 4 || diagnostics.residentCount != 1)
+        return kTestFailure;
+
+    // The valid shield-aware location is authoritative; an unrequested ordinary query may fail or name another icon.
+    extractor.locationResult = E_ACCESSDENIED;
+    if (!check(files[0].data(), first, 5) || extractor.ordinaryCalls)
+        return kTestFailure;
+    extractor.locationResult = S_OK;
+    extractor.shieldLocation = files[32].data();
+    if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1) ||
+        !check(files[0].data(), second, 5) || extractor.ordinaryCalls)
+        return kTestFailure;
+    extractor.shieldLocation = nullptr;
+    if (FAILED(extractor.Initialize()) || !check(files[0].data(), first, 1) || !check(files[0].data(), first, 5))
         return kTestFailure;
 
     // Refusals must discard eligibility; changed dynamic pixels must never reuse a prior entry.
@@ -568,13 +604,33 @@ class TestShellIconExtractor final : public IExtractIconW
             return kTestFailure;
     }
     extractor.shieldFlags = GIL_FORCENOSHIELD;
-    for (HRESULT refusal : {S_FALSE, E_FAIL, E_PENDING})
+    extractor.requireClearedOrdinary = true;
+    extractor.poisonShieldOutput = true;
+    for (HRESULT refusal : {S_FALSE, E_FAIL, E_PENDING, E_NOTIMPL, E_ACCESSDENIED, E_OUTOFMEMORY})
     {
         extractor.shieldResult = refusal;
-        if (!check(files[0].data(), first, 1) || control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+        if (!check(files[0].data(), first, 1) || timings.phaseCalls[8] != 1 || timings.phaseCalls[2] != 1 ||
+            timings.phaseCalls[10] || control(0, &diagnostics) != S_OK || diagnostics.residentCount)
             return kTestFailure;
     }
     extractor.shieldResult = S_OK;
+    extractor.poisonShieldOutput = false;
+    extractor.unterminatedShield = true;
+    if (!check(files[0].data(), first, 1) || timings.phaseCalls[8] != 1 || timings.phaseCalls[2] != 1 ||
+        control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+        return kTestFailure;
+    extractor.unterminatedLocation = true;
+    const uint32_t beforeMalformed = extractor.extractCalls;
+    if (inspect(files[0].data(), &extractor, &timings) != E_UNEXPECTED || timings.pixelHash ||
+        extractor.extractCalls != beforeMalformed || !ConsistentShellTimings(timings))
+        return kTestFailure;
+    extractor.unterminatedLocation = false;
+    extractor.unterminatedShield = false;
+    extractor.allowShieldCheck = false;
+    if (!check(files[0].data(), first, 1) || timings.phaseResults[8] != E_INVALIDARG || timings.phaseCalls[2] != 1 ||
+        control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+        return kTestFailure;
+    extractor.allowShieldCheck = true;
     for (const wchar_t* path :
          std::array<const wchar_t*, 6>{L"", L"C:\\RedXeMissingIconResource.bin", L"\\\\server\\share\\icon.ico",
                                        temporary.data(), L"opaque-token", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"})
@@ -644,10 +700,15 @@ class TestShellIconExtractor final : public IExtractIconW
     if (inspect(files[0].data(), &extractor, &timings) != E_UNEXPECTED || timings.pixelHash)
         return kTestFailure;
     extractor.returnIcon = true;
+    extractor.shieldResult = E_NOTIMPL;
     extractor.locationResult = E_FAIL;
-    if (inspect(files[0].data(), &extractor, &timings) != E_FAIL || timings.pixelHash)
+    const uint32_t beforeFailure = extractor.extractCalls;
+    if (inspect(files[0].data(), &extractor, &timings) != E_FAIL || timings.pixelHash ||
+        timings.phaseResults[8] != E_NOTIMPL || timings.phaseResults[2] != E_FAIL ||
+        extractor.extractCalls != beforeFailure)
         return kTestFailure;
     extractor.locationResult = S_OK;
+    extractor.shieldResult = S_OK;
     if (control(1, &diagnostics) != S_OK)
         return kTestFailure;
     for (uint32_t index = 0; index < 32; ++index)
@@ -1064,15 +1125,18 @@ struct RenderTarget final
             return kTestFailure;
     }
     // The second entry reuses its parent: only child parsing/binding are repeated.
-    if (timings[0].phaseCalls[0] != 2 || timings[0].phaseCalls[1] != 2 || timings[1].phaseCalls[0] != 1 ||
-        timings[1].phaseCalls[1] != 1 || reference[0].pixelHash == reference[2].pixelHash)
+    if (timings[0].phaseCalls[12] != 1 || timings[0].phaseCalls[13] != 1 || timings[0].phaseCalls[14] != 1 ||
+        timings[0].phaseCalls[1] != 1 || timings[1].phaseCalls[12] || timings[1].phaseCalls[13] ||
+        timings[1].phaseCalls[14] != 1 || timings[1].phaseCalls[1] != 1 ||
+        reference[0].pixelHash == reference[2].pixelHash)
         return kTestFailure;
     // Drive letters remain equivalent to the shell, but distinct spellings must not alias the folder
     // key: an authored path may live under a case-sensitive directory elsewhere in the same volume.
     const std::array<const wchar_t*, 2> differentlyCased{L"C:\\Windows\\System32\\notepad.exe",
                                                          L"c:\\Windows\\System32\\notepad.exe"};
     if (batch(differentlyCased.data(), 2, timings.data()) != S_OK || timings[0].pixelHash != timings[1].pixelHash ||
-        timings[1].phaseCalls[0] != 2 || timings[1].phaseCalls[1] != 2)
+        timings[1].phaseCalls[12] != 1 || timings[1].phaseCalls[13] != 1 || timings[1].phaseCalls[14] != 1 ||
+        timings[1].phaseCalls[1] != 1)
         return kTestFailure;
     const uint64_t previous = reference[0].pixelHash;
     if (FAILED(WriteShortcut(firstLink.data(), explorer, explorer)) ||
@@ -2644,8 +2708,9 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     } while (count < paths.size() && FindNextFileW(find.get(), &entry));
     std::sort(paths.begin(), paths.begin() + count, [](const auto& a, const auto& b) noexcept
               { return CompareStringOrdinal(a.data(), -1, b.data(), -1, TRUE) == CSTR_LESS_THAN; });
-    constexpr std::array names{"item",         "bind", "location", "extract",          "decode",     "image",
-                               "image_decode", "list", "shield",   "cache_validation", "cache_read", "cache_store"};
+    constexpr std::array names{"item",       "bind",         "location",    "extract",       "decode",
+                               "image",      "image_decode", "list",        "shield",        "cache_validation",
+                               "cache_read", "cache_store",  "parent_item", "parent_folder", "child_parse"};
     static_assert(names.size() == kLauncherShellPhaseCount);
     if (std::fputs("round,icon,hr,mask,source,freq,total_ticks,pixel_hash,source_edge", output) < 0)
         return E_FAIL;
@@ -2670,7 +2735,7 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
         {
             const auto& timings = records[index];
             if (result != S_OK || !ConsistentShellTimings(timings) || !timings.pixelHash || !timings.sourceEdge ||
-                !timings.sourceKind || timings.phaseCalls[0] < 1)
+                !timings.sourceKind || (timings.phaseCalls[0] + timings.phaseCalls[14]) < 1)
                 return kTestFailure;
             if (std::fprintf(output, "%u,%u,%u,%u,%u,%llu,%llu,%016llX,%u", round, index, static_cast<uint32_t>(result),
                              timings.completedMask, timings.sourceKind,

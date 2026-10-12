@@ -47,11 +47,16 @@ enum class LauncherShellPhase : uint32_t
     CacheValidation,
     CacheRead,
     CacheStore,
+    ParentItem,
+    ParentFolder,
+    ChildParse,
 };
-inline constexpr uint32_t kLauncherShellPhaseCount = 12;
+inline constexpr uint32_t kLauncherShellPhaseCount = 15;
 
 // Call-local wall-clock attribution. A clear completedMask bit means unavailable, not zero cost.
 // GetImage/ImageList cover fallback work; ImageList includes its decoding. Hashing is outside totalTicks.
+// ParentItem/ParentFolder/ChildParse split relative setup; CreateItem is full-path setup, BindHandler the extractor.
+// ShieldCheck includes the combined location query; GetLocation records the ordinary fallback/reference query.
 struct LauncherShellTimings final
 {
     uint32_t sizeBytes;
@@ -65,9 +70,9 @@ struct LauncherShellTimings final
     uint32_t sourceEdge;
     uint32_t sourceKind; // 0 none, 1 handler, 2 image factory, 3 image list, 4 stock image list, 5 cached handler.
 };
-static_assert(sizeof(LauncherShellTimings) == 232);
+static_assert(sizeof(LauncherShellTimings) == 280);
 static_assert(offsetof(LauncherShellTimings, phaseTicks) == 24);
-static_assert(offsetof(LauncherShellTimings, pixelHash) == 216);
+static_assert(offsetof(LauncherShellTimings, pixelHash) == 264);
 
 struct LauncherIconCacheDiagnostics final
 {
