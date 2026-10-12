@@ -1467,6 +1467,16 @@ full-path shell-item extraction and its fallback order. A handler that already r
 extraction proceeds to the original image-factory/image-list fallback without a duplicate handler call. Folder
 ownership is temporary to the refresh, with child PIDLs and icon owners released on every exit. Every later refresh
 reads shortcut targets and icon locations anew, including retargeted links.
+An automated diagnostic variant MAY pass fresh `WIN32_FIND_DATAW` through a temporary `IFileSystemBindData` registered
+as `STR_FILE_SYS_BIND_DATA` in a call-local `IBindCtx`. The API remains `SHCreateItemFromParsingName`, and
+native parent/child binding, shield evaluation and image selection remain unchanged. Ordinary production
+refreshes MUST NOT select this variant: both matched 2026-10-12 hardware visibility comparisons regress.
+Only a literal ordinary directory qualifies: roots, wildcard/dot-segment parents, reparse points,
+non-directories and failed probes
+use ordinary parsing. Metadata MUST NOT be fabricated, reused between refreshes or used to normalize the
+exact parent key. Allocation, context/registration and assisted-creation failure MUST release all partial
+owners before an ordinary retry. The metadata object is bounded below one KiB; the system context and file
+search owner release within parent creation. No metadata/context owner is retained by the widget or cache.
 One process-scoped UI-thread cache MAY reuse at most eight decoded 256×256 BGRA images from cacheable
 handlers, with no retained COM/GDI/GPU owner. Eligibility follows the
 [Shell cache contract](https://learn.microsoft.com/en-us/windows/win32/shell/how-to-create-icon-handlers):
@@ -1502,10 +1512,16 @@ sizes leave outputs untouched; otherwise outputs clear before authorization/targ
 is processed until all targets validate. Failed pixels stay zero, hashing is outside the extraction interval, and
 the batch releases shared ownership before returning the first failure. These exports retain no override, owner
 or timing state and are never called by the host. The batch may populate/use the same bounded production pixel
-cache; the single-target reference and borrowed-handler decoder bypass it. The exact 280-byte private record has
-fifteen disjoint phases: separate parent-item creation, parent-folder binding and relative child parsing, extractor
-binding, combined shield/location checks, ordinary fallback/reference location, extraction/decoding/fallbacks,
-file validation, cloning and stores. Unavailable phases retain clear completion bits. Automated-only `RedXeLauncherTestCachedShellHandler` and
+cache; the single-target reference and borrowed-handler decoder bypass it. The exact 312-byte private record has
+seventeen disjoint phases: diagnostic-only fresh parent metadata/context setup, ordinary parent-item creation,
+parent-folder binding and relative child parsing, extractor binding, combined shield/location checks,
+ordinary fallback/reference location, extraction/decoding/fallbacks,
+file validation, cloning and stores. Unavailable phases retain clear completion bits. Retried item calls accumulate
+ticks/calls and retain the last result. Normal batches leave the two diagnostic completion bits clear, with no
+metadata/context work. `RedXeLauncherTestShellParent` exercises one diagnostic metadata-assisted refresh with a
+call-local parent metadata/allocation/context/registration/partial-item/null-item refusal or unsupported metadata;
+it follows the single-target output/authorization rules and retains no fault state. The host never calls it;
+normal batches MUST remain on ordinary parsing. Automated-only `RedXeLauncherTestCachedShellHandler` and
 `RedXeLauncherTestIconCache` exercise eligibility, failures, capacity and cleanup without retaining an extractor
 or changing the production host ABI. Ordinary extraction queries no attribution clocks.
 A refresh batch shares one
@@ -1761,7 +1777,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     parent reuse, exact-case parent keys, mixed parents with identical child names, drive-root children,
     bounded parent parsing and full-path routing of UNC roots/device paths/shell namespaces,
     missing-parent/child and URI fallback pixels, retargeted link/icon locations, the 32-entry bound and native
-    resource cleanup, disjoint parent/item/folder/child attribution, one combined fresh shield/location query,
+    resource cleanup, fresh Unicode/literal directory metadata, recreated parents, real junction and root/pattern/dot
+    fallbacks, metadata/allocation/context/registration/partial/null-item refusals, call-local fault isolation and
+    handle/GDI/USER stability, disjoint metadata/context/parent/item/folder/child attribution,
+    one combined fresh shield/location query,
     authoritative changed shield tokens/identifiers, reset partial outputs on failed/pending/refused/truncated
     shield requests, ordinary fallback without cache reuse and malformed ordinary rejection,
     filename and verified-file opaque cache cold/hit pixels and fresh shield checks,

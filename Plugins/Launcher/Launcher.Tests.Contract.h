@@ -50,13 +50,17 @@ enum class LauncherShellPhase : uint32_t
     ParentItem,
     ParentFolder,
     ChildParse,
+    ParentMetadata,
+    ParentContext,
 };
-inline constexpr uint32_t kLauncherShellPhaseCount = 15;
+inline constexpr uint32_t kLauncherShellPhaseCount = 17;
 
 // Call-local wall-clock attribution. A clear completedMask bit means unavailable, not zero cost.
 // GetImage/ImageList cover fallback work; ImageList includes its decoding. Hashing is outside totalTicks.
 // ParentItem/ParentFolder/ChildParse split relative setup; CreateItem is full-path setup, BindHandler the extractor.
 // ShieldCheck includes the combined location query; GetLocation records the ordinary fallback/reference query.
+// ParentMetadata/ParentContext cover fresh filesystem data and call-local binding-context setup. ParentItem
+// includes assisted creation and any ordinary retry; repeated calls accumulate ticks and retain the last result.
 struct LauncherShellTimings final
 {
     uint32_t sizeBytes;
@@ -70,9 +74,22 @@ struct LauncherShellTimings final
     uint32_t sourceEdge;
     uint32_t sourceKind; // 0 none, 1 handler, 2 image factory, 3 image list, 4 stock image list, 5 cached handler.
 };
-static_assert(sizeof(LauncherShellTimings) == 280);
+static_assert(sizeof(LauncherShellTimings) == 312);
 static_assert(offsetof(LauncherShellTimings, phaseTicks) == 24);
-static_assert(offsetof(LauncherShellTimings, pixelHash) == 264);
+static_assert(offsetof(LauncherShellTimings, pixelHash) == 296);
+
+enum class LauncherShellParentFailure : uint32_t
+{
+    None,
+    Metadata,
+    Allocation,
+    BindContext,
+    Registration,
+    PartialItem,
+    NullItem,
+    ReparseMetadata,
+    FileMetadata,
+};
 
 struct LauncherIconCacheDiagnostics final
 {
@@ -117,6 +134,12 @@ extern "C"
     // Attempts all targets and returns the first failure. Shared folder ownership ends before return.
     REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestShellBatch(const wchar_t* const* targets, uint32_t count,
                                                                           LauncherShellTimings* timings) noexcept;
+    // Automated hosts only, UI-thread/STA. One diagnostic metadata-assisted refresh with a call-local setup fault.
+    // Ordinary host/batch refreshes never select this rejected alternative. The fault and all temporary
+    // filesystem/context owners end before return; output rules match ShellIcon.
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestShellParent(const wchar_t* target,
+                                                                           LauncherShellParentFailure failure,
+                                                                           LauncherShellTimings* timings) noexcept;
     // Automated hosts only, UI-thread/STA. Borrows a real file target and extractor for the cache path.
     REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestCachedShellHandler(
         const wchar_t* target, IExtractIconW* extractor, LauncherShellTimings* timings) noexcept;
@@ -133,6 +156,7 @@ using LauncherSetTestIconFailureFn = decltype(&RedXeLauncherSetTestIconFailure);
 using LauncherTestShellHandlerFn = decltype(&RedXeLauncherTestShellHandler);
 using LauncherTestShellIconFn = decltype(&RedXeLauncherTestShellIcon);
 using LauncherTestShellBatchFn = decltype(&RedXeLauncherTestShellBatch);
+using LauncherTestShellParentFn = decltype(&RedXeLauncherTestShellParent);
 using LauncherTestCachedShellHandlerFn = decltype(&RedXeLauncherTestCachedShellHandler);
 using LauncherTestIconCacheFn = decltype(&RedXeLauncherTestIconCache);
 
@@ -143,6 +167,7 @@ inline constexpr char kLauncherSetTestIconFailureExport[] = "RedXeLauncherSetTes
 inline constexpr char kLauncherTestShellHandlerExport[] = "RedXeLauncherTestShellHandler";
 inline constexpr char kLauncherTestShellIconExport[] = "RedXeLauncherTestShellIcon";
 inline constexpr char kLauncherTestShellBatchExport[] = "RedXeLauncherTestShellBatch";
+inline constexpr char kLauncherTestShellParentExport[] = "RedXeLauncherTestShellParent";
 inline constexpr char kLauncherTestCachedShellHandlerExport[] = "RedXeLauncherTestCachedShellHandler";
 inline constexpr char kLauncherTestIconCacheExport[] = "RedXeLauncherTestIconCache";
 

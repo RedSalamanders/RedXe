@@ -29,6 +29,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <wincodec.h>
+#include <winioctl.h>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
@@ -1115,6 +1116,7 @@ struct RenderTarget final
         {
             const auto& expected = reference[index % cases.size()];
             if (!ConsistentShellTimings(timings[index]) || timings[index].pixelHash != expected.pixelHash ||
+                timings[index].phaseCalls[15] || timings[index].phaseCalls[16] ||
                 timings[index].sourceEdge != expected.sourceEdge ||
                 (timings[index].sourceKind != expected.sourceKind &&
                  !(timings[index].sourceKind == 5 && expected.sourceKind == 1)))
@@ -1146,6 +1148,160 @@ struct RenderTarget final
         return kTestFailure;
     std::wprintf(L"Refresh-local folder reuse, mixed parents, root and fallback pixels, 32 targets, retargeted icons, "
                  L"atomic validation and resource ownership passed.\n");
+    return S_OK;
+}
+
+// A junction inside the test-owned temporary scene exercises the actual reparse fallback without elevation.
+[[nodiscard]] HRESULT MakeShellParentJunction(const wchar_t* path, const wchar_t* destination) noexcept
+{
+    struct MountPoint final
+    {
+        DWORD tag = IO_REPARSE_TAG_MOUNT_POINT;
+        USHORT bytes = 0;
+        USHORT reserved = 0;
+        USHORT substituteOffset = 0;
+        USHORT substituteBytes = 0;
+        USHORT printOffset = 0;
+        USHORT printBytes = 0;
+        std::array<wchar_t, 1024> text{};
+    } data;
+    static_assert(offsetof(MountPoint, text) == 16);
+    const int written = swprintf_s(data.text.data(), data.text.size(), L"\\??\\%s", destination);
+    if (written <= 0)
+        return E_INVALIDARG;
+    data.substituteBytes = static_cast<USHORT>(written * sizeof(wchar_t));
+    data.printOffset = static_cast<USHORT>((written + 1) * sizeof(wchar_t));
+    const size_t printIndex = static_cast<size_t>(written) + 1;
+    const int printed = swprintf_s(data.text.data() + printIndex, data.text.size() - printIndex, L"%s", destination);
+    if (printed <= 0)
+        return E_INVALIDARG;
+    data.printBytes = static_cast<USHORT>(printed * sizeof(wchar_t));
+    data.bytes = static_cast<USHORT>(8 + data.printOffset + data.printBytes + sizeof(wchar_t));
+    wil::unique_handle folder{CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                          nullptr, OPEN_EXISTING,
+                                          FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr)};
+    if (!folder)
+        return HRESULT_FROM_WIN32(GetLastError());
+    DWORD returned = 0;
+    return DeviceIoControl(folder.get(), FSCTL_SET_REPARSE_POINT, &data, 8 + data.bytes, nullptr, 0, &returned, nullptr)
+               ? S_OK
+               : HRESULT_FROM_WIN32(GetLastError());
+}
+
+[[nodiscard]] HRESULT ValidateShellParent(LauncherTestShellParentFn inspect, LauncherTestShellIconFn single) noexcept
+{
+    if (!inspect || !single)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    using Failure = LauncherShellParentFailure;
+    LauncherShellTimings timing{sizeof(LauncherShellTimings)};
+    timing.pixelHash = 123;
+    --timing.sizeBytes;
+    const auto untouched = timing;
+    if (inspect(kNotepad, Failure::None, &timing) != E_INVALIDARG ||
+        std::memcmp(&timing, &untouched, sizeof(timing)) != 0 || inspect(kNotepad, Failure::None, nullptr) != E_POINTER)
+        return kTestFailure;
+    timing.sizeBytes = sizeof(timing);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", nullptr);
+    const HRESULT denied = inspect(kNotepad, Failure::None, &timing);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (denied != E_ACCESSDENIED || timing.frequency || timing.pixelHash ||
+        inspect(nullptr, Failure::None, &timing) != E_POINTER || inspect(L"", Failure::None, &timing) != E_INVALIDARG ||
+        inspect(kNotepad, static_cast<Failure>(9), &timing) != E_INVALIDARG || timing.frequency)
+        return kTestFailure;
+
+    for (const wchar_t* path :
+         {L"C:\\Windows\\..\\Windows\\System32\\notepad.exe", L"C:\\Windows\\.\\System32\\notepad.exe",
+          L"C:\\Windows\\*\\notepad.exe", L"C:\\Windows\\?\\notepad.exe", L"C:\\RedXeMissingRootChild.exe"})
+    {
+        LauncherShellTimings expected{sizeof(LauncherShellTimings)};
+        if (single(path, nullptr, &expected) != S_OK || inspect(path, Failure::None, &timing) != S_OK ||
+            !ConsistentShellTimings(timing) || timing.pixelHash != expected.pixelHash ||
+            timing.sourceEdge != expected.sourceEdge || timing.phaseResults[15] != S_FALSE || timing.phaseCalls[16])
+            return kTestFailure;
+    }
+
+    std::array<wchar_t, MAX_PATH> temporary{}, directory{}, link{}, junction{}, junctionLink{};
+    if (!GetTempPathW(static_cast<DWORD>(temporary.size()), temporary.data()) ||
+        swprintf_s(directory.data(), directory.size(), L"%sRedXeParent-%lu-\x00E9", temporary.data(),
+                   GetCurrentProcessId()) <= 0 ||
+        swprintf_s(link.data(), link.size(), L"%s\\Shortcut.lnk", directory.data()) <= 0 ||
+        swprintf_s(junction.data(), junction.size(), L"%sRedXeParent-%lu-junction", temporary.data(),
+                   GetCurrentProcessId()) <= 0 ||
+        swprintf_s(junctionLink.data(), junctionLink.size(), L"%s\\Shortcut.lnk", junction.data()) <= 0)
+        return E_UNEXPECTED;
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            (void)RemoveDirectoryW(junction.data());
+            (void)DeleteFileW(link.data());
+            (void)RemoveDirectoryW(directory.data());
+        });
+    if (!CreateDirectoryW(directory.data(), nullptr) || !CreateDirectoryW(junction.data(), nullptr))
+        return HRESULT_FROM_WIN32(GetLastError());
+    if (FAILED(WriteShortcut(link.data(), kNotepad, kNotepad)))
+        return kTestFailure;
+    LauncherShellTimings reference{sizeof(LauncherShellTimings)};
+    if (single(link.data(), nullptr, &reference) != S_OK || !reference.pixelHash)
+        return kTestFailure;
+    const auto check = [&](Failure fault) noexcept
+    {
+        if (inspect(link.data(), fault, &timing) != S_OK || !ConsistentShellTimings(timing) ||
+            timing.pixelHash != reference.pixelHash || timing.sourceEdge != reference.sourceEdge ||
+            (timing.sourceKind != reference.sourceKind && !(timing.sourceKind == 5 && reference.sourceKind == 1)) ||
+            timing.phaseCalls[0] || timing.phaseCalls[15] != 1 || timing.phaseCalls[13] != 1)
+            return false;
+        const bool metadataRefused =
+            fault == Failure::Metadata || fault == Failure::ReparseMetadata || fault == Failure::FileMetadata;
+        const bool itemRefused = fault == Failure::PartialItem || fault == Failure::NullItem;
+        if (timing.phaseCalls[16] != (metadataRefused ? 0U : 1U) || timing.phaseCalls[12] != (itemRefused ? 2U : 1U))
+            return false;
+        if (fault == Failure::Metadata && timing.phaseResults[15] != E_ACCESSDENIED)
+            return false;
+        if ((fault == Failure::ReparseMetadata || fault == Failure::FileMetadata) && timing.phaseResults[15] != S_FALSE)
+            return false;
+        if ((fault == Failure::Allocation || fault == Failure::BindContext) && timing.phaseResults[16] != E_OUTOFMEMORY)
+            return false;
+        return fault != Failure::Registration || timing.phaseResults[16] == E_FAIL;
+    };
+    if (!check(Failure::None))
+        return kTestFailure;
+    for (uint32_t fault = 1; fault <= 8; ++fault)
+        if (!check(static_cast<Failure>(fault)))
+            return kTestFailure;
+    DWORD handles = 0;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &handles))
+        return HRESULT_FROM_WIN32(GetLastError());
+    const DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    const DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    for (uint32_t repeat = 0; repeat < 4; ++repeat)
+        for (uint32_t fault = 0; fault <= 8; ++fault)
+            if (!check(static_cast<Failure>(fault)))
+                return kTestFailure;
+    DWORD after = 0;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &after) || after != handles ||
+        GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
+        GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
+        return kTestFailure;
+    const HRESULT made = MakeShellParentJunction(junction.data(), directory.data());
+    if (FAILED(made))
+        return made;
+    if (single(junctionLink.data(), nullptr, &reference) != S_OK ||
+        inspect(junctionLink.data(), Failure::None, &timing) != S_OK || !ConsistentShellTimings(timing) ||
+        timing.pixelHash != reference.pixelHash || timing.sourceEdge != reference.sourceEdge ||
+        timing.phaseResults[15] != S_FALSE || timing.phaseCalls[16] || timing.phaseCalls[12] != 1)
+        return kTestFailure;
+    if (!RemoveDirectoryW(junction.data()))
+        return HRESULT_FROM_WIN32(GetLastError());
+    // A recreated same-spelling parent must get fresh metadata and native pixels, with no owner/fault retained.
+    const uint64_t previous = reference.pixelHash;
+    if (!DeleteFileW(link.data()) || !RemoveDirectoryW(directory.data()) ||
+        !CreateDirectoryW(directory.data(), nullptr) ||
+        FAILED(WriteShortcut(link.data(), L"C:\\Windows\\explorer.exe", L"C:\\Windows\\explorer.exe")) ||
+        single(link.data(), nullptr, &reference) != S_OK || reference.pixelHash == previous || !check(Failure::None))
+        return kTestFailure;
+    std::wprintf(L"Literal/Unicode parent metadata, root/pattern/dot and junction fallbacks, eight setup refusals, "
+                 L"partial/null owners, "
+                 L"recreated parents, native pixels and handle/GDI/USER stability passed.\n");
     return S_OK;
 }
 
@@ -2708,9 +2864,10 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     } while (count < paths.size() && FindNextFileW(find.get(), &entry));
     std::sort(paths.begin(), paths.begin() + count, [](const auto& a, const auto& b) noexcept
               { return CompareStringOrdinal(a.data(), -1, b.data(), -1, TRUE) == CSTR_LESS_THAN; });
-    constexpr std::array names{"item",       "bind",         "location",    "extract",       "decode",
-                               "image",      "image_decode", "list",        "shield",        "cache_validation",
-                               "cache_read", "cache_store",  "parent_item", "parent_folder", "child_parse"};
+    constexpr std::array names{
+        "item",         "bind",          "location",    "extract",          "decode",        "image",
+        "image_decode", "list",          "shield",      "cache_validation", "cache_read",    "cache_store",
+        "parent_item",  "parent_folder", "child_parse", "parent_metadata",  "parent_context"};
     static_assert(names.size() == kLauncherShellPhaseCount);
     if (std::fputs("round,icon,hr,mask,source,freq,total_ticks,pixel_hash,source_edge", output) < 0)
         return E_FAIL;
@@ -2848,6 +3005,13 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
                                     Resolve<LauncherTestShellIconFn>(module.get(), kLauncherTestShellIconExport));
         if (FAILED(result))
             std::wprintf(L"ValidateShellBatch failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ValidateShellParent(Resolve<LauncherTestShellParentFn>(module.get(), kLauncherTestShellParentExport),
+                                     Resolve<LauncherTestShellIconFn>(module.get(), kLauncherTestShellIconExport));
+        if (FAILED(result))
+            std::wprintf(L"ValidateShellParent failed: 0x%08X\n", static_cast<unsigned int>(result));
     }
     if (SUCCEEDED(result))
     {

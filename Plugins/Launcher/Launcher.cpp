@@ -853,10 +853,120 @@ IconCache gIconCache;
     return decoded;
 }
 
+// File metadata is fresh for this call, never synthesized or retained across refreshes. Shell parsing
+// still chooses the native folder/handler. Bind contexts own this object only during parent creation.
+class ShellParentFileData final : public RedXeComObject<ShellParentFileData, IFileSystemBindData>
+{
+  public:
+    HRESULT STDMETHODCALLTYPE SetFindData(const WIN32_FIND_DATAW* found) noexcept override
+    {
+        if (!found)
+            return E_POINTER;
+        _found = *found;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetFindData(WIN32_FIND_DATAW* found) noexcept override
+    {
+        if (!found)
+            return E_POINTER;
+        *found = _found;
+        return S_OK;
+    }
+
+  private:
+    WIN32_FIND_DATAW _found{};
+};
+
+[[nodiscard]] HRESULT CreateShellParentItem(const wchar_t* path, LauncherShellTimings* timings,
+                                            LauncherShellParentFailure failure,
+                                            wil::com_ptr_nothrow<IShellItem>& parent) noexcept
+{
+    WIN32_FIND_DATAW found{};
+    const HRESULT metadata =
+        MeasureShellPhase(timings, LauncherShellPhase::ParentMetadata,
+                          [&]() noexcept
+                          {
+                              if (failure == LauncherShellParentFailure::Metadata)
+                                  return E_ACCESSDENIED;
+                              // FindFirstFile accepts patterns/dot segments; Shell parsing has its own semantics.
+                              // Supply metadata only for a literal ordinary parent, never a guessed match or normalized
+                              // alias.
+                              const std::wstring_view name(path);
+                              if (name.size() == 3 || std::wcspbrk(path + 2, L"*?:") || name.ends_with(L"\\.") ||
+                                  name.ends_with(L"\\..") || name.find(L"\\.\\") != std::wstring_view::npos ||
+                                  name.find(L"\\..\\") != std::wstring_view::npos)
+                                  return S_FALSE;
+                              wil::unique_hfind find{FindFirstFileW(path, &found)};
+                              if (!find)
+                                  return HRESULT_FROM_WIN32(GetLastError());
+                              if (failure == LauncherShellParentFailure::ReparseMetadata)
+                                  found.dwFileAttributes |= FILE_ATTRIBUTE_REPARSE_POINT;
+                              else if (failure == LauncherShellParentFailure::FileMetadata)
+                                  found.dwFileAttributes &= ~FILE_ATTRIBUTE_DIRECTORY;
+                              return (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+                                             !(found.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                                         ? S_OK
+                                         : S_FALSE;
+                          });
+    if (metadata == S_OK)
+    {
+        wil::com_ptr_nothrow<IFileSystemBindData> data;
+        wil::com_ptr_nothrow<IBindCtx> context;
+        const HRESULT prepared = MeasureShellPhase(timings, LauncherShellPhase::ParentContext,
+                                                   [&]() noexcept
+                                                   {
+                                                       if (failure == LauncherShellParentFailure::Allocation)
+                                                           return E_OUTOFMEMORY;
+                                                       data.attach(new (std::nothrow) ShellParentFileData);
+                                                       if (!data)
+                                                           return E_OUTOFMEMORY;
+                                                       HRESULT result = data->SetFindData(&found);
+                                                       if (FAILED(result))
+                                                           return result;
+                                                       if (failure == LauncherShellParentFailure::BindContext)
+                                                           return E_OUTOFMEMORY;
+                                                       result = CreateBindCtx(0, context.put());
+                                                       if (FAILED(result) || !context)
+                                                           return FAILED(result) ? result : E_UNEXPECTED;
+                                                       if (failure == LauncherShellParentFailure::Registration)
+                                                           return E_FAIL;
+                                                       return context->RegisterObjectParam(
+                                                           const_cast<wchar_t*>(STR_FILE_SYS_BIND_DATA), data.get());
+                                                   });
+        if (prepared == S_OK)
+        {
+            const HRESULT created =
+                MeasureShellPhase(timings, LauncherShellPhase::ParentItem,
+                                  [&]() noexcept
+                                  {
+                                      if (failure == LauncherShellParentFailure::NullItem)
+                                          return E_UNEXPECTED;
+                                      const HRESULT result =
+                                          SHCreateItemFromParsingName(path, context.get(), IID_PPV_ARGS(parent.put()));
+                                      if (failure == LauncherShellParentFailure::PartialItem && parent)
+                                          return E_FAIL;
+                                      return SUCCEEDED(result) && !parent ? E_UNEXPECTED : result;
+                                  });
+            if (SUCCEEDED(created) && parent)
+                return created;
+            // Discard every partial owner and the supplied metadata before the ordinary retry.
+            parent.reset();
+        }
+    }
+    return MeasureShellPhase(timings, LauncherShellPhase::ParentItem, [&]() noexcept
+                             { return SHCreateItemFromParsingName(path, nullptr, IID_PPV_ARGS(parent.put())); });
+}
+
 // One refresh borrows one filesystem folder at a time. Folder ownership ends with the batch.
 class ShellIconBatch final
 {
   public:
+    explicit ShellIconBatch(LauncherShellParentFailure failure = LauncherShellParentFailure::None,
+                            bool inspectMetadata = false) noexcept
+        : _parentFailure(failure), _inspectMetadata(inspectMetadata)
+    {
+    }
+
     [[nodiscard]] HRESULT Bind(const wchar_t* target, LauncherShellTimings* timings,
                                wil::com_ptr_nothrow<IExtractIconW>& extractor) noexcept
     {
@@ -874,9 +984,13 @@ class ShellIconBatch final
             std::copy_n(target, parentLength, _parent.data());
             _parent[parentLength] = L'\0';
             wil::com_ptr_nothrow<IShellItem> parent;
-            HRESULT result = MeasureShellPhase(
-                timings, LauncherShellPhase::ParentItem, [&]() noexcept
-                { return SHCreateItemFromParsingName(_parent.data(), nullptr, IID_PPV_ARGS(parent.put())); });
+            // Metadata-assisted parsing is diagnostic only: both matched hardware orders regressed.
+            HRESULT result =
+                _inspectMetadata
+                    ? CreateShellParentItem(_parent.data(), timings, _parentFailure, parent)
+                    : MeasureShellPhase(
+                          timings, LauncherShellPhase::ParentItem, [&]() noexcept
+                          { return SHCreateItemFromParsingName(_parent.data(), nullptr, IID_PPV_ARGS(parent.put())); });
             if (FAILED(result) || !parent)
                 return FAILED(result) ? result : E_UNEXPECTED;
             result = MeasureShellPhase(
@@ -915,6 +1029,8 @@ class ShellIconBatch final
     std::array<wchar_t, kTargetCapacity> _parent{};
     size_t _length = 0;
     wil::com_ptr_nothrow<IShellFolder> _folder;
+    LauncherShellParentFailure _parentFailure;
+    bool _inspectMetadata;
 };
 
 [[nodiscard]] HRESULT ExtractShellIcon(const wchar_t* target, ShortcutRecord& record,
@@ -2858,6 +2974,24 @@ extern "C" HRESULT __stdcall RedXeLauncherTestShellBatch(const wchar_t* const* t
             result = extracted;
     }
     return result;
+}
+
+extern "C" HRESULT __stdcall RedXeLauncherTestShellParent(const wchar_t* target, LauncherShellParentFailure failure,
+                                                          LauncherShellTimings* timings) noexcept
+{
+    if (!timings)
+        return E_POINTER;
+    if (timings->sizeBytes != sizeof(LauncherShellTimings))
+        return E_INVALIDARG;
+    *timings = LauncherShellTimings{sizeof(LauncherShellTimings)};
+    if (!IsAutomatedHost())
+        return E_ACCESSDENIED;
+    if (!target)
+        return E_POINTER;
+    if (!target[0] || failure > LauncherShellParentFailure::FileMetadata)
+        return E_INVALIDARG;
+    ShellIconBatch batch(failure, true);
+    return InspectShellIcon(target, nullptr, *timings, &batch);
 }
 
 extern "C" HRESULT __stdcall RedXeLauncherTestShellHandler(IExtractIconW* extractor, uint64_t* pixelHash,

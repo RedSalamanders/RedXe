@@ -177,6 +177,16 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   PIDLs release within the refresh; no folder/location owner, worker, timer or per-widget field is retained. This
   accepts about two KiB of temporary parent/child path stack storage to remove repeated parent walks for adjacent
   shortcuts.
+  Ordinary refreshes MUST retain normal parent parsing. Metadata-assisted parsing is an automated diagnostic
+  variant only: the 2026-10-12 native phase reduction moves initialization to binding, while both matched
+  application visibility observations worsen. Its fresh `WIN32_FIND_DATAW`/`IFileSystemBindData`/`IBindCtx`
+  owners are bounded to one call/refresh. Only literal ordinary directories qualify; roots, patterns/dot
+  segments, reparse points, unsupported data and failures retry ordinary parsing after releasing partial owners.
+  This accepts a bounded diagnostic image increase of 5,632 disk bytes / 8,192 bytes of PE image address span,
+  at most eight bytes of normal construction-stack bookkeeping, and diagnostic-only temporary metadata below
+  one KiB plus a system context. Image span is not measured residency or whole-process commitment. No normal
+  metadata allocation, retained owner/payload, worker, timer, per-widget state or steady-frame work is added.
+  Attribute/report total setup; a smaller parsing phase alone MUST NOT be claimed as cold-activation savings.
   Launcher MAY reuse decoded cacheable handler pixels in one UI-thread-owned process cache, bounded at
   eight 256-KiB buffers (2 MiB total) and less than 24 KiB of fixed bookkeeping. A fresh handler/location and
   explicit no-shield result, exact target spelling and original location token, expanded file spelling,
@@ -206,8 +216,12 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   but cold CPU is mixed and returned private memory rises by 1.25/0.55 MiB. These observations do not accept the
   whole-process memory, cold-construction, first-pixel or steady CPU budgets. Full measurements and retained failed
   runs are in the active runtime plan.
-  Optional automated attribution records fifteen completed shell phases in caller-owned fixed storage, separating
-  parent-item creation, parent-folder binding and relative child parsing from extractor binding. The combined
+  Optional automated attribution exposes seventeen shell phases in caller-owned fixed storage: fifteen ordinary
+  phases plus two diagnostic-only metadata/context phases. It separates
+  parent-item creation, parent-folder binding and relative child parsing from extractor binding. The
+  fresh parent-metadata and binding-context phases are disjoint from Shell item creation. Retried item calls
+  in the diagnostic variant accumulate ticks/calls and retain their last result. Normal batches MUST leave those
+  two completion bits clear: they are unavailable, not zero-cost work. The combined
   location query belongs to shield time; ordinary location time is fallback/reference work. Normal refreshes
   query no attribution clocks, and neither rendering nor clean preparation performs shell work.
   Glyph extraction shares one lazy isolated DirectWrite factory/face and clipped coverage buffer within its bounded

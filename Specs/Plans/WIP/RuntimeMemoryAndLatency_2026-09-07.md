@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-12 against current `codex/runtime-probe` code, including combined Launcher shield/location queries and separate cold setup attribution; one commit per implemented step
+Refreshed: 2026-10-12 against current `codex/runtime-probe` code, including Launcher cold-parent attribution and rejected parsing alternatives; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -64,13 +64,14 @@ its validation and measurement; failed or unavailable qualification remains expl
 | Step | State | Evidence / commit |
 | --- | --- | --- |
 | P0.1 | Complete | Production probe and accepted Release baseline; `0971350`. |
-| P3.4 callback attribution | Complete; construction budgets remain open | Opt-in device/size/visibility and first-preparation timing, process stage identity, bounded two-page masks and strict completeness checks pass their recorded profile gates. The original accepted hardware capture has 18 complete stages and 402 callbacks, with Launcher visibility at 96.01 ms median / 244.20 ms maximum. Later single-output, folder, eligible-icon reuse and combined-query steps reduce measured work. Fifteen-phase attribution separates cold parent creation (69.09 ms), combined shield/location (59.57 ms) and extractor binding (32.51 ms) per eight pins; repeated combined checks remain 21.40 ms. Cold/first-pixel budgets stay open. No construction worker or visual-policy change is selected. |
+| P3.4 callback attribution | Complete; construction budgets remain open | Device/size/visibility and first-preparation timing, stage identity, bounded two-page masks and completeness checks retain their profile gates. Fifteen ordinary shell phases plus two diagnostic-only metadata/context phases attribute cold parent creation and binding. Metadata lowers a native phase but worsens visibility in both matched hardware orders; parse/create is unused and rejected. Ordinary production parsing is retained. Cold/first-pixel budgets remain open; a bounded host-owned construction mechanism needs selection. |
 | P4.3 WIC batch | Rejected after matched measurements | A temporary shared factory passes all functional/profile gates and 20 reference frames, but Launcher visibility medians rise in both capture orders: 88.21 → 96.48 ms and 82.97 → 92.89 ms. Production code, diagnostics and experiment tests are restored. Fewer factory creations alone do not justify the observed latency regression; shell extraction remains the measured target. |
 | P4.3 single shell output | Complete; remaining activation budget open | The shell handler now supplies one consumed 256-pixel icon instead of two, with failure-safe ownership. Shipped-DLL tests and all profile obligations pass; final tooling covers the completed documents. Five shell WARP frame, thirteen icon-slice and fifteen glyph/empty-frame checksums match the control. Visibility medians fall in both capture orders, 106.05 → 87.71 ms and 216.33 → 93.99 ms, with substantial uncontrolled tail variability. Release 16 scope accounting, Debug15/ASan15, clean ARM64 Release compilation and skills10 are recorded below. Construction/first-pixel budgets stay open. |
 | P4.3 shell attribution / folder binding | Complete; remaining activation budget open | Six alternating attribution pairs select repeated parent parsing: 28.18 → 4.31 ms per eight icons; total repeated extraction 68.39 → 43.00 ms. Both final hardware orders reduce visibility medians, 120.68 → 66.57 ms and 104.79 → 62.91 ms. Exact pins/alpha and bounded one-unit fallback RGB differences are recorded below. Release16, Debug15, ASan15 accounting, ARM64 compilation and skills10 cover the sealed final candidate and documents. The initial System Data oracle failure remains retained. Handler extraction and initial setup remain next; construction/first-pixel budgets are open. |
 | P4.3 filename-handler reuse | Complete; `5a2e6c3` | Fresh location/shield/file checks permit a four-entry/1-MiB maximum BGRA cache (512 KiB in the shipped scene). Two eligible icons improve in every native pair by 1.9–5.9 ms combined. Both hardware visibility medians improve, 80.90 → 66.30 / 57.12 → 56.23 ms, but whole-batch/cold/page totals remain mixed. Pins and ten rendered frames are exact; fallback slices retain a one-unit RGB limit. Debug15/ASan15, Release16 accounting including final tooling, ARM64 compile and skills10 have sealed closeout identities. The initial Desk Clock guard failure remains retained. Opaque handlers and initial setup stay open. |
 | P4.3 verified-file opaque handler reuse | Complete; remaining activation budget open | Exact opaque token/identifier identity, fresh no-shield/file checks and eight entries/2 MiB eliminate repeated handler extraction/decode for the shipped pins. All six native pairs improve, repeated median 52.54 → 39.69 ms. The intentional scene retention increase is 1.5 MiB. Both matched hardware orders complete, but visibility moves 61.13 → 69.48 and 61.05 → 54.01 ms; no page-activation or steady CPU saving is established. Raw pin/fallback/frame quality is exact, with the separate canonical hash mismatch retained. Release16, Debug15/ASan15, ARM64 compilation and skills10 require the sealed final closeout below. The initial Desk Clock guard failure stays retained. Fresh shield checks and initial setup remain next. |
 | P4.3 combined shield/location and cold setup attribution | Complete; remaining activation budget open | One authoritative checked location replaces two queries; refused/pending/truncated outputs reset before an uncached ordinary fallback. Fifteen phases isolate cold parent creation and fresh checked location. Six final native pairs preserve all pins/720 hits per arm; repeated median improves 40.75 → 39.08 ms, cold totals stay mixed. Both hardware orders improve visibility, 84.31 → 64.18 / 65.63 → 60.22 ms. Returned CPU is lower but cold CPU mixed; private grows 1.25/0.55 MiB. Release16 accounting, Debug15/ASan15, ARM64 compile, skills10 and final-tooling seals are recorded below. Initial Matrix/Desk guard failures and strict fallback-hash mismatch remain retained. |
+| P4.3 Launcher cold parent creation | Attribution/tests qualified; production shortcuts rejected | Path-to-PIDL parsing dominates parent creation; item creation from PIDL is only microseconds. Metadata native repeats improve 36.69 → 33.37 ms, but visibility worsens 46.72 → 71.17 / 45.59 → 58.08 ms and return CPU/submissions rise in both orders. The parse/create hook is unused and repeats are mostly worse. Ordinary production parsing, native quality and lifetime are preserved; seventeen-phase diagnostic failure tests and normal-route regression coverage are added. Release16 accounting, Debug15/ASan15, ARM64 compile, skills10 and final source/runtime seals are recorded below. |
 | Release link correctness | Complete | `cdfcfca`: a production capture exposed stale member offsets in incremental LTCG despite passing hidden gates. Full LTCG retains optimization and prevents cache reuse. All 68 evaluated project configurations, 16 Release scopes, clean ARM64 Release compilation and ten skills pass. The recovered candidate completes 18 hardware page activations with 402 callbacks. The failed executable, linker cache, local dump and stacks remain preserved; no baseline is accepted for it. |
 | P4.2 provider records | Complete | Count-sized scheduling ownership removes 140,576 logical bytes with the real System provider live, and adds one cold allocation. Validation precedes publication and records retire outside the lock at source quiescence. Descriptor caps/final delivery, allocation failure/retry, facade identity and lease/drain scenarios pass. Provider-only Debug15/ASan15 and recovered full-LTCG Release16, clean ARM64 compile and skills10 have sealed identities. Matched hardware arms have identical plugin DLLs and 18 complete stages/402 callbacks each. Returned private is 63.30 → 63.60 MiB; no process-memory, CPU or staging-latency saving is established. |
 | P4.2 private JSON | Implemented and measured; screenshot investigation open | 24-byte immutable values replace 4,104-byte inline reserves, with exact payloads and no default ownership. Release shipped logical storage is 209,460 → 56,450 bytes, plus 288 bytes of shared control blocks and unmeasured allocator overhead. Ownership/bounds/two-phase failure/parser/persist/stable concurrent-copy tests pass Debug15, recovered Release16 and ASan15; ARM64 compile and skills10 pass. Matched arms each have 18 stages/402 callbacks and unchanged plugin DLLs. Cold/returned private is 36.59/63.45 → 35.96/62.63 MiB; working set rises, and no causal CPU or latency saving is established. The initial Release screenshot access violation remains unexplained despite subsequent full/isolated/retained passes. |
@@ -763,6 +764,150 @@ logs, `p43-opaque-release-desk-clock-canonical-repeat.json`, sealed profile arti
 Rejected alternatives use `p43-alpha-*`, `p43-direct-folder-*`, `p43-desktop-folder-*` and `p43-opaque-cache-*`.
 The initial sandbox MSVC database-service failure, corrected diagnostic-generation assertion and first negative
 control wrapper's wrong HRESULT expectation are retained execution failures, not measurement or qualification evidence.
+
+### P4.3 Launcher cold parent creation (2026-10-12, attribution complete; parsing alternatives rejected)
+
+The clean qualified `e55b3bf` control is frozen before edits: 713 source files, 144 Release runtime files,
+eight real taskbar links and eight external icon resources. Build 282, settings/fonts/PDB/DxUi closure and
+the nonactivating collector are preserved. Cold parent creation is the expensive `SHCreateItemFromParsingName`
+boundary; parent-folder binding remains negligible. Earlier known-folder/direct-folder/desktop-folder routes
+stay rejected. No production parsing optimization is accepted by this investigation.
+
+A split diagnostic uses `SHParseDisplayName` plus `SHCreateItemFromIDList` while retaining native folder/handler
+binding. Four alternating pairs (1,024 calls) preserve all pin hashes and source edges. Path-to-PIDL parsing
+takes almost all the parent interval; creating an item from the PIDL takes 5.5–6.3 microseconds cold. Parent
+medians move 48.7643 → 46.2049 ms, but the fourth cold pair and repeated directions are mixed. Decomposing the
+API is useful attribution, not proof that replacing it improves application latency.
+
+The metadata alternative supplies fresh `FindFirstFileW` data through `IFileSystemBindData`/`IBindCtx` to the same
+creation API, retaining native parent/child binding and all icon/shield/decoder behavior. Only literal ordinary
+directories qualify; roots, patterns, dot segments, reparse points and failed/unsupported data use ordinary parsing.
+Allocation/context/registration/partial/null failure releases owners before retry. The initial four-pair cohort
+improves repeated totals 34.6682 → 30.9146 ms. Review adds conservative literal-path guards, freezes a new source,
+and recollects evidence instead of reusing changed-source results.
+
+Six final metadata pairs contain 1,536 calls and 720 validated decoded hits per arm, with exact pin hashes/edges.
+Repeated median is 36.6931 → 33.3687 ms, five of six paired medians improving. Cold total is 158.4965 → 152.1512 ms,
+but three cold pairs worsen and three improve. Parent creation falls 48.9046 → 14.8047 ms (fresh data/context
+0.0936/0.0077 ms); extractor binding rises 42.5065 → 68.6539 ms. Cost moves between phases. Live Shell/OS/cache
+histories remain uncontrolled and all tails stay in the receipt.
+
+Both matched metadata hardware orders have 18 complete stages, 402 callbacks and zero drops per arm. Source,
+runtime dependencies, portable scenes, collector, 2560×720/96-DPI XENEON geometry, OS/CPU/power and pin/resource
+inputs match; only Launcher DLL/PDB differ. Hidden/minimized submission rates are zero.
+
+| Metadata control → candidate | Control-first order | Candidate-first order |
+| --- | --- | --- |
+| Launcher visibility median / max, ms | 46.7185 / 167.090 → 71.1720 / 204.296 | 45.5880 / 166.724 → 58.0845 / 186.835 |
+| Whole Gallery stage median, ms | 69.7760 → 97.9275 | 67.2055 → 84.6535 |
+| Returned CPU, percent of one core | 3.071 → 5.426 | 2.353 → 3.049 |
+| Returned submissions per second | 62.050 → 96.126 | 59.832 → 83.169 |
+| Returned private / working set, MiB | 63.24 / 88.33 → 63.77 / 88.01 | 65.28 / 89.20 → 68.00 / 90.24 |
+| Cold CPU / private MiB | 2.217 / 35.04 → 2.608 / 35.11 | 2.534 / 35.33 → 1.902 / 36.87 |
+| Returned adapter-local MiB | 32.26 → 32.26 | 32.26 → 32.26 |
+
+The repeated native reduction does not justify worse application visibility/Gallery medians in both orders.
+CPU/submission/retention observations also worsen on returns. Their cause is unassigned; changed submission
+counts are not hardware FPS or proof of a causal CPU change. The metadata route is **rejected for production**.
+Its matching-context receipts remain accepted as valid observations, not as deployment acceptance.
+
+A final documented `STR_PARSE_AND_CREATE_ITEM` prototype uses a call-local SDK `IParseAndCreateItem` sink without
+supplying filesystem metadata. Every sink SetItem/GetItem count is zero in four alternating pairs (1,024 calls).
+Pins stay exact, but three repeated pair medians worsen; first totals improve in three pairs and worsen in one,
+while initialization again moves to binding. An unused hook and phase movement establish no reliable saving.
+This route is rejected too. No callback/lifetime/cancellation or visual-policy shortcut is selected.
+
+Ordinary production parsing is restored. The final private 312-byte record retains the original fifteen phases
+and adds diagnostic metadata/context phases. Clear completion bits mean unavailable, not zero work; these two
+phases are unavailable in every normal batch. Automated-only `RedXeLauncherTestShellParent` measures the rejected
+metadata variant and call-local failure cases through native extraction; the host never calls it or selects its
+route. No override, metadata/context owner, payload, worker, timer, GPU resource or per-widget field is retained.
+The bounded diagnostic variant uses one metadata object below one KiB plus a temporary system context; all
+references end with the call/refresh. Normal batches add at most eight bytes of construction-stack bookkeeping,
+and ordinary render/clean preparation still allocate nothing and query no attribution clocks.
+
+The diagnostic DLL grows 5,632 on-disk bytes and 8,192 bytes of PE image address span versus the control;
+these are not measured residency or whole-process commitment.
+That bounded image cost is accepted for native failure/ownership attribution and a normal-route regression guard,
+not for an unproved latency saving. The final ordinary source/runtime closure is frozen anew and qualified below.
+
+Current-DLL tests cover Unicode/exact-spelling parents, recreation, real junctions without elevation,
+root/pattern/dot fallback, metadata/OOM/context/registration/partial/null refusals, unsupported data, authorization/
+size/target output rules and handle/GDI/USER stability. Normal batches explicitly reject diagnostic phase activity.
+An isolated current-ABI negative DLL accidentally enables metadata for normal batches; `ValidateShellBatch`
+rejects it with `0x8007000D`. Both negative receipts retain `qualification=false`. Existing cache/shield/metadata,
+32-target, import/drop/launch, device-loss and WARP coverage remains.
+
+Six final ordinary-path alternating pairs contain 1,536 calls and 720 decoded hits per arm, with exact pin
+hashes/source edges. Production metadata/context completion bits remain clear. Repeated total medians are
+37.4749 → 37.9695 ms; cold medians are
+172.1725 → 155.1125 ms. These are fresh baseline observations of the
+same ordinary algorithm, not a claimed improvement. Candidate cold parent creation is
+45.5627 ms, extractor binding 40.6424 ms and fresh combined
+shield/location 41.4198 ms. A 642.974-ms candidate cold outlier remains retained.
+No tail is excluded to manufacture acceptance.
+
+Final ordinary-path canonical five large frames, eleven nonfallback slices and fifteen glyph/empty frames
+match exactly. The separate strict URI/stock slice hash comparison remains failed and retained. Independent raw
+readbacks contain 26 slices and ten rendered frames with every channel exact (maximum delta zero), including
+the fallbacks when displayed. The rejected metadata candidate's final strict/raw comparisons also match;
+earlier strict failures remain retained with no assigned cause. The existing one-level fallback tolerance is
+unchanged. Thirty-two owned admin/Regedit icons match source edge 224/hash `C792760AEE10DED2`, with fresh shields,
+zero decoded-cache reads and no launch or UAC. Exact hashes and numerical quality are separate receipts.
+
+Two fresh ordinary-path hardware orders preserve the same Build-282 runtime/settings/fonts/PDB/DxUi,
+collector, pin/resource identities and 2560×720/96-DPI XENEON scene; only Launcher DLL/PDB differ.
+Each arm has 18 complete stages, 402 callbacks and zero drops. Hidden/minimized submissions are zero.
+
+| Ordinary control → candidate | Control-first order | Candidate-first order |
+| --- | --- | --- |
+| Launcher visibility median / max, ms | 68.1920 / 176.1370 → 65.9970 / 1083.7020 | 77.3375 / 202.9560 → 61.9715 / 1313.2700 |
+| Launcher callback CPU median, ms | 62.5000 → 62.5000 | 54.6875 → 46.8750 |
+| Whole Gallery stage median, ms | 92.1820 → 120.2875 | 120.2335 → 105.0225 |
+| Cold CPU, percent of one core | 2.216 → 2.875 | 2.559 → 3.271 |
+| Returned CPU, percent of one core | 1.806 → 3.290 | 2.922 → 4.614 |
+| Returned submissions per second | 59.836 → 59.583 | 60.545 → 117.859 |
+| Cold private, MiB | 36.70 → 35.45 | 36.44 → 35.54 |
+| Returned private / working set, MiB | 65.16 / 88.30 → 65.07 / 88.93 | 65.23 / 88.61 → 63.75 / 88.27 |
+| Returned adapter-local, MiB | 32.26 → 32.26 | 32.26 → 32.26 |
+
+These are baseline observations of retained ordinary parsing, with diagnostic bookkeeping added. Live data,
+Shell/driver cache histories and callback CPU quantization limit attribution; submissions are not hardware FPS.
+Visibility medians are lower, but candidate visibility maxima exceed one second and cold/returned CPU rises in
+both orders. Returned submissions nearly double in the reverse order. Their cause is unassigned; the unchanged
+ordinary parsing algorithm does not justify dismissing these observations or attributing them to the diagnostic.
+The rates and timings do not establish a production latency or whole-process resource saving. No outlier is
+removed and no budget gate is accepted from them. The initial ordinary control capture stopped at the existing
+`visit-3` evidence guard before collecting a candidate; its generic “Inactive probe presented or lacks evidence”
+error has no assigned cause. That control-only attempt is rejected and retained. Both fresh orders use new roots,
+the unchanged collector and unchanged evidence thresholds.
+
+Final Release accounting includes Launcher/PluginContract/HostSmoke (three focused native scopes),
+twelve remaining native scopes and final BuildProcess tooling: 16 obligations. Debug and ASan Debug each cover
+all fifteen native scopes on the frozen final ordinary source. ARM64 Release compilation and ten skill validations
+pass; ARM64 runtime execution is not claimed. Native inputs (469 files), deployed settings/fonts/PDB/runtime
+closures and both preserved hardware arms remain byte-identical after their applicable tests. Final tooling
+covers the completed prose/source closure (713 files), and the 62-file native inventory and formatting pass.
+Current normal-route and reparse negative controls, diagnostic refusal tests and strict pixel-hash failure remain
+separate evidence with their original outcomes. Physical-input, first-changed-pixel, total cold-construction and
+whole-process budgets remain open. The WIP stays ACTIVE.
+
+Next: a bounded host-owned construction mechanism that keeps the current page animated until full-quality
+Launcher content is ready. Select it against native STA ownership, cancellation/replacement, two-page lifetime,
+device loss and total input-to-first/settled presentation. Repeating API shortcuts or moving cost into Prepare
+does not bound an indivisible Shell call. Cold-construction, first-pixel, process-resource and 4-ms/16.7-ms
+budgets remain open; this is an attribution/test step, not completion of the runtime plan.
+
+Evidence is local under `.build/receipts/`: `p43-parent-control{,-source-files}.json`,
+`p43-parent-{split,filedata,parsecreate}-{diagnostic,pairs,summary}.json`, the pre-review `p43-parent-*` cohort,
+rejected metadata `p43-parent-final-*` source/runtime/native/quality/hardware receipts and captures, and
+`p43-parent-qualified-*` ordinary-path source/runtime/native/quality/hardware/profile/closeout/commit seals.
+Strict hash failures and negative controls remain separate from numerical quality and successful qualification.
+Diagnostic generator/include, log redirection and recovered documentation-encoding errors are execution failures,
+not performance evidence. Original committed history is restored from the verified archive with explicit UTF-8.
+The auxiliary ARM64 artifact seal initially assumed an x64 file count and then inherited a stale process exit
+code. Its corrected required-product checks seal all 73 actual compile artifacts/settings/fonts/PDB files;
+neither helper failure changes the successful native compilation or its inputs/outputs.
 
 ### P4.3 combined shield/location and cold setup attribution (2026-10-12, complete)
 
@@ -1715,7 +1860,7 @@ attribution before treating it as proof of a particular collection cost.
 | SystemData | Default viewers use eight-column `process.activity` with zero native per-PID opens; legacy 39-column detail remains. Both share one walk/history. One 16-MiB reservation commits acquisition families/output tables on first use: 4 KiB cold, 9.461 MiB shipped, 15.766 MiB full. P3.6 reclaims unleased sources after collection/callback quiescence, retaining facade identity. | P2.1 and P4.1 are complete, preserving activity/detail contracts, caps and rollback. Constructor/default-commit targets pass; settled D has zero source arenas/native owners. Remaining return/cache attribution stays in P3.6. |
 | ProcessViewer | P2.7 parks settled viewers (`S_FALSE`), snaps unchanged/sub-pixel targets, and schedules only visible easing/pulses at 33 ms. Eases use a fixed start pose and one host timestamp for both views; auxiliary observations do not restart them. `PluginHost::Deliver` still coalesces the initial invalidation. | Matched control: 14.126 submissions/s, 2.986% of one core. Two after-runs: 12.163/12.184 submissions/s, 3.515/3.069% CPU. Submission reduction is 13.7–13.9%; CPU improvement is not established. Proposed System budgets remain open. |
 | Logging/settings | P2.5 caches the writer's UTC date and swept policy; ordinary lines perform no directory enumeration or path allocation. Settings persistence flushes its temp file and checks the loaded document before replacement, but still runs synchronously. | P2.5 is complete. P2.6 must preserve the current flush, merge and stamp guarantees; the old proposed write-through replacement is obsolete. |
-| Retained plugin work | Launcher icon storage is count-sized at 0/8/32 entries; glyph batching, single shell output, folder binding, verified-file opaque reuse and combined shield/location queries are measured. Eight decoded entries retain the existing 2 MiB; this step adds no payload. Latest repeated native batches improve 40.75 → 39.08 ms; both hardware orders improve visibility while cold CPU is mixed and returned private rises. Fifteen phases identify cold parent creation (69.09 ms), combined checks (59.57 ms cold / 21.40 ms repeated) and extractor binding (32.51 ms cold). Viewer and Weather upload changed glyph cells in preparation; capacity, Debug monitor failure and shared sampling pass their recorded gates. DeskClock's 1 ms animation deadline still exists. | P4.3 native/hardware qualification and final-tooling closure are recorded above; cold construction/first-pixel/P4.6 budgets remain open. Initial Matrix and Desk guard failures and exact unchanged passing repeats remain recorded, as does the canonical fallback-hash mismatch. Debug monitor face-copy lifetime is complete; the September cost/line-number table below must not be used as current proof. |
+| Retained plugin work | Launcher count-sized icons, glyph batching, single shell output, folder binding, verified-file opaque reuse and combined queries remain production optimizations. Eight decoded entries retain 2 MiB. Cold-parent investigation rejects metadata and parse/create shortcuts; ordinary parsing is restored. Fifteen ordinary phases plus two diagnostic-only phases retain attribution without new production payload/owners/workers or steady-frame work. Viewer/Weather prepare changed glyphs; DeskClock retains its 1-ms animation deadline. | Final ordinary-path qualification is recorded above. Cold construction/first-pixel/P4.6 budgets remain open; a bounded construction mechanism is next. Prior failed guard/hash receipts stay retained. The September cost/line-number table below is historical, not current proof. |
 | Probe | Opt-in `RuntimeProbe` shares existing message/frame-latency waits and the 32×1024 JSONL ring; disabled path has no diagnostic deadline/query. AV queries never load a module or prepare a view. | P0.1 changes diagnostics, not page rendering or service behavior. Invalid/unavailable counters stay explicitly marked. |
 
 ### P0.1 implementation and evidence
@@ -2103,7 +2248,7 @@ cold visit to that page, and nothing from the page that was left.
 | P3.1 | **Checked borrowed selection and exact immutable validation witness implemented.** Full logical document equality includes inactive pages; bounded witness misses, optional-cache failure and oversized valid documents take cold full validation. No duplicate parsed document or target-only trust. | Malformed inactive pages, selector/source-only reuse, rollback and exact gates pass. Lower selection/provider cost does not qualify the proposed 2 ms UI CPU / 8 ms stage targets; GPU/visibility and later preparation still need attribution. |
 | P3.2 | **Complete 2026-10-10.** 64-bit hash filter plus original widget index, 32-byte keys. Full original-byte comparison preserves identity under collisions, with no extra serialization/allocation. | Compiler PDB frame records prove Initialize/Reconfigure <32 KiB in both x64 profiles; forced-collision and actual reuse/reconfigure tests pass. |
 | P3.3 | **Reconciled against current quality and lifetime contracts.** Keep first follow-finger presentation before deferred staging (`FlushPendingTransitionStage`), current plus one directional neighbor, and retire the previous neighbor on reversal. Continuous widgets keep animating during pan/settle. Blocked edges and canceled-before-staging gestures activate nothing; a canceled gesture that already exposed a neighbor can legitimately have activated it. | Current policy, partial/offscreen rendering, native-neighbor and retirement tests pass. Physical F/input/presented latency remains under P0.2. September eager recognition, both-neighbor retention and blanket staged-animation suppression are rejected. |
-| P3.4 | **Attribution complete; staged construction remains conditional.** Device, visibility and preparation callbacks and fifteen shell phases are attributed. Cold parent-item creation, combined shield/location queries and extractor binding remain above budget; parent-folder binding is negligible. The combined query removes duplicate work without eliminating fresh shield checks. A bounded construction mechanism still needs selection and qualification. A 4 ms host slice cannot bound a single indivisible callback above 4 ms. Moving expensive work into Prepare alone does not remove its cost before first presentation. | Measure total input-to-first/settled presentation and per-callback CPU/wall time; preserve two-page ownership, cancellation, partial initialization and visual quality. The proposed 4 ms slice and 16.7 ms frame target remain unqualified. |
+| P3.4 | **Attribution complete; staged construction remains conditional.** Device/visibility/preparation callbacks, fifteen ordinary shell phases and two diagnostic-only phases are attributed. Cold parsing dominates parent-item creation. Faster metadata phases transfer initialization to binding and worsen both hardware observations, so they are rejected. A bounded construction mechanism still needs selection/qualification. A 4-ms host slice cannot bound an indivisible callback above 4 ms, and moving work into Prepare alone does not remove first-present cost. | Measure input-to-first/settled presentation and callback CPU/wall time; preserve native STA ownership, two-page cancellation/replacement, partial initialization and full visual quality. The 4-ms slice/16.7-ms frame targets remain unqualified. |
 | P3.5 | **Conditional snapshot product option.** A 2560x720 BGRA snapshot costs 7.031 MiB (1280x360 costs 1.758 MiB) per retained image, in addition to live pages/driver references. Sliding a frozen snapshot replaces visible animation; downsampling can reduce quality. Neither trade is accepted by this implementation request. | Decide only from measured P3.4 limits and a concrete visual/first-present comparison. Keep live animation and the two-page bound until such a decision; no snapshot code is selected. |
 | P3.6 | **Source, GPU binding and AV coordinator ownership cuts complete; full retention remains in progress.** Sources retire after their last external facade/subscription lease and quiescent collection/callback use. Context bindings clear at successful page retirement without rebuilding the device or swap chain. AV coordinator/graphics caches release with the last provider, preserving survivors, failed-allocation rollback and retiring host work. Mapped plugin images remain. Driver trimming on visible settles is not selected. | Full recorded profile gates pass. Source retention 87.61 → 71.75 MiB; separate GPU pair 69.54 → 69.08 MiB. The AV pair has 18 stages/402 callbacks each, returned private 62.18 → 64.60 MiB and local usage 32.26 MiB in both; its cold difference already precedes AV visits. No causal process-memory/CPU/latency saving is established. Submissions stay near 60/s and hidden/minimized zero. Whole D cold-A +4 MiB and residual driver/cache attribution remain open. |
 
@@ -2113,7 +2258,7 @@ cold visit to that page, and nothing from the page that was left.
 | --- | --- | --- |
 | P4.1 | **Complete: arena-backed SystemDataSource.** One 16-MiB reservation with first-use page-aligned families/tables, optional thread scratch and in-place activity/detail value expansion. Preflight and typed teardown preserve histories, caps, ownership and allocation-free reuse. | Actual shipped commit 9.461 MiB, full 15.766 MiB, cold 4 KiB; constructor median about 2.3 us. Fault/region/history/lifetime tests and all required scope accounting pass; 145 frames match; matched private reduction 7.24/7.25 MiB; three settled D observations show zero arenas/native owners. Whole retention remains P3.6. |
 | P4.2 | **Count-sized provider records and immutable private JSON implemented.** Records are 142,232 → 1,656 logical bytes with System live. Release shipped settings are 209,460 → 56,450 logical bytes plus 288 bytes of shared-control blocks; allocator overhead is excluded. Loaded `sourceDocument`, inactive-page validation, caps, transactional persistence and quiescent ownership remain. Pages/widgets already use vectors. Current-page-only module mapping requires independent justification. | Provider bounds/failure/retry/drain and private-object ownership/cap/parser/persist/failure/stable concurrent-copy tests pass their recorded exact profile gates, ARM64 compilation and skills. Matched hardware comparisons are recorded above; JSON returned private is 63.45 → 62.63 MiB with higher working set and no causal CPU/latency saving. Its initial screenshot access violation remains unexplained. The old only-Matrix-module and universal ≤64-KiB shadow goals stay unqualified. |
-| P4.3 | **Count-sized Launcher icons, glyph batch, single shell output, folder binding, verified-file opaque reuse and combined shield/location query implemented.** Empty/8/32 entries use 0/2/8 MiB GPU payload, retaining original sources/shaders. Dirty allocation/upload stays in preparation; clean frames allocate/upload nothing. Eight 256-KiB decoded buffers retain exact token/identifier and fresh no-shield/file checks, then release at shutdown. The prior scene cache increase is 1.5 MiB; this step adds no payload and repeated native batches improve 40.75 → 39.08 ms. Both hardware orders reduce visibility/Gallery medians. Cold CPU remains mixed and returned private rises 1.25/0.55 MiB. Fifteen phases isolate cold parent creation and fresh checked location; no construction lane, process font or GPU cache is selected. | Real-DLL one-query/reset/truncation tests, exact-token/metadata/shield invalidation, OOM/capacity/shutdown, pin/import/drop/device-loss tests and matched profile accounting are recorded above with final tooling. Pins/glyphs and ten rendered frames are exact; fallback slices retain exact alpha and the existing one-level RGB bound, with the strict canonical hash failure retained. Worst cold activation, process memory and construction/first-pixel budgets remain open, alongside initial Matrix/Desk guard failures and passing unchanged repeats. No causal steady CPU or D-return memory saving is claimed. |
+| P4.3 | **Count-sized icons, glyph batch, single shell output, folder binding, verified-file opaque reuse and combined queries implemented; cold-parent shortcuts rejected.** Empty/8/32 entries use 0/2/8 MiB GPU payload. Eight decoded buffers retain 2 MiB with exact token/identifier and fresh shield/file checks. The prior cache expansion adds 1.5 MiB. Cold-parent metadata/parse-create do not qualify an application improvement; production parsing is retained. Seventeen-phase private diagnostics add bounded image/stack cost only and no construction worker, persistent metadata owner, GPU cache or steady-frame work. | Current-DLL phase/ownership/normal-route regression, cache/shield/metadata/OOM/capacity/shutdown, import/drop/device-loss, matched quality and profile accounting are recorded above. Worst cold activation, process memory and construction/first-pixel budgets remain open. Historical failed guard/hash receipts are retained; no causal CPU or D-return saving is claimed. |
 | P4.4 | **Surface lifetime landed and retained at the current pin.** Hidden tile and unraised overlay surfaces are released without detaching control trees. The raised hardware P0.4 run confirms exact tile/overlay bytes, dismissal, hidden zero and restore. Lazy control-tree attachment, hidden-view update skipping, profile-control destruction and inventory diffing remain separate proposals. | Native fixtures and production hardware accounting agree; unchanged-observation copy cost and any new control-tree proposal still require measurements. Real AV release gates remain in the HOLD RFC. |
 | P4.5 | **Content-sized Weather cache and last-widget release implemented.** Cold bodies remain unallocated; each used entry owns payload plus terminator, with equal-size reuse and transactional new/grow/shrink/eviction. Surviving/hidden widgets retain shared data; final strong callback leases release it. Existing validators, 304, cancellation and refresh clamps remain. Curl connection reuse and failure coalescing are separate conditional candidates. | Real-DLL lower offline transport proves 2,097,160 → 24 bytes for eight two-byte responses, capacity/OOM/expiry/validator/failure and last-owner scenarios, with red/green against the old cache. Exact images and profile accounting are recorded above. Matched Gallery observations establish no causal whole-process CPU or memory saving. |
 | P4.6 | **Current baseline captured; no deadline/atlas change selected.** Shared multi-tier atlas and one-ms Desk active-flip requests are retained. Five-minute hardware Desk/Studio cadence and memory are recorded above, with current scale/resize/sharing/rollover/teardown test accounting. GdiOrbit remains absent from shipped Gallery. | Desk short display intervals have 16.66 ms p95; idle gaps are intentional and neither they nor PresentMon CPU-frame intervals measure callback cost. No sustained hardware private growth is established. Preserve typography/rollover quality; the intermittent WARP peak still needs attribution. |
