@@ -933,6 +933,9 @@ remain with the AV owner.
 - The automated `HostPlugin` scope runs separate 60-second Matrix, Studio Clock and Desk Clock WARP soaks.
   Matrix's 1,024-frame warm-up and measurement both wait for DXGI readiness, sleep 16 ms after each draw and use
   one continuous monotonic animation timeline. Each clock warms for 20 seconds with its scheduled deadlines.
+  Initial, warm-up and measured clock draws acquire the DXGI frame-latency permit before building the frame,
+  matching the application's in-flight bound. A failed/expired permit refuses the draw; the widget's deadline
+  remains a separate condition. Fixture pacing must not be replaced by relying on Present to block.
   After that warm-up, peak sampled private/working-set growth
   in uninstrumented builds MUST remain within 4/8 MiB; sample every five seconds and at the end. ASan keeps its
   normal quarantine/shadow settings, reports process bytes diagnostically and enforces the same functional

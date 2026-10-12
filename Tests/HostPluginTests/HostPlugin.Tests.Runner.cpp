@@ -8722,6 +8722,46 @@ struct ClockSoakTimeline final
     std::chrono::steady_clock::time_point previous = started;
 };
 
+// Match Application's in-flight bound before building clock frames. Sleeping until the widget deadline alone
+// can build another WARP draw before DXGI permits it, exercising a different driver allocation workload.
+template <typename RenderFrame>
+[[nodiscard]] HRESULT WithClockFramePermit(HANDLE waitable, DWORD timeoutMilliseconds,
+                                           RenderFrame&& renderFrame) noexcept
+{
+    if (!waitable)
+        return E_UNEXPECTED;
+    const DWORD waited = WaitForSingleObject(waitable, timeoutMilliseconds);
+    if (waited == WAIT_OBJECT_0)
+        return renderFrame();
+    return HRESULT_FROM_WIN32(waited == WAIT_FAILED ? GetLastError() : ERROR_TIMEOUT);
+}
+
+void TestClockFramePermits(bool& success) noexcept
+{
+    wil::unique_event_nothrow permit;
+    const HRESULT created = permit.create(wil::EventOptions::None);
+    Check(SUCCEEDED(created), L"Clock pacing fixture creates an auto-reset frame permit", success);
+    if (FAILED(created))
+        return;
+    uint32_t draws = 0;
+    const auto draw = [&]() noexcept -> HRESULT
+    {
+        ++draws;
+        return S_OK;
+    };
+    Check(WithClockFramePermit(nullptr, 0, draw) == E_UNEXPECTED && draws == 0,
+          L"A missing clock permit refuses before drawing", success);
+    Check(WithClockFramePermit(permit.get(), 0, draw) == HRESULT_FROM_WIN32(ERROR_TIMEOUT) && draws == 0,
+          L"An unavailable clock permit refuses before drawing", success);
+    permit.SetEvent();
+    Check(WithClockFramePermit(permit.get(), 0, draw) == S_OK && draws == 1 &&
+              WithClockFramePermit(permit.get(), 0, draw) == HRESULT_FROM_WIN32(ERROR_TIMEOUT) && draws == 1,
+          L"A clock frame consumes one permit and cannot reuse it", success);
+    permit.SetEvent();
+    Check(WithClockFramePermit(permit.get(), 0, []() noexcept { return E_ABORT; }) == E_ABORT,
+          L"A clock draw failure propagates after acquiring its permit", success);
+}
+
 [[nodiscard]] HRESULT WarmScheduledClockHost(DashboardHost& dashboard, Renderer& renderer,
                                              ClockSoakTimeline& timeline) noexcept
 {
@@ -8733,11 +8773,16 @@ struct ClockSoakTimeline final
         if (scheduled != S_OK || delay == 0 || delay > 1001)
             return FAILED(scheduled) ? scheduled : E_UNEXPECTED;
         std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-        const auto now = std::chrono::steady_clock::now();
-        const float elapsed = std::chrono::duration<float>(now - timeline.started).count();
-        const float delta = std::chrono::duration<float>(now - timeline.previous).count();
-        timeline.previous = now;
-        const HRESULT result = renderer.Render(elapsed, delta);
+        const HRESULT result =
+            WithClockFramePermit(renderer.FrameLatencyWaitableObject(), 2000,
+                                 [&]() noexcept
+                                 {
+                                     const auto now = std::chrono::steady_clock::now();
+                                     const float elapsed = std::chrono::duration<float>(now - timeline.started).count();
+                                     const float delta = std::chrono::duration<float>(now - timeline.previous).count();
+                                     timeline.previous = now;
+                                     return renderer.Render(elapsed, delta);
+                                 });
         if (FAILED(result))
             return result;
     }
@@ -8746,6 +8791,7 @@ struct ClockSoakTimeline final
 
 void TestSoakGrowthBudgets(bool& success) noexcept
 {
+    TestClockFramePermits(success);
     Check(SoakGrowthWithinBudget(100, 100 + kSoakPrivateGrowthBudget, kSoakPrivateGrowthBudget) &&
               !SoakGrowthWithinBudget(100, 101 + kSoakPrivateGrowthBudget, kSoakPrivateGrowthBudget) &&
               SoakGrowthWithinBudget(100, 0, kSoakPrivateGrowthBudget) &&
@@ -8794,7 +8840,8 @@ void TestSoakGrowthBudgets(bool& success) noexcept
     {
         return false;
     }
-    result = renderer.Render(0.0f, 0.0f);
+    result = WithClockFramePermit(renderer.FrameLatencyWaitableObject(), 2000,
+                                  [&]() noexcept { return renderer.Render(0.0f, 0.0f); });
     StudioClockTestDiagnostics diagnosticsBefore{};
     StudioClockTestDiagnostics diagnosticsAfter{};
     ProcessMemorySnapshot memoryBefore{};
@@ -8834,15 +8881,23 @@ void TestSoakGrowthBudgets(bool& success) noexcept
             ++correctiveFrames;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-        const auto now = std::chrono::steady_clock::now();
-        if (now >= deadline)
-        {
+        auto now = std::chrono::steady_clock::now();
+        bool drawn = false;
+        result = WithClockFramePermit(renderer.FrameLatencyWaitableObject(), 2000,
+                                      [&]() noexcept -> HRESULT
+                                      {
+                                          now = std::chrono::steady_clock::now();
+                                          if (now >= deadline)
+                                              return S_FALSE;
+                                          const float elapsed =
+                                              std::chrono::duration<float>(now - timeline.started).count();
+                                          const float delta = std::chrono::duration<float>(now - previous).count();
+                                          previous = now;
+                                          drawn = true;
+                                          return renderer.Render(elapsed, delta);
+                                      });
+        if (!drawn)
             break;
-        }
-        const float elapsed = std::chrono::duration<float>(now - timeline.started).count();
-        const float delta = std::chrono::duration<float>(now - previous).count();
-        previous = now;
-        result = renderer.Render(elapsed, delta);
         ++frames;
         if (SUCCEEDED(result))
             result = memoryWindow.Sample(now);
@@ -8934,7 +8989,8 @@ void TestSoakGrowthBudgets(bool& success) noexcept
     {
         return false;
     }
-    result = renderer.Render(0.0f, 0.0f);
+    result = WithClockFramePermit(renderer.FrameLatencyWaitableObject(), 2000,
+                                  [&]() noexcept { return renderer.Render(0.0f, 0.0f); });
     DeskClockTestDiagnostics diagnosticsBefore{};
     DeskClockTestDiagnostics diagnosticsAfter{};
     ProcessMemorySnapshot memoryBefore{};
@@ -8979,15 +9035,23 @@ void TestSoakGrowthBudgets(bool& success) noexcept
             ++idleDelayCount;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-        const auto now = std::chrono::steady_clock::now();
-        if (now >= deadline)
-        {
+        auto now = std::chrono::steady_clock::now();
+        bool drawn = false;
+        result = WithClockFramePermit(renderer.FrameLatencyWaitableObject(), 2000,
+                                      [&]() noexcept -> HRESULT
+                                      {
+                                          now = std::chrono::steady_clock::now();
+                                          if (now >= deadline)
+                                              return S_FALSE;
+                                          const float elapsed =
+                                              std::chrono::duration<float>(now - timeline.started).count();
+                                          const float delta = std::chrono::duration<float>(now - previous).count();
+                                          previous = now;
+                                          drawn = true;
+                                          return renderer.Render(elapsed, delta);
+                                      });
+        if (!drawn)
             break;
-        }
-        const float elapsed = std::chrono::duration<float>(now - timeline.started).count();
-        const float delta = std::chrono::duration<float>(now - previous).count();
-        previous = now;
-        result = renderer.Render(elapsed, delta);
         ++frames;
         if (SUCCEEDED(result))
             result = memoryWindow.Sample(now);
