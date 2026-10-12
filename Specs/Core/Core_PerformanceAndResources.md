@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-10-11
+Last reviewed: 2026-10-12
 
 ## Mandate
 
@@ -168,6 +168,17 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   is owned before its HRESULT is checked, so partial outputs release on every fallback. Cropping, high-quality
   WIC conversion, glyph rendering, fallback order and GPU storage remain unchanged; this adds no cache, worker,
   per-widget field or steady-frame work. The private automated handler test adds no retained override or COM owner.
+  One Launcher refresh may borrow one drive-qualified filesystem parent folder at a time, parse each child relative
+  to it and obtain the same `IExtractIconW` through `IShellFolder::GetUIObjectOf`. Its bounded 513-wide-character parent key
+  uses exact spelling so case-sensitive directories cannot alias. Parent changes replace the COM owner; an
+  unavailable relative binding uses the original full-path shell-item route. UNC, device and shell-namespace
+  targets retain that route. A handler that already refused extraction is not called twice before the original
+  image-factory/image-list fallback. The folder and child
+  PIDLs release within the refresh; no icon/location cache, worker, timer or per-widget field is added. This
+  accepts about two KiB of temporary parent/child path stack storage to remove repeated parent walks for adjacent
+  shortcuts.
+  Optional automated attribution records completed shell phases in caller-owned fixed storage. Normal refreshes
+  query no attribution clocks, and neither rendering nor clean preparation performs shell work.
   Glyph extraction shares one lazy isolated DirectWrite factory/face and clipped coverage buffer within its bounded
   refresh batch. Coverage is reused up to the largest glyph, at most 512x512x3 bytes per buffer; transactional
   growth can temporarily hold two buffers (1.5 MiB maximum, or 384 KiB at Launcher's fixed 256 edge), and allocation failure

@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-10-11
+Last reviewed: 2026-10-12
 
 ## Purpose and scope
 
@@ -1459,6 +1459,22 @@ existing image-factory/image-list fallback. Do not request a second jumbo image 
 The optional automated-host-only `RedXeLauncherTestShellHandler` borrows an extractor for one UI-thread call through
 that production handler/decoder and returns its pixel checksum and source edge. It retains no override or COM
 reference; refused/failed calls zero their outputs.
+For drive-qualified absolute filesystem targets, each refresh shares at most one parent `IShellFolder` and binds
+children through `ParseDisplayName` and `GetUIObjectOf(IExtractIconW)`, the handler route underlying `BHID_SFUIObject`. The parent key
+compares exact path spelling, including case; changing parents replaces its owner. UNC/device paths and shell
+namespaces retain the original full-path route. Unsupported targets or a refused relative parse/bind retain
+full-path shell-item extraction and its fallback order. A handler that already refused
+extraction proceeds to the original image-factory/image-list fallback without a duplicate handler call. Folder
+ownership is temporary to the refresh, with child PIDLs and icon owners released on every exit. Every later refresh
+reads shortcut targets and icon locations anew, including retargeted links; this introduces no retained icon cache.
+The optional automated-host-only `RedXeLauncherTestShellIcon` and `RedXeLauncherTestShellBatch` use this production
+path on the UI thread in an STA. The single-target form retains full-path binding as a pixel reference; the batch
+form borrows 1..32 targets through one refresh-local folder owner. Their fixed, exact-size caller-owned records
+distinguish completed wall-clock phases from unavailable work and preserve completed failure phases. Invalid record
+sizes leave outputs untouched; otherwise outputs clear before authorization/target validation. No target in a batch
+is processed until all targets validate. Failed pixels stay zero, hashing is outside the extraction interval, and
+the batch releases shared ownership before returning the first failure. These exports retain no override, owner
+or timing state and are never called by the host. Ordinary extraction queries no attribution clocks.
 A refresh batch shares one
 lazy isolated DirectWrite factory and font face across glyph/warning icons, retaining the same family fallback,
 metrics, hinting, centering and premultiplied pixels. Its clipped coverage buffer grows only to the largest used glyph
@@ -1708,7 +1724,11 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     a glyph-icon non-launch item dispatched through `ExecuteAction`, injected pin-directory fallback, automated empty list without live taskbar reads,
     jumbo-or-PNG extraction, one optional large output at 256 pixels with no small output, exact BGRA conversion,
     null/failed/location-refused results and partial-handle cleanup, automated-only test access and borrowed-extractor
-    lifetime, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
+    lifetime, completed/unavailable shell phase accounting, exact-size and atomic batch refusal, refresh-local
+    parent reuse, exact-case parent keys, mixed parents with identical child names, drive-root children,
+    bounded parent parsing and full-path routing of UNC roots/device paths/shell namespaces,
+    missing-parent/child and URI fallback pixels, retargeted link/icon locations, the 32-entry bound and native
+    resource cleanup, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
     with zero `ShellExecuteExW`, imported-pin persistence/recreation, queue/commit failure and collect fallback,
     drop append/cap/rollback, overflow paging with a bottom page-dot strip, named `iconSize` spread-grid layout
     (uniform half-extents, even gutters of at least 8 DIP between icon edges and 8 DIP edge inset, no mid-tile cluster
@@ -1719,6 +1739,11 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     before a newer interactive save, through
     `LauncherTests`, `SettingsTests`, and `HostPluginTests`. WARP pixel and hit-target tests MUST alternate tile and
     overlay sizes after one largest-size notification and verify zero allocations on those cached draws.
+    Matched shell quality checks MUST retain checksums and inspect any raw mismatch numerically, including fallback
+    icons in a scene that actually displays them. Record source resolution, alpha/geometry and maximum RGB delta;
+    do not relabel a failed exact comparison as passed. The 2026-10-12 unchanged WIC pipeline has an observed
+    one-unit RGB difference on image-factory/stock fallbacks, with exact alpha and at most one-unit rendered RGB
+    difference. Its numerical receipt is separate from the exact pin/glyph/reference checks.
 
 20. Verify the service contract and the device lane through `LogiconTests` (no hardware) and `HostPluginTests`:
     service creation with a valid and an invalid envelope, `Start` with device access disabled opens no device, the

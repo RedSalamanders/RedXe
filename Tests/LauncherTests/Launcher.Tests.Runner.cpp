@@ -1,6 +1,7 @@
 #include "../../Common/FailureReports.h"
 #include "../../Plugins/Launcher/Launcher.Tests.Contract.h"
 #include "../../Plugins/Launcher/LauncherPaging.h"
+#include "../../Plugins/Launcher/LauncherShellPath.h"
 #include "Launcher.Tests.GlyphBatch.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
@@ -361,6 +362,88 @@ class TestShellIconExtractor final : public IExtractIconW
     return S_OK;
 }
 
+[[nodiscard]] bool ConsistentShellTimings(const LauncherShellTimings& timings) noexcept
+{
+    if (timings.sizeBytes != sizeof(timings) || !timings.frequency ||
+        (timings.completedMask >> kLauncherShellPhaseCount) != 0)
+        return false;
+    uint64_t measured = 0;
+    for (uint32_t index = 0; index < kLauncherShellPhaseCount; ++index)
+    {
+        const bool completed = (timings.completedMask & (1U << index)) != 0;
+        if (completed != (timings.phaseCalls[index] != 0) ||
+            (!completed && (timings.phaseTicks[index] || timings.phaseResults[index])))
+            return false;
+        measured += timings.phaseTicks[index];
+    }
+    return measured <= timings.totalTicks;
+}
+
+[[nodiscard]] HRESULT ValidateShellTimings(LauncherTestShellIconFn inspect, LauncherTestShellHandlerFn extract) noexcept
+{
+    if (!inspect || !extract)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    TestShellIconExtractor extractor;
+    if (FAILED(extractor.Initialize()))
+        return kTestFailure;
+    LauncherShellTimings timings{sizeof(LauncherShellTimings)};
+    timings.pixelHash = 123;
+    if (inspect(nullptr, &extractor, nullptr) != E_POINTER || inspect(nullptr, nullptr, &timings) != E_POINTER ||
+        timings.pixelHash || timings.frequency || inspect(L"", nullptr, &timings) != E_INVALIDARG ||
+        inspect(L"C:\\test", &extractor, &timings) != E_INVALIDARG || extractor.locationCalls || extractor.extractCalls)
+        return kTestFailure;
+    for (uint32_t size : {static_cast<uint32_t>(sizeof(LauncherShellTimings) - 1U),
+                          static_cast<uint32_t>(sizeof(LauncherShellTimings) + 1U)})
+    {
+        timings.sizeBytes = size;
+        if (inspect(nullptr, &extractor, &timings) != E_INVALIDARG || timings.sizeBytes != size)
+            return kTestFailure;
+    }
+    timings.sizeBytes = sizeof(timings);
+    timings.pixelHash = 123;
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", nullptr);
+    const HRESULT denied = inspect(nullptr, &extractor, &timings);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (denied != E_ACCESSDENIED || timings.pixelHash || timings.frequency || timings.completedMask ||
+        extractor.locationCalls || extractor.extractCalls)
+        return kTestFailure;
+    uint64_t expected = 0;
+    uint32_t edge = 0;
+    if (extract(&extractor, &expected, &edge) != S_OK || inspect(nullptr, &extractor, &timings) != S_OK ||
+        !ConsistentShellTimings(timings) || timings.pixelHash != expected || timings.sourceEdge != edge ||
+        timings.sourceKind != 1 || timings.completedMask != 0x1CU || timings.phaseCalls[2] != 1 ||
+        timings.phaseCalls[3] != 1 || timings.phaseCalls[4] != 1 || !extractor.LastIconReleased())
+        return kTestFailure;
+    const DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    const DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    for (const HRESULT failure : {S_FALSE, E_FAIL, E_OUTOFMEMORY})
+    {
+        extractor.extractResult = failure;
+        for (uint32_t repeat = 0; repeat < 16; ++repeat)
+        {
+            if (inspect(nullptr, &extractor, &timings) != failure || !ConsistentShellTimings(timings) ||
+                timings.completedMask != 0x0CU || timings.phaseResults[3] != failure || timings.pixelHash ||
+                timings.sourceEdge || timings.sourceKind || !extractor.LastIconReleased())
+                return kTestFailure;
+        }
+    }
+    extractor.extractResult = S_OK;
+    extractor.returnIcon = false;
+    extractor.lastIcon = nullptr;
+    if (inspect(nullptr, &extractor, &timings) != E_UNEXPECTED || !ConsistentShellTimings(timings) ||
+        timings.completedMask != 0x0CU || timings.phaseResults[3] != S_OK || timings.pixelHash)
+        return kTestFailure;
+    extractor.locationResult = E_ACCESSDENIED;
+    if (inspect(nullptr, &extractor, &timings) != E_ACCESSDENIED || !ConsistentShellTimings(timings) ||
+        timings.completedMask != 0x04U || timings.phaseResults[2] != E_ACCESSDENIED || timings.pixelHash ||
+        timings.sourceEdge || timings.sourceKind || extractor.references != 1 ||
+        GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
+        GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
+        return kTestFailure;
+    std::wprintf(L"Call-local shell phase completeness, unchanged BGRA, refusal and failure ownership passed.\n");
+    return S_OK;
+}
+
 struct RenderTarget final
 {
     uint32_t width = 0;
@@ -605,7 +688,8 @@ struct RenderTarget final
     return encoder->Commit();
 }
 
-[[nodiscard]] HRESULT WriteShortcut(const wchar_t* path) noexcept
+[[nodiscard]] HRESULT WriteShortcut(const wchar_t* path, const wchar_t* target = kNotepad,
+                                    const wchar_t* iconPath = nullptr) noexcept
 {
     wil::com_ptr_nothrow<IShellLinkW> link;
     HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(link.put()));
@@ -613,10 +697,16 @@ struct RenderTarget final
     {
         return result;
     }
-    result = link->SetPath(kNotepad);
+    result = link->SetPath(target);
     if (FAILED(result))
     {
         return result;
+    }
+    if (iconPath)
+    {
+        result = link->SetIconLocation(iconPath, 0);
+        if (FAILED(result))
+            return result;
     }
     wil::com_ptr_nothrow<IPersistFile> persist;
     result = link.query_to(persist.put());
@@ -625,6 +715,147 @@ struct RenderTarget final
         return result;
     }
     return persist->Save(path, TRUE);
+}
+
+[[nodiscard]] HRESULT ValidateShellBatch(LauncherTestShellBatchFn batch, LauncherTestShellIconFn single) noexcept
+{
+    if (!batch || !single)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    for (std::wstring_view unsupported :
+         {L"", L"C:", L"C:relative", L"C:\\", L"C:\\.", L"C:\\..", L"C:/Windows/file", L"relative\\file", L"\\\\server",
+          L"\\\\server\\share", L"\\\\server\\share\\file", L"\\\\?\\C:\\file", L"\\\\.\\C:\\file", L"::{shell}",
+          L"https://example.com"})
+        if (Launcher::ShellIconParentLength(unsupported) != 0)
+            return kTestFailure;
+    if (Launcher::ShellIconParentLength(L"C:\\file") != 3 ||
+        Launcher::ShellIconParentLength(L"c:\\Windows\\file") != 10 ||
+        Launcher::ShellIconParentLength(L"C:\\Unicode-\x00E9\\file") != 12)
+        return kTestFailure;
+    std::array<wchar_t, 513> longest{};
+    longest.fill(L'x');
+    longest[0] = L'C';
+    longest[1] = L':';
+    longest[2] = L'\\';
+    if (Launcher::ShellIconParentLength(std::wstring_view(longest.data(), 512)) != 3 ||
+        Launcher::ShellIconParentLength(std::wstring_view(longest.data(), 513)) != 0)
+        return kTestFailure;
+    std::array<LauncherShellTimings, 32> timings{};
+    for (auto& record : timings)
+        record = LauncherShellTimings{sizeof(LauncherShellTimings)};
+    std::array<const wchar_t*, 32> targets{};
+    targets.fill(kNotepad);
+    if (batch(nullptr, 0, nullptr) != E_INVALIDARG || batch(nullptr, 33, nullptr) != E_INVALIDARG ||
+        batch(targets.data(), 1, nullptr) != E_POINTER)
+        return kTestFailure;
+    timings[0].pixelHash = 123;
+    --timings[1].sizeBytes;
+    const auto untouched = timings;
+    if (batch(targets.data(), 2, timings.data()) != E_INVALIDARG ||
+        std::memcmp(timings.data(), untouched.data(), sizeof(timings)) != 0)
+        return kTestFailure;
+    timings[1].sizeBytes = sizeof(LauncherShellTimings);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", nullptr);
+    const HRESULT denied = batch(targets.data(), 2, timings.data());
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (denied != E_ACCESSDENIED || timings[0].pixelHash || timings[0].frequency || timings[1].frequency)
+        return kTestFailure;
+    targets[1] = L"";
+    if (batch(targets.data(), 2, timings.data()) != E_INVALIDARG || timings[0].frequency || timings[1].frequency)
+        return kTestFailure;
+    targets[1] = nullptr;
+    if (batch(targets.data(), 2, timings.data()) != E_POINTER || timings[0].frequency ||
+        batch(nullptr, 2, timings.data()) != E_POINTER || timings[0].frequency)
+        return kTestFailure;
+
+    std::array<wchar_t, MAX_PATH> temporary{};
+    std::array<wchar_t, MAX_PATH> firstDirectory{};
+    std::array<wchar_t, MAX_PATH> secondDirectory{};
+    std::array<wchar_t, MAX_PATH> firstLink{};
+    std::array<wchar_t, MAX_PATH> secondLink{};
+    if (!GetTempPathW(static_cast<DWORD>(temporary.size()), temporary.data()) ||
+        swprintf_s(firstDirectory.data(), firstDirectory.size(), L"%sRedXeShellBatch-%lu-a", temporary.data(),
+                   GetCurrentProcessId()) <= 0 ||
+        swprintf_s(secondDirectory.data(), secondDirectory.size(), L"%sRedXeShellBatch-%lu-b", temporary.data(),
+                   GetCurrentProcessId()) <= 0 ||
+        swprintf_s(firstLink.data(), firstLink.size(), L"%s\\Same.lnk", firstDirectory.data()) <= 0 ||
+        swprintf_s(secondLink.data(), secondLink.size(), L"%s\\Same.lnk", secondDirectory.data()) <= 0)
+        return E_UNEXPECTED;
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            (void)DeleteFileW(firstLink.data());
+            (void)DeleteFileW(secondLink.data());
+            (void)RemoveDirectoryW(firstDirectory.data());
+            (void)RemoveDirectoryW(secondDirectory.data());
+        });
+    if (!CreateDirectoryW(firstDirectory.data(), nullptr) || !CreateDirectoryW(secondDirectory.data(), nullptr))
+        return HRESULT_FROM_WIN32(GetLastError());
+    constexpr wchar_t explorer[] = L"C:\\Windows\\explorer.exe";
+    if (FAILED(WriteShortcut(firstLink.data(), kNotepad, kNotepad)) ||
+        FAILED(WriteShortcut(secondLink.data(), explorer, explorer)))
+        return kTestFailure;
+    // Same filename in two parents, a drive-root child, normal executable, directory, URI, and
+    // refused parent/child parsing all retain the full-path route's pixels and fallback precedence.
+    const std::array<const wchar_t*, 11> cases{firstLink.data(),
+                                               firstLink.data(),
+                                               secondLink.data(),
+                                               firstLink.data(),
+                                               kNotepad,
+                                               explorer,
+                                               L"C:\\Windows",
+                                               L"https://example.com",
+                                               L"C:\\RedXeMissingParent\\missing.exe",
+                                               L"C:\\Windows\\RedXeMissing.exe",
+                                               L"RedXeMissingRelative.exe"};
+    std::array<LauncherShellTimings, cases.size()> reference{};
+    for (uint32_t index = 0; index < cases.size(); ++index)
+    {
+        reference[index].sizeBytes = sizeof(LauncherShellTimings);
+        if (single(cases[index], nullptr, &reference[index]) != S_OK || !ConsistentShellTimings(reference[index]) ||
+            !reference[index].pixelHash)
+            return kTestFailure;
+    }
+    for (uint32_t index = 0; index < targets.size(); ++index)
+        targets[index] = cases[index % cases.size()];
+    if (batch(targets.data(), static_cast<uint32_t>(targets.size()), timings.data()) != S_OK)
+        return kTestFailure;
+    const DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    const DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    for (uint32_t repeat = 0; repeat < 4; ++repeat)
+    {
+        if (batch(targets.data(), static_cast<uint32_t>(targets.size()), timings.data()) != S_OK)
+            return kTestFailure;
+        for (uint32_t index = 0; index < targets.size(); ++index)
+        {
+            const auto& expected = reference[index % cases.size()];
+            if (!ConsistentShellTimings(timings[index]) || timings[index].pixelHash != expected.pixelHash ||
+                timings[index].sourceEdge != expected.sourceEdge || timings[index].sourceKind != expected.sourceKind)
+                return kTestFailure;
+        }
+        if (GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
+            GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
+            return kTestFailure;
+    }
+    // The second entry reuses its parent: only child parsing/binding are repeated.
+    if (timings[0].phaseCalls[0] != 2 || timings[0].phaseCalls[1] != 2 || timings[1].phaseCalls[0] != 1 ||
+        timings[1].phaseCalls[1] != 1 || reference[0].pixelHash == reference[2].pixelHash)
+        return kTestFailure;
+    // Drive letters remain equivalent to the shell, but distinct spellings must not alias the folder
+    // key: an authored path may live under a case-sensitive directory elsewhere in the same volume.
+    const std::array<const wchar_t*, 2> differentlyCased{L"C:\\Windows\\System32\\notepad.exe",
+                                                         L"c:\\Windows\\System32\\notepad.exe"};
+    if (batch(differentlyCased.data(), 2, timings.data()) != S_OK || timings[0].pixelHash != timings[1].pixelHash ||
+        timings[1].phaseCalls[0] != 2 || timings[1].phaseCalls[1] != 2)
+        return kTestFailure;
+    const uint64_t previous = reference[0].pixelHash;
+    if (FAILED(WriteShortcut(firstLink.data(), explorer, explorer)) ||
+        single(firstLink.data(), nullptr, &reference[0]) != S_OK || batch(targets.data(), 2, timings.data()) != S_OK ||
+        timings[0].pixelHash == previous || timings[0].pixelHash != reference[0].pixelHash ||
+        timings[1].pixelHash != reference[0].pixelHash)
+        return kTestFailure;
+    std::wprintf(L"Refresh-local folder reuse, mixed parents, root and fallback pixels, 32 targets, retargeted icons, "
+                 L"atomic validation and resource ownership passed.\n");
+    return S_OK;
 }
 
 [[nodiscard]] HRESULT AttachGpu(IRedXeWidget& widget, RenderTarget& target, IRedXeGpuWidget** gpuOut) noexcept
@@ -2161,7 +2392,77 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     return S_OK;
 }
 
-[[nodiscard]] HRESULT Run(const wchar_t* pixelsPath, const wchar_t* shellConfiguration = nullptr) noexcept
+[[nodiscard]] HRESULT WriteShellAttribution(LauncherTestShellBatchFn inspect, const wchar_t* directory,
+                                            FILE* output) noexcept
+{
+    if (!inspect || !directory || !output)
+        return E_POINTER;
+    std::array<wchar_t, 1024> pattern{};
+    if (swprintf_s(pattern.data(), pattern.size(), L"%s\\*.lnk", directory) <= 0)
+        return E_INVALIDARG;
+    WIN32_FIND_DATAW entry{};
+    wil::unique_hfind find{FindFirstFileW(pattern.data(), &entry)};
+    if (!find)
+        return HRESULT_FROM_WIN32(GetLastError());
+    std::array<std::array<wchar_t, 1024>, 32> paths{};
+    uint32_t count = 0;
+    do
+    {
+        if ((entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+        {
+            if (swprintf_s(paths[count].data(), paths[count].size(), L"%s\\%s", directory, entry.cFileName) <= 0)
+                return E_INVALIDARG;
+            ++count;
+        }
+    } while (count < paths.size() && FindNextFileW(find.get(), &entry));
+    std::sort(paths.begin(), paths.begin() + count, [](const auto& a, const auto& b) noexcept
+              { return CompareStringOrdinal(a.data(), -1, b.data(), -1, TRUE) == CSTR_LESS_THAN; });
+    constexpr std::array names{"item", "bind", "location", "extract", "decode", "image", "image_decode", "list"};
+    static_assert(names.size() == kLauncherShellPhaseCount);
+    if (std::fputs("round,icon,hr,mask,source,freq,total_ticks,pixel_hash,source_edge", output) < 0)
+        return E_FAIL;
+    for (const char* name : names)
+        if (std::fprintf(output, ",%s_ticks,%s_calls,%s_hr", name, name, name) < 0)
+            return E_FAIL;
+    if (std::fputc('\n', output) == EOF)
+        return E_FAIL;
+    for (uint32_t round = 0; round < 16; ++round)
+    {
+        std::array<const wchar_t*, 32> targets{};
+        std::array<LauncherShellTimings, 32> records{};
+        for (uint32_t index = 0; index < count; ++index)
+        {
+            targets[index] = paths[index].data();
+            records[index].sizeBytes = sizeof(LauncherShellTimings);
+        }
+        const HRESULT result = inspect(targets.data(), count, records.data());
+        if (result != S_OK)
+            return result;
+        for (uint32_t index = 0; index < count; ++index)
+        {
+            const auto& timings = records[index];
+            if (result != S_OK || !ConsistentShellTimings(timings) || !timings.pixelHash || !timings.sourceEdge ||
+                !timings.sourceKind || timings.phaseCalls[0] < 1)
+                return kTestFailure;
+            if (std::fprintf(output, "%u,%u,%u,%u,%u,%llu,%llu,%016llX,%u", round, index, static_cast<uint32_t>(result),
+                             timings.completedMask, timings.sourceKind,
+                             static_cast<unsigned long long>(timings.frequency),
+                             static_cast<unsigned long long>(timings.totalTicks),
+                             static_cast<unsigned long long>(timings.pixelHash), timings.sourceEdge) < 0)
+                return E_FAIL;
+            for (uint32_t phase = 0; phase < kLauncherShellPhaseCount; ++phase)
+                if (std::fprintf(output, ",%llu,%u,%u", static_cast<unsigned long long>(timings.phaseTicks[phase]),
+                                 timings.phaseCalls[phase], static_cast<uint32_t>(timings.phaseResults[phase])) < 0)
+                    return E_FAIL;
+            if (std::fputc('\n', output) == EOF)
+                return E_FAIL;
+        }
+    }
+    return std::fflush(output) == 0 ? S_OK : E_FAIL;
+}
+
+[[nodiscard]] HRESULT Run(const wchar_t* pixelsPath, const wchar_t* shellConfiguration = nullptr,
+                          const wchar_t* attributionDirectory = nullptr) noexcept
 {
     const bool compilerLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
@@ -2211,8 +2512,13 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
         else
         {
             const auto close = wil::scope_exit([file]() noexcept { (void)std::fclose(file); });
-            result = shellConfiguration ? ValidateShellPixels(create, shellConfiguration, file)
-                                        : ValidateIconStorage(create, setPin, getDiagnostics, setFailure, file);
+            if (attributionDirectory)
+                result = WriteShellAttribution(
+                    Resolve<LauncherTestShellBatchFn>(module.get(), kLauncherTestShellBatchExport),
+                    attributionDirectory, file);
+            else
+                result = shellConfiguration ? ValidateShellPixels(create, shellConfiguration, file)
+                                            : ValidateIconStorage(create, setPin, getDiagnostics, setFailure, file);
         }
         shutdown();
         OleUninitialize();
@@ -2223,9 +2529,26 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     if (FAILED(result))
         std::wprintf(L"ValidateSingleShellIcon failed: 0x%08X\n", static_cast<unsigned int>(result));
     if (SUCCEEDED(result))
+    {
+        result =
+            ValidateShellTimings(Resolve<LauncherTestShellIconFn>(module.get(), kLauncherTestShellIconExport),
+                                 Resolve<LauncherTestShellHandlerFn>(module.get(), kLauncherTestShellHandlerExport));
+        if (FAILED(result))
+            std::wprintf(L"ValidateShellTimings failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ValidateShellBatch(Resolve<LauncherTestShellBatchFn>(module.get(), kLauncherTestShellBatchExport),
+                                    Resolve<LauncherTestShellIconFn>(module.get(), kLauncherTestShellIconExport));
+        if (FAILED(result))
+            std::wprintf(L"ValidateShellBatch failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
         result = ValidateLauncherGlyphRasterization();
-    if (FAILED(result))
-        std::wprintf(L"ValidateLauncherGlyphRasterization failed: 0x%08X\n", static_cast<unsigned int>(result));
+        if (FAILED(result))
+            std::wprintf(L"ValidateLauncherGlyphRasterization failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
     if (SUCCEEDED(result))
     {
         result = ValidateIconStorage(create, setPin, getDiagnostics, setFailure);
@@ -2278,6 +2601,8 @@ int wmain(int argc, wchar_t** argv) noexcept
         return SUCCEEDED(ValidateLauncherGlyphRasterization(argv[2])) ? 0 : 1;
     if (argc == 4 && std::wcscmp(argv[1], L"--shell-pixels") == 0)
         return SUCCEEDED(Run(argv[2], argv[3])) ? 0 : 1;
+    if (argc == 4 && std::wcscmp(argv[1], L"--shell-attribution") == 0)
+        return SUCCEEDED(Run(argv[2], nullptr, argv[3])) ? 0 : 1;
     if (argc != 1 && (argc != 3 || std::wcscmp(argv[1], L"--icon-pixels") != 0))
         return 2;
     const HRESULT result = Run(argc == 3 ? argv[2] : nullptr);

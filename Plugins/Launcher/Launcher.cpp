@@ -10,6 +10,7 @@
 #include "LauncherBindings.h"
 #include "LauncherPaging.h"
 #include "LauncherPixelShader.h"
+#include "LauncherShellPath.h"
 #include "LauncherVertexShader.h"
 #include "WheelDetent.h"
 
@@ -517,70 +518,197 @@ static_assert(sizeof(LauncherIconInstance) == 32);
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
 
-[[nodiscard]] HRESULT ExtractFromShellHandler(IExtractIconW* extractor, ShortcutRecord& record) noexcept
+template <typename Operation>
+[[nodiscard]] HRESULT MeasureShellPhase(LauncherShellTimings* timings, LauncherShellPhase phase,
+                                        Operation&& operation) noexcept
+{
+    if (!timings)
+        return operation();
+    LARGE_INTEGER begin{};
+    LARGE_INTEGER end{};
+    QueryPerformanceCounter(&begin);
+    const HRESULT result = operation();
+    QueryPerformanceCounter(&end);
+    const uint32_t index = static_cast<uint32_t>(phase);
+    timings->phaseTicks[index] += static_cast<uint64_t>(std::max<LONGLONG>(0, end.QuadPart - begin.QuadPart));
+    ++timings->phaseCalls[index];
+    timings->phaseResults[index] = result;
+    timings->completedMask |= 1U << index;
+    return result;
+}
+
+[[nodiscard]] HRESULT ExtractFromShellHandler(IExtractIconW* extractor, ShortcutRecord& record,
+                                              LauncherShellTimings* timings = nullptr) noexcept
 {
     std::array<wchar_t, MAX_PATH> iconPath{};
     int iconIndex = 0;
     UINT flags = 0;
-    const HRESULT located = extractor->GetIconLocation(GIL_FORSHELL, iconPath.data(),
-                                                       static_cast<UINT>(iconPath.size()), &iconIndex, &flags);
+    const HRESULT located =
+        MeasureShellPhase(timings, LauncherShellPhase::GetLocation,
+                          [&]() noexcept
+                          {
+                              return extractor->GetIconLocation(GIL_FORSHELL, iconPath.data(),
+                                                                static_cast<UINT>(iconPath.size()), &iconIndex, &flags);
+                          });
     if (FAILED(located))
         return located;
     wil::unique_hicon icon;
     // Only the large image is consumed. Asking for a second 256-pixel image repeats shell work.
     const HRESULT extracted =
-        extractor->Extract(iconPath.data(), static_cast<UINT>(iconIndex), icon.put(), nullptr, MAKELONG(kIconEdge, 0));
+        MeasureShellPhase(timings, LauncherShellPhase::HandlerExtraction,
+                          [&]() noexcept
+                          {
+                              return extractor->Extract(iconPath.data(), static_cast<UINT>(iconIndex), icon.put(),
+                                                        nullptr, MAKELONG(kIconEdge, 0));
+                          });
     if (extracted != S_OK)
         return extracted;
-    return icon ? ExtractFromHicon(icon.get(), record) : E_UNEXPECTED;
+    if (!icon)
+        return E_UNEXPECTED;
+    const HRESULT decoded = MeasureShellPhase(timings, LauncherShellPhase::DecodeIcon,
+                                              [&]() noexcept { return ExtractFromHicon(icon.get(), record); });
+    if (decoded == S_OK && timings)
+        timings->sourceKind = 1;
+    return decoded;
 }
 
-[[nodiscard]] HRESULT ExtractShellIcon(const wchar_t* target, ShortcutRecord& record) noexcept
+// One refresh borrows one filesystem folder at a time. No folder or decoded image survives the batch.
+class ShellIconBatch final
+{
+  public:
+    [[nodiscard]] HRESULT Bind(const wchar_t* target, LauncherShellTimings* timings,
+                               wil::com_ptr_nothrow<IExtractIconW>& extractor) noexcept
+    {
+        const size_t length = wcsnlen_s(target, kTargetCapacity);
+        const size_t parentLength = Launcher::ShellIconParentLength(std::wstring_view(target, length));
+        if (!parentLength)
+            return E_INVALIDARG;
+        const wchar_t* separator = wcsrchr(target, L'\\');
+        // Keep the separator on drive roots: C: would resolve against a per-drive working directory.
+        if (_length != parentLength || CompareStringOrdinal(_parent.data(), static_cast<int>(_length), target,
+                                                            static_cast<int>(parentLength), FALSE) != CSTR_EQUAL)
+        {
+            _folder.reset();
+            _length = parentLength;
+            std::copy_n(target, parentLength, _parent.data());
+            _parent[parentLength] = L'\0';
+            wil::com_ptr_nothrow<IShellItem> parent;
+            HRESULT result = MeasureShellPhase(
+                timings, LauncherShellPhase::CreateItem, [&]() noexcept
+                { return SHCreateItemFromParsingName(_parent.data(), nullptr, IID_PPV_ARGS(parent.put())); });
+            if (FAILED(result) || !parent)
+                return FAILED(result) ? result : E_UNEXPECTED;
+            result = MeasureShellPhase(
+                timings, LauncherShellPhase::BindHandler,
+                [&]() noexcept { return parent->BindToHandler(nullptr, BHID_SFObject, IID_PPV_ARGS(_folder.put())); });
+            if (FAILED(result))
+            {
+                _folder.reset();
+                return result;
+            }
+        }
+        if (!_folder)
+            return E_NOINTERFACE;
+        std::array<wchar_t, kTargetCapacity> childName{};
+        std::copy_n(separator + 1, length - static_cast<size_t>(separator - target), childName.data());
+        wil::unique_cotaskmem_ptr<ITEMIDLIST> child;
+        HRESULT result =
+            MeasureShellPhase(timings, LauncherShellPhase::CreateItem,
+                              [&]() noexcept
+                              {
+                                  return _folder->ParseDisplayName(nullptr, nullptr, childName.data(), nullptr,
+                                                                   wil::out_param(child), nullptr);
+                              });
+        if (FAILED(result) || !child)
+            return FAILED(result) ? result : E_UNEXPECTED;
+        PCUITEMID_CHILD childId = child.get();
+        return MeasureShellPhase(timings, LauncherShellPhase::BindHandler,
+                                 [&]() noexcept
+                                 {
+                                     return _folder->GetUIObjectOf(nullptr, 1, &childId, __uuidof(IExtractIconW),
+                                                                   nullptr, extractor.put_void());
+                                 });
+    }
+
+  private:
+    std::array<wchar_t, kTargetCapacity> _parent{};
+    size_t _length = 0;
+    wil::com_ptr_nothrow<IShellFolder> _folder;
+};
+
+[[nodiscard]] HRESULT ExtractShellIcon(const wchar_t* target, ShortcutRecord& record,
+                                       LauncherShellTimings* timings = nullptr,
+                                       ShellIconBatch* batch = nullptr) noexcept
 {
     gExtractCalls.fetch_add(1, std::memory_order_relaxed);
+    wil::com_ptr_nothrow<IExtractIconW> extractIcon;
+    const bool bound = batch && SUCCEEDED(batch->Bind(target, timings, extractIcon)) && extractIcon;
+    if (bound && ExtractFromShellHandler(extractIcon.get(), record, timings) == S_OK)
+        return S_OK;
+    extractIcon.reset();
     wil::com_ptr_nothrow<IShellItem> item;
-    HRESULT result = SHCreateItemFromParsingName(target, nullptr, IID_PPV_ARGS(item.put()));
+    HRESULT result =
+        MeasureShellPhase(timings, LauncherShellPhase::CreateItem, [&]() noexcept
+                          { return SHCreateItemFromParsingName(target, nullptr, IID_PPV_ARGS(item.put())); });
     if (SUCCEEDED(result))
     {
-        wil::com_ptr_nothrow<IExtractIconW> extractIcon;
-        if (SUCCEEDED(item->BindToHandler(nullptr, BHID_SFUIObject, IID_PPV_ARGS(extractIcon.put()))) && extractIcon)
+        // A refused relative bind falls back to the original full-path handler. A handler that already
+        // refused extraction is not called twice; retain the original image-factory/image-list fallback.
+        if (!bound)
         {
-            if (ExtractFromShellHandler(extractIcon.get(), record) == S_OK)
+            result = MeasureShellPhase(
+                timings, LauncherShellPhase::BindHandler, [&]() noexcept
+                { return item->BindToHandler(nullptr, BHID_SFUIObject, IID_PPV_ARGS(extractIcon.put())); });
+            if (SUCCEEDED(result) && extractIcon && ExtractFromShellHandler(extractIcon.get(), record, timings) == S_OK)
             {
                 return S_OK;
             }
         }
         wil::com_ptr_nothrow<IShellItemImageFactory> images;
-        if (SUCCEEDED(item.query_to(images.put())) && images)
+        result = MeasureShellPhase(timings, LauncherShellPhase::GetImage,
+                                   [&]() noexcept { return item.query_to(images.put()); });
+        if (SUCCEEDED(result) && images)
         {
             SIZE size{static_cast<LONG>(kIconEdge), static_cast<LONG>(kIconEdge)};
-            HBITMAP bitmap = nullptr;
-            if (SUCCEEDED(images->GetImage(size, SIIGBF_BIGGERSIZEOK, &bitmap)) && bitmap)
+            wil::unique_hbitmap bitmap;
+            result = MeasureShellPhase(timings, LauncherShellPhase::GetImage, [&]() noexcept
+                                       { return images->GetImage(size, SIIGBF_BIGGERSIZEOK, bitmap.put()); });
+            if (SUCCEEDED(result) && bitmap)
             {
-                wil::unique_hbitmap owned{bitmap};
-                if (SUCCEEDED(ExtractFromHbitmap(owned.get(), record)))
+                result = MeasureShellPhase(timings, LauncherShellPhase::DecodeImage,
+                                           [&]() noexcept { return ExtractFromHbitmap(bitmap.get(), record); });
+                if (SUCCEEDED(result))
                 {
+                    if (timings)
+                        timings->sourceKind = 2;
                     return S_OK;
                 }
             }
         }
     }
 
-    SHFILEINFOW info{};
-    if (SHGetFileInfoW(target, 0, &info, sizeof(info), SHGFI_SYSICONINDEX) != 0)
-    {
-        if (SUCCEEDED(ExtractFromImageList(info.iIcon, record)))
-        {
-            return S_OK;
-        }
-    }
-    SHSTOCKICONINFO stock{};
-    stock.cbSize = sizeof(stock);
-    if (SUCCEEDED(SHGetStockIconInfo(SIID_APPLICATION, SHGSI_SYSICONINDEX, &stock)))
-    {
-        return ExtractFromImageList(stock.iSysImageIndex, record);
-    }
-    return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    return MeasureShellPhase(timings, LauncherShellPhase::ImageList,
+                             [&]() noexcept
+                             {
+                                 SHFILEINFOW info{};
+                                 if (SHGetFileInfoW(target, 0, &info, sizeof(info), SHGFI_SYSICONINDEX) != 0 &&
+                                     SUCCEEDED(ExtractFromImageList(info.iIcon, record)))
+                                 {
+                                     if (timings)
+                                         timings->sourceKind = 3;
+                                     return S_OK;
+                                 }
+                                 SHSTOCKICONINFO stock{};
+                                 stock.cbSize = sizeof(stock);
+                                 if (SUCCEEDED(SHGetStockIconInfo(SIID_APPLICATION, SHGSI_SYSICONINDEX, &stock)))
+                                 {
+                                     const HRESULT decoded = ExtractFromImageList(stock.iSysImageIndex, record);
+                                     if (SUCCEEDED(decoded) && timings)
+                                         timings->sourceKind = 4;
+                                     return decoded;
+                                 }
+                                 return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+                             });
 }
 
 [[nodiscard]] HRESULT ExtractFromGlyph(wchar_t glyph, ShortcutRecord& record,
@@ -601,7 +729,8 @@ static_assert(sizeof(LauncherIconInstance) == 32);
     return S_OK;
 }
 
-HRESULT ExtractShortcutIcon(ShortcutRecord& record, RedXeActions::FluentGlyphRasterizer& rasterizer) noexcept
+HRESULT ExtractShortcutIcon(ShortcutRecord& record, RedXeActions::FluentGlyphRasterizer& rasterizer,
+                            ShellIconBatch& batch) noexcept
 {
     record.bgra.reset();
     record.sourceEdge = 0;
@@ -635,7 +764,7 @@ HRESULT ExtractShortcutIcon(ShortcutRecord& record, RedXeActions::FluentGlyphRas
     {
         return E_INVALIDARG;
     }
-    return ExtractShellIcon(record.target, record);
+    return ExtractShellIcon(record.target, record, nullptr, &batch);
 }
 
 void EnumerateLnks(const wchar_t* directory, LauncherConfiguration& configuration) noexcept
@@ -1986,9 +2115,10 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
         }
         bool degraded = false;
         RedXeActions::FluentGlyphRasterizer rasterizer;
+        ShellIconBatch batch;
         for (uint32_t index = 0; index < _display.count; ++index)
         {
-            if (FAILED(ExtractShortcutIcon(_display.items[index], rasterizer)))
+            if (FAILED(ExtractShortcutIcon(_display.items[index], rasterizer, batch)))
             {
                 degraded = true;
             }
@@ -2306,6 +2436,32 @@ HRESULT CreateLauncherProvider(REFIID interfaceId, const RedXeFactoryOptions* op
 constexpr std::array kFactoryEntries{
     RedXeFactoryEntry{&kMetadata[0], CreateLauncherProvider},
 };
+
+[[nodiscard]] HRESULT InspectShellIcon(const wchar_t* target, IExtractIconW* extractor, LauncherShellTimings& timings,
+                                       ShellIconBatch* batch = nullptr) noexcept
+{
+    LARGE_INTEGER frequency{};
+    if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
+        return E_UNEXPECTED;
+    timings.frequency = static_cast<uint64_t>(frequency.QuadPart);
+    ShortcutRecord record{};
+    LARGE_INTEGER begin{};
+    LARGE_INTEGER end{};
+    QueryPerformanceCounter(&begin);
+    const HRESULT result = extractor ? ExtractFromShellHandler(extractor, record, &timings)
+                                     : ExtractShellIcon(target, record, &timings, batch);
+    QueryPerformanceCounter(&end);
+    timings.totalTicks = static_cast<uint64_t>(std::max<LONGLONG>(0, end.QuadPart - begin.QuadPart));
+    if (result == S_OK)
+    {
+        uint64_t hash = 14695981039346656037ULL;
+        for (uint32_t index = 0; index < kIconEdge * kIconEdge * 4; ++index)
+            hash = (hash ^ record.bgra[index]) * 1099511628211ULL;
+        timings.pixelHash = hash;
+        timings.sourceEdge = record.sourceEdge;
+    }
+    return result;
+}
 } // namespace
 
 extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
@@ -2327,6 +2483,57 @@ extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId
 }
 
 extern "C" void __stdcall RedXePluginShutdown() noexcept {}
+
+extern "C" HRESULT __stdcall RedXeLauncherTestShellIcon(const wchar_t* target, IExtractIconW* extractor,
+                                                        LauncherShellTimings* timings) noexcept
+{
+    if (!timings)
+        return E_POINTER;
+    if (timings->sizeBytes != sizeof(LauncherShellTimings))
+        return E_INVALIDARG;
+    *timings = LauncherShellTimings{sizeof(LauncherShellTimings)};
+    if (!IsAutomatedHost())
+        return E_ACCESSDENIED;
+    if (!target && !extractor)
+        return E_POINTER;
+    if ((target && extractor) || (target && target[0] == L'\0'))
+        return E_INVALIDARG;
+    return InspectShellIcon(target, extractor, *timings);
+}
+
+extern "C" HRESULT __stdcall RedXeLauncherTestShellBatch(const wchar_t* const* targets, uint32_t count,
+                                                         LauncherShellTimings* timings) noexcept
+{
+    if (count == 0 || count > kMaximumShortcuts)
+        return E_INVALIDARG;
+    if (!timings)
+        return E_POINTER;
+    for (uint32_t index = 0; index < count; ++index)
+        if (timings[index].sizeBytes != sizeof(LauncherShellTimings))
+            return E_INVALIDARG;
+    for (uint32_t index = 0; index < count; ++index)
+        timings[index] = LauncherShellTimings{sizeof(LauncherShellTimings)};
+    if (!IsAutomatedHost())
+        return E_ACCESSDENIED;
+    if (!targets)
+        return E_POINTER;
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        if (!targets[index])
+            return E_POINTER;
+        if (targets[index][0] == L'\0')
+            return E_INVALIDARG;
+    }
+    ShellIconBatch batch;
+    HRESULT result = S_OK;
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        const HRESULT extracted = InspectShellIcon(targets[index], nullptr, timings[index], &batch);
+        if (FAILED(extracted) && SUCCEEDED(result))
+            result = extracted;
+    }
+    return result;
+}
 
 extern "C" HRESULT __stdcall RedXeLauncherTestShellHandler(IExtractIconW* extractor, uint64_t* pixelHash,
                                                            uint32_t* sourceEdge) noexcept
