@@ -2390,6 +2390,21 @@ and qualified pixel comparisons, clock guard/binary proofs, both matched compari
 under `.build/receipts/`. Physical touch, first-changed pixels, residual process retention, clock peak attribution
 and the unexplained earlier screenshot fault remain open. The plan remains active.
 
+### P3.4 remaining GPU setup attribution (2026-10-12)
+
+Production Launcher adoption is committed as `31caca3`, after foundation `845f675`. The same two accepted
+candidate captures expose the remaining synchronous `OnDeviceCreated` wall time; each has 18 stages and 402
+callbacks. Shaders medians are 26.761 / 21.981 ms (three calls per order), Desk Clock 14.506 / 15.492 ms,
+Weather 17.647 / 13.724 ms and System Pulse 12.818 / 14.176 ms (six each). AV Control medians are
+0.927 / 0.864 ms, but its largest calls are 200.246 / 165.607 ms. All these calls succeed. These are whole
+callbacks, with quantized thread CPU counters: they do not separate CPU rasterization, D3D resource creation,
+driver work or scheduler delay. They do not establish an internal cause or a first-pixel result.
+
+The next construction investigation must separate those phases before changing shared atlas/resource lifetime
+or moving more work. The clock allocation trace addresses the separate intermittent WARP private peak. Neither
+a passing repeat nor this callback table closes that guard. `.build/receipts/p34-residual-gpu-attribution.json`
+binds the original summary hashes and retains both orders; no additional build or runtime arm is credited.
+
 ### Phase 3 — fluid swipe, nothing left behind
 
 The rule: a swipe MAY allocate whatever a smooth slide needs; the settled page MUST end with exactly the resources of a
