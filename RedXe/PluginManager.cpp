@@ -896,10 +896,10 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
                                             uint32_t backgroundRgb, WidgetSlot& widgetSlot) noexcept
 {
     if (!RedXeIsValidMachineId(settings.typeId.utf8.data()) || !RedXeIsValidMachineId(settings.id.utf8.data()) ||
-        widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.preparedGpuWidget || widgetSlot.scheduledWidget ||
-        widgetSlot.windowWidget || widgetSlot.raisedWidget || widgetSlot.interactiveWidget ||
-        widgetSlot.keyboardWidget || widgetSlot.textInputWidget || widgetSlot.accessibilityWidget ||
-        widgetSlot.networkWidget)
+        widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.preparedGpuWidget ||
+        widgetSlot.constructionStateWidget || widgetSlot.scheduledWidget || widgetSlot.windowWidget ||
+        widgetSlot.raisedWidget || widgetSlot.interactiveWidget || widgetSlot.keyboardWidget ||
+        widgetSlot.textInputWidget || widgetSlot.accessibilityWidget || widgetSlot.networkWidget)
     {
         return E_INVALIDARG;
     }
@@ -922,6 +922,7 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
 
     const HRESULT gpuResult = widgetSlot.widget.query_to(widgetSlot.gpuWidget.put());
     const HRESULT preparedResult = widgetSlot.widget.query_to(widgetSlot.preparedGpuWidget.put());
+    const HRESULT constructionResult = widgetSlot.widget.query_to(widgetSlot.constructionStateWidget.put());
     const HRESULT scheduledResult = widgetSlot.widget.query_to(widgetSlot.scheduledWidget.put());
     const HRESULT windowResult = widgetSlot.widget.query_to(widgetSlot.windowWidget.put());
     const HRESULT raisedResult = widgetSlot.widget.query_to(widgetSlot.raisedWidget.put());
@@ -942,6 +943,10 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     {
         return E_NOINTERFACE;
     }
+    if (constructionResult != S_OK && constructionResult != E_NOINTERFACE)
+        return constructionResult;
+    if (widgetSlot.constructionStateWidget && !widgetSlot.preparedGpuWidget)
+        return E_NOINTERFACE;
     if (windowResult != S_OK && windowResult != E_NOINTERFACE)
     {
         return windowResult;
@@ -1039,6 +1044,7 @@ PluginManager::WidgetSlot& PluginManager::WidgetSlot::operator=(WidgetSlot&& oth
         status = std::move(other.status);
         gpuWidget = std::move(other.gpuWidget);
         preparedGpuWidget = std::move(other.preparedGpuWidget);
+        constructionStateWidget = std::move(other.constructionStateWidget);
         scheduledWidget = std::move(other.scheduledWidget);
         windowWidget = std::move(other.windowWidget);
         raisedWidget = std::move(other.raisedWidget);
@@ -1068,6 +1074,7 @@ void PluginManager::ReleaseWidgetInterfaces(WidgetSlot& slot) noexcept
         PluginHost::Instance().UnregisterNetworkWidget(slot.networkWidget.get());
     slot.gpuWidget.reset();
     slot.preparedGpuWidget.reset();
+    slot.constructionStateWidget.reset();
     slot.scheduledWidget.reset();
     slot.windowWidget.reset();
     slot.raisedWidget.reset();
@@ -1329,6 +1336,11 @@ IRedXeGpuWidget* PluginManager::GpuWidgetAt(size_t index) const noexcept
 IRedXePreparedGpuWidget* PluginManager::PreparedGpuWidgetAt(size_t index) const noexcept
 {
     return index < _widgetCount ? _widgets[index].preparedGpuWidget.get() : nullptr;
+}
+
+IRedXeConstructionStateWidget* PluginManager::ConstructionStateWidgetAt(size_t index) const noexcept
+{
+    return index < _widgetCount ? _widgets[index].constructionStateWidget.get() : nullptr;
 }
 
 IRedXeScheduledWidget* PluginManager::ScheduledWidgetAt(size_t index) const noexcept

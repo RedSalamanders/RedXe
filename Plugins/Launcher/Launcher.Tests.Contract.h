@@ -143,6 +143,10 @@ extern "C"
     // Automated hosts only, UI-thread/STA. Borrows a real file target and extractor for the cache path.
     REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestCachedShellHandler(
         const wchar_t* target, IExtractIconW* extractor, LauncherShellTimings* timings) noexcept;
+    // Automated-only call-local cancellation of the production native phase path. No override or owner retained.
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestCanceledShellHandler(
+        IExtractIconW* extractor, HANDLE cancellation, uint32_t budgetMilliseconds,
+        LauncherShellTimings* timings) noexcept;
     // Automated hosts only, UI thread. 0 reads; 1 clears; 2 fails the next clone; 3 fails the next store.
     // Exact-size records clear before authorization/operation checks. Shutdown releases all cached bytes.
     REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestIconCache(
@@ -158,6 +162,7 @@ using LauncherTestShellIconFn = decltype(&RedXeLauncherTestShellIcon);
 using LauncherTestShellBatchFn = decltype(&RedXeLauncherTestShellBatch);
 using LauncherTestShellParentFn = decltype(&RedXeLauncherTestShellParent);
 using LauncherTestCachedShellHandlerFn = decltype(&RedXeLauncherTestCachedShellHandler);
+using LauncherTestCanceledShellHandlerFn = decltype(&RedXeLauncherTestCanceledShellHandler);
 using LauncherTestIconCacheFn = decltype(&RedXeLauncherTestIconCache);
 
 inline constexpr char kLauncherSetTestPinDirectoryExport[] = "RedXeLauncherSetTestPinDirectory";
@@ -169,6 +174,7 @@ inline constexpr char kLauncherTestShellIconExport[] = "RedXeLauncherTestShellIc
 inline constexpr char kLauncherTestShellBatchExport[] = "RedXeLauncherTestShellBatch";
 inline constexpr char kLauncherTestShellParentExport[] = "RedXeLauncherTestShellParent";
 inline constexpr char kLauncherTestCachedShellHandlerExport[] = "RedXeLauncherTestCachedShellHandler";
+inline constexpr char kLauncherTestCanceledShellHandlerExport[] = "RedXeLauncherTestCanceledShellHandler";
 inline constexpr char kLauncherTestIconCacheExport[] = "RedXeLauncherTestIconCache";
 
 #undef REDXE_LAUNCHER_TEST_API

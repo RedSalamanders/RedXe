@@ -291,7 +291,11 @@ object it was supplied to.
 - `QueueConstructionWork` accepts immutable CPU construction on one lazy process-wide STA, separate from MTA device
   commands. At most 16 `IRedXeConstructionWork` objects are retained; identical pending objects coalesce without a
   rerun (`S_FALSE`) and saturation returns `ERROR_BUSY`. Factory creation, visibility, `Prepare`, committed input
-  and completion may enqueue bounded observation, never `Render`, paint or device/size callbacks. `Run` receives
+  and completion may enqueue bounded observation, never `Render`, paint or device/size callbacks. Submission is
+  subject to host activation policy: `E_ACCESSDENIED` preserves synchronous construction on
+  initial/ordinary activation and touch pans. Offscreen discrete-navigation visibility and preparation enable it.
+  A widget may hold one copied admission request after `ERROR_BUSY` and retry on existing preparation opportunities;
+  it must never introduce a polling timer or retain a third page for that request. `Run` receives
   the borrowed stop event and the remaining three-second enqueue-to-result budget; it owns all inputs/results and
   creates/releases Shell COM objects on that STA. It borrows no widget/UI state and performs no D3D, persistence or
   action execution. It checks cancellation/budget between indivisible calls. Expired queued work never starts;
@@ -660,6 +664,15 @@ GPU vtables.
   not introduce a timer or idle polling. A widget MUST preserve requests raised during preparation for a later frame.
   A failed preparation suppresses stale input/composition and MUST NOT retry until a new request or geometry change.
   Device-loss results enter the normal host recovery path; other failures remain local to that widget.
+- `IRedXeConstructionStateWidget` is an optional sibling of a prepared GPU widget, cached at instance creation.
+  `GetConstructionState` is UI-thread, bounded and allocation-free. Pending CPU work may admit its copied job from
+  Prepare but MUST NOT consume the first GPU preparation trace. NeedsPreparation remains unready until its full
+  GPU upload completes. Ready and a local Unavailable tile finish the readiness barrier; a failed getter cannot.
+  Discrete navigation keeps the animated current page at its full canvas until every incoming widget crosses the
+  barrier. It cancels an unfinished wait after three seconds. An immutable construction Run may rasterize CPU
+  icons/glyphs on its STA, owns every Shell COM object there and releases it before returning. Completion only
+  publishes CPU results; any UI-only validation correction is rasterized in Prepare before upload. Render remains
+  allocation-free. Retirement/hide/replacement withdraws the lifetime/generation token before releasing widgets.
 - `RedXeGpuFrameContext::viewId` identifies the tile (0) or separately prepared raised view (1). Their final layouts
   remain independent during raise animation; position-only changes do not rerasterize. All source-coordinated
   plugins MUST rebuild against the current 56-byte frame record; old record sizes are not accepted.
@@ -1453,6 +1466,17 @@ import remains dirty for collect fallback if the queue is unavailable, full, or 
 MUST NOT be reimported or repeatedly queued on later visibility changes. Later drops append to the imported list;
 a failed drop save restores both the earlier shortcuts and their dirty state. Saved shortcuts are user-editable
 and authoritative on subsequent creation. An empty/unavailable folder causes no save.
+For an offscreen page reached by an edge click, wheel or named page action, Launcher may enumerate/import and
+extract the full native 256-pixel icons on the host STA. Initial activation, touch pans and committed drops retain
+the ordinary synchronous path. Each job copies at most 32 identities and owns its pixels; it retains no widget,
+provider, device or immediate context. The current page stays animated until the incoming page's complete GPU
+uploads are ready. A generation token rejects completed work after hide, replacement, drop/rollback or retirement.
+Imported actions are validated on the UI thread before publication; rejected entries receive the ordinary Warning
+glyph in Prepare. Import JSON is capped before extraction and queued only after successful UI publication.
+The existing eight-entry/2-MiB pixel cache is shared by UI and STA extraction with a short SRW lock over bookkeeping
+and bounded copies, never over Shell calls or file probes. No second cache or retained folder/handler is introduced.
+One bounded `launcher-construction` log record per accepted result reports queue delay, worker wall/CPU, icon count,
+result and ordinary parent/bind/shield/location/extract/decode costs; it contains no target path or per-frame work.
 `--self-test`, HostPluginTests, and other automated hosts set
 `REDXE_AUTOMATED_HOST=1` and MUST NOT read the live taskbar; tests inject a pin directory through
 `RedXeLauncherSetTestPinDirectory`. `nullptr` restores live enumeration; an empty string means no pins.
@@ -1474,6 +1498,9 @@ existing image-factory/image-list fallback. Do not request a second jumbo image 
 The optional automated-host-only `RedXeLauncherTestShellHandler` borrows an extractor for one UI-thread call through
 that production handler/decoder and returns its pixel checksum and source edge. It retains no override or COM
 reference; refused/failed calls zero their outputs.
+`RedXeLauncherTestCanceledShellHandler` adds a call-local cancellation event and deadline to that same path for
+automated tests. It verifies refusal before work and cancellation between native phases, retains no token or
+extractor after returning, and clears refused outputs. Production callers never select a diagnostic override.
 For drive-qualified absolute filesystem targets, each refresh shares at most one parent `IShellFolder` and binds
 children through `ParseDisplayName` and `GetUIObjectOf(IExtractIconW)`, the handler route underlying `BHID_SFUIObject`. The parent key
 compares exact path spelling, including case; changing parents replaces its owner. UNC/device paths and shell
@@ -1843,6 +1870,9 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     require; `HostPluginTests` MUST map every catalogued module and prove no action namespace collides.
 
 22. Verify the construction lane's lazy STA apartment, 16-slot refusal, duplicate coalescing without reruns,
+    ordinary-activation refusal without a worker, production readiness of 32 queued/admission-waiting Launchers,
+    continuing current GPU frames, first-preparation trace retention, exact synchronous/STA glyph/native/warning
+    pixels, device-loss recovery, stale generation/hide/retirement, drop/rollback, queued import and cancellation,
     owner responsiveness while native work is blocked, three-second queue-age expiry/late-success refusal, posted
     UI completion, UI final-reference release and idle event blocking. Cooperative cancellation joins without
     completion; an indivisible call consumes the bounded stop once, drops queued work, refuses new submissions

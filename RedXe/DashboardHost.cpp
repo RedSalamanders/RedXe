@@ -764,6 +764,28 @@ IRedXePreparedGpuWidget* DashboardHost::PreparedGpuWidgetAt(size_t index) const 
     return _pluginManager && index < _widgetCount ? _pluginManager->PreparedGpuWidgetAt(index) : nullptr;
 }
 
+IRedXeConstructionStateWidget* DashboardHost::ConstructionStateWidgetAt(size_t index) const noexcept
+{
+    return _pluginManager && index < _widgetCount ? _pluginManager->ConstructionStateWidgetAt(index) : nullptr;
+}
+
+bool DashboardHost::ConstructionReady() const noexcept
+{
+    for (size_t index = 0; index < _widgetCount; ++index)
+    {
+        if (RequiresPlaceholderAt(index))
+            continue;
+        if (auto* widget = ConstructionStateWidgetAt(index))
+        {
+            RedXeConstructionState state = RedXeConstructionStatePending;
+            if (FAILED(widget->GetConstructionState(&state)) ||
+                (state != RedXeConstructionStateReady && state != RedXeConstructionStateUnavailable))
+                return false;
+        }
+    }
+    return true;
+}
+
 IRedXeWindowWidget* DashboardHost::WindowWidgetAt(size_t index) const noexcept
 {
     return _pluginManager && index < _widgetCount ? _pluginManager->WindowWidgetAt(index) : nullptr;

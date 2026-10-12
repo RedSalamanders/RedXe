@@ -166,6 +166,8 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
 
     // UI-thread only. Retains one immutable CPU construction job for the host's lazy STA lane (16 slots). Repeated
     // submission of the same pending object coalesces without rerunning it (S_FALSE); a full queue returns ERROR_BUSY.
+    // E_ACCESSDENIED means this activation requires synchronous full-quality construction (initial page or touch
+    // pan). The host enables the lane only for an offscreen incoming page of a discrete navigation.
     // Allowed from factory creation, visibility, Prepare, committed input and completion, never from Render/paint
     // or device/size callbacks. Run may perform native Shell work but owns no UI, Direct3D or settings mutation.
     // Complete is posted to the UI thread, outside the submitting callback. A canceled/stale owner must reject the

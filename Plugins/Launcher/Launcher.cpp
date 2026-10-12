@@ -518,12 +518,37 @@ static_assert(sizeof(LauncherIconInstance) == 32);
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
 
+struct ConstructionCancellation final
+{
+    HANDLE event;
+    uint64_t deadline;
+    const std::atomic<uint64_t>* generation;
+    uint64_t expected;
+    [[nodiscard]] bool Canceled() const noexcept
+    {
+        return generation->load(std::memory_order_acquire) != expected ||
+               WaitForSingleObject(event, 0) == WAIT_OBJECT_0 || GetTickCount64() >= deadline;
+    }
+};
+// Call-local to Run on the construction STA. Synchronous UI extraction has no cancellation token and no wait/probe.
+thread_local const ConstructionCancellation* gConstructionCancellation = nullptr;
+
+[[nodiscard]] bool ConstructionCanceled() noexcept
+{
+    return gConstructionCancellation && gConstructionCancellation->Canceled();
+}
+
 template <typename Operation>
 [[nodiscard]] HRESULT MeasureShellPhase(LauncherShellTimings* timings, LauncherShellPhase phase,
                                         Operation&& operation) noexcept
 {
+    if (ConstructionCanceled())
+        return E_ABORT;
     if (!timings)
-        return operation();
+    {
+        const HRESULT result = operation();
+        return ConstructionCanceled() ? E_ABORT : result;
+    }
     LARGE_INTEGER begin{};
     LARGE_INTEGER end{};
     QueryPerformanceCounter(&begin);
@@ -534,7 +559,7 @@ template <typename Operation>
     ++timings->phaseCalls[index];
     timings->phaseResults[index] = result;
     timings->completedMask |= 1U << index;
-    return result;
+    return ConstructionCanceled() ? E_ABORT : result;
 }
 
 constexpr uint32_t kIconCacheCapacity = 8;
@@ -734,6 +759,28 @@ class IconCache final
 };
 static_assert(sizeof(IconCache) < 24 * 1024);
 IconCache gIconCache;
+// UI synchronous activation and the single STA construction lane share the same bounded pixel cache. Never hold
+// this lock over native Shell calls or file probes; it only protects cache bookkeeping and bounded pixel copies.
+SRWLOCK gIconCacheLock = SRWLOCK_INIT;
+
+void InvalidateIconCache(const wchar_t* target) noexcept
+{
+    const auto guard = wil::AcquireSRWLockExclusive(&gIconCacheLock);
+    gIconCache.Invalidate(target);
+}
+
+[[nodiscard]] HRESULT ReadIconCache(const IconCacheKey& key, ShortcutRecord& record) noexcept
+{
+    const auto guard = wil::AcquireSRWLockExclusive(&gIconCacheLock);
+    const auto* entry = gIconCache.Find(key);
+    return entry ? gIconCache.Read(*entry, record) : S_FALSE;
+}
+
+[[nodiscard]] HRESULT StoreIconCache(const IconCacheKey& key, const ShortcutRecord& record) noexcept
+{
+    const auto guard = wil::AcquireSRWLockExclusive(&gIconCacheLock);
+    return gIconCache.Store(key, record);
+}
 
 [[nodiscard]] HRESULT ExtractFromShellHandler(IExtractIconW* extractor, ShortcutRecord& record,
                                               LauncherShellTimings* timings = nullptr,
@@ -773,7 +820,7 @@ IconCache gIconCache;
     if (FAILED(located) || wcsnlen_s(iconPath.data(), iconPath.size()) == iconPath.size())
     {
         if (cacheTarget)
-            gIconCache.Invalidate(cacheTarget);
+            InvalidateIconCache(cacheTarget);
         return FAILED(located) ? located : E_UNEXPECTED;
     }
     IconCacheKey key{};
@@ -785,11 +832,12 @@ IconCache gIconCache;
                             timings, LauncherShellPhase::CacheValidation, [&]() noexcept
                             { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, key); }) == S_OK;
         if (!cacheable)
-            gIconCache.Invalidate(cacheTarget);
-        else if (const auto* entry = gIconCache.Find(key))
+            InvalidateIconCache(cacheTarget);
+        else
         {
-            if (MeasureShellPhase(timings, LauncherShellPhase::CacheRead,
-                                  [&]() noexcept { return gIconCache.Read(*entry, record); }) == S_OK)
+            const HRESULT cached = MeasureShellPhase(timings, LauncherShellPhase::CacheRead,
+                                                     [&]() noexcept { return ReadIconCache(key, record); });
+            if (cached == S_OK)
             {
                 IconCacheKey after{};
                 if (MeasureShellPhase(
@@ -797,6 +845,7 @@ IconCache gIconCache;
                         { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, after); }) == S_OK &&
                     after == key)
                 {
+                    const auto guard = wil::AcquireSRWLockExclusive(&gIconCacheLock);
                     ++gIconCache.hits;
                     if (timings)
                         timings->sourceKind = 5;
@@ -804,12 +853,12 @@ IconCache gIconCache;
                 }
                 record.bgra.reset();
                 record.sourceEdge = 0;
-                gIconCache.Invalidate(cacheTarget);
+                InvalidateIconCache(cacheTarget);
                 cacheable = false;
             }
+            else if (cached == S_FALSE)
+                InvalidateIconCache(cacheTarget);
         }
-        else
-            gIconCache.Invalidate(cacheTarget);
     }
     wil::unique_hicon icon;
     // Only the large image is consumed. Asking for a second 256-pixel image repeats shell work.
@@ -823,13 +872,13 @@ IconCache gIconCache;
     if (extracted != S_OK)
     {
         if (cacheTarget)
-            gIconCache.Invalidate(cacheTarget);
+            InvalidateIconCache(cacheTarget);
         return extracted;
     }
     if (!icon)
     {
         if (cacheTarget)
-            gIconCache.Invalidate(cacheTarget);
+            InvalidateIconCache(cacheTarget);
         return E_UNEXPECTED;
     }
     const HRESULT decoded = MeasureShellPhase(timings, LauncherShellPhase::DecodeIcon,
@@ -844,12 +893,12 @@ IconCache gIconCache;
                 S_OK &&
             after == key)
             (void)MeasureShellPhase(timings, LauncherShellPhase::CacheStore,
-                                    [&]() noexcept { return gIconCache.Store(key, record); });
+                                    [&]() noexcept { return StoreIconCache(key, record); });
         else
-            gIconCache.Invalidate(cacheTarget);
+            InvalidateIconCache(cacheTarget);
     }
     else if (cacheTarget && decoded != S_OK)
-        gIconCache.Invalidate(cacheTarget);
+        InvalidateIconCache(cacheTarget);
     return decoded;
 }
 
@@ -1128,7 +1177,7 @@ class ShellIconBatch final
 }
 
 HRESULT ExtractShortcutIcon(ShortcutRecord& record, RedXeActions::FluentGlyphRasterizer& rasterizer,
-                            ShellIconBatch& batch) noexcept
+                            ShellIconBatch& batch, LauncherShellTimings* timings = nullptr) noexcept
 {
     record.bgra.reset();
     record.sourceEdge = 0;
@@ -1162,7 +1211,7 @@ HRESULT ExtractShortcutIcon(ShortcutRecord& record, RedXeActions::FluentGlyphRas
     {
         return E_INVALIDARG;
     }
-    return ExtractShellIcon(record.target, record, nullptr, &batch);
+    return ExtractShellIcon(record.target, record, timings, &batch);
 }
 
 void EnumerateLnks(const wchar_t* directory, LauncherConfiguration& configuration) noexcept
@@ -1188,6 +1237,8 @@ void EnumerateLnks(const wchar_t* directory, LauncherConfiguration& configuratio
     uint32_t found = 0;
     do
     {
+        if (ConstructionCanceled())
+            return;
         if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 || !EndsWithInsensitive(data.cFileName, L".lnk") ||
             CompareStringOrdinal(data.cFileName, -1, L"desktop.ini", -1, TRUE) == CSTR_EQUAL)
         {
@@ -1745,8 +1796,181 @@ void CopyConfigurationIdentity(const LauncherConfiguration& source, LauncherConf
     }
 }
 
-class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget, IRedXeGpuWidget,
-                                                   IRedXePreparedGpuWidget, IRedXeInteractiveWidget, IRedXeRaisedWidget>
+[[nodiscard]] HRESULT WriteConfigurationJson(const LauncherConfiguration& configuration, char* jsonUtf8,
+                                             uint32_t capacityBytes, uint32_t& written) noexcept
+{
+    written = 0;
+    if (!jsonUtf8 || capacityBytes == 0)
+    {
+        return E_INVALIDARG;
+    }
+    unique_yyjson_mut_doc document{yyjson_mut_doc_new(nullptr)};
+    yyjson_mut_val* root = document ? yyjson_mut_obj(document.get()) : nullptr;
+    yyjson_mut_val* array = document ? yyjson_mut_arr(document.get()) : nullptr;
+    if (!root || !array)
+    {
+        return E_OUTOFMEMORY;
+    }
+    yyjson_mut_doc_set_root(document.get(), root);
+    for (uint32_t index = 0; index < configuration.count; ++index)
+    {
+        yyjson_mut_val* item = yyjson_mut_obj(document.get());
+        if (!item || !yyjson_mut_obj_add_strcpy(document.get(), item, "target", configuration.items[index].targetUtf8))
+        {
+            return E_OUTOFMEMORY;
+        }
+        if (std::strcmp(configuration.items[index].actionUtf8, Launcher::kDefaultAction) != 0 &&
+            !yyjson_mut_obj_add_strcpy(document.get(), item, "action", configuration.items[index].actionUtf8))
+        {
+            return E_OUTOFMEMORY;
+        }
+        if (configuration.items[index].icon[0] != '\0' &&
+            !yyjson_mut_obj_add_strcpy(document.get(), item, "icon", configuration.items[index].icon))
+        {
+            return E_OUTOFMEMORY;
+        }
+        if (!yyjson_mut_arr_add_val(array, item))
+        {
+            return E_OUTOFMEMORY;
+        }
+    }
+    if (!yyjson_mut_obj_add_val(document.get(), root, "shortcuts", array) ||
+        !yyjson_mut_obj_add_strcpy(document.get(), root, "iconSize", LauncherIconSizeName(configuration.iconSize)))
+    {
+        return E_OUTOFMEMORY;
+    }
+    size_t length = 0;
+    unique_malloc_string text{yyjson_mut_write(document.get(), 0, &length)};
+    if (!text || length == 0)
+    {
+        return E_OUTOFMEMORY;
+    }
+    if (length >= capacityBytes)
+    {
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    }
+    std::memcpy(jsonUtf8, text.get(), length);
+    jsonUtf8[length] = '\0';
+    written = static_cast<uint32_t>(length);
+    return S_OK;
+}
+
+class LauncherWidget;
+struct LauncherConstructionLifetime final
+{
+    // Only the UI thread reads/writes owner. Run reads generation alone; it never borrows the widget or provider.
+    LauncherWidget* owner = nullptr;
+    std::atomic<uint64_t> generation{0};
+};
+
+class LauncherConstructionWork final : public RedXeComObject<LauncherConstructionWork, IRedXeConstructionWork>
+{
+  public:
+    LauncherConstructionWork(std::shared_ptr<LauncherConstructionLifetime> lifetime, uint64_t generation,
+                             const LauncherConfiguration& input) noexcept
+        : _lifetime(std::move(lifetime)), _generation(generation), _queuedTick(GetTickCount64())
+    {
+        CopyConfigurationIdentity(input, configuration);
+    }
+
+    HRESULT STDMETHODCALLTYPE Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexcept override
+    {
+        const uint64_t started = GetTickCount64();
+        queueMilliseconds = started - _queuedTick;
+        const uint64_t deadline = started + timeoutMilliseconds;
+        const ConstructionCancellation cancellation{cancelEvent, deadline, &_lifetime->generation, _generation};
+        const auto* previousCancellation = std::exchange(gConstructionCancellation, &cancellation);
+        const auto restoreCancellation =
+            wil::scope_exit([&]() noexcept { gConstructionCancellation = previousCancellation; });
+        const auto canceled = [&]() noexcept
+        {
+            return _lifetime->generation.load(std::memory_order_acquire) != _generation ||
+                   WaitForSingleObject(cancelEvent, 0) == WAIT_OBJECT_0 || GetTickCount64() >= deadline;
+        };
+        LARGE_INTEGER frequency{}, begin{};
+        QueryPerformanceFrequency(&frequency);
+        QueryPerformanceCounter(&begin);
+        FILETIME creation{}, exit{}, kernel{}, user{};
+        const auto cpu = [&]() noexcept -> uint64_t
+        {
+            if (!GetThreadTimes(GetCurrentThread(), &creation, &exit, &kernel, &user))
+                return 0;
+            return (static_cast<uint64_t>(kernel.dwHighDateTime) << 32U) + kernel.dwLowDateTime +
+                   (static_cast<uint64_t>(user.dwHighDateTime) << 32U) + user.dwLowDateTime;
+        };
+        const uint64_t beforeCpu = cpu();
+        const auto measured = wil::scope_exit(
+            [&]() noexcept
+            {
+                LARGE_INTEGER end{};
+                QueryPerformanceCounter(&end);
+                wallMicroseconds =
+                    frequency.QuadPart > 0
+                        ? static_cast<uint64_t>((end.QuadPart - begin.QuadPart) * 1'000'000 / frequency.QuadPart)
+                        : 0;
+                cpu100ns = cpu() - beforeCpu;
+            });
+        if (canceled())
+            return E_ABORT;
+        if (configuration.count == 0)
+        {
+            std::array<wchar_t, 1024> directory{};
+            ResolvePinDirectory(directory.data(), directory.size());
+            if (canceled())
+                return E_ABORT;
+            EnumerateLnks(directory.data(), configuration);
+            usingPins = configuration.count > 0;
+            if (usingPins)
+            {
+                uint32_t written = 0;
+                HRESULT encoded = WriteConfigurationJson(configuration, pinJson.data(),
+                                                         static_cast<uint32_t>(pinJson.size()), written);
+                while (encoded == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) && configuration.count > 0)
+                {
+                    --configuration.count;
+                    encoded = WriteConfigurationJson(configuration, pinJson.data(),
+                                                     static_cast<uint32_t>(pinJson.size()), written);
+                }
+                RETURN_IF_FAILED(encoded);
+                pinJsonBytes = written;
+            }
+        }
+        if (canceled())
+            return E_ABORT;
+        RedXeActions::FluentGlyphRasterizer rasterizer;
+        ShellIconBatch batch;
+        for (uint32_t index = 0; index < configuration.count; ++index)
+        {
+            if (canceled())
+                return E_ABORT;
+            LauncherShellTimings sample{sizeof(LauncherShellTimings)};
+            sample.frequency = frequency.QuadPart > 0 ? static_cast<uint64_t>(frequency.QuadPart) : 0;
+            // Preserve the ordinary fresh shield-aware native extraction and exact 256-pixel decode path.
+            (void)ExtractShortcutIcon(configuration.items[index], rasterizer, batch, &sample);
+            for (uint32_t phase = 0; phase < kLauncherShellPhaseCount; ++phase)
+                phaseMicroseconds[phase] +=
+                    sample.frequency ? sample.phaseTicks[phase] * 1'000'000 / sample.frequency : 0;
+        }
+        return canceled() ? E_ABORT : S_OK;
+    }
+
+    void STDMETHODCALLTYPE Complete(HRESULT result) noexcept override;
+    LauncherConfiguration configuration{};
+    std::array<char, kSettingsJsonCapacity + 1> pinJson{};
+    uint32_t pinJsonBytes = 0;
+    bool usingPins = false;
+    uint64_t queueMilliseconds = 0, wallMicroseconds = 0, cpu100ns = 0;
+    std::array<uint64_t, kLauncherShellPhaseCount> phaseMicroseconds{};
+
+  private:
+    std::shared_ptr<LauncherConstructionLifetime> _lifetime;
+    uint64_t _generation;
+    uint64_t _queuedTick;
+};
+
+class LauncherWidget final
+    : public RedXeComObject<LauncherWidget, IRedXeWidget, IRedXeGpuWidget, IRedXePreparedGpuWidget,
+                            IRedXeConstructionStateWidget, IRedXeInteractiveWidget, IRedXeRaisedWidget>
 {
   public:
     LauncherWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, LauncherDeviceResources& resources,
@@ -1771,6 +1995,9 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
 
     ~LauncherWidget()
     {
+        CancelConstruction();
+        if (_constructionLifetime)
+            _constructionLifetime->owner = nullptr;
         gLiveWidgets.fetch_sub(1, std::memory_order_relaxed);
     }
 
@@ -1779,13 +2006,26 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
         _visible = visible != FALSE;
         if (!_visible)
         {
+            CancelConstruction();
             _launchActive = false;
             _pointerDown = false;
             _pagePan = false;
             StopPageSettle(true);
             return S_OK;
         }
-        RefreshDisplay(false);
+        if (!StartConstruction())
+            RefreshDisplay(false);
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetConstructionState(RedXeConstructionState* state) noexcept override
+    {
+        if (!state)
+            return E_POINTER;
+        *state = _constructionPending                                    ? RedXeConstructionStatePending
+                 : _constructionFailed || _iconsPreparationFailed        ? RedXeConstructionStateUnavailable
+                 : _iconsDirty || _invalidImportedIcons || !_deviceReady ? RedXeConstructionStateNeedsPreparation
+                                                                         : RedXeConstructionStateReady;
         return S_OK;
     }
 
@@ -1892,6 +2132,29 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
     {
         if (!context || context->sizeBytes != sizeof(RedXeGpuPreparationContext))
             return E_INVALIDARG;
+        if (!_visible)
+            return S_FALSE;
+        if (_constructionPending)
+        {
+            TrySubmitConstruction();
+            return S_FALSE;
+        }
+        if (_invalidImportedIcons)
+        {
+            RedXeActions::FluentGlyphRasterizer rasterizer;
+            for (uint32_t index = 0; index < _display.count; ++index)
+            {
+                if ((_invalidImportedIcons & (uint32_t{1} << index)) == 0)
+                    continue;
+                const HRESULT result = ExtractFromGlyph(L'\xE7BA', _display.items[index], rasterizer);
+                if (FAILED(result))
+                {
+                    _iconsPreparationFailed = true;
+                    return result;
+                }
+            }
+            _invalidImportedIcons = 0;
+        }
         if (!_visible || !_iconsDirty || _iconsPreparationFailed)
             return S_FALSE;
         if (!_deviceReady || !_device)
@@ -1918,7 +2181,9 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
         {
             return E_INVALIDARG;
         }
-        if (!_deviceReady || _iconsDirty)
+        if (_constructionPending)
+            return S_FALSE;
+        if (_constructionFailed || !_deviceReady || _iconsDirty)
         {
             return E_UNEXPECTED;
         }
@@ -2038,6 +2303,8 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
         {
             return E_INVALIDARG;
         }
+        if ((_constructionPending || _constructionFailed) && event->phase != RedXePointerPhaseCancel)
+            return S_FALSE;
         if (event->phase == RedXePointerPhaseWheel || event->phase == RedXePointerPhaseHorizontalWheel)
         {
             return OnWheel(*event);
@@ -2263,6 +2530,135 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
     }
 
   private:
+    friend class LauncherConstructionWork;
+    void CancelConstruction() noexcept
+    {
+        if (_constructionLifetime)
+            _constructionLifetime->generation.fetch_add(1, std::memory_order_release);
+        _deferredConstruction.reset();
+        _constructionPending = false;
+    }
+
+    void ConstructionFailed(HRESULT result) noexcept
+    {
+        _constructionPending = false;
+        _constructionFailed = true;
+        const RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusUnavailable,
+                                             L"Shortcut construction failed"};
+        if (_host)
+        {
+            (void)_host->ReportWidgetStatus(_instanceId, &report);
+            (void)_host->RequestFrame();
+        }
+        (void)result;
+    }
+
+    void TrySubmitConstruction() noexcept
+    {
+        if (!_deferredConstruction || !_host)
+            return;
+        const HRESULT queued = _host->QueueConstructionWork(_deferredConstruction.get());
+        if (queued == HRESULT_FROM_WIN32(ERROR_BUSY))
+            return; // Other jobs' posted completions make the next admission attempt; no polling wake-up.
+        if (FAILED(queued))
+            ConstructionFailed(queued);
+        _deferredConstruction.reset();
+    }
+
+    [[nodiscard]] bool StartConstruction() noexcept
+    {
+        CancelConstruction();
+        _constructionFailed = false;
+        if (!_host)
+            return false;
+        try
+        {
+            if (!_constructionLifetime)
+            {
+                _constructionLifetime = std::make_shared<LauncherConstructionLifetime>();
+                _constructionLifetime->owner = this;
+            }
+            const uint64_t generation = _constructionLifetime->generation.load(std::memory_order_acquire);
+            wil::com_ptr_nothrow<LauncherConstructionWork> work;
+            work.attach(new (std::nothrow) LauncherConstructionWork(_constructionLifetime, generation, _authored));
+            if (!work)
+            {
+                ConstructionFailed(E_OUTOFMEMORY);
+                return true;
+            }
+            const HRESULT queued = _host->QueueConstructionWork(work.get());
+            if (queued == E_ACCESSDENIED || queued == E_NOTIMPL)
+                return false;
+            _constructionPending = SUCCEEDED(queued) || queued == HRESULT_FROM_WIN32(ERROR_BUSY);
+            if (queued == HRESULT_FROM_WIN32(ERROR_BUSY))
+                _deferredConstruction = work.get();
+            else if (FAILED(queued))
+                ConstructionFailed(queued);
+            return true;
+        }
+        catch (const std::bad_alloc&)
+        {
+            ConstructionFailed(E_OUTOFMEMORY);
+            return true;
+        }
+    }
+
+    void PublishConstruction(LauncherConstructionWork& work, HRESULT result) noexcept
+    {
+        _constructionPending = false;
+        std::array<char, 1024> message{};
+        const auto phase = [&](LauncherShellPhase value) noexcept
+        { return work.phaseMicroseconds[static_cast<size_t>(value)]; };
+        (void)sprintf_s(message.data(), message.size(),
+                        "queue_ms=%llu worker_wall_us=%llu worker_cpu_100ns=%llu icons=%u result=0x%08X "
+                        "parent_us=%llu bind_us=%llu shield_us=%llu location_us=%llu extract_us=%llu decode_us=%llu",
+                        static_cast<unsigned long long>(work.queueMilliseconds),
+                        static_cast<unsigned long long>(work.wallMicroseconds),
+                        static_cast<unsigned long long>(work.cpu100ns), work.configuration.count,
+                        static_cast<unsigned int>(result), phase(LauncherShellPhase::ParentItem),
+                        phase(LauncherShellPhase::BindHandler), phase(LauncherShellPhase::ShieldCheck),
+                        phase(LauncherShellPhase::GetLocation), phase(LauncherShellPhase::HandlerExtraction),
+                        phase(LauncherShellPhase::DecodeIcon));
+        (void)RedXeHostLog(_host, FAILED(result) ? RedXeLogLevelWarning : RedXeLogLevelInfo, kPluginId, _instanceId,
+                           "launcher-construction", message.data(), result);
+        if (FAILED(result))
+        {
+            ConstructionFailed(result);
+            return;
+        }
+        // Imported actions are resolved by the UI host before publication. Authored actions were validated during
+        // construction of the widget; Run never calls the host or retains action descriptors.
+        _invalidImportedIcons = 0;
+        if (work.usingPins)
+        {
+            ValidateShortcuts(work.configuration);
+            for (uint32_t index = 0; index < work.configuration.count; ++index)
+                if (!work.configuration.items[index].valid)
+                {
+                    work.configuration.items[index].bgra.reset();
+                    _invalidImportedIcons |= uint32_t{1} << index;
+                }
+        }
+        _display = std::move(work.configuration);
+        _usingPins = work.usingPins;
+        if (_usingPins)
+        {
+            CopyConfigurationIdentity(_display, _authored);
+            _dirty = true;
+            wil::com_ptr_nothrow<IRedXeSettingsQueue> queue;
+            if (work.pinJsonBytes && _host && SUCCEEDED(_host->QueryInterface(IID_PPV_ARGS(queue.put()))))
+                (void)queue->QueueWidgetSettings(_instanceId, work.pinJson.data(), work.pinJsonBytes);
+        }
+        ComputeGrid();
+        _iconsDirty = true;
+        _iconsPreparationFailed = false;
+        const RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusOk, nullptr};
+        if (_host)
+            (void)_host->ReportWidgetStatus(_instanceId, &report);
+        PublishCounts();
+        if (_host)
+            (void)_host->RequestFrame();
+    }
     void PublishCounts() noexcept
     {
         gAuthoredCount.store(_authored.count, std::memory_order_relaxed);
@@ -2470,6 +2866,9 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
 
     void RefreshDisplay(bool requestFrame) noexcept
     {
+        CancelConstruction();
+        _constructionFailed = false;
+        _invalidImportedIcons = 0;
         if (_authored.count > 0)
         {
             _display = {};
@@ -2525,6 +2924,11 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
         ComputeGrid();
         _iconsDirty = true;
         _iconsPreparationFailed = false;
+        if (_host)
+        {
+            const RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusOk, nullptr};
+            (void)_host->ReportWidgetStatus(_instanceId, &report);
+        }
         PublishCounts();
         if (requestFrame && _host)
         {
@@ -2585,60 +2989,7 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
 
     [[nodiscard]] HRESULT WriteAuthoredJson(char* jsonUtf8, uint32_t capacityBytes, uint32_t& written) noexcept
     {
-        written = 0;
-        if (!jsonUtf8 || capacityBytes == 0)
-        {
-            return E_INVALIDARG;
-        }
-        unique_yyjson_mut_doc document{yyjson_mut_doc_new(nullptr)};
-        yyjson_mut_val* root = document ? yyjson_mut_obj(document.get()) : nullptr;
-        yyjson_mut_val* array = document ? yyjson_mut_arr(document.get()) : nullptr;
-        if (!root || !array)
-        {
-            return E_OUTOFMEMORY;
-        }
-        yyjson_mut_doc_set_root(document.get(), root);
-        for (uint32_t index = 0; index < _authored.count; ++index)
-        {
-            yyjson_mut_val* item = yyjson_mut_obj(document.get());
-            if (!item || !yyjson_mut_obj_add_strcpy(document.get(), item, "target", _authored.items[index].targetUtf8))
-            {
-                return E_OUTOFMEMORY;
-            }
-            if (std::strcmp(_authored.items[index].actionUtf8, Launcher::kDefaultAction) != 0 &&
-                !yyjson_mut_obj_add_strcpy(document.get(), item, "action", _authored.items[index].actionUtf8))
-            {
-                return E_OUTOFMEMORY;
-            }
-            if (_authored.items[index].icon[0] != '\0' &&
-                !yyjson_mut_obj_add_strcpy(document.get(), item, "icon", _authored.items[index].icon))
-            {
-                return E_OUTOFMEMORY;
-            }
-            if (!yyjson_mut_arr_add_val(array, item))
-            {
-                return E_OUTOFMEMORY;
-            }
-        }
-        if (!yyjson_mut_obj_add_val(document.get(), root, "shortcuts", array) ||
-            !yyjson_mut_obj_add_strcpy(document.get(), root, "iconSize", LauncherIconSizeName(_authored.iconSize)))
-        {
-            return E_OUTOFMEMORY;
-        }
-        size_t length = 0;
-        unique_malloc_string text{yyjson_mut_write(document.get(), 0, &length)};
-        if (!text || length == 0)
-        {
-            return E_OUTOFMEMORY;
-        }
-        if (length >= capacityBytes)
-        {
-            return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
-        }
-        std::memcpy(jsonUtf8, text.get(), length);
-        jsonUtf8[length] = '\0';
-        written = static_cast<uint32_t>(length);
-        return S_OK;
+        return WriteConfigurationJson(_authored, jsonUtf8, capacityBytes, written);
     }
 
     // UI thread: the host resolves the action (default namespaces and registered publishers) and checks the
@@ -2681,6 +3032,11 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
     char _instanceId[kInstanceIdCapacity]{};
     LauncherConfiguration _authored{};
     LauncherConfiguration _display{};
+    std::shared_ptr<LauncherConstructionLifetime> _constructionLifetime;
+    wil::com_ptr_nothrow<IRedXeConstructionWork> _deferredConstruction;
+    bool _constructionPending = false;
+    bool _constructionFailed = false;
+    uint32_t _invalidImportedIcons = 0;
     struct GridLayout final
     {
         uint32_t width = 0;
@@ -2732,6 +3088,12 @@ class LauncherWidget final : public RedXeComObject<LauncherWidget, IRedXeWidget,
     bool _dragHighlight = false;
     bool _dirty = false;
 };
+
+void LauncherConstructionWork::Complete(HRESULT result) noexcept
+{
+    if (_lifetime->owner && _lifetime->generation.load(std::memory_order_acquire) == _generation)
+        _lifetime->owner->PublishConstruction(*this, result);
+}
 
 class LauncherProvider final : public RedXeComObject<LauncherProvider, IRedXeWidgetProvider>
 {
@@ -2883,7 +3245,32 @@ extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId
 
 extern "C" void __stdcall RedXePluginShutdown() noexcept
 {
+    const auto guard = wil::AcquireSRWLockExclusive(&gIconCacheLock);
     gIconCache.Clear();
+}
+
+extern "C" HRESULT __stdcall RedXeLauncherTestCanceledShellHandler(IExtractIconW* extractor, HANDLE cancellation,
+                                                                   uint32_t budgetMilliseconds,
+                                                                   LauncherShellTimings* timings) noexcept
+{
+    if (!timings)
+        return E_POINTER;
+    if (timings->sizeBytes != sizeof(LauncherShellTimings))
+        return E_INVALIDARG;
+    *timings = LauncherShellTimings{sizeof(LauncherShellTimings)};
+    if (!IsAutomatedHost())
+        return E_ACCESSDENIED;
+    if (!extractor || !cancellation)
+        return E_POINTER;
+    std::atomic<uint64_t> generation{0};
+    const ConstructionCancellation token{cancellation, GetTickCount64() + budgetMilliseconds, &generation, 0};
+    const auto* previous = std::exchange(gConstructionCancellation, &token);
+    const auto restore = wil::scope_exit([&]() noexcept { gConstructionCancellation = previous; });
+    LARGE_INTEGER frequency{};
+    QueryPerformanceFrequency(&frequency);
+    timings->frequency = static_cast<uint64_t>(frequency.QuadPart);
+    ShortcutRecord record;
+    return ExtractFromShellHandler(extractor, record, timings);
 }
 
 extern "C" HRESULT __stdcall RedXeLauncherTestIconCache(uint32_t operation,
@@ -2898,6 +3285,7 @@ extern "C" HRESULT __stdcall RedXeLauncherTestIconCache(uint32_t operation,
         return E_ACCESSDENIED;
     if (operation > 3)
         return E_INVALIDARG;
+    const auto guard = wil::AcquireSRWLockExclusive(&gIconCacheLock);
     if (operation == 1)
         gIconCache.Clear();
     else if (operation == 2)

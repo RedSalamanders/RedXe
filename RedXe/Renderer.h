@@ -103,6 +103,7 @@ class Renderer final
   private:
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct RendererResourceTestAccess;
+    friend struct RendererConstructionTestAccess;
 #endif
     static constexpr size_t kMaximumWidgetViewports = 32;
     static_assert(kMaximumWidgetViewports <= 32); // One bounded bit per instance in the failure-frame mask.

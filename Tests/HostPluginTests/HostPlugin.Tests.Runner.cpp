@@ -74,6 +74,7 @@ void TestProcessViewerScheduling(bool& success) noexcept;
 void TestProcessViewerPixelReference(const wchar_t* path, bool& success) noexcept;
 void TestDataSourceLifetime(bool& success) noexcept;
 void TestConstructionWork(bool& success) noexcept;
+void TestConstructionPages(bool& success) noexcept;
 void TestGpuResourceRetirement(bool& success) noexcept;
 HRESULT RecoverPageProbeTestDevice(Renderer& renderer) noexcept;
 
@@ -9213,6 +9214,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     {
         bool success = true;
         TestConstructionWork(success);
+        TestConstructionPages(success);
         return success ? 0 : 1;
     }
     if (argumentCount == 3 && arguments[1] && std::wstring_view(arguments[1]) == L"--viewer-pixels")
@@ -9347,6 +9349,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestQueuedInputAge(success);
     TestLaunchWorker(success);
     TestConstructionWork(success);
+    TestConstructionPages(success);
     TestSessionEndDeadline(success);
     TestActionValidation(success);
     TestActionMonitorSelection(success);

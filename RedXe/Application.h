@@ -372,7 +372,8 @@ class Application final
     HRESULT PromoteTransitionPage() noexcept;
     // Stages the adjacent page in `direction`, or, when targetPageIndex is supplied, that page directly (a host
     // action jump); the direction then only decides which side the staged page slides in from.
-    HRESULT StageTransitionPage(int direction, const uint32_t* targetPageIndex = nullptr) noexcept;
+    HRESULT StageTransitionPage(int direction, const uint32_t* targetPageIndex = nullptr,
+                                bool allowConstruction = false) noexcept;
     void ClearTransitionPage() noexcept;
     [[nodiscard]] bool TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc,
                                                 LPARAM lParam) const noexcept;
@@ -580,6 +581,8 @@ class Application final
     bool _pagePanStarted = false;
     bool _pageGestureIgnored = false;
     bool _pageSettleActive = false;
+    bool _pageSettleWaiting = false;
+    uint64_t _pageConstructionDeadlineTick = 0;
     bool _pageSettleCommit = false;
     LONG _pageSettleStart = 0;
     LONG _pageSettleTarget = 0;

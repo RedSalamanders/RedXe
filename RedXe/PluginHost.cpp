@@ -1369,6 +1369,8 @@ HRESULT PluginHost::QueueConstructionWork(IRedXeConstructionWork* work) noexcept
         return E_POINTER;
     if (_shutdown)
         return E_UNEXPECTED;
+    if (!_constructionAccessEnabled)
+        return E_ACCESSDENIED;
     const HRESULT started = _constructionWork.Start(
         [](void* context) noexcept { static_cast<PluginHost*>(context)->RequestUiInvalidate(); }, this);
     return FAILED(started) ? started : _constructionWork.Enqueue(work);

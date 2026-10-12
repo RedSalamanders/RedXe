@@ -41,6 +41,7 @@ class PluginManager final
     [[nodiscard]] IRedXeWidget* WidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeGpuWidget* GpuWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXePreparedGpuWidget* PreparedGpuWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeConstructionStateWidget* ConstructionStateWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeScheduledWidget* ScheduledWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeRaisedWidget* RaisedWidgetAt(size_t index) const noexcept;
@@ -94,6 +95,7 @@ class PluginManager final
         PluginHost::WidgetStatusBinding status;
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
         wil::com_ptr_nothrow<IRedXePreparedGpuWidget> preparedGpuWidget;
+        wil::com_ptr_nothrow<IRedXeConstructionStateWidget> constructionStateWidget;
         wil::com_ptr_nothrow<IRedXeScheduledWidget> scheduledWidget;
         wil::com_ptr_nothrow<IRedXeWindowWidget> windowWidget;
         wil::com_ptr_nothrow<IRedXeRaisedWidget> raisedWidget;

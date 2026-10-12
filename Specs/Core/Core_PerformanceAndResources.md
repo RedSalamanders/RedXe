@@ -77,6 +77,14 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   (session end only the time left in its shared deadline), and retains runtime/work/module storage for a late native
   call until it exits or the process ends. Private-owner destruction joins before storage/module release. The lane
   starts only when content construction requests it, has no timer or periodic wake and runs no user mutation.
+  The host enables submission for an offscreen incoming page of discrete navigation. Initial/ordinary activation
+  and touch pans refuse deferral so their first exposed pixels retain full quality. Launcher owns only copied
+  shortcut identities, a bounded result grid and a lifetime/generation token in each job; no provider or graphics
+  owner crosses to the STA. A full queue keeps a bounded admission request with that incoming widget and retries
+  only on existing preparation opportunities, including posted completions. It adds no polling timer. The current
+  page continues its normal animation/cadence until all incoming CPU results and GPU uploads are ready. A parked
+  current page waits on messages and one construction-expiry deadline; a three-second unfinished wait cancels
+  navigation. Touch recognition withdraws an unexposed discrete neighbour before starting its live pan.
 - Named actions (`Specs/Plugins/Plugins_Actions.md`) use one static 16-slot ring drained by one posted message; every
   host-native action and every publisher `Execute` returns within 20 ms on the UI thread without waiting, pumping,
   or showing UI, and defers longer work to the control lane, the launch worker, or the publisher's own device lane
@@ -358,6 +366,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   lookup tables, is created and drawn once in `OnDeviceCreated`; that callback and the optional
   `IRedXePreparedGpuWidget::Prepare` phase are the only other GPU callbacks that may allocate or rasterize
   (`Specs/Plugins/Plugins_API.md` "GPU widget contract").
+  An immutable `IRedXeConstructionWork::Run` may construct CPU icon/glyph pixels on its host-owned STA, without a
+  borrowed widget or GPU state. GPU creation/upload remains in the three GPU callbacks; completion only publishes
+  owned CPU results. This exception does not permit worker rendering or UI-thread extraction from Render.
 - Plugin `Render` calls use borrowed frame and D3D context records. A page-swipe viewport keeps the widget's full
   size and MAY have a negative origin; shrinking it to the visible intersection would rebuild resolution-dependent
   resources and reflow content every frame of the slide. Render, resize, and

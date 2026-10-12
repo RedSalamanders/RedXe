@@ -1053,7 +1053,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             _occlusionStatusChanged,
             DashboardRequiresContinuousFrames(),
             _frameInvalidated,
-            PageNavigationInProgress(),
+            PageNavigationInProgress() && !_pageSettleWaiting,
             // A dock slide is visible motion like a raise settle: every frame presents until it ends.
             OverlayMotionInProgress() || _dockSlideActive,
             DockHidden(),
@@ -1089,7 +1089,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                 false,
                 DashboardRequiresContinuousFrames(),
                 _frameInvalidated,
-                PageNavigationInProgress(),
+                PageNavigationInProgress() && !_pageSettleWaiting,
                 OverlayMotionInProgress() || _dockSlideActive,
                 DockHidden(),
             };
@@ -3180,7 +3180,8 @@ void Application::EditSettingsFile() noexcept
     }
 }
 
-HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPageIndex) noexcept
+HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPageIndex,
+                                         bool allowConstruction) noexcept
 {
     if (!_settings || !_rendererReady || !_window || (direction != -1 && direction != 1))
     {
@@ -3261,7 +3262,16 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
         if (SUCCEEDED(result))
             stageProbe.Mark(RuntimePageStagePhase::GpuSetup);
         if (SUCCEEDED(result))
+        {
+            auto& host = PluginHost::Instance();
+            const bool previous = host.ConstructionAccessEnabled();
+            // A touch pan has already exposed its neighbour. Only a discrete navigation at rest may keep it
+            // offscreen while CPU icons are constructed. Hidden/self-test activation retains synchronous setup.
+            host.SetConstructionAccessEnabled(allowConstruction && visible && !_pagePointerActive && !_pagePanStarted &&
+                                              _pageCurrentOffset == 0);
+            const auto restore = wil::scope_exit([&]() noexcept { host.SetConstructionAccessEnabled(previous); });
             result = dashboard->SetWidgetsVisible(visible, stageProbe.Callbacks());
+        }
         if (SUCCEEDED(result))
             stageProbe.Mark(RuntimePageStagePhase::Visibility);
         if (FAILED(result))
@@ -3293,6 +3303,8 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
 
 void Application::ClearTransitionPage() noexcept
 {
+    _pageSettleWaiting = false;
+    _pageConstructionDeadlineTick = 0;
     (void)_renderer.SetTransitionDashboard(nullptr);
     if (_transitionDashboardHost)
     {
@@ -3414,10 +3426,18 @@ void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
     _pageSettleCommit = commit;
     _pageSettleStart = _pageCurrentOffset;
     _pageSettleTarget = targetOffset;
+    _pageSettleWaiting =
+        commit && _pageCurrentOffset == 0 && _transitionDashboardHost && !_transitionDashboardHost->ConstructionReady();
+    _pageConstructionDeadlineTick = _pageSettleWaiting ? GetTickCount64() + ConstructionWorkQueue::WorkMilliseconds : 0;
     _pagePanStarted = false;
     LARGE_INTEGER now{};
     if (!QueryPerformanceCounter(&now) || _qpcFrequency == 0)
     {
+        if (_pageSettleWaiting)
+        {
+            CancelPageNavigation();
+            return;
+        }
         ApplyPageOffset(targetOffset, canvas.cx);
         _pageSettleActive = false;
         if (commit)
@@ -3596,6 +3616,26 @@ void Application::TickPageSettle() noexcept
     {
         CancelPageNavigation();
         return;
+    }
+
+    if (_pageSettleWaiting)
+    {
+        if (GetTickCount64() >= _pageConstructionDeadlineTick)
+        {
+            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                               "page-construction-timeout", "The incoming page was not ready; navigation was canceled.",
+                               HRESULT_FROM_WIN32(ERROR_TIMEOUT));
+            CancelPageNavigation();
+            return;
+        }
+        if (!_transitionDashboardHost || !_transitionDashboardHost->ConstructionReady())
+            return;
+        _pageSettleWaiting = false;
+        _pageConstructionDeadlineTick = 0;
+        LARGE_INTEGER start{};
+        if (QueryPerformanceCounter(&start))
+            _pageSettleStartQpc = static_cast<uint64_t>(start.QuadPart);
+        _frameInvalidated = true;
     }
 
     float t = 1.0f;
@@ -3884,7 +3924,7 @@ HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
         return S_FALSE;
     }
 
-    const HRESULT staged = StageTransitionPage(direction);
+    const HRESULT staged = StageTransitionPage(direction, nullptr, true);
     if (FAILED(staged))
     {
         return staged;
@@ -3923,7 +3963,7 @@ HRESULT Application::NavigateToPage(uint32_t pageIndex) noexcept
     }
     const int direction =
         pageIndex > _settings->dashboard.activePageIndex ? kPageEdgeDirectionNext : kPageEdgeDirectionPrevious;
-    const HRESULT staged = StageTransitionPage(direction, &pageIndex);
+    const HRESULT staged = StageTransitionPage(direction, &pageIndex, true);
     if (FAILED(staged))
     {
         return staged;
@@ -4422,6 +4462,10 @@ void Application::OnPointerDown(HWND window, WPARAM wParam, LPARAM lParam) noexc
             ids[index] = contacts[index].id;
             points[index] = contacts[index].client;
         }
+        // A full-quality discrete neighbour has not been exposed while waiting. Retire it before a live touch
+        // gesture instead of allowing an unprepared tile to enter the follow-finger canvas.
+        if (_pageSettleWaiting)
+            CancelPageNavigation();
         const bool grabbingSettle = _pageSettleActive || _pageCurrentOffset != 0;
         if (_pageSettleActive)
         {
@@ -6156,7 +6200,7 @@ void Application::CheckDeviceAdapter() noexcept
 bool Application::DashboardRequiresContinuousFrames() const noexcept
 {
     return (_dashboardHost && _dashboardHost->RequiresContinuousFrames()) ||
-           (_transitionDashboardHost && _transitionDashboardHost->RequiresContinuousFrames());
+           (!_pageSettleWaiting && _transitionDashboardHost && _transitionDashboardHost->RequiresContinuousFrames());
 }
 
 bool Application::PageNavigationInProgress() const noexcept
@@ -6196,8 +6240,8 @@ void Application::RefreshScheduledFrameDeadline() noexcept
     // The current frame consumed its continuous deadline; avoid canceling an already-completed one-shot every frame.
     _scheduledFrameDeadlineTick = 0;
     if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
-        DashboardRequiresContinuousFrames() || PageNavigationInProgress() || OverlayMotionInProgress() ||
-        _dockSlideActive || DockHidden())
+        DashboardRequiresContinuousFrames() || (PageNavigationInProgress() && !_pageSettleWaiting) ||
+        OverlayMotionInProgress() || _dockSlideActive || DockHidden())
     {
         return;
     }
@@ -6208,7 +6252,8 @@ void Application::RefreshScheduledFrameDeadline() noexcept
     {
         earliest = candidate;
     }
-    if (_transitionDashboardHost && _transitionDashboardHost->GetNextFrameDelayMilliseconds(&candidate) == S_OK &&
+    if (!_pageSettleWaiting && _transitionDashboardHost &&
+        _transitionDashboardHost->GetNextFrameDelayMilliseconds(&candidate) == S_OK &&
         (earliest == 0 || candidate < earliest))
     {
         earliest = candidate;
@@ -6217,6 +6262,9 @@ void Application::RefreshScheduledFrameDeadline() noexcept
     {
         _scheduledFrameDeadlineTick = GetTickCount64() + earliest;
     }
+    if (_pageSettleWaiting &&
+        (_scheduledFrameDeadlineTick == 0 || _pageConstructionDeadlineTick < _scheduledFrameDeadlineTick))
+        _scheduledFrameDeadlineTick = _pageConstructionDeadlineTick;
 }
 
 void Application::ClearScheduledFrameDeadline() noexcept

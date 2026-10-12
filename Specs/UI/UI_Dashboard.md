@@ -158,8 +158,12 @@ navigation. This section owns that affordance; it changes nothing about the pan 
   movement and releases to the top-level window. No shipped page places a native-window widget.
 - Clicking a revealed band stages the adjacent page, then commits through the same ease-out settle and in-place
   promote a committed pan uses. It MUST NOT recreate the Direct3D device. Unlike a pan there is no follow-finger
-  phase, so staging is synchronous at click time and the settle starts from rest, which places its duration at the
-  clamped upper bound of the shared settle policy.
+  phase. GPU page setup remains synchronous; bounded CPU content construction may run on the host STA while the
+  neighbour stays fully offscreen. The current page keeps animating at its normal cadence until every incoming
+  widget has full-quality CPU pixels and a complete GPU upload (or a locally failed host placeholder). Then the
+  settle starts from rest at the clamped upper bound of the shared policy. A parked current page waits on messages
+  and one three-second expiry deadline; an unfinished wait cancels navigation. A touch gesture withdraws this
+  unexposed neighbour before its live 1:1 pan. No snapshot, partial icon grid, downsampling or device rebuild is used.
 - A navigation click MUST NOT count as part of a double-activate raise gesture. Accepted trade: a revealed band
   consumes the click in its strip, so a widget under a band cannot be double-click-raised there; it stays raisable
   everywhere else in its tile. Band width is a single DPI-scaled constant so this is tunable in one place.

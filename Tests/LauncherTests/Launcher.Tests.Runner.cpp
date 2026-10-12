@@ -19,6 +19,7 @@
 #include <new>
 #include <string>
 #include <string_view>
+#include <thread>
 
 #if defined(_DEBUG)
 #include <crtdbg.h>
@@ -87,11 +88,48 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     return S_OK;
 }
 
+[[nodiscard]] HRESULT RunConstructionOnSta(IRedXeConstructionWork* work, HANDLE cancellation = nullptr,
+                                           uint32_t budget = 3000) noexcept
+{
+    if (!work)
+        return E_POINTER;
+    wil::unique_event_nothrow stop;
+    if (!cancellation)
+    {
+        RETURN_IF_FAILED(stop.create(wil::EventOptions::ManualReset));
+        cancellation = stop.get();
+    }
+    HRESULT result = E_UNEXPECTED;
+    try
+    {
+        std::thread worker(
+            [&]() noexcept
+            {
+                const HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+                result = FAILED(apartment) ? apartment : work->Run(cancellation, budget);
+                if (SUCCEEDED(apartment))
+                    CoUninitialize();
+            });
+        worker.join();
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+    return result;
+}
+
 class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
 {
-    HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork*) noexcept override
+    HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork* work) noexcept override
     {
-        return E_NOTIMPL;
+        ++constructionCalls;
+        if (!supportsConstruction)
+            return E_NOTIMPL;
+        if (FAILED(constructionResult))
+            return constructionResult;
+        constructionWork = work;
+        return S_OK;
     }
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork*) noexcept override
     {
@@ -112,7 +150,9 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
         {
             *descriptor = nullptr;
         }
-        return S_OK;
+        ++validationCalls;
+        validationThread = GetCurrentThreadId();
+        return validationResult;
     }
 
   public:
@@ -160,8 +200,9 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char*, const RedXeWidgetStatusReport*) noexcept override
+    HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char*, const RedXeWidgetStatusReport* report) noexcept override
     {
+        lastStatus = report ? report->status : UINT32_MAX;
         return S_OK;
     }
 
@@ -181,8 +222,10 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
         return persistResult;
     }
 
-    HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord*) noexcept override
+    HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override
     {
+        if (record && record->eventId && std::strcmp(record->eventId, "launcher-construction") == 0)
+            constructionLog = record->messageUtf8 ? record->messageUtf8 : "";
         return S_OK;
     }
 
@@ -208,6 +251,15 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
     }
 
     bool supportsQueue = true;
+    bool supportsConstruction = false;
+    HRESULT constructionResult = S_OK;
+    wil::com_ptr_nothrow<IRedXeConstructionWork> constructionWork;
+    uint32_t constructionCalls = 0;
+    HRESULT validationResult = S_OK;
+    uint32_t validationCalls = 0;
+    DWORD validationThread = 0;
+    uint32_t lastStatus = RedXeWidgetStatusOk;
+    std::string constructionLog;
     HRESULT queueResult = S_OK;
     uint32_t queueCalls = 0;
     std::string pendingInstance;
@@ -265,6 +317,8 @@ class TestShellIconExtractor final : public IExtractIconW
             (void)wcscpy_s(path, capacity, expectedLocation);
         *index = poisonShieldOutput && (flags & GIL_CHECKSHIELD) ? INT_MIN : expectedIndex;
         *resultFlags = locationFlags | ((flags & GIL_CHECKSHIELD) ? shieldFlags : 0);
+        if (cancelAfterLocation)
+            (void)SetEvent(cancelAfterLocation);
         if (flags & GIL_CHECKSHIELD)
         {
             ++shieldCalls;
@@ -327,6 +381,7 @@ class TestShellIconExtractor final : public IExtractIconW
     uint32_t extractCalls = 0;
     uint32_t shieldCalls = 0;
     uint32_t ordinaryCalls = 0;
+    HANDLE cancelAfterLocation = nullptr;
     const wchar_t* location = L"synthetic-icon-resource";
     int locationIndex = -7;
     const wchar_t* shieldLocation = nullptr;
@@ -2768,7 +2823,330 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     return S_OK;
 }
 
-[[nodiscard]] HRESULT ValidateShellPixels(RedXeCreateFn create, const wchar_t* configurationPath, FILE* pixels) noexcept
+[[nodiscard]] HRESULT ValidateConstruction(RedXeCreateFn create, LauncherSetTestPinDirectoryFn setPin,
+                                           LauncherGetTestDiagnosticsFn diagnostics,
+                                           LauncherTestCanceledShellHandlerFn canceledShell) noexcept
+{
+    uint32_t checks = 0;
+    const auto check = [&](bool passed, const wchar_t* name) noexcept
+    {
+        ++checks;
+        if (!passed)
+            std::wprintf(L"Construction check %u failed: %ls\n", checks, name);
+        return passed;
+    };
+    try
+    {
+        if (!canceledShell)
+            return E_POINTER;
+        wil::unique_event_nothrow cancellation;
+        RETURN_IF_FAILED(cancellation.create(wil::EventOptions::ManualReset));
+        TestShellIconExtractor extractor;
+        RETURN_IF_FAILED(extractor.Initialize());
+        extractor.cancelAfterLocation = cancellation.get();
+        LauncherShellTimings canceledTimings{sizeof(LauncherShellTimings)};
+        if (!check(
+                canceledShell(&extractor, cancellation.get(), 3000, &canceledTimings) == E_ABORT &&
+                    extractor.locationCalls == 1 && extractor.extractCalls == 0 &&
+                    (canceledTimings.completedMask & (1U << static_cast<uint32_t>(LauncherShellPhase::GetLocation))) &&
+                    extractor.references == 1,
+                L"cancellation after native location prevents the next indivisible extraction and retains no owner"))
+            return kTestFailure;
+        cancellation.ResetEvent();
+        extractor.cancelAfterLocation = nullptr;
+        if (!check(canceledShell(&extractor, cancellation.get(), 0, &canceledTimings) == E_ABORT &&
+                       extractor.locationCalls == 1 && extractor.extractCalls == 0 &&
+                       canceledTimings.completedMask == 0,
+                   L"an expired call-local native budget invokes no phase"))
+            return kTestFailure;
+        RenderTarget target;
+        RETURN_IF_FAILED(CreateRenderTarget(800, 720, target));
+        const auto make = [&](TestHost& host, std::string_view json, wil::com_ptr_nothrow<IRedXeWidget>& widget,
+                              wil::com_ptr_nothrow<IRedXeGpuWidget>& gpu) noexcept -> HRESULT
+        {
+            wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+            RETURN_IF_FAILED(CreateProvider(create, json, &host, provider));
+            RETURN_IF_FAILED(provider->CreateWidget(kWidgetTypeId, "launcher.construction", widget.put()));
+            return AttachGpu(*widget, target, gpu.put());
+        };
+        const auto complete = [](TestHost& host) noexcept -> HRESULT
+        {
+            auto work = std::move(host.constructionWork);
+            if (!work)
+                return E_POINTER;
+            const HRESULT result = RunConstructionOnSta(work.get());
+            work->Complete(result);
+            return result;
+        };
+        const auto state = [](IRedXeWidget* widget) noexcept
+        {
+            wil::com_ptr_nothrow<IRedXeConstructionStateWidget> readiness;
+            RedXeConstructionState value = RedXeConstructionStateUnavailable;
+            if (!widget || FAILED(widget->QueryInterface(IID_PPV_ARGS(readiness.put()))) ||
+                FAILED(readiness->GetConstructionState(&value)))
+                return RedXeConstructionStateUnavailable;
+            return value;
+        };
+        const std::string glyphs = MakeGlyphShortcutList(32);
+        TestHost host;
+        host.supportsConstruction = true;
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+        RETURN_IF_FAILED(make(host, glyphs, widget, gpu));
+        wil::com_ptr_nothrow<IRedXeConstructionStateWidget> readiness;
+        RETURN_IF_FAILED(widget.query_to(readiness.put()));
+        if (!check(readiness->GetConstructionState(nullptr) == E_POINTER, L"readiness validates its output"))
+            return kTestFailure;
+        LauncherTestDiagnostics before{sizeof(LauncherTestDiagnostics)}, after{sizeof(LauncherTestDiagnostics)};
+        RETURN_IF_FAILED(diagnostics(&before));
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        RETURN_IF_FAILED(diagnostics(&after));
+        if (!check(host.constructionWork && state(widget.get()) == RedXeConstructionStatePending &&
+                       after.extractCalls == before.extractCalls && after.textureUploads == before.textureUploads,
+                   L"visibility only queues copied CPU inputs, without Shell work or GPU uploads"))
+            return kTestFailure;
+        if (!check(RenderFrame(*gpu, target, 0, 0) == S_FALSE && host.constructionCalls == 1,
+                   L"pending render publishes no partial icons or duplicate work"))
+            return kTestFailure;
+        const uint32_t validated = host.validationCalls;
+        const HRESULT run = RunConstructionOnSta(host.constructionWork.get());
+        RETURN_IF_FAILED(diagnostics(&after));
+        if (!check(run == S_OK && state(widget.get()) == RedXeConstructionStatePending &&
+                       host.validationCalls == validated && after.textureUploads == before.textureUploads,
+                   L"STA Run borrows no host validation or GPU state and publishes nothing"))
+            return kTestFailure;
+        host.constructionWork->Complete(run);
+        host.constructionWork.reset();
+        if (!check(state(widget.get()) == RedXeConstructionStateNeedsPreparation && host.frameRequests == 1 &&
+                       host.constructionLog.find("worker_wall_us=") != std::string::npos &&
+                       host.constructionLog.find("icons=32") != std::string::npos &&
+                       host.constructionLog.size() <= kRedXeMaximumLogMessageBytes,
+                   L"UI completion publishes CPU pixels and requests one preparation frame"))
+            return kTestFailure;
+        uint64_t asynchronous = 0, synchronous = 0;
+        RETURN_IF_FAILED(RenderFrame(*gpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, asynchronous));
+        if (!check(state(widget.get()) == RedXeConstructionStateReady, L"Ready follows full GPU upload"))
+            return kTestFailure;
+        TestHost referenceHost;
+        wil::com_ptr_nothrow<IRedXeWidget> reference;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> referenceGpu;
+        RETURN_IF_FAILED(make(referenceHost, glyphs, reference, referenceGpu));
+        RETURN_IF_FAILED(reference->SetVisible(TRUE));
+        RETURN_IF_FAILED(RenderFrame(*referenceGpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, synchronous));
+        if (!check(asynchronous == synchronous, L"all 32 full-resolution glyphs match synchronous WARP pixels"))
+            return kTestFailure;
+        readiness.reset();
+        gpu->OnDeviceLost();
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        RETURN_IF_FAILED(complete(host));
+        if (!check(state(widget.get()) == RedXeConstructionStateNeedsPreparation,
+                   L"CPU completion while device-lost retains owned pixels without a GPU borrow"))
+            return kTestFailure;
+        const RedXeGpuDeviceContext restored{sizeof(RedXeGpuDeviceContext), target.device.get(),
+                                             DXGI_FORMAT_B8G8R8A8_UNORM, target.featureLevel};
+        RETURN_IF_FAILED(gpu->OnDeviceCreated(&restored));
+        RETURN_IF_FAILED(RenderFrame(*gpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, asynchronous));
+        if (!check(asynchronous == synchronous, L"device recovery preserves exact completed pixels"))
+            return kTestFailure;
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        auto obsolete = std::move(host.constructionWork);
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        {
+            wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
+            RETURN_IF_FAILED(widget.query_to(interactive.put()));
+            RedXePointerEvent wheel{};
+            wheel.sizeBytes = sizeof(wheel);
+            wheel.kind = RedXePointerKindMouse;
+            wheel.phase = RedXePointerPhaseWheel;
+            wheel.wheelDelta = 120;
+            if (!check(interactive->OnPointer(&wheel) == S_FALSE,
+                       L"pending replacement suppresses input against the previous icon grid"))
+                return kTestFailure;
+            wheel.phase = RedXePointerPhaseCancel;
+            if (!check(interactive->OnPointer(&wheel) == S_FALSE,
+                       L"pending input still accepts release/cancellation cleanup"))
+                return kTestFailure;
+        }
+        const uint32_t requests = host.frameRequests;
+        const HRESULT stale = RunConstructionOnSta(obsolete.get());
+        obsolete->Complete(stale);
+        if (!check(stale == E_ABORT && host.frameRequests == requests &&
+                       state(widget.get()) == RedXeConstructionStatePending,
+                   L"a replacement generation rejects both obsolete Run and Complete"))
+            return kTestFailure;
+        obsolete.reset();
+        RETURN_IF_FAILED(complete(host));
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        RETURN_IF_FAILED(RunConstructionOnSta(host.constructionWork.get()));
+        RETURN_IF_FAILED(widget->SetVisible(FALSE));
+        const uint32_t hiddenRequests = host.frameRequests;
+        host.constructionWork->Complete(S_OK);
+        if (!check(host.frameRequests == hiddenRequests, L"hide withdraws a completed result before publication"))
+            return kTestFailure;
+        host.constructionWork.reset();
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        const uint32_t deadRequests = host.frameRequests;
+        gpu->OnDeviceLost();
+        gpu.reset();
+        widget.reset();
+        RETURN_IF_FAILED(diagnostics(&before));
+        const HRESULT retired = RunConstructionOnSta(host.constructionWork.get());
+        host.constructionWork->Complete(retired);
+        RETURN_IF_FAILED(diagnostics(&after));
+        if (!check(retired == E_ABORT && before.liveWidgets == after.liveWidgets && host.frameRequests == deadRequests,
+                   L"retired work retains no widget/provider/device and cannot resurrect an owner"))
+            return kTestFailure;
+        host.constructionWork.reset();
+
+        RETURN_IF_FAILED(make(host, glyphs, widget, gpu));
+        host.constructionResult = HRESULT_FROM_WIN32(ERROR_BUSY);
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        if (!check(state(widget.get()) == RedXeConstructionStatePending && !host.constructionWork,
+                   L"bounded saturation defers admission without running Shell work on the UI thread"))
+            return kTestFailure;
+        host.constructionResult = S_OK;
+        if (!check(RenderFrame(*gpu, target, 0, 0) == S_FALSE && host.constructionWork,
+                   L"a preparation opportunity admits a waiting job without publishing partial pixels"))
+            return kTestFailure;
+        RETURN_IF_FAILED(complete(host));
+        RETURN_IF_FAILED(RenderFrame(*gpu, target, 0, 0));
+        host.constructionResult = E_FAIL;
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        if (!check(state(widget.get()) == RedXeConstructionStateUnavailable &&
+                       host.lastStatus == RedXeWidgetStatusUnavailable,
+                   L"a submission failure becomes a local unavailable tile"))
+            return kTestFailure;
+        host.constructionResult = E_ACCESSDENIED;
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        RETURN_IF_FAILED(RenderFrame(*gpu, target, 0, 0));
+        if (!check(state(widget.get()) == RedXeConstructionStateReady && host.lastStatus == RedXeWidgetStatusOk,
+                   L"ordinary activation retains synchronous quality and recovers a failed local status"))
+            return kTestFailure;
+        host.constructionResult = S_OK;
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        wil::unique_event_nothrow canceled;
+        RETURN_IF_FAILED(canceled.create(wil::EventOptions::ManualReset));
+        canceled.SetEvent();
+        const HRESULT stopped = RunConstructionOnSta(host.constructionWork.get(), canceled.get());
+        host.constructionWork->Complete(stopped);
+        if (!check(stopped == E_ABORT && state(widget.get()) == RedXeConstructionStateUnavailable,
+                   L"signaled cancellation refuses CPU work and partial publication"))
+            return kTestFailure;
+        host.constructionWork.reset();
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        const HRESULT expired = RunConstructionOnSta(host.constructionWork.get(), nullptr, 0);
+        host.constructionWork->Complete(expired);
+        if (!check(expired == E_ABORT && state(widget.get()) == RedXeConstructionStateUnavailable,
+                   L"an exhausted work budget publishes no pixels"))
+            return kTestFailure;
+        host.constructionWork.reset();
+
+        std::array<wchar_t, MAX_PATH> temporary{}, directory{}, shortcut{};
+        if (!GetTempPathW(static_cast<DWORD>(temporary.size()), temporary.data()))
+            return HRESULT_FROM_WIN32(GetLastError());
+        (void)swprintf_s(directory.data(), directory.size(), L"%sRedXeAsyncPins-%lu", temporary.data(),
+                         GetCurrentProcessId());
+        if (!CreateDirectoryW(directory.data(), nullptr))
+            return HRESULT_FROM_WIN32(GetLastError());
+        (void)swprintf_s(shortcut.data(), shortcut.size(), L"%s\\Alpha.lnk", directory.data());
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                (void)setPin(nullptr);
+                (void)DeleteFileW(shortcut.data());
+                (void)RemoveDirectoryW(directory.data());
+            });
+        RETURN_IF_FAILED(WriteShortcut(shortcut.data()));
+        RETURN_IF_FAILED(setPin(directory.data()));
+        TestHost pins;
+        pins.supportsConstruction = true;
+        wil::com_ptr_nothrow<IRedXeWidget> pinWidget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> pinGpu;
+        RETURN_IF_FAILED(make(pins, kEmptyShortcuts, pinWidget, pinGpu));
+        RETURN_IF_FAILED(pinWidget->SetVisible(TRUE));
+        RETURN_IF_FAILED(RunConstructionOnSta(pins.constructionWork.get()));
+        if (!check(pins.queueCalls == 0 && pins.persistCalls == 0, L"worker pin discovery never persists settings"))
+            return kTestFailure;
+        pins.constructionWork->Complete(S_OK);
+        pins.constructionWork.reset();
+        if (!check(pins.queueCalls == 1 && pins.persistCalls == 0 && pins.validationThread == GetCurrentThreadId() &&
+                       pins.pendingJson.find("Alpha.lnk") != std::string::npos && pins.pendingJson.size() <= 4096,
+                   L"UI validates discovered actions and queues only a bounded per-instance import"))
+            return kTestFailure;
+        RETURN_IF_FAILED(RenderFrame(*pinGpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, asynchronous));
+        TestHost ordinaryPins;
+        wil::com_ptr_nothrow<IRedXeWidget> pinReference;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> pinReferenceGpu;
+        RETURN_IF_FAILED(make(ordinaryPins, kEmptyShortcuts, pinReference, pinReferenceGpu));
+        RETURN_IF_FAILED(pinReference->SetVisible(TRUE));
+        RETURN_IF_FAILED(RenderFrame(*pinReferenceGpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, synchronous));
+        if (!check(asynchronous == synchronous, L"fresh native pin pixels match the ordinary full-quality path"))
+            return kTestFailure;
+        TestHost invalidPins;
+        invalidPins.supportsConstruction = true;
+        invalidPins.validationResult = E_INVALIDARG;
+        wil::com_ptr_nothrow<IRedXeWidget> invalid;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> invalidGpu;
+        RETURN_IF_FAILED(make(invalidPins, kEmptyShortcuts, invalid, invalidGpu));
+        RETURN_IF_FAILED(invalid->SetVisible(TRUE));
+        RETURN_IF_FAILED(complete(invalidPins));
+        RETURN_IF_FAILED(RenderFrame(*invalidGpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, asynchronous));
+        TestHost refusedReferenceHost;
+        refusedReferenceHost.validationResult = E_INVALIDARG;
+        wil::com_ptr_nothrow<IRedXeWidget> refusedReference;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> refusedGpu;
+        RETURN_IF_FAILED(make(refusedReferenceHost, invalidPins.pendingJson, refusedReference, refusedGpu));
+        RETURN_IF_FAILED(refusedReference->SetVisible(TRUE));
+        RETURN_IF_FAILED(RenderFrame(*refusedGpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, synchronous));
+        if (!check(state(invalid.get()) == RedXeConstructionStateReady && asynchronous == synchronous,
+                   L"a host-refused imported action receives exact ordinary warning pixels in Prepare"))
+            return kTestFailure;
+        for (HRESULT persisted : {S_OK, E_FAIL})
+        {
+            TestHost dropping;
+            dropping.supportsConstruction = true;
+            dropping.persistResult = persisted;
+            wil::com_ptr_nothrow<IRedXeWidget> dropWidget;
+            wil::com_ptr_nothrow<IRedXeGpuWidget> dropGpu;
+            RETURN_IF_FAILED(make(dropping, MakeGlyphShortcutList(1), dropWidget, dropGpu));
+            RETURN_IF_FAILED(dropWidget->SetVisible(TRUE));
+            auto superseded = std::move(dropping.constructionWork);
+            RETURN_IF_FAILED(RunConstructionOnSta(superseded.get()));
+            wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
+            RETURN_IF_FAILED(dropWidget.query_to(interactive.put()));
+            const RedXeDropItem item{sizeof(RedXeDropItem), 0, kNotepad};
+            const RedXeDropEvent event{sizeof(RedXeDropEvent), 0, 0, 1, &item};
+            const HRESULT dropped = interactive->OnDrop(&event);
+            RETURN_IF_FAILED(RenderFrame(*dropGpu, target, 0, 0));
+            RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, synchronous));
+            superseded->Complete(S_OK);
+            RETURN_IF_FAILED(RenderFrame(*dropGpu, target, 0, 0));
+            RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, asynchronous));
+            RETURN_IF_FAILED(diagnostics(&after));
+            if (!check(dropped == persisted && dropping.persistCalls == 1 && synchronous == asynchronous &&
+                           after.authoredCount == (SUCCEEDED(persisted) ? 2U : 1U),
+                       L"committed drop or rollback withdraws older results and preserves current full-quality pixels"))
+                return kTestFailure;
+        }
+        std::wprintf(L"Launcher construction: %u lifecycle, admission, publication and exact-pixel checks passed.\n",
+                     checks);
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_OUTOFMEMORY;
+    }
+}
+
+[[nodiscard]] HRESULT ValidateShellPixels(RedXeCreateFn create, const wchar_t* configurationPath, FILE* pixels,
+                                          bool asynchronous = false) noexcept
 {
     FILE* input = nullptr;
     if (_wfopen_s(&input, configurationPath, L"rb") != 0 || !input)
@@ -2779,6 +3157,7 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     if (std::ferror(input) || bytes == 0 || bytes > 4096)
         return E_INVALIDARG;
     TestHost host;
+    host.supportsConstruction = asynchronous;
     wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
     HRESULT result = CreateProvider(create, std::string_view(json.data(), bytes), &host, provider);
     if (FAILED(result))
@@ -2792,6 +3171,12 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
     if (FAILED(result = AttachGpu(*widget, target, gpu.put())) || FAILED(result = widget->SetVisible(TRUE)))
         return result;
+    if (asynchronous)
+    {
+        RETURN_IF_FAILED(RunConstructionOnSta(host.constructionWork.get()));
+        host.constructionWork->Complete(S_OK);
+        host.constructionWork.reset();
+    }
     for (const auto& extent : std::array<std::array<uint32_t, 3>, 5>{
              {{160, 160, 96}, {480, 480, 96}, {256, 720, 96}, {799, 559, 144}, {480, 480, 192}}})
     {
@@ -2916,7 +3301,8 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
 }
 
 [[nodiscard]] HRESULT Run(const wchar_t* pixelsPath, const wchar_t* shellConfiguration = nullptr,
-                          const wchar_t* attributionDirectory = nullptr) noexcept
+                          const wchar_t* attributionDirectory = nullptr, bool asynchronousShell = false,
+                          bool constructionOnly = false) noexcept
 {
     const bool compilerLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
@@ -2958,6 +3344,15 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     }
     const LauncherSetTestIconFailureFn setFailure =
         Resolve<LauncherSetTestIconFailureFn>(module.get(), kLauncherSetTestIconFailureExport);
+    if (constructionOnly)
+    {
+        result = ValidateConstruction(
+            create, setPin, getDiagnostics,
+            Resolve<LauncherTestCanceledShellHandlerFn>(module.get(), kLauncherTestCanceledShellHandlerExport));
+        shutdown();
+        OleUninitialize();
+        return result;
+    }
     if (pixelsPath)
     {
         FILE* file = nullptr;
@@ -2971,7 +3366,7 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
                     Resolve<LauncherTestShellBatchFn>(module.get(), kLauncherTestShellBatchExport),
                     attributionDirectory, file);
             else
-                result = shellConfiguration ? ValidateShellPixels(create, shellConfiguration, file)
+                result = shellConfiguration ? ValidateShellPixels(create, shellConfiguration, file, asynchronousShell)
                                             : ValidateIconStorage(create, setPin, getDiagnostics, setFailure, file);
         }
         shutdown();
@@ -3031,6 +3426,14 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
     }
     if (SUCCEEDED(result))
     {
+        result = ValidateConstruction(
+            create, setPin, getDiagnostics,
+            Resolve<LauncherTestCanceledShellHandlerFn>(module.get(), kLauncherTestCanceledShellHandlerExport));
+        if (FAILED(result))
+            std::wprintf(L"ValidateConstruction failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
         result = ValidateFactoryAndSettings(create, enumerate, getContract);
         if (FAILED(result))
             std::wprintf(L"ValidateFactoryAndSettings failed: 0x%08X\n", static_cast<unsigned int>(result));
@@ -3071,6 +3474,10 @@ constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5,
 int wmain(int argc, wchar_t** argv) noexcept
 {
     RedXeFailureReports::RouteAwayFromDialogs();
+    if (argc == 2 && std::wcscmp(argv[1], L"--construction") == 0)
+        return SUCCEEDED(Run(nullptr, nullptr, nullptr, false, true)) ? 0 : 1;
+    if (argc == 4 && std::wcscmp(argv[1], L"--async-shell-pixels") == 0)
+        return SUCCEEDED(Run(argv[2], argv[3], nullptr, true)) ? 0 : 1;
     if (argc == 3 && std::wcscmp(argv[1], L"--glyph-pixels") == 0)
         return SUCCEEDED(ValidateLauncherGlyphRasterization(argv[2])) ? 0 : 1;
     if (argc == 4 && std::wcscmp(argv[1], L"--shell-pixels") == 0)

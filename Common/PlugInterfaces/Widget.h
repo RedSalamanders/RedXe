@@ -267,6 +267,25 @@ interface __declspec(uuid("ECFB4B75-6510-445C-AEF0-51986F20826E")) __declspec(no
     virtual void STDMETHODCALLTYPE Complete(HRESULT result) noexcept = 0;
 };
 
+enum RedXeConstructionState : uint32_t
+{
+    RedXeConstructionStateReady = 0,
+    RedXeConstructionStatePending,
+    RedXeConstructionStateNeedsPreparation,
+    RedXeConstructionStateUnavailable,
+};
+
+// Optional sibling of a prepared GPU widget. UI-thread, bounded, allocation-free observation. Pending CPU work
+// must not consume the first GPU preparation sample. A discrete navigation keeps the current page fully visible
+// and animated until every incoming widget is Ready (or a locally failed tile is Unavailable). Construction must
+// not defer a touch pan's follow-finger pixels. The host cancels a discrete wait after three seconds and retires
+// the incoming page; a late job must reject that retired owner's result.
+interface __declspec(uuid("E8D8B382-A2A4-4B59-85FA-2256903A1C99")) __declspec(novtable) IRedXeConstructionStateWidget
+    : IUnknown
+{
+    virtual HRESULT STDMETHODCALLTYPE GetConstructionState(RedXeConstructionState * state) noexcept = 0;
+};
+
 // Fraction of the client rectangle a widget requests when the host raises it.
 enum RedXeRaisedExtent : uint32_t
 {

@@ -206,6 +206,14 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override;
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept override;
     HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork* work) noexcept override;
+    void SetConstructionAccessEnabled(bool enabled) noexcept
+    {
+        _constructionAccessEnabled = enabled;
+    }
+    [[nodiscard]] bool ConstructionAccessEnabled() const noexcept
+    {
+        return _constructionAccessEnabled;
+    }
     HRESULT STDMETHODCALLTYPE RequestAction(const RedXeActionRequest* request) noexcept override;
     HRESULT STDMETHODCALLTYPE ExecuteAction(const RedXeActionRequest* request) noexcept override;
     HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request,
@@ -271,6 +279,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     ControlWorkQueue _controlWork;
     ConstructionWorkQueue _constructionWork;
     bool _constructionStopReported = false;
+    bool _constructionAccessEnabled = false;
     bool _controlAccessEnabled = true;
     static constexpr size_t kMaximumDataSetsPerProvider = 256;
     static constexpr size_t kMaximumSubscriptions = 32;

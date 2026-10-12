@@ -1,9 +1,20 @@
 #include "../../RedXe/ConstructionWorkQueue.h"
+#include "../../RedXe/DashboardHost.h"
 #include "../../RedXe/PluginHost.h"
+#include "../../RedXe/Renderer.h"
 #include "PlugInterfaces/FactoryImpl.h"
 
 #include <atomic>
 #include <iostream>
+#include <string>
+
+struct RendererConstructionTestAccess final
+{
+    static bool PreparationPending(const Renderer& renderer) noexcept
+    {
+        return bool(renderer._pagePreparationProbe);
+    }
+};
 
 struct ConstructionWorkQueueTestAccess final
 {
@@ -302,6 +313,9 @@ void TestConstructionWork(bool& success) noexcept
         auto hosted = MakeConstruction();
         hosted->ignoreCancellation = true;
         PluginHost host;
+        check(host.QueueConstructionWork(hosted.get()) == E_ACCESSDENIED && !host.ConstructionWorkerRunning(),
+              L"ordinary activation refuses deferred construction without creating a worker");
+        host.SetConstructionAccessEnabled(true);
         const auto releaseHosted = wil::scope_exit([&]() noexcept { hosted->gate.SetEvent(); });
         PluginHost::ModuleView module{};
         check(SUCCEEDED(
@@ -329,6 +343,7 @@ void TestConstructionWork(bool& success) noexcept
               L"a subsequent shutdown joins the exited lane before unloading plugin code");
 
         PluginHost completingHost;
+        completingHost.SetConstructionAccessEnabled(true);
         wil::unique_hwnd window{CreateWindowExW(0, L"STATIC", L"construction completion", 0, 0, 0, 0, 0, HWND_MESSAGE,
                                                 nullptr, GetModuleHandleW(nullptr), nullptr)};
         check(bool(window), L"completion fixture owns a hidden message window");
@@ -356,5 +371,138 @@ void TestConstructionWork(bool& success) noexcept
     {
         success = false;
         std::cerr << "FAIL construction exception: " << error.what() << '\n';
+    }
+}
+
+void TestConstructionPages(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] production Launcher construction and full-quality neighbour readiness\n";
+    uint32_t checks = 0;
+    const auto check = [&](bool value, const wchar_t* name)
+    {
+        ++checks;
+        if (!value)
+        {
+            success = false;
+            std::wcerr << L"FAIL construction page: " << name << L'\n';
+        }
+    };
+    const HRESULT apartment = OleInitialize(nullptr);
+    check(SUCCEEDED(apartment), L"owner STA initializes");
+    if (FAILED(apartment))
+        return;
+    const auto uninitialize = wil::scope_exit([]() noexcept { OleUninitialize(); });
+    try
+    {
+        constexpr UINT width = 800, height = 720;
+        wil::unique_hwnd window{CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, L"STATIC", L"construction page test",
+                                                WS_POPUP, -32000, -32000, width, height, nullptr, nullptr,
+                                                GetModuleHandleW(nullptr), nullptr)};
+        check(bool(window), L"fixture owns a hidden nonactivating window");
+        if (!window)
+            return;
+        std::string json =
+            R"({"version":{"major":5},"pages":[{"id":"current","widgets":[{"plugin":"builtin.rotating-triangle"}]},{"id":"incoming","widgets":[)";
+        for (uint32_t index = 0; index < 32; ++index)
+        {
+            if (index)
+                json += ',';
+            json +=
+                R"({"plugin":"builtin.launcher","shortcuts":[{"target":"https://example.com/","icon":"Settings"}]})";
+        }
+        json += "]}]}";
+        AppSettings settings;
+        HRESULT result = ParseAppSettingsJson(json, settings);
+        auto& host = PluginHost::Instance();
+        const bool oldPolicy = host.ConstructionAccessEnabled();
+        host.SetConstructionAccessEnabled(true);
+        const auto restore = wil::scope_exit([&]() noexcept { host.SetConstructionAccessEnabled(oldPolicy); });
+        auto blocker = MakeConstruction();
+        blocker->ignoreCancellation = true;
+        const auto release = wil::scope_exit([&]() noexcept { blocker->gate.SetEvent(); });
+        if (SUCCEEDED(result))
+            result = host.QueueConstructionWork(blocker.get());
+        check(SUCCEEDED(result) && WaitForSingleObject(blocker->entered.get(), 5000) == WAIT_OBJECT_0,
+              L"one indivisible fixture call blocks the real host STA");
+        if (FAILED(result))
+            return;
+        PluginManager currentPlugins, incomingPlugins;
+        DashboardHost current, incoming;
+        Renderer renderer;
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                renderer.Shutdown();
+                incoming.Shutdown();
+                current.Shutdown();
+            });
+        if (SUCCEEDED(result))
+            result = currentPlugins.InitializePage(settings, 0);
+        if (SUCCEEDED(result))
+            result = current.Initialize(currentPlugins, window.get(), width, height, USER_DEFAULT_SCREEN_DPI, false);
+        if (SUCCEEDED(result))
+            result = renderer.Initialize(window.get(), true, current);
+        if (SUCCEEDED(result))
+            result = current.SetWidgetsVisible(true);
+        if (SUCCEEDED(result))
+            result = incomingPlugins.InitializePage(settings, 1, &currentPlugins);
+        if (SUCCEEDED(result))
+            result = incoming.Initialize(incomingPlugins, window.get(), width, height, USER_DEFAULT_SCREEN_DPI, false);
+        if (SUCCEEDED(result))
+            result = incoming.SetHorizontalOffset(width);
+        RuntimePageCallbackContext context;
+        context.stageId = 0x123456;
+        context.page = 1;
+        if (SUCCEEDED(result))
+            result = renderer.SetTransitionDashboard(&incoming, &context);
+        if (SUCCEEDED(result))
+            result = incoming.SetWidgetsVisible(true);
+        host.SetConstructionAccessEnabled(false);
+        check(SUCCEEDED(result) && !incoming.ConstructionReady() && current.ConstructionReady() &&
+                  RendererConstructionTestAccess::PreparationPending(renderer),
+              L"32 valid incoming Launchers wait offscreen, including bounded-queue overflow admission");
+        if (FAILED(result))
+            return;
+        bool currentFrames = true;
+        for (uint32_t index = 0; index < 3; ++index)
+        {
+            currentFrames = SUCCEEDED(renderer.PrepareWidgets()) &&
+                            SUCCEEDED(renderer.Render(static_cast<float>(index) / 30, 1.0f / 30)) &&
+                            renderer.LastFrameSuccessfulWidgetCount() >= 1 && currentFrames;
+        }
+        check(currentFrames && !incoming.ConstructionReady() &&
+                  RendererConstructionTestAccess::PreparationPending(renderer),
+              L"blocked construction leaves current GPU frames running and does not consume first preparations");
+        blocker->gate.SetEvent();
+        const uint64_t deadline = GetTickCount64() + 5000;
+        do
+        {
+            host.AcknowledgeUiInvalidate();
+            result = renderer.PrepareWidgets();
+            if (incoming.ConstructionReady() || FAILED(result))
+                break;
+            (void)MsgWaitForMultipleObjectsEx(0, nullptr, 20, QS_POSTMESSAGE, MWMO_INPUTAVAILABLE);
+        } while (GetTickCount64() < deadline);
+        check(SUCCEEDED(result) && incoming.ConstructionReady() &&
+                  !RendererConstructionTestAccess::PreparationPending(renderer),
+              L"all 32 jobs eventually admit, complete on UI and upload before incoming readiness");
+        bool everyReady = true;
+        for (size_t index = 0; index < incoming.WidgetCount(); ++index)
+        {
+            RedXeConstructionState state = RedXeConstructionStatePending;
+            auto* widget = incoming.ConstructionStateWidgetAt(index);
+            everyReady = widget && widget->GetConstructionState(&state) == S_OK &&
+                         state == RedXeConstructionStateReady && everyReady;
+        }
+        check(everyReady, L"readiness requires every placed widget, not merely the first completed job");
+        check(SUCCEEDED(renderer.Render(0.2f, 1.0f / 30)) && blocker->completions == 1,
+              L"posted completion and full-quality prepared composition remain valid");
+        check(renderer.SetTransitionDashboard(nullptr) == S_OK, L"retirement releases borrowed preparation ownership");
+        std::wcout << L"construction_page_checks=" << checks << L'\n';
+    }
+    catch (const std::exception& error)
+    {
+        success = false;
+        std::cerr << "FAIL construction page exception: " << error.what() << '\n';
     }
 }

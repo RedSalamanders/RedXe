@@ -1150,6 +1150,14 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
             IRedXePreparedGpuWidget* widget = dashboard->PreparedGpuWidgetAt(index);
             if (!widget || dashboard->RequiresPlaceholderAt(index))
                 continue;
+            bool constructionPending = false;
+            if (auto* construction = dashboard->ConstructionStateWidgetAt(index))
+            {
+                RedXeConstructionState state = RedXeConstructionStatePending;
+                if (FAILED(construction->GetConstructionState(&state)))
+                    continue;
+                constructionPending = state == RedXeConstructionStatePending;
+            }
             if (!unbound)
             {
                 _context->OMSetRenderTargets(0, nullptr, nullptr);
@@ -1170,7 +1178,20 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
                        : 0U,
                 _appearance};
             RuntimePageCallbackContext* const probeContext =
-                _pagePreparationProbe ? _pagePreparationProbe->Take(dashboard, static_cast<uint32_t>(index)) : nullptr;
+                _pagePreparationProbe && !constructionPending
+                    ? _pagePreparationProbe->Take(dashboard, static_cast<uint32_t>(index))
+                    : nullptr;
+            auto* host = constructionPending ? &PluginHost::Instance() : nullptr;
+            const bool previousConstructionAccess = host && host->ConstructionAccessEnabled();
+            if (host)
+                host->SetConstructionAccessEnabled(dashboard == _transitionDashboardHost &&
+                                                   (tile.TopLeftX >= _width || tile.TopLeftX + tile.Width <= 0));
+            const auto restoreConstructionAccess = wil::scope_exit(
+                [&]() noexcept
+                {
+                    if (host)
+                        host->SetConstructionAccessEnabled(previousConstructionAccess);
+                });
             const HRESULT result = TraceRuntimePageCallback(probeContext, static_cast<uint32_t>(index),
                                                             RuntimePageCallbackKind::FirstPreparation,
                                                             [&]() noexcept { return widget->Prepare(&context); });
@@ -1383,6 +1404,8 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
             }
             if (SUCCEEDED(widgetResult))
                 ++_lastFrameSuccessfulWidgetCount;
+            else
+                DrawPlaceholder(viewport);
         }
     }
 
