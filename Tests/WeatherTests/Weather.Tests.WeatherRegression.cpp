@@ -106,6 +106,10 @@ HRESULT __stdcall Response(const char* url, uint32_t length, const char** body, 
 
 class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
 {
+    HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork*) noexcept override
+    {
+        return E_NOTIMPL;
+    }
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork*) noexcept override
     {
         return E_ACCESSDENIED;

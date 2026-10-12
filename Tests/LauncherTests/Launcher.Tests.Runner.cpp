@@ -89,6 +89,10 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 
 class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
 {
+    HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork*) noexcept override
+    {
+        return E_NOTIMPL;
+    }
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork*) noexcept override
     {
         return E_ACCESSDENIED;

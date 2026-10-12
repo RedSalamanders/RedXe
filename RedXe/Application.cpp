@@ -6322,6 +6322,8 @@ void Application::OnEndSession(LPARAM reason) noexcept
     CloseMainWindow(deadline);
     PluginHost::Instance().StopLaunches(PluginHost::TeardownStageMilliseconds(
         GetTickCount64(), deadline, kSessionEndLogFlushMilliseconds, LaunchWorker::kStopMilliseconds));
+    PluginHost::Instance().StopConstruction(PluginHost::TeardownStageMilliseconds(
+        GetTickCount64(), deadline, kSessionEndLogFlushMilliseconds, ConstructionWorkQueue::StopMilliseconds));
     if (FAILED(PluginHost::Instance().FlushLog(
             PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadline, 0, kSessionEndMaximumMilliseconds))))
     {

@@ -2238,6 +2238,52 @@ contract and validation updates.
 | P2.8 | **Complete: CPU lifetime, Viewer/Weather/Debug monitor preparation/batching, failure suppression and capacity recovery.** Dirty 48×48 cells upload from Prepare, paint stays frozen across delivery and Render, and one temporary font session serves each changed batch with zero steady ownership. Reused cells clear old ink, Weather recycles above its reserved rows, and shared linear sampling cannot fetch neighboring ink. Debug hidden/unprepared input waits, while held Up/Cancel still releases. | All 145 Viewer references and eight Weather PNGs match; real-DLL red/green and final Release/Debug/ASan scopes, ARM64 compilation and skills are recorded above. Counterbalanced Gallery and System observations establish no causal CPU saving or repeatable regression. A trim export remains conditional on actual retained ownership under P3.6. |
 | P2.9 | Measure callback drain stalls before redesigning waits. Network and subscription drains include `INFINITE` waits; a timeout cannot free state while a callback can still use it. Reuse current bounded/tombstoned control/device-lane patterns only where ownership permits. | Slow-fixture recovery bounds UI delay while preserving callback quiescence, cancellation and teardown lifetimes. |
 
+### P3.4 continuation — host-owned STA construction (2026-10-12, foundation implemented)
+
+The ordinary native Shell path remains the quality reference after the rejected parent metadata/parse-create
+experiments. Its indivisible parent creation, handler binding and fresh shield/location calls cannot fit a UI
+slice merely by moving them into `Prepare`. The next mechanism is one lazy host-owned STA construction lane:
+16 immutable job slots, duplicate coalescing without reruns, a three-second queue-to-result budget, UI-posted
+completion and cancellation checked between Shell calls. An indivisible native call can outlast cancellation;
+shutdown waits at most one second once and retains runtime/work/module storage until it exits or process end.
+Private test owners join before releasing their storage. This does not change the existing MTA device-work lane.
+
+The current foundation adds the queue, in-place host ABI service and session-end/shutdown lifetime handling.
+Production Launcher extraction still uses its existing synchronous path at this foundation checkpoint. No Launcher
+latency saving, full-quality incoming-page readiness, first-pixel qualification or plan completion is claimed here.
+Integration must copy bounded CPU inputs/results, reject stale/canceled generations, preserve fresh shield checks
+and native pixels, and keep the current page animated until a full-quality directional neighbor is ready. It must
+retain the current-plus-one page bound, cancellation/reversal behavior and device-loss recovery.
+
+`HostPlugin.Tests.ConstructionWork.cpp` exercises real STA execution, blocked-worker owner responsiveness, fixed
+capacity/refusal, duplicate execution counts, queue-age expiry, late-success refusal, cooperative cancellation,
+bounded repeated stop, UI completion that stops the lane, final-release thread, idle CPU and production-host
+posting/module retention. The frozen pre-change control is `5086a8c` with 713 source closure files; the copied
+runtime/evidence root and its 244 file hashes are recorded in `.build/receipts/p34-construction-control.json`.
+The focused Debug and Release runs pass 53 checks, including a queue-owned final reference released on the UI
+thread and zero measured worker CPU over a 250-ms idle interval. Fresh Debug and ASan Debug native Full runs pass
+all 15 scopes. Release's first Full run reaches the end-to-end screenshot check and exits with `0xc0000005`;
+the preceding native suites/resource guards pass, and a fresh explicit HostSmoke repeat passes capture, command
+line and both crash harnesses. This is partitioned coverage, not a passing first Full run. Twenty-four alternating
+control/candidate captures under an isolated native debugger produce PNGs without reproducing the fault. The
+previous unexplained screenshot failures and this failure remain open; debugger timing and a successful retry
+do not explain their cause. ARM64 Release compiles with zero warnings/errors; this is not native ARM64 execution.
+
+Compiler PDB records and the queue test establish 464 bytes of added fixed storage per process host: `PluginHost`
+is 99,120 -> 99,584 bytes. The queue creates no events or worker before first submission; production Launcher does
+not submit at this checkpoint. The matched, owned nonactivating 2560x720/96-DPI XENEON Release D-cycle has 18 stages
+and 402 callbacks per arm, identical scenes, collector, power/OS/DxUi context and sealed runtime inputs. Cold
+Matrix CPU is 2.192 -> 2.193% of one core and presents are 60.024 -> 61.301/s; returned CPU is 2.525 -> 2.550% and
+presents are 60.071 -> 59.707/s. Cold private bytes are 35.31 -> 36.09 MiB and returned bytes 63.85 -> 65.82 MiB;
+these varying process totals do not measure the 464-byte object addition or establish a causal regression/saving.
+Hidden and minimized presentations are zero in both arms. Launcher visibility remains synchronous (median
+41.897 -> 37.502 ms, maximum 231.485 -> 146.333 ms); this unchanged path's variation is not an optimization.
+
+Evidence is retained under `.build/receipts/p34-construction-*`: native/artifact manifests, profile build/test logs,
+the failed screenshot log and successful repeat, debugger outcomes, PDB type dumps, skills/tooling logs and
+`p34-construction-matched-comparison.json`. Full-quality readiness, Launcher integration, physical input and
+first-pixel qualification remain separate next work. The plan stays active.
+
 ### Phase 3 — fluid swipe, nothing left behind
 
 The rule: a swipe MAY allocate whatever a smooth slide needs; the settled page MUST end with exactly the resources of a

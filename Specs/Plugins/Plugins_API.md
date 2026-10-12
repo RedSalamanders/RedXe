@@ -288,6 +288,21 @@ object it was supplied to.
   a frame or queue another unit. Shutdown signals cancellation, drains the worker, suppresses completions and
   releases retained references on the UI thread before module shutdown. Self-tests reject device work explicitly.
   Committed input may enqueue mutations. Preparation and visibility changes may enqueue observation/cleanup only.
+- `QueueConstructionWork` accepts immutable CPU construction on one lazy process-wide STA, separate from MTA device
+  commands. At most 16 `IRedXeConstructionWork` objects are retained; identical pending objects coalesce without a
+  rerun (`S_FALSE`) and saturation returns `ERROR_BUSY`. Factory creation, visibility, `Prepare`, committed input
+  and completion may enqueue bounded observation, never `Render`, paint or device/size callbacks. `Run` receives
+  the borrowed stop event and the remaining three-second enqueue-to-result budget; it owns all inputs/results and
+  creates/releases Shell COM objects on that STA. It borrows no widget/UI state and performs no D3D, persistence or
+  action execution. It checks cancellation/budget between indivisible calls. Expired queued work never starts;
+  success returned after the budget expires becomes `ERROR_TIMEOUT`. Completion is posted through the existing
+  coalesced UI notification and runs outside the submitting callback. The job validates its owner's lifetime and
+  generation before publishing, and may request a frame or enqueue replacement work. Every final host reference
+  is released on the UI thread. Shutdown discards queued jobs and suppresses completion; it waits at most 1000 ms
+  once for an indivisible native call, retaining runtime/work/modules if the call is still running. Repeated stop
+  checks without waiting again, except a zero wait that found no running work leaves a later stop its bound. Session
+  end shares its single deadline with service/launch drains and log flush. A private owner's destructor joins before
+  module/storage release. An idle STA blocks in a message-aware event wait and owns no periodic timer or wake.
 - `RequestAction`, `ExecuteAction`, and `ValidateAction` are the named-action services
   ([`Plugins_Actions.md`](Plugins_Actions.md)): `RequestAction` is safe from any thread including a service's device
   lane, allocation-free, never blocking (16-slot ring, identical pending request coalesced to `S_FALSE`, full ring
@@ -1826,6 +1841,13 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
 21. Verify the action contract, registry, validation, and execution through `HostPluginTests` and the Zoom action
     DLL through `ZoomTests` as [`Plugins_Actions.md`](Plugins_Actions.md) and [`Plugins_Zoom.md`](Plugins_Zoom.md)
     require; `HostPluginTests` MUST map every catalogued module and prove no action namespace collides.
+
+22. Verify the construction lane's lazy STA apartment, 16-slot refusal, duplicate coalescing without reruns,
+    owner responsiveness while native work is blocked, three-second queue-age expiry/late-success refusal, posted
+    UI completion, UI final-reference release and idle event blocking. Cooperative cancellation joins without
+    completion; an indivisible call consumes the bounded stop once, drops queued work, refuses new submissions
+    and retains work/runtime/module storage until it exits. Repeated shutdown joins the exited thread before
+    module release, and a completion that stops the queue must not deliver later detached results to stale UI.
 
 The automated Debug host composition must contain the GPU launcher, one rotating-triangle GPU fixture, the GDI
 fixture, and Matrix Rain. The automated

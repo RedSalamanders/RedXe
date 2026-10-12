@@ -68,6 +68,15 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   in a separately owned helper process. Shutdown signals cancellation, joins bounded work, suppresses UI completions
   and releases references before unloading modules. Hidden AV display observation is suspended independently from
   an armed camera route; that route captures only while consumer sample requests maintain a 250-ms demand lease.
+- CPU content construction may use the host's lazy STA construction lane (`ConstructionWorkQueue.*`), with 16 fixed
+  slots, two events and one message-aware blocking wait. Immutable work owns its inputs and CPU results; it borrows
+  no widget, UI or GPU state. Duplicate pending objects coalesce without reruns and saturation refuses work without
+  waiting. Queue age counts against the three-second result budget; expired work never starts and late success is
+  refused. Cancellation is checked between indivisible native Shell calls. UI completion validates owner lifetime
+  and generation before publishing. Shutdown drops queued jobs, suppresses completion, waits at most 1000 ms once
+  (session end only the time left in its shared deadline), and retains runtime/work/module storage for a late native
+  call until it exits or the process ends. Private-owner destruction joins before storage/module release. The lane
+  starts only when content construction requests it, has no timer or periodic wake and runs no user mutation.
 - Named actions (`Specs/Plugins/Plugins_Actions.md`) use one static 16-slot ring drained by one posted message; every
   host-native action and every publisher `Execute` returns within 20 ms on the UI thread without waiting, pumping,
   or showing UI, and defers longer work to the control lane, the launch worker, or the publisher's own device lane

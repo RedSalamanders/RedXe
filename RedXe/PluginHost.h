@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BundledPlugins.h"
+#include "ConstructionWorkQueue.h"
 #include "ControlWorkQueue.h"
 #include "LaunchWorker.h"
 #include "PlugInterfaces/Factory.h"
@@ -128,6 +129,13 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // what is left of its deadline, never more than that bound, because Windows may end the process before Shutdown
     // runs.
     void StopLaunches(uint32_t timeoutMilliseconds = LaunchWorker::kStopMilliseconds) noexcept;
+    // Drops construction jobs and suppresses completion; retains runtime/module storage for a late native Shell
+    // call. Session end shares its one deadline with the other lanes and log flush.
+    void StopConstruction(uint32_t timeoutMilliseconds = ConstructionWorkQueue::StopMilliseconds) noexcept;
+    [[nodiscard]] bool ConstructionWorkerRunning() const noexcept
+    {
+        return _constructionWork.Running();
+    }
     // One blocking stage of a teardown bounded by one deadline (Application::OnEndSession): the smaller of the stage's
     // own bound and the time left at nowTick before deadlineTick less reserveMilliseconds, which the stages after it
     // keep; 0 once that point has passed. Ticks are GetTickCount64 values.
@@ -197,6 +205,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
                                                     uint32_t settingsBytes) noexcept override;
     HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override;
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept override;
+    HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork* work) noexcept override;
     HRESULT STDMETHODCALLTYPE RequestAction(const RedXeActionRequest* request) noexcept override;
     HRESULT STDMETHODCALLTYPE ExecuteAction(const RedXeActionRequest* request) noexcept override;
     HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request,
@@ -256,9 +265,12 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct PluginHostTestAccess;
     friend struct PluginHostDataSourceTestAccess;
+    friend struct PluginHostConstructionTestAccess;
     std::atomic<bool> _failDataSetAllocationForTesting{false};
 #endif
     ControlWorkQueue _controlWork;
+    ConstructionWorkQueue _constructionWork;
+    bool _constructionStopReported = false;
     bool _controlAccessEnabled = true;
     static constexpr size_t kMaximumDataSetsPerProvider = 256;
     static constexpr size_t kMaximumSubscriptions = 32;

@@ -26,6 +26,7 @@
   "Tests/AVControlTests/AVControl.Tests.TextTransport.cpp",
   "Tests/AVControlTests/AVControl.Tests.WidgetTextClient.cpp",
   "Tests/DeskClockTests/DeskClock.Tests.Runner.cpp",
+  "Tests/HostPluginTests/HostPlugin.Tests.ConstructionWork.cpp",
   "Tests/HostPluginTests/HostPlugin.Tests.DataSourceLifetime.cpp",
   "Tests/HostPluginTests/HostPlugin.Tests.FramePacing.cpp",
   "Tests/HostPluginTests/HostPlugin.Tests.FramePacing.h",

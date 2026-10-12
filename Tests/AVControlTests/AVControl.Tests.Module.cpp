@@ -66,6 +66,10 @@ class Host final : public RedXeComObject<Host, IRedXeHost>
             return E_OUTOFMEMORY;
         }
     }
+    HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork*) noexcept override
+    {
+        return E_NOTIMPL;
+    }
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept override
     {
         if (pending)

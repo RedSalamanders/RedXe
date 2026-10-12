@@ -492,6 +492,7 @@ PluginHost::~PluginHost()
             slot.lane.join();
         }
     }
+    _constructionWork.Join();
     Shutdown();
 }
 
@@ -506,7 +507,8 @@ PluginHost& PluginHost::Instance() noexcept
                 return;
             }
             runtime->Shutdown();
-            if (runtime->RunningDeviceWorkerCount() == 0 && !runtime->LaunchWorkerRunning())
+            if (runtime->RunningDeviceWorkerCount() == 0 && !runtime->LaunchWorkerRunning() &&
+                !runtime->ConstructionWorkerRunning())
             {
                 delete runtime;
             }
@@ -532,25 +534,31 @@ void PluginHost::Shutdown() noexcept
     // Queued launches are dropped, also when a stuck device lane ends this shutdown early below; this host's post
     // target, which a launch still in the shell keeps, is already cleared.
     StopLaunches();
+    StopConstruction();
+    bool retainRuntime = ConstructionWorkerRunning();
     for (const ServiceSlot& slot : _services)
     {
         if (slot.lane.joinable())
         {
-            // The lane still borrows this host and its module. The process singleton is intentionally retained,
-            // and a private host's destructor joins before it releases this storage.
-            HostActions::ReleaseHeld();
-            const bool first = !_shutdown;
-            _shutdown = true;
-            // The writer and its events stay alive because the lane may still log, but process exit would discard
-            // the queue, device-lane-drain-timeout and launch-stop-timeout included, so it is written out now within
-            // a bound. Only the first such call waits: the process runtime is shut down again by its deleter at
-            // static destruction.
-            if (first && FAILED(FlushLog(_shutdownLogFlushMilliseconds)))
-            {
-                OutputDebugStringW(L"RedXe: the log writer did not drain at shutdown; its last lines may be lost.\n");
-            }
-            return;
+            retainRuntime = true;
         }
+    }
+    if (retainRuntime)
+    {
+        // The lane still borrows this host and its module. The process singleton is intentionally retained,
+        // and a private host's destructor joins before it releases this storage.
+        HostActions::ReleaseHeld();
+        const bool first = !_shutdown;
+        _shutdown = true;
+        // The writer and its events stay alive because the lane may still log, but process exit would discard
+        // the queue, device-lane-drain-timeout and launch-stop-timeout included, so it is written out now within
+        // a bound. Only the first such call waits: the process runtime is shut down again by its deleter at
+        // static destruction.
+        if (first && FAILED(FlushLog(_shutdownLogFlushMilliseconds)))
+        {
+            OutputDebugStringW(L"RedXe: the log writer did not drain at shutdown; its last lines may be lost.\n");
+        }
+        return;
     }
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_hostActionLock);
@@ -594,6 +602,17 @@ void PluginHost::StopLaunches(uint32_t timeoutMilliseconds) noexcept
         _launchStopReported = true;
         (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "launch-stop-timeout",
                            "a launch was still in progress when RedXe stopped; RedXe exits without waiting for it.");
+    }
+}
+
+void PluginHost::StopConstruction(uint32_t timeoutMilliseconds) noexcept
+{
+    if (_constructionWork.Stop(timeoutMilliseconds) == ConstructionWorkQueue::StopResult::WorkInProgress &&
+        !_constructionStopReported)
+    {
+        _constructionStopReported = true;
+        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "construction-stop-timeout",
+                           "native construction was still in progress when RedXe stopped; its runtime is retained.");
     }
 }
 
@@ -1309,6 +1328,7 @@ void PluginHost::AcknowledgeUiInvalidate() noexcept
 {
     _pendingInvalidate.store(0, std::memory_order_release);
     _controlWork.DrainCompletions();
+    _constructionWork.DrainCompletions();
     if (!_hasPendingSettings.load(std::memory_order_acquire))
         return;
     decltype(_pendingSettings) pending;
@@ -1341,6 +1361,17 @@ HRESULT PluginHost::QueueControlWork(IRedXeControlWork* work) noexcept
     const HRESULT started = _controlWork.Start([](void* context) noexcept
                                                { static_cast<PluginHost*>(context)->RequestUiInvalidate(); }, this);
     return FAILED(started) ? started : _controlWork.Enqueue(work);
+}
+
+HRESULT PluginHost::QueueConstructionWork(IRedXeConstructionWork* work) noexcept
+{
+    if (!work)
+        return E_POINTER;
+    if (_shutdown)
+        return E_UNEXPECTED;
+    const HRESULT started = _constructionWork.Start(
+        [](void* context) noexcept { static_cast<PluginHost*>(context)->RequestUiInvalidate(); }, this);
+    return FAILED(started) ? started : _constructionWork.Enqueue(work);
 }
 
 void PluginHost::RequestUiInvalidate() noexcept

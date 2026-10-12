@@ -8,6 +8,7 @@
 #include <unknwn.h>
 
 interface IRedXeControlWork;
+interface IRedXeConstructionWork;
 
 // Every sizeBytes field must equal the current record's sizeof value.
 
@@ -162,6 +163,15 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // and settings application; a service validates its bindings there and keeps the result for its lane.
     virtual HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request,
                                                      const RedXeActionDescriptor** descriptor) noexcept = 0;
+
+    // UI-thread only. Retains one immutable CPU construction job for the host's lazy STA lane (16 slots). Repeated
+    // submission of the same pending object coalesces without rerunning it (S_FALSE); a full queue returns ERROR_BUSY.
+    // Allowed from factory creation, visibility, Prepare, committed input and completion, never from Render/paint
+    // or device/size callbacks. Run may perform native Shell work but owns no UI, Direct3D or settings mutation.
+    // Complete is posted to the UI thread, outside the submitting callback. A canceled/stale owner must reject the
+    // result there. Shutdown drops queued work and suppresses completion; an indivisible call may finish later with
+    // the process runtime and plugin modules retained. Work is observation only, never implicit user mutation.
+    virtual HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork * work) noexcept = 0;
 };
 
 // Optional asynchronous settings delivery for discovered state, including imports during visibility callbacks.

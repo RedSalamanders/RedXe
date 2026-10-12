@@ -44,6 +44,10 @@ class Host final : public RedXeComObject<Host, IRedXeHost>
     {
         return S_OK;
     }
+    HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork*) noexcept override
+    {
+        return E_NOTIMPL;
+    }
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept override
     {
         if (reject)

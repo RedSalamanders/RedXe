@@ -119,6 +119,7 @@
     <ClInclude Include="CrashHandler.h" />
     <ClInclude Include="PluginHost.h" />
     <ClInclude Include="LaunchWorker.h" />
+    <ClInclude Include="ConstructionWorkQueue.h" />
     <ClInclude Include="DashboardHost.h" />
     <ClInclude Include="CommandLine.h" />
     <ClInclude Include="DockOptions.h" />
@@ -151,6 +152,7 @@
     <ClCompile Include="CrashHandler.cpp" />
     <ClCompile Include="PluginHost.cpp" />
     <ClCompile Include="ControlWorkQueue.cpp" />
+    <ClCompile Include="ConstructionWorkQueue.cpp" />
     <ClCompile Include="LaunchWorker.cpp" />
     <ClCompile Include="DashboardHost.cpp" />
     <ClCompile Include="DisplayEnumeration.cpp" />

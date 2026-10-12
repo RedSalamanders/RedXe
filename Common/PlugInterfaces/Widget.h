@@ -252,6 +252,21 @@ interface __declspec(uuid("B44CFD33-5DE8-4A37-92B1-D5663AFA2181")) __declspec(no
     virtual void STDMETHODCALLTYPE Complete(HRESULT result) noexcept = 0;
 };
 
+// Immutable CPU construction inputs and owned results. The host retains this object until its UI-thread Complete
+// returns or shutdown discards it; its final host reference is released on the UI thread. Run executes on one lazy
+// message-aware STA, never on the UI thread. It must check cancelEvent and the remaining three-second budget between
+// indivisible calls and must not borrow widget/UI state, create GPU resources, persist settings or execute actions.
+// Native Shell COM objects are created and released within Run on that STA. No result is published after the budget
+// expires. An uninterruptible Shell call may outlast cancellation: shutdown waits at most one second once, retaining
+// the runtime, work and module mapping until it returns or the process exits. Complete must validate its owner's
+// lifetime and generation before publishing CPU state; it may request a frame or queue a replacement job.
+interface __declspec(uuid("ECFB4B75-6510-445C-AEF0-51986F20826E")) __declspec(novtable) IRedXeConstructionWork
+    : IUnknown
+{
+    virtual HRESULT STDMETHODCALLTYPE Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexcept = 0;
+    virtual void STDMETHODCALLTYPE Complete(HRESULT result) noexcept = 0;
+};
+
 // Fraction of the client rectangle a widget requests when the host raises it.
 enum RedXeRaisedExtent : uint32_t
 {

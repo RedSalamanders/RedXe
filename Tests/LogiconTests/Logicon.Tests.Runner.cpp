@@ -1441,6 +1441,10 @@ class TestHost final : public IRedXeHost
         }
         return S_OK;
     }
+    HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork*) noexcept override
+    {
+        return E_NOTIMPL;
+    }
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork*) noexcept override
     {
         return E_ACCESSDENIED;
