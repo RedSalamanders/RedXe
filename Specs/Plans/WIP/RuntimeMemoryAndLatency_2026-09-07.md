@@ -2796,10 +2796,43 @@ events and sampled CPU stacks stay disabled. Only the owned normal-user clock PI
 attribution; this remains instrumented evidence, not an uninstrumented Release acceptance baseline. Real snapshots,
 event-loss accounting, PID/symbol/stack completeness and independent cleanup remain to be verified.
 
-The previous administrator controller has exited and its one-prompt approval was used. The prepared replacement
-requires one fresh UAC authorization after the current documentation checks/commit. No further production
+The previous administrator controller has exited and its one-prompt approval was used. The owner authorizes the
+prepared replacement after the documentation checks/commit; that attempt is recorded below. No further production
 optimization is selected without a usable recording; visual quality, cadence, warm-up and the 4/8-MiB guards remain.
 Keep long memory qualification **HOLD** and the complete WIP active.
+
+### P4.6 collector loss isolated and heap-only late capture prepared (2026-10-13)
+
+The approved corrected helper successfully captures the 25-, 50- and 85-second heap cuts for the exact normal-user
+PID 93548. At the 90-second status check, the system/virtual-allocation collector reports 25,777 lost events and
+the heap-snapshot collector reports zero. The helper detects loss, stops early and saves the trace without waiting
+for the remaining cuts. The completed 2,521,825,280-byte merged ETL reports 102,193 lost events. Owned stop succeeds
+and independent checks confirm the instance inactive, the unique IFEO key absent and all owned processes gone.
+
+Retained raw collectors isolate the volume: the system file is 2,478,833,664 bytes, while the heap event file is
+7,340,032 bytes. Independent processing of the latter reports zero lost events/buffers and three instances for
+PID 93548, with 264,708 / 261,340 / 257,328 bytes of reported event data. These are partial early instance/collector
+diagnostics; no late heap payload, virtual-allocation cause, symbol attribution or original peak explanation is
+accepted. Preserve the merged/raw files, periodic collector status, actual request times, independent cleanup,
+partial statistics/instance report and before/after identity under runtime-2026-10-13-p46-clock-snapshots-v2.
+
+The completed 350-second instrumented fixture passes with 188,416-byte peak private growth, 471,040-byte peak
+working-set growth, 6,414 frames and 12,828 draws. Its stable owners, active/idle scheduling, hidden zero and
+teardown pass; all 475 native and 145 copied runtime files match. This passing repeat and its observer effects
+explain none of the earlier failures. Production code, quality, cadence, warm-up and guards remain unchanged.
+
+The next prepared helper isolates the loss-free heap path for all seven early/late cuts. Its profile contains only
+CPU configuration, process/thread and image metadata plus heap-snapshot events. Global virtual-allocation,
+continuous heap allocation/reallocation and sampled CPU streams are absent. It retains the exact PID/image/birth/
+argument checks, the final owned instance on every recording request, per-collector loss rejection, preserved raw
+inputs and unique-key cleanup. The heap-only schema and seventeen policy/preparation checks pass without starting
+tracing or UAC. New names p46-clock-snapshot-owned-v3.ps1, collect-p46-clock-snapshot-controller-v3.ps1 and
+p46-clock-snapshot-v3-preparation/ preserve every earlier helper and receipt.
+
+One fresh UAC authorization is required after the current checks/commit because the approved controller has
+exited. A successful heap-only trace may attribute live payload at the late cuts; non-heap commitment and the
+uninstrumented guard failures still need independent evidence. No further production optimization is selected
+from the lossy combined capture. Long memory qualification remains **HOLD**; the complete WIP remains active.
 
 ### Phase 3 — fluid swipe, nothing left behind
 
@@ -2824,7 +2857,7 @@ cold visit to that page, and nothing from the page that was left.
 | P4.3 | **Count-sized icons, glyph batch, single shell output, folder binding, verified-file opaque reuse and combined queries implemented; cold-parent shortcuts rejected.** Empty/8/32 entries use 0/2/8 MiB GPU payload. Eight decoded buffers retain 2 MiB with exact token/identifier and fresh shield/file checks; the prior expansion adds 1.5 MiB. Ordinary parsing remains. P3.4 now constructs incoming discrete Launcher CPU pixels on the host STA, sharing that cache under a short SRW lock. | Current-DLL phase/ownership/normal-route regression, cache/shield/metadata/OOM/capacity/shutdown, import/drop/device-loss, stale jobs, exact STA pixels, matched measurements and profile accounting are recorded above. Initial/touch cold setup, worst whole-page activation, process memory and first-pixel budgets remain open. Historical failed guard/hash receipts remain; no causal D-return saving is claimed. |
 | P4.4 | **Surface lifetime landed and retained at the current pin.** Hidden tile and unraised overlay surfaces are released without detaching control trees. The raised hardware P0.4 run confirms exact tile/overlay bytes, dismissal, hidden zero and restore. Lazy control-tree attachment, hidden-view update skipping, profile-control destruction and inventory diffing remain separate proposals. | Native fixtures and production hardware accounting agree; unchanged-observation copy cost and any new control-tree proposal still require measurements. Real AV release gates remain in the HOLD RFC. |
 | P4.5 | **Content-sized Weather cache and last-widget release implemented.** Cold bodies remain unallocated; each used entry owns payload plus terminator, with equal-size reuse and transactional new/grow/shrink/eviction. Surviving/hidden widgets retain shared data; final strong callback leases release it. Existing validators, 304, cancellation and refresh clamps remain. Curl connection reuse and failure coalescing are separate conditional candidates. | Real-DLL lower offline transport proves 2,097,160 → 24 bytes for eight two-byte responses, capacity/OOM/expiry/validator/failure and last-owner scenarios, with red/green against the old cache. Exact images and profile accounting are recorded above. Matched Gallery observations establish no causal whole-process CPU or memory saving. |
-| P4.6 | **Clock pacing, current short-trace attribution and compatible batching implemented.** Original pixels and both initialized atlas tiers pass; three/four draws become two/two with fewer owned buffers. All three Full profiles, ARM64 compilation, skills and matched Release CPU/submission observations are recorded above. GdiOrbit remains absent from shipped Gallery. | The short loss-free ETL attributes WARP payload in its recording, not the old 5.06/4.14-MiB peaks. Both uninstrumented five-minute guards fail at 5.93/6.46 MiB. The approved long recorder loses 4,004,747 events and times out during stop; independent cleanup passes, while its instrumented fixture fails at 6.49 MiB. The initial snapshot request omits its owned instance, fails with 0xc5583000 and saves no allocation evidence; cleanup passes and its 3.34-MiB passing guard explains none of the failures. Corrected snapshot/virtual helpers pass seventeen preparation checks including red/green request-scope coverage; one fresh UAC authorization is required. Long memory qualification stays HOLD. Preserve typography, rollover quality, cold target-tier follow-up and unchanged 4/8-MiB guards. Hardware callback/physical-first-pixel and historical failures remain open. |
+| P4.6 | **Clock pacing, current short-trace attribution and compatible batching implemented.** Original pixels and both initialized atlas tiers pass; three/four draws become two/two with fewer owned buffers. All three Full profiles, ARM64 compilation, skills and matched Release CPU/submission observations are recorded above. GdiOrbit remains absent from shipped Gallery. | The short loss-free ETL attributes WARP payload in its recording, not the old 5.06/4.14-MiB peaks. Both uninstrumented five-minute guards fail at 5.93/6.46 MiB. The long recorder loses 4,004,747 events and times out; the original snapshot request misses its owned instance and saves no evidence. Both cleanup proofs pass. Corrected requests capture three early instances, but the system/virtual stream loses 102,193 events; the raw heap collector has zero loss, while the missing late cuts and passing instrumented guard explain none of the failures. A heap-only seven-cut helper passes seventeen preparation checks; one fresh UAC authorization is required after checks/commit. Long memory qualification stays HOLD. Preserve typography, rollover quality, cold target-tier follow-up and unchanged 4/8-MiB guards. Hardware callback/physical-first-pixel and historical failures remain open. |
 
 ### Phase 5 — DxUi upstream and spec closeout
 
