@@ -2946,6 +2946,11 @@ cannot supply an allocation stack or driver owner. Keep live payload, region com
 distinct. The next optimization must follow a reproduced commitment-growth cohort; no further production change
 is accepted from these alternatives. Long memory qualification remains **HOLD** and the complete plan stays active.
 
+The owner defers further clock private-peak study on 2026-10-13. Its focused HOLD record is
+[Clock private-memory peak investigation](ClockPrivateMemoryPeakInvestigation_2026-10-13.md), preserving the
+5.93/6.46/6.49-MiB growth cohorts, evidence limits and resumption checklist. The implemented branch may merge
+while this qualification stays open; this parent retains all other runtime and latency work.
+
 ### Phase 3 — fluid swipe, nothing left behind
 
 The rule: a swipe MAY allocate whatever a smooth slide needs; the settled page MUST end with exactly the resources of a
