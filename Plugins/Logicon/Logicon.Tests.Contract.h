@@ -69,6 +69,21 @@ struct RedXeLogiconTestDiagnostics final
 
 static_assert(sizeof(RedXeLogiconTestDiagnostics) == 232);
 
+// UI-thread-only Debug monitor accounting. Independent of the service record and never queried by the host probe.
+struct RedXeLogiconMonitorTestDiagnostics final
+{
+    uint32_t sizeBytes;
+    uint32_t fontSessions;
+    uint32_t livePreparationFonts;
+    uint32_t glyphUploadCells;
+    uint64_t glyphUploadBytes;
+    uint32_t cpuAtlasBytes;
+    uint32_t resourceSets;
+    uint32_t faceCopyBytes;
+    uint32_t faceAllocations;
+};
+static_assert(sizeof(RedXeLogiconMonitorTestDiagnostics) == 40);
+
 extern "C"
 {
     // Fills diagnostics from the current service. ERROR_NOT_READY when no service object exists.
@@ -90,6 +105,11 @@ extern "C"
     REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconSetFaceOverride(uint32_t slot, uint32_t kind,
                                                                          uint32_t colorRgb) noexcept;
     REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconSetBrightness(uint32_t percent) noexcept;
+    // E_NOTIMPL in Release, which ships no monitor drawing implementation.
+    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconGetMonitorTestDiagnostics(
+        RedXeLogiconMonitorTestDiagnostics* diagnostics) noexcept;
+    REDXE_LOGICON_TEST_API void __stdcall RedXeLogiconFailNextMonitorGlyphPreparation() noexcept;
+    REDXE_LOGICON_TEST_API void __stdcall RedXeLogiconFailNextMonitorFacePreparation() noexcept;
 }
 
 using RedXeLogiconGetTestDiagnosticsFn = decltype(&RedXeLogiconGetTestDiagnostics);
@@ -99,6 +119,9 @@ using RedXeLogiconInjectControlFn = decltype(&RedXeLogiconInjectControl);
 using RedXeLogiconInjectSyntheticReportFn = decltype(&RedXeLogiconInjectSyntheticReport);
 using RedXeLogiconSetFaceOverrideFn = decltype(&RedXeLogiconSetFaceOverride);
 using RedXeLogiconSetBrightnessFn = decltype(&RedXeLogiconSetBrightness);
+using RedXeLogiconGetMonitorTestDiagnosticsFn = decltype(&RedXeLogiconGetMonitorTestDiagnostics);
+using RedXeLogiconFailNextMonitorGlyphPreparationFn = decltype(&RedXeLogiconFailNextMonitorGlyphPreparation);
+using RedXeLogiconFailNextMonitorFacePreparationFn = decltype(&RedXeLogiconFailNextMonitorFacePreparation);
 
 inline constexpr char kRedXeLogiconGetTestDiagnosticsExport[] = "RedXeLogiconGetTestDiagnostics";
 inline constexpr char kRedXeLogiconUseSyntheticDeviceExport[] = "RedXeLogiconUseSyntheticDevice";
@@ -107,5 +130,10 @@ inline constexpr char kRedXeLogiconInjectControlExport[] = "RedXeLogiconInjectCo
 inline constexpr char kRedXeLogiconInjectSyntheticReportExport[] = "RedXeLogiconInjectSyntheticReport";
 inline constexpr char kRedXeLogiconSetFaceOverrideExport[] = "RedXeLogiconSetFaceOverride";
 inline constexpr char kRedXeLogiconSetBrightnessExport[] = "RedXeLogiconSetBrightness";
+inline constexpr char kRedXeLogiconGetMonitorTestDiagnosticsExport[] = "RedXeLogiconGetMonitorTestDiagnostics";
+inline constexpr char kRedXeLogiconFailNextMonitorGlyphPreparationExport[] =
+    "RedXeLogiconFailNextMonitorGlyphPreparation";
+inline constexpr char kRedXeLogiconFailNextMonitorFacePreparationExport[] =
+    "RedXeLogiconFailNextMonitorFacePreparation";
 
 #undef REDXE_LOGICON_TEST_API

@@ -633,7 +633,7 @@ HRESULT DashboardHost::ClearRaisedNativeLayout(UINT dpi) noexcept
     return S_OK;
 }
 
-HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
+HRESULT DashboardHost::SetWidgetsVisible(bool visible, RuntimePageCallbackContext* callbacks) noexcept
 {
     if (!_pluginManager)
     {
@@ -658,7 +658,9 @@ HRESULT DashboardHost::SetWidgetsVisible(bool visible) noexcept
             changedCount = index + 1;
             continue;
         }
-        const HRESULT result = widget->SetVisible(visible ? TRUE : FALSE);
+        const HRESULT result = TraceRuntimePageCallback(
+            callbacks, static_cast<uint32_t>(index), RuntimePageCallbackKind::Visibility,
+            [&]() noexcept { return widget->SetVisible(visible ? TRUE : FALSE); }, visible ? 1U : 0U);
         if (FAILED(result))
         {
             for (size_t previous = 0; previous < changedCount; ++previous)
@@ -762,6 +764,28 @@ IRedXePreparedGpuWidget* DashboardHost::PreparedGpuWidgetAt(size_t index) const 
     return _pluginManager && index < _widgetCount ? _pluginManager->PreparedGpuWidgetAt(index) : nullptr;
 }
 
+IRedXeConstructionStateWidget* DashboardHost::ConstructionStateWidgetAt(size_t index) const noexcept
+{
+    return _pluginManager && index < _widgetCount ? _pluginManager->ConstructionStateWidgetAt(index) : nullptr;
+}
+
+bool DashboardHost::ConstructionReady() const noexcept
+{
+    for (size_t index = 0; index < _widgetCount; ++index)
+    {
+        if (RequiresPlaceholderAt(index))
+            continue;
+        if (auto* widget = ConstructionStateWidgetAt(index))
+        {
+            RedXeConstructionState state = RedXeConstructionStatePending;
+            if (FAILED(widget->GetConstructionState(&state)) ||
+                (state != RedXeConstructionStateReady && state != RedXeConstructionStateUnavailable))
+                return false;
+        }
+    }
+    return true;
+}
+
 IRedXeWindowWidget* DashboardHost::WindowWidgetAt(size_t index) const noexcept
 {
     return _pluginManager && index < _widgetCount ? _pluginManager->WindowWidgetAt(index) : nullptr;
@@ -860,8 +884,7 @@ bool DashboardHost::RequiresPlaceholderAt(size_t index) const noexcept
         return true;
     }
     // A constructed widget that reported itself unavailable is drawn by the host for as long as it says so.
-    return PluginHost::Instance().WidgetStatus(_pluginManager->WidgetInstanceIdAt(index)) ==
-           RedXeWidgetStatusUnavailable;
+    return _pluginManager->WidgetStatusAt(index) == RedXeWidgetStatusUnavailable;
 }
 
 HRESULT DashboardHost::GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) const noexcept

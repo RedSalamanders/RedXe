@@ -62,12 +62,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Weather.Tests.Runner.cpp" />
+    <ClCompile Include="Weather.Tests.HttpCache.cpp" />
     <ClCompile Include="Weather.Tests.WeatherRegression.cpp" />
     <ClCompile Include="Weather.Tests.WeatherLocation.cpp" />
     <ClCompile Include="..\..\Plugins\WeatherLocation\LocationPolicy.cpp" />
     <ClCompile Include="..\..\Plugins\Weather\WeatherModel.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Weather.Tests.HttpCache.h" />
     <ClInclude Include="..\..\Plugins\Weather\WeatherHttp.h" />
     <ClInclude Include="..\..\Plugins\Weather\Weather.Tests.Contract.h" />
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />

@@ -1,7 +1,7 @@
 # Weather widget
 
 Status: current normative product contract
-Last reviewed: 2026-09-18
+Last reviewed: 2026-10-11
 Owner: `Plugins/Weather`, `Plugins/WeatherLocation`, and `Tests/WeatherTests`
 
 The native ABI and host services are owned by `Plugins_API.md`. Resource requirements remain owned by
@@ -71,6 +71,16 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
   eight entries that revalidates with `If-None-Match` / `If-Modified-Since` and treats `304` as a cache hit. URLs are
   at most 2048 bytes, response bodies are 256 KiB heap buffers, and requests time out after 10 s (30 s maximum). A
   signaled cancel event returns promptly with `ERROR_CANCELLED`; the call never blocks inside curl after cancel.
+- Cache bodies allocate only after a successful response, at exactly the retained payload size plus one terminator
+  byte. Equal-sized replacements reuse storage. New entries, growth, shrinkage and eviction allocate before
+  publishing body, URL, validators or expiry; allocation failure preserves the prior entry. The existing eight-slot,
+  first-unused then slot-zero eviction policy remains. Empty bodies retain one byte, and maximum bodies retain
+  256 KiB plus one byte. Cache-Control ages saturate at the existing 60-minute ceiling without integer overflow;
+  the five-minute minimum and 15-minute default remain.
+- Every Weather widget holds a cache-client lease until its final strong reference is released. Hiding a widget
+  retains its lease; releasing one of several widgets preserves shared entries. In-flight network callbacks retain
+  their widget through the host's existing cancellation/drain lifetime. The last widget releases every cached body
+  and metadata entry without a worker, timer or per-widget lease field. Module shutdown also clears the cache.
 - Internal storage is SI (°C, m/s, mm, FILETIME); °F, km/h, and mph exist only in display strings. Strings are
   bounded UTF-16 copies: 24 hourly entries, nine daily entries, eight alerts with title, severity, start, expiry,
   description, instructions, and issuing authority.
@@ -117,6 +127,21 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
 - Retain Weather Icons and light Segoe UI. Fit complete measured glyph ink inside atlas cells with filtering padding,
   including oversized icons and accents; reject clipped glyphs. Measurement includes overhang and rendering uses
   cached cropped rectangles. Clear reused atlas cells. Render creates no fonts, textures, heap allocations or I/O.
+  The shared one-MiB CPU atlas is acquired with the first GPU user and freed at the last GPU release, including
+  device loss; cold widget construction and failed initial construction retain no CPU atlas allocation. A remaining
+  user keeps it, and re-acquisition preserves the same icon, hero-twin and Unicode rasterization.
+- Network delivery updates only the latest bounded CPU snapshot. The optional `IRedXePreparedGpuWidget::Prepare`
+  freezes the paint snapshot on the UI thread before tile/raised drawing; a later delivery is used by the next
+  preparation. One extra 9,904-byte paint snapshot per widget plus bounded revision/phase bookkeeping is accepted
+  for complete forecast/alert data and coherent drawing, without a thread, timer or Render-side copy/lock.
+  New label glyphs rasterize and upload only in Prepare, using one temporary font session across its strings.
+  All font owners release before drawing, including failure. Changed 48×48 cells upload 2,304 bytes each at their
+  stored atlas coordinates; the reserved 96 px icons and hero twins remain unchanged. Dynamic label capacity
+  recycles complete 48 px rows above the reserved twins; reaching that boundary MUST NOT stop caching subsequent
+  labels or overwrite the 96 px reserve. The CPU/GPU atlas remains one MiB each. Clean preparation returns
+  `S_FALSE` without allocation, rasterization or upload. Failed preparation suppresses drawing and input and MUST
+  NOT automatically retry unchanged data/extents; a new snapshot, changed extent or device recreation permits
+  recovery. Network cadence, stale attribution and cancellation retain their existing behavior.
 - Text rasterizes once into 48 px cells. Condition icons and the header temperature glyphs (digits, sign, degree,
   `C`, `F`) also own a 96 px twin cell in the atlas's reserved bottom rows; drawing switches to the twin above ~1.1x
   the small cell so the hero temperature is as sharp as the icon beside it. A text twin is an exact 2x raster that
@@ -153,6 +178,14 @@ outputs, absent/default positions, invalid coordinates, negative/missing/excessi
 and inclusive freshness/accuracy bounds. Use deterministic helper processes for fallback-to-persistence integration.
 Every automated run is offline: fixtures answer through the test response hook, never curl, and live MET Norway,
 Nominatim, MeteoAlarm, NWS, ECCC GeoMet, or HKO calls are manual-only and MUST NOT be a CI pass condition.
+The lower offline transport fixture MUST exercise the production cache lookup/store/revalidation path, without
+initializing or performing curl requests. Cover exact/overlong/embedded-NUL URL bounds, record and borrowed-payload
+bounds, empty/small/maximum bodies, fresh same-URL reuse, expiry clamps/overflow, validators and 304 restoration,
+new/grow/shrink/eviction allocation failure preserving prior state, equal-size allocation reuse, eight-slot capacity,
+transport/status/cancellation failures without cache poisoning, legacy-hook bypass and two real widgets' hidden,
+surviving and final strong-reference leases. Test transport/clock/fault mutations and direct GET probes require
+`REDXE_AUTOMATED_HOST=1`; the read-only 16-byte cache diagnostic reports actual retained body bytes including
+terminators. Controls change only with no network callback active; borrowed payloads remain valid until consumed.
 WeatherTests MUST cover country routing for every region and an unrouted country, each alert parser with trimmed
 live fixtures (severity tiers, skipped cancelled/ended/hidden entries, empty and non-JSON documents, recorded
 body), the one-URL-per-region builder (lower-cased MeteoAlarm country, NWS point, GeoMet bounding box and feature
@@ -170,3 +203,10 @@ forward (`S_FALSE` on Down, `S_OK` on Up) and a tap on the first dot back, each 
 diagnostics. Readback must contain lit pixels and submitted quads must
 fit the tile. Debug steady renders allocate nothing. Save PNG previews under `.build/` for inspection. Run Debug
 and Release x64 `test.ps1 -Full -Rebuild`, an ARM64 build, formatting and skill validation before closeout.
+Preparation tests MUST use real worker delivery, prove late tile/raised snapshot stability, count one/two dirty
+cells and one font session across changed strings, and prove zero owners after preparation and injected failure.
+Cover clean/no-retry suppression, input suppression, extent/new-snapshot recovery, device loss/re-acquisition and
+hidden preparation. All eight established layout PNG references MUST remain identical for an internal-only
+preparation change; new intended visual behavior requires its own reviewed reference and contract.
+After more distinct labels than atlas capacity, a new accent MUST still upload one 48 px cell and draw the same
+pixels as a fresh device rebuild. Reserved hero/icon counts and all eight established layout PNGs stay unchanged.

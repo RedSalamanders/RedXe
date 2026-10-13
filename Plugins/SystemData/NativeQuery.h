@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <windows.h>
 
 constexpr size_t kRedXeMaximumLogicalProcessors = 1024;
@@ -193,7 +194,8 @@ struct RedXeNativeWalkSample final
     uint32_t threadCount = 0;
     uint32_t imageArenaUsed = 0;
     std::array<RedXeNativeProcessRow, kRedXeMaximumNativeProcesses> processes{};
-    std::array<RedXeNativeThreadRow, kRedXeMaximumNativeThreads> threads{};
+    // Optional source-owned scratch: a process-only walk validates thread ranges without copying thread rows.
+    std::span<RedXeNativeThreadRow> threads{};
     // Null-terminated image names referenced by RedXeNativeProcessRow::imageOffset. Valid until the next walk.
     std::array<wchar_t, kRedXeNativeImageArenaCharacters> imageArena{};
 };
@@ -217,7 +219,6 @@ struct RedXeNativeTopologyCache final
 
 struct RedXeNativeState final
 {
-    std::array<std::byte, kRedXeNtProcessBufferBytes> processBuffer{};
     std::array<std::byte, 64U * 1024U> topologyBuffer{};
     std::array<std::byte, 64U * 1024U> cpuSetBuffer{};
     // Reusable staging for the per-logical-processor native records. Declared with an integer element type so the
@@ -231,5 +232,7 @@ struct RedXeNativeState final
 };
 
 [[nodiscard]] bool RedXeNativeQueryCheap(RedXeNativeState& state, RedXeNativeCheapSample& sample) noexcept;
-[[nodiscard]] bool RedXeNativeQueryWalk(RedXeNativeState& state, RedXeNativeWalkSample& sample) noexcept;
+[[nodiscard]] bool RedXeNativeQueryWalk(std::span<std::byte> buffer, RedXeNativeWalkSample& sample) noexcept;
+[[nodiscard]] bool RedXeNativeDecodeWalk(std::span<const std::byte> buffer, uint32_t readableBytes,
+                                         RedXeNativeWalkSample& sample) noexcept;
 [[nodiscard]] bool RedXeNativeQueryCodeIntegrity(RedXeNativeCodeIntegrity& integrity) noexcept;

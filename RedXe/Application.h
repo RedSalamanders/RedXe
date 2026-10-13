@@ -3,6 +3,7 @@
 #include "DashboardHost.h"
 #include "DockOptions.h"
 #include "DockPlacement.h"
+#include "FramePacing.h"
 #include "PageEdgeAffordance.h"
 #include "PluginManager.h"
 #include "Renderer.h"
@@ -77,6 +78,10 @@ class Application final
     void SetUnattended() noexcept
     {
         _unattended = true;
+    }
+    void SetProbeInterval(uint32_t seconds) noexcept
+    {
+        _probeSeconds = seconds;
     }
     // --dock* command-line overrides, pinned over the document's `dock` object for this process (DockOptions.h).
     // RunSelfTest replaces them with an edge pinned to none: the self-test keeps its hidden titled window, except for
@@ -307,6 +312,8 @@ class Application final
     // Waits for a free swap-chain back buffer before a frame is built. Returns false when a message arrived first,
     // so the loop dispatches input before rendering instead of blocking inside Present.
     bool WaitForFrameLatency() noexcept;
+    bool WaitForContinuousFrameDeadline(const HostFrameState& state) noexcept;
+    void ApplyContinuousFrameRate(ContinuousFrameRate previous) noexcept;
     // Adapter-of-output: after a move, size/move end, DPI change, or display-topology change, rebuild the device
     // when the window's monitor is now scanned out by another GPU.
     void CheckDeviceAdapter() noexcept;
@@ -365,7 +372,8 @@ class Application final
     HRESULT PromoteTransitionPage() noexcept;
     // Stages the adjacent page in `direction`, or, when targetPageIndex is supplied, that page directly (a host
     // action jump); the direction then only decides which side the staged page slides in from.
-    HRESULT StageTransitionPage(int direction, const uint32_t* targetPageIndex = nullptr) noexcept;
+    HRESULT StageTransitionPage(int direction, const uint32_t* targetPageIndex = nullptr,
+                                bool allowConstruction = false) noexcept;
     void ClearTransitionPage() noexcept;
     [[nodiscard]] bool TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc,
                                                 LPARAM lParam) const noexcept;
@@ -434,6 +442,10 @@ class Application final
     RECT _pageEdgeAppliedReachable{};
     UINT _pageEdgeAppliedDpi = 0;
     bool _pageEdgeApplyValid = false;
+    // ReachableClientRect is also queried by hit testing. All accesses and invalidations remain on the UI thread.
+    mutable RECT _reachableClientCache{};
+    mutable bool _reachableClientCacheValid = false;
+    mutable uint32_t _reachableClientDisplayWalks = 0;
     HWND _settingsErrorDialog = nullptr;
     HWND _actionNoticeDialog = nullptr;
     wil::unique_hpowernotify _displayPowerNotification;
@@ -442,6 +454,10 @@ class Application final
     Renderer _renderer;
     SettingsStore _settingsStore;
     SettingsWatcher _settingsWatcher;
+    RuntimeProbe _probe;
+    uint32_t _probeSeconds = 0;
+    void TickRuntimeProbe() noexcept;
+    [[nodiscard]] uint32_t RuntimeProbeState() const noexcept;
     TrayIcon _trayIcon;
     // Set by Run once the main window is up; RunSelfTest never shows the icon, whatever the document says.
     bool _trayIconAllowed = false;
@@ -454,7 +470,7 @@ class Application final
     // before the dock's first placement; RunSelfTest checks it.
     bool _taskbarCreatedAdmitted = false;
     std::unique_ptr<AppSettings> _settings;
-    std::unique_ptr<AppSettings> _transitionSettings;
+    std::optional<uint32_t> _transitionPageIndex;
     std::unique_ptr<PluginManager> _transitionPluginManager;
     std::unique_ptr<DashboardHost> _transitionDashboardHost;
     struct ScreenshotRequest final
@@ -540,6 +556,8 @@ class Application final
     bool _occlusionStatusChanged = false;
     bool _frameInvalidated = true;
     ULONGLONG _scheduledFrameDeadlineTick = 0;
+    ContinuousFramePacer _continuousFramePacer;
+    ContinuousFrameWait _continuousFrameWait;
     HRESULT _runtimeFailure = S_OK;
     UINT64 _pagePointerQpc = 0;
     UINT64 _qpcFrequency = 0;
@@ -563,6 +581,8 @@ class Application final
     bool _pagePanStarted = false;
     bool _pageGestureIgnored = false;
     bool _pageSettleActive = false;
+    bool _pageSettleWaiting = false;
+    uint64_t _pageConstructionDeadlineTick = 0;
     bool _pageSettleCommit = false;
     LONG _pageSettleStart = 0;
     LONG _pageSettleTarget = 0;

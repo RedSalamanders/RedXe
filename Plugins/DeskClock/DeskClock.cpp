@@ -819,23 +819,6 @@ class DeskClockDeviceResources final
         {
             return result;
         }
-        D3D11_BUFFER_DESC drawBufferDescription{};
-        drawBufferDescription.ByteWidth = 16;
-        drawBufferDescription.Usage = D3D11_USAGE_IMMUTABLE;
-        drawBufferDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        constexpr std::array<std::array<uint32_t, 4>, 3> drawOffsets{{{0, 0, 0, 0}, {16, 0, 0, 0}, {32, 0, 0, 0}}};
-        std::array<wil::com_ptr_nothrow<ID3D11Buffer>, 3> drawBuffers;
-        for (size_t index = 0; index < drawBuffers.size(); ++index)
-        {
-            D3D11_SUBRESOURCE_DATA drawData{};
-            drawData.pSysMem = drawOffsets[index].data();
-            result = device->CreateBuffer(&drawBufferDescription, &drawData, drawBuffers[index].put());
-            if (FAILED(result))
-            {
-                return result;
-            }
-        }
-
         wil::com_ptr_nothrow<ID3D11Texture2D> atlas;
         wil::com_ptr_nothrow<ID3D11ShaderResourceView> atlasView;
         result = CreateAtlasResources(*device, glyphAtlas, atlas, atlasView);
@@ -923,7 +906,6 @@ class DeskClockDeviceResources final
         _backgroundPixelShader = std::move(backgroundPixelShader);
         _clockVertexShader = std::move(clockVertexShader);
         _clockPixelShader = std::move(clockPixelShader);
-        _drawBuffers = std::move(drawBuffers);
         _atlas = std::move(atlas);
         _atlasView = std::move(atlasView);
         _sampler = std::move(sampler);
@@ -1013,10 +995,6 @@ class DeskClockDeviceResources final
         _atlasView.reset();
         _atlas.reset();
         _clockPixelShader.reset();
-        for (auto& drawBuffer : _drawBuffers)
-        {
-            drawBuffer.reset();
-        }
         _clockVertexShader.reset();
         _backgroundPixelShader.reset();
         _backgroundVertexShader.reset();
@@ -1070,23 +1048,9 @@ class DeskClockDeviceResources final
         context->OMSetBlendState(_alphaBlend.get(), nullptr, 0xFFFFFFFFU);
         context->VSSetShader(_clockVertexShader.get(), nullptr, 0);
         context->PSSetShader(_clockPixelShader.get(), nullptr, 0);
-        ID3D11Buffer* drawBuffer = _drawBuffers[0].get();
-        context->VSSetConstantBuffers(1, 1, &drawBuffer);
-        context->DrawInstanced(6, 12, 0, 0);
-        uint64_t draws = 2;
-        if (transitionActive)
-        {
-            drawBuffer = _drawBuffers[1].get();
-            context->VSSetConstantBuffers(1, 1, &drawBuffer);
-            context->DrawInstanced(6, 6, 0, 0);
-            ++draws;
-        }
-        drawBuffer = _drawBuffers[2].get();
-        context->VSSetConstantBuffers(1, 1, &drawBuffer);
-        context->DrawInstanced(6, 28, 0, 0);
-        ++draws;
+        context->DrawInstanced(6, transitionActive ? 46U : 40U, 0, 0);
 
-        gDrawCallCount.fetch_add(draws, std::memory_order_relaxed);
+        gDrawCallCount.fetch_add(2, std::memory_order_relaxed);
         return S_OK;
     }
 
@@ -1098,7 +1062,6 @@ class DeskClockDeviceResources final
     wil::com_ptr_nothrow<ID3D11PixelShader> _backgroundPixelShader;
     wil::com_ptr_nothrow<ID3D11VertexShader> _clockVertexShader;
     wil::com_ptr_nothrow<ID3D11PixelShader> _clockPixelShader;
-    std::array<wil::com_ptr_nothrow<ID3D11Buffer>, 3> _drawBuffers;
     wil::com_ptr_nothrow<ID3D11Texture2D> _atlas;
     wil::com_ptr_nothrow<ID3D11ShaderResourceView> _atlasView;
     wil::com_ptr_nothrow<ID3D11SamplerState> _sampler;

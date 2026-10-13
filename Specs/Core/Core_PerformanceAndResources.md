@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-10-07
+Last reviewed: 2026-10-13
 
 ## Mandate
 
@@ -18,6 +18,13 @@ external COM references remain safe after module shutdown. All device/model/cont
 This image-retention cost must be included in application accessibility resource measurements; the active AV plan
 does not yet claim matched resource acceptance or full real-client validation.
 
+AV's module coordinator and graphics weak caches release at the last provider reference, independently of module
+shutdown. Widget-held providers and host-owned control-work leases preserve survivors and quiescent teardown; a
+revisit has fresh state even while old work drains. Failed provider allocation must not leave a new unused cache.
+Fresh model construction on a revisit is the cold-path cost of last-owner reclamation; it adds no steady render
+allocation or wake. Image pinning remains process scoped. This removes an explicit cache owner; it does not promise that the allocator
+or driver returns every committed byte to the operating system.
+
 When several correct designs exist, RedXe must use the design with the lowest steady-state resource cost unless a
 measured result or a materially simpler and safer implementation justifies another choice. A resource regression must
 be explicit, measured in the affected configuration, and justified in the owning normative contract or active plan.
@@ -27,6 +34,25 @@ or state change is pending. Normal operating-system scheduling noise is outside 
 
 ## Mandatory runtime rules
 
+- The default Process Viewer and GPU Processes name join use the eight-column `process.activity` dataset.
+  Its native collection opens no per-process handle and populates no legacy detail values. A combined request for
+  activity and the compatible 39-column `process.list` shares one walk, population pass and history epoch, with
+  activity rows borrowing the leading values. Toolhelp fallback preserves accessible leading-field quality and
+  shared rate history. One 2,048-row view array reserves 49,152 bytes, committed only for combined activity/detail
+  requests, to avoid duplicating values and preserve legacy subscribers. The private 104-byte diagnostics and
+  copied-walk test seam add bounded counters/clock state, no worker, timer or production acquisition mode.
+- Each System Data source owns one 16-MiB virtual reservation. Its control object occupies the initial committed
+  pages; page-aligned acquisition families and output tables commit on first use. Process-only walks validate every
+  thread range without copying optional thread scratch. Activity commits an eight-value prefix; legacy detail
+  extends the same value region to 39 columns. Collection preflights commitment before sampling or replacing rate
+  history. A failure publishes no batch or sequence and preserves pending samples/history; successfully committed
+  earlier families remain reusable. Nontrivial GPU/network/power owners construct only on first use, and every
+  constructed family is destroyed before final COM release returns the entire reservation. Unused owners/history
+  must never be read. Steady reuse commits no additional pages and allocates no plugin heap storage. The maximum
+  used layout and fully-used commitment remain strictly below 16 MiB; reservation capacity is exactly 16 MiB.
+  Cold uncollected commitment MUST be at most 64 KiB; the shipped System subscriptions MUST commit at most
+  10 MiB. Actual x64 receipts are 4 KiB cold, 9,920,512 bytes shipped and 16,531,456 full, without additional
+  commitments on repeated collection. Final source release returns every reserved/committed arena page.
 - Steady-state frame construction and rendering must not allocate or free heap memory after initialization.
 - Per-frame and per-widget storage must be bounded and reused. Capacity exhaustion fails one widget frame safely; it
   must not trigger unbounded growth on the render path.
@@ -42,6 +68,23 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   in a separately owned helper process. Shutdown signals cancellation, joins bounded work, suppresses UI completions
   and releases references before unloading modules. Hidden AV display observation is suspended independently from
   an armed camera route; that route captures only while consumer sample requests maintain a 250-ms demand lease.
+- CPU content construction may use the host's lazy STA construction lane (`ConstructionWorkQueue.*`), with 16 fixed
+  slots, two events and one message-aware blocking wait. Immutable work owns its inputs and CPU results; it borrows
+  no widget, UI or GPU state. Duplicate pending objects coalesce without reruns and saturation refuses work without
+  waiting. Queue age counts against the three-second result budget; expired work never starts and late success is
+  refused. Cancellation is checked between indivisible native Shell calls. UI completion validates owner lifetime
+  and generation before publishing. Shutdown drops queued jobs, suppresses completion, waits at most 1000 ms once
+  (session end only the time left in its shared deadline), and retains runtime/work/module storage for a late native
+  call until it exits or the process ends. Private-owner destruction joins before storage/module release. The lane
+  starts only when content construction requests it, has no timer or periodic wake and runs no user mutation.
+  The host enables submission for an offscreen incoming page of discrete navigation. Initial/ordinary activation
+  and touch pans refuse deferral so their first exposed pixels retain full quality. Launcher owns only copied
+  shortcut identities, a bounded result grid and a lifetime/generation token in each job; no provider or graphics
+  owner crosses to the STA. A full queue keeps a bounded admission request with that incoming widget and retries
+  only on existing preparation opportunities, including posted completions. It adds no polling timer. The current
+  page continues its normal animation/cadence until all incoming CPU results and GPU uploads are ready. A parked
+  current page waits on messages and one construction-expiry deadline; a three-second unfinished wait cancels
+  navigation. Touch recognition withdraws an unexposed discrete neighbour before starting its live pan.
 - Named actions (`Specs/Plugins/Plugins_Actions.md`) use one static 16-slot ring drained by one posted message; every
   host-native action and every publisher `Execute` returns within 20 ms on the UI thread without waiting, pumping,
   or showing UI, and defers longer work to the control lane, the launch worker, or the publisher's own device lane
@@ -63,11 +106,59 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   whatever window is foreground after the stall; the check is one tick comparison per drained slot.
 - RedXe and plugins must share immutable device resources across compatible widget instances and minimize dynamic
   uploads, state changes, render-target switches, and draw calls without restricting what a GPU widget may render.
+- Page retirement MUST release resources retained by immediate-context bindings. After retiring widget work is
+  quiescent, cancellation/replacement of a prepared neighbor and successful primary adoption clear the context before
+  `OnDeviceLost`. This cold operation does not flush or recreate the device/swap chain, allocate storage or run per
+  frame. Failed adoption retains the existing pages. The next draw rebinds required state under the GPU contract.
+- ProcessViewer and Weather share one reusable CPU glyph atlas of one MiB per DLL while GPU users exist. Cold widget
+  construction owns no atlas allocation. The last GPU user, device loss and failed initial resource construction
+  MUST release that CPU allocation. A surviving user retains the shared atlas; a revisit reconstructs identical
+  glyph pixels. Each atlas uses one virtual-memory owner, keeping cold release independent of CRT heap retention
+  and sanitizer quarantine. No per-instance atlas, worker, timer or steady-frame allocation is added.
+  Their workers use CPU snapshot storage only. UI-thread preparation freezes paint and uploads changed 48 px
+  cells, reusing one temporary font session for the changed strings and releasing every font owner before drawing,
+  including failure. Weather adds one bounded 9,904-byte paint snapshot plus revision/phase bookkeeping per widget,
+  accepted to preserve complete forecast/alert data and tile/raised coherence. Render performs no atlas upload or
+  worker-snapshot copy/lock. Clean preparation allocates/uploads nothing; unchanged failed preparation does not retry.
+  The Debug Logicon monitor applies the same temporary-font and failed-preparation rule, with one 32-byte
+  publication/extent key plus a flag. It draws/accepts new input only after successful visible preparation, while
+  Up/Cancel still releases held virtual input. No attached monitor means no monitor hash/frame-request work.
+  Its 434×434 BGRA CPU face copy (753,424 payload bytes, page-rounded commit) uses one lazy virtual-memory owner
+  per monitor. Visible preparation reuses it; hide, device loss/creation and final destruction release it immediately,
+  independently of CRT heap retention or sanitizer quarantine. A new copy uploads the latest composed grid, or
+  initialized opaque black while the service has no grid, before drawing. Failed allocation follows the same
+  publication/extent latch and adds no font/upload work or periodic retry.
+  Viewer/monitor linear font filtering clamps to each cell's half-texel bounds. This retains the full glyph, one
+  texture sample and existing atlas/instance/draw budgets, accepting the bounded clamp instructions and one flat
+  GPU varying to prevent visible neighboring-ink leakage after cache changes or device recreation.
 - Derived display state such as DPI, design-canvas transforms, and widget viewports must be cached and recomputed only
   when its inputs change.
+  Provider staging retains at most 1 KiB of compact keys instead of 32 copied 8 KiB envelopes. Key comparisons
+  remain collision-safe by referencing the original immutable staging settings; they allocate and copy nothing.
+  The provider/widget/key transaction arrays together MUST remain below 28 KiB on the construction stack.
+- Placeholder decisions in `Render` and `PrepareWidgets` MUST read one atomic status through a pinned per-widget
+  binding; they MUST NOT acquire the status-table lock or scan instance-name strings. Registration/report/reason
+  lookup and release remain cold paths in the existing 64-slot table. Generations reject stale bindings and retire
+  before wraparound; widget callbacks/interfaces drain before the final pin is released. The cache adds at most
+  1.5 KiB across two full 32-widget pages, no allocation, thread, timer or additional invalidation wake.
 - Subscription deactivation and release MUST drain running and reserved callbacks using an event-blocked wait.
+- Typed private JSON MUST use bounded immutable content-sized ownership, with allocation-free shared copies and
+  a default without heap ownership. Replacement is transactional across both payload and owner allocation failures;
+  old settings copies remain valid and failed persistence restores typed and authored state. Account fixed values,
+  unique payloads, shared-control blocks and allocator overhead separately; logical payload savings alone MUST NOT
+  be reported as whole-process private-commit savings. No steady frame or acquisition allocation is introduced.
+  Changed non-default objects use two cold allocations (payload and shared owner) in exchange for removing the
+  4-KiB inline reserve and full-buffer copies. Unchanged/default assignments and shared copies allocate nothing.
+- Provider scheduling metadata uses a 48-byte fixed owner per catalog slot and one 24-byte record per validated
+  descriptor. It MUST NOT reserve 256 records for every unused slot. Records allocate only during cold publication
+  or rehydration, after validation, and release outside the registry lock after external/subscription leases and
+  borrowed collection/callback storage are quiescent. Allocation failure preserves the prior facade/state.
+  This adds one cold allocation per live provider in exchange for removing unused inline records; allocator
+  overhead is separate from the logical record count and no whole-process saving is implied by that count.
+  The 256-descriptor cap, final-descriptor delivery, inactive/shared consumers, failure/retry, blocked collection,
+  reserved callbacks and shutdown MUST be tested. Source snapshots remain borrowed and are not duplicated.
   Per-slot in-flight counters and fixed delivery arrays preserve the 32-subscription bound without heap allocation.
-  Widgets MUST be quiescent before GPU teardown. Worker-side GPU lifetime checks and access share the resource lock;
+- Widgets MUST be quiescent before GPU teardown. Worker-side GPU lifetime checks and access share the resource lock;
   an atomic ownership flag alone is insufficient to protect a device resource.
 - A DxUi `EmbeddedHost` that is hidden or has zero extent holds no cached surface, and it becomes dirty only through
   control invalidation, never merely because the host ticked it (library contract at the pinned DxUi commit). AV
@@ -80,11 +171,99 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   grid derivation when settled; alternating WARP draws MUST allocate zero heap memory. Animated overlay sizes recompute
   only the changed entry. Overflow shortcuts paginate inside the widget at the chosen cell size; the GPU page-dot strip
   shares `DxUi::PageIndicator` DIP metrics and does not add a second constant buffer. Each visible launcher instance
-  owns one 32-slice 256×256 BGRA `Texture2DArray` (8 MiB) plus a 64-byte dynamic constant buffer and a 1 KiB
-  (32×32-byte) dynamic structured instance buffer. That 8 MiB texture is the justified capacity cost of 32 jumbo
-  icons; `Render` only maps the existing instance and constant buffers. CPU BGRA sources stay bounded at
-  32×256×256×4 and rebuild the GPU array after device loss without a second extract.
-- Visible continuous animation must be paced by display presentation. Hidden, minimized, suspended, or display-off
+  owns one 256×256 BGRA `Texture2DArray` sized to the displayed shortcut count: zero entries own no icon texture,
+  eight entries use 2 MiB and 32 use at most 8 MiB. The existing 96-byte dynamic constant buffer and 1 KiB
+  (32×32-byte) dynamic structured instance buffer remain reusable. Replacement publishes texture and view together;
+  failure keeps the preceding owner, and simultaneous old/new payload stays at most 16 MiB. Driver overhead and
+  context-held references are additional. Visibility/drop decodes bounded CPU icons and marks preparation dirty;
+  GPU creation/upload occurs only in device creation or `Prepare`. Clean preparation allocates and uploads nothing;
+  unchanged failure waits for explicit content/visibility or extent recovery. `Render` refuses pending icon content,
+  binds no icon texture for an empty grid and only maps existing buffers. CPU BGRA sources allocate only used icons,
+  bounded at 32×256×256×4, and rebuild the GPU array after device loss without a second extract. A used icon without
+  decoded pixels needs at most one temporary 256-KiB transparent fallback; unused slices are never cleared/uploaded.
+  Shell handler extraction requests only the large 256-pixel icon and omits the unused second output. The handle
+  is owned before its HRESULT is checked, so partial outputs release on every fallback. Cropping, high-quality
+  WIC conversion, glyph rendering, fallback order and GPU storage remain unchanged; single-output extraction adds no worker,
+  per-widget field or steady-frame work. The private automated handler test adds no retained override or COM owner.
+  One Launcher refresh may borrow one drive-qualified filesystem parent folder at a time, parse each child relative
+  to it and obtain the same `IExtractIconW` through `IShellFolder::GetUIObjectOf`. Its bounded 513-wide-character parent key
+  uses exact spelling so case-sensitive directories cannot alias. Parent changes replace the COM owner; an
+  unavailable relative binding uses the original full-path shell-item route. UNC, device and shell-namespace
+  targets retain that route. A handler that already refused extraction is not called twice before the original
+  image-factory/image-list fallback. The folder and child
+  PIDLs release within the refresh; no folder/location owner, worker, timer or per-widget field is retained. This
+  accepts about two KiB of temporary parent/child path stack storage to remove repeated parent walks for adjacent
+  shortcuts.
+  Ordinary refreshes MUST retain normal parent parsing. Metadata-assisted parsing is an automated diagnostic
+  variant only: the 2026-10-12 native phase reduction moves initialization to binding, while both matched
+  application visibility observations worsen. Its fresh `WIN32_FIND_DATAW`/`IFileSystemBindData`/`IBindCtx`
+  owners are bounded to one call/refresh. Only literal ordinary directories qualify; roots, patterns/dot
+  segments, reparse points, unsupported data and failures retry ordinary parsing after releasing partial owners.
+  This accepts a bounded diagnostic image increase of 5,632 disk bytes / 8,192 bytes of PE image address span,
+  at most eight bytes of normal construction-stack bookkeeping, and diagnostic-only temporary metadata below
+  one KiB plus a system context. Image span is not measured residency or whole-process commitment. No normal
+  metadata allocation, retained owner/payload, worker, timer, per-widget state or steady-frame work is added.
+  Attribute/report total setup; a smaller parsing phase alone MUST NOT be claimed as cold-activation savings.
+  Launcher MAY reuse decoded cacheable handler pixels in one UI-thread-owned process cache, bounded at
+  eight 256-KiB buffers (2 MiB total) and less than 24 KiB of fixed bookkeeping. A fresh handler/location and
+  explicit no-shield result, exact target spelling and original location token, expanded file spelling,
+  signed identifier/flags, and both files' volume/file identity, creation/write/change times, size and attributes
+  MUST match before reuse. Failed or changed inputs, token-only opaque locations, `GIL_DONTCACHE`,
+  shield/overlay/unknown flags and unsupported files MUST bypass reuse.
+  An opaque token that also names a verified ordinary file MAY qualify under the Shell cache contract, but its
+  exact token/identifier MUST NOT be interpreted as a filename/resource-index pair. Extraction still uses its
+  fresh native handler; distinct tokens expanding to the same file MUST NOT alias.
+  The production batch obtains location and shield state with one `GetIconLocation(GIL_FORSHELL | GIL_CHECKSHIELD)`
+  request. A successful terminated location is authoritative; no preceding ordinary query is needed. Refusal,
+  pending work or an unterminated result clears all partial outputs before the ordinary location fallback, which
+  MUST NOT read or populate the decoded cache for that refresh. An unterminated ordinary result fails before
+  native extraction. Explicit no-shield, no-cache/unknown-flag and metadata checks remain mandatory before reuse.
+  File state is checked again after cloning/decoding; no failed or unstable image is published to the cache.
+  Invalid entries may keep bounded reusable buffers, but `RedXePluginShutdown` MUST release all bytes. The cache
+  retains no COM, HICON, HBITMAP or GPU owner and adds no steady-frame work. Allocation failure MUST preserve the
+  ordinary extraction path. This intentional inactive retention is accepted for the 2026-10-12 measured repeated
+  eight-pin reduction from 52.54 to 39.69 ms median, improving in all six alternating native pairs. The shipped
+  scene now retains 2 MiB instead of 512 KiB. The 1.5-MiB increase and larger fixed bookkeeping preserve full-quality
+  pixels while avoiding repeated extraction/decoding of all eight icons; fresh shield evaluation remains.
+  For that cache-expansion comparison, hardware visibility medians move in opposite directions; returned private
+  differences are +1.88 and -0.78 MiB, with unchanged local GPU usage and zero hidden/minimized submissions.
+  This accepts bounded retention for the measured native repeat-work reduction; page-activation, cold-start and
+  steady CPU savings remain unestablished. The subsequent combined-query comparison preserves this storage bound
+  and lowers repeated native batches from 40.7547 to 39.0762 ms median. Hardware visibility improves in both orders,
+  but cold CPU is mixed and returned private memory rises by 1.25/0.55 MiB. These observations do not accept the
+  whole-process memory, cold-construction, first-pixel or steady CPU budgets. Full measurements and retained failed
+  runs are in the active runtime plan.
+  Optional automated attribution exposes seventeen shell phases in caller-owned fixed storage: fifteen ordinary
+  phases plus two diagnostic-only metadata/context phases. It separates
+  parent-item creation, parent-folder binding and relative child parsing from extractor binding. The
+  fresh parent-metadata and binding-context phases are disjoint from Shell item creation. Retried item calls
+  in the diagnostic variant accumulate ticks/calls and retain their last result. Normal batches MUST leave those
+  two completion bits clear: they are unavailable, not zero-cost work. The combined
+  location query belongs to shield time; ordinary location time is fallback/reference work. Normal refreshes
+  query no attribution clocks, and neither rendering nor clean preparation performs shell work.
+  Glyph extraction shares one lazy isolated DirectWrite factory/face and clipped coverage buffer within its bounded
+  refresh batch. Coverage is reused up to the largest glyph, at most 512x512x3 bytes per buffer; transactional
+  growth can temporarily hold two buffers (1.5 MiB maximum, or 384 KiB at Launcher's fixed 256 edge), and allocation failure
+  preserves prior storage. That bounded temporary overlap is accepted for the matched decoding reduction from
+  about 7.2 to 2.4 ms for eight glyphs and 29 to 6.5 ms for 32; font/driver overhead is additional. Font initialization failure is remembered only within that batch. All owners release when extraction
+  returns; there is no retained font cache or new worker, and Render/clean preparation does no rasterization.
+  The x64 instance grows from 122,808 to 122,824 bytes, including its GPU owner growing from 48 to 56 bytes.
+  This 16-byte bookkeeping cost is accepted to avoid the empty 8-MiB allocation and unused-slice uploads.
+- Visible continuous animation defaults to display presentation pacing. The optional `continuousFrameRate: 30`
+  limits settled continuous content through a monotonic 33⅓-ms deadline, independent of display refresh. A lazy,
+  reusable auto-reset one-shot waitable timer blocks together with the message queue. The host acquires DXGI
+  readiness once before this wait and holds it across message/diagnostic interruptions, overlapping the two limits.
+  A signaled DXGI handle MUST NOT create a polling loop before that deadline. Readiness belongs to one swap-chain
+  waitable-object lifetime and is consumed by a render attempt. Deadline cancellation, hide/restore, pacing-mode
+  changes and ResizeBuffers MUST retain an acquired permit while that object survives; otherwise the next wait can
+  block forever. Replacing the waitable object invalidates old readiness even if Windows reuses the handle value.
+  The host adds a 16-byte deadline/readiness pair and one 8-byte timer owner, no worker, periodic timer, steady heap
+  allocation, or GPU storage, plus an 8-byte renderer waitable-lifetime counter independent of buffer-resize
+  diagnostics. Explicit frame
+  invalidation and active page/overlay/dock motion bypass the cap. Late frames start a fresh interval without catch-up.
+  Hidden states discard/cancel the deadline; disabling the cap releases its timer. Diagnostic timeout alone requests
+  no frame. `"display"` and omitted settings retain the existing frame policy and allocate no cap timer.
+  Hidden, minimized, suspended, or display-off
   rendering must block on events and must not build or present a frame because an unrelated message was dispatched.
   An active page pan, settle, or staged neighbor is visible motion: the host MUST keep presenting so widget animation
   and the page-scroll ease continue. A raise or dismiss settle is the same class of visible motion and MUST keep
@@ -153,6 +332,12 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   one JSONL log writer serve the whole application, including the dashboard page staged for a swipe. Staging an
   adjacent page MUST NOT map a module a second time, create a second data source for a provider ID, or start a second
   acquisition thread, so a page change costs no duplicate acquisition and no thread churn.
+- A local source retains storage only while an external provider reference or an allocated subscription needs it.
+  Inactive and removing subscriptions retain the source. The existing acquisition worker reclaims unleased sources
+  after collection and reserved callbacks finish, outside the subscription lock; before that worker exists, a last
+  provider release may reclaim synchronously. This adds two lock-protected flags and bounded per-batch storage, no
+  thread, timer, allocation or per-frame sweep. A revisit recreates source state behind the same retained facade and
+  provider ID. Mapped modules and their immutable metadata remain valid until process teardown.
 - A plugin that needs a frame for an unpredictable state change calls `IRedXeHost::RequestFrame`, which coalesces one
   invalidation on the UI thread and adds no timer or wake-up of its own. It MUST NOT be used to emulate continuous
   animation, and it never overrides a blocked, hidden, suspended, display-off, or occluded state.
@@ -164,6 +349,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   other wake-up; each reveal, hide, close-hover change, and dim step invalidates exactly one coalesced frame.
   Re-evaluating the chrome with unchanged host state MUST perform no work, so it is safe to call from the frame loop.
   Each band is full client height; only its horizontal placement follows the reachable display edge.
+  Non-dock reachable geometry is UI-thread cached; unchanged frame, hover and hit-test queries MUST NOT enumerate
+  displays. Window geometry/style/lifetime, DPI, display topology and system-settings messages invalidate before
+  dispatch. The cache uses 24 bytes including its test walk counter, with no allocation, timer or worker.
 - The top-level window is created with `WS_EX_NOREDIRECTIONBITMAP` and nothing paints it with GDI, so DWM keeps no
   client-sized redirection surface for it. Host-owned native-widget containers are `WS_EX_LAYERED` children with their
   own DWM surface; while another widget is raised they carry the dim as window alpha (`255 − dim`) and return to
@@ -178,6 +366,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   lookup tables, is created and drawn once in `OnDeviceCreated`; that callback and the optional
   `IRedXePreparedGpuWidget::Prepare` phase are the only other GPU callbacks that may allocate or rasterize
   (`Specs/Plugins/Plugins_API.md` "GPU widget contract").
+  An immutable `IRedXeConstructionWork::Run` may construct CPU icon/glyph pixels on its host-owned STA, without a
+  borrowed widget or GPU state. GPU creation/upload remains in the three GPU callbacks; completion only publishes
+  owned CPU results. This exception does not permit worker rendering or UI-thread extraction from Render.
 - Plugin `Render` calls use borrowed frame and D3D context records. A page-swipe viewport keeps the widget's full
   size and MAY have a negative origin; shrinking it to the visible intersection would rebuild resolution-dependent
   resources and reflow content every frame of the slide. Render, resize, and
@@ -193,6 +384,14 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   MUST reuse resize-owned buffers and GDI objects rather than allocate memory or create handles per paint.
 - Startup-only work may allocate when required, but temporary allocations must be released promptly and persistent
   caches must have a demonstrated reuse benefit.
+- Weather's eight-entry HTTP cache owns exactly payload bytes plus one terminator per used entry: zero cold,
+  one byte for an empty response, and at most 2,097,160 retained body bytes. Equal-size updates reuse storage;
+  changed-size replacement temporarily owns at most nine cache bodies (2,359,305 bytes at the maximum), with
+  allocation before publication to preserve old content and validators on failure. Separate 256-KiB-plus-terminator
+  HTTP response buffers remain heap-owned and are additional to that cache bound. The final strong widget lease
+  clears all cache entries; hiding or releasing one of several widgets keeps shared entries. The lease counter adds
+  four process-scoped bytes under the existing cache lock, no widget field, worker, timer or periodic wake. Cold
+  allocation and bounded replacement overlap are intentional to eliminate the old per-entry fixed 256-KiB retention.
 - Weather's empty-location discovery is a cold operation in a disposable helper. WinRT never enters RedXe/Weather.dll.
   Acquisition is bounded to eight seconds plus a four-second coarse fallback. Recent-report/default-position reads
   run only after acquisition failure; a 20-second parent bound covers the entire chain, including synchronous API
@@ -253,10 +452,18 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   on the UI thread. Completion posts one UI message and releases the worker before a `--screenshot` request closes the
   window; an action request leaves it open. A worker that cannot start ends its request on the same loop turn, so an
   idle loop never waits for a completion that will not come.
-- Logging and diagnostics must not format or emit per-frame success messages. `IRedXeHost::Log` copies a bounded
+- Logging and diagnostics must not format or emit per-frame success messages. Repeated GPU render failure MUST
+  share one transition guard for debug output and JSONL; it does no
+  diagnostic work until the HRESULT changes or that instance recovers across its entire drawn frame. The renderer
+  uses its existing fixed HRESULT slots and one 4-byte failed-instance mask, with no steady slot scan or allocation.
+  Primary page adoption resets the diagnostic identity. `IRedXeHost::Log` copies a bounded
   record into a 32-slot 1024-byte ring and wakes one event-blocked writer. The writer appends JSONL under the settings
   sibling `Logs` directory using a UTC-dated file (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`) and
-  deletes files older than `logRetentionDays` (default 15) on open, day change, and retention apply. Release omits
+  deletes files older than `logRetentionDays` (default 15) on open, UTC date change, and retention-value change.
+  Ordinary lines and reapplying the same retention value MUST NOT enumerate the directory or allocate a file path.
+  The writer caches the open UTC date and last swept policy (20 bytes); it adds no thread or periodic wake.
+  A policy change wakes the existing writer even with no queued records, and `FlushLog` waits for that cleanup.
+  Release omits
   `RedXeLogLevelDebug`. The call is allocation-free on the
   caller, never blocks on disk, and is forbidden from GPU `Render` and GDI paint. Only `--self-test`, which opens no
   log directory, also writes each Warning and Error line to stderr on the calling thread, from the line it formatted
@@ -285,6 +492,107 @@ maps only `amdxx64.dll`, appears on one adapter LUID in the GPU counters, and af
 of private bytes, 62 MiB of working set, and 42 threads. Moving the Debug titled window onto the RTX 5080 display and
 back rebuilt the device on each adapter in turn without failure (receipt: `.build/receipts/2026-09-07-adapter-of-output.md`).
 
+On 2026-10-10, matched x64 Release build 282 page cycles with identical portable scenes measured last-consumer
+source reclamation. Returned Matrix private bytes fall from 124.72 to 110.34 MiB; relative to each run's cold Matrix
+(37.11 / 38.59 MiB), retention falls from 87.61 to 71.75 MiB, a 15.86 MiB reduction. Returned working set falls from
+114.88 to 98.75 MiB and handles from 1395 to 1385. Submissions remain 60.152 / 60.135 per second; process CPU is
+1.848 / 2.005 percent of one core, so no CPU saving is established. Threads remain 43 and modules 102; local adapter
+usage remains 47.26 MiB versus cold 25.01. Hidden/minimized intervals submit no frames. These measurements support
+the source lifetime change, not the proposed cold-Matrix +4 MiB return budget or attribution of remaining caches.
+Receipts: `.build/receipts/runtime-2026-10-10-p36-before`, `-p36-after`, and `-p36-source`.
+
+The separately validated GPU binding retirement cut clears the context only at page retirement. Hidden WARP tests
+prove release of resources retained in shader, vertex/index and constant-buffer slots; cancellation, replacement
+and promotion preserve the surviving/incoming triangle pixels and device/swap-chain identity. Failed promotion
+retains existing bindings and recovers without a rebuild. Release, Debug and ASan Debug native gates pass; ARM64
+Release compiles. The matched build-282 D capture observes retained private 69.54 / 69.08 MiB, returned working set
+97.36 / 97.37 MiB and local adapter usage 47.26 / 46.26 MiB; cold adapter usage is 25.01 in both. Returned
+submissions remain 60.152 / 60.133 per second, and hidden/minimized phases submit zero. This is structural lifetime
+proof and a small observed return reduction, not heap/driver attribution, a CPU saving or acceptance of cold +4 MiB.
+The first after capture changed pages during its settled return and is rejected. Receipts:
+`.build/receipts/runtime-2026-10-10-p36-gpu-before`, `-p36-gpu-after-idle`, `-p36-gpu-after` and `-p36-gpu`.
+
+On 2026-10-10, an accepted sampled-CPU capture of x64 Release build 282 on the System page uses the same portable
+scene, disabled services, XENEON rectangle/DPI and AMD rendering adapter as the runtime probe. Only the trace
+controller is elevated; RedXe runs as the normal user. The 65-second probe reports 2.392 percent of one core and
+12.364 submissions per second. The ETL has zero lost events/buffers; copied private PDBs and matching Microsoft
+symbols resolve the host, source and OS call chains. The steady window excludes its first eight and last one seconds.
+Of 1,251 named sampled-CPU stacks, 900 include the acquisition worker, 578 include `RedXeNativeQueryWalk`, and 20
+include `OpenProcess`. There are 1,336 owned stacks before the named-event filter; inclusive counts overlap and
+are not exact call durations or whole-process CPU shares. Driver-private symbols remain unavailable.
+The bulk process walk is the first measured CPU investigation target: that captured source owns four MiB but starts
+at one MiB and retries larger lengths each collection. The subsequent single-capacity change is measured separately
+below. This capture accepts sampled attribution only; input/presented
+latency, adapter moves and a CPU saving remain unqualified. The earlier broad capture dropped 704,274 events and
+is rejected. Receipts: `.build/receipts/runtime-2026-10-10-p02-cpu-sampled` and `-cpu-stacks-visible`.
+
+The native process/thread walk now queries its existing four-MiB buffer once, with no smaller retry, added storage
+or changed columns/caps/fallback. Failed queries and invalid `ReturnLength` expose no readable bytes. In 64 quiet,
+alternating-order standalone NT-query pairs on 2026-10-10, both paths return the same 647 process rows and at most
+1,592,880 bytes. The old path makes two calls per collection; full capacity makes one. Median wall time is 20.121 /
+11.678 ms and p95 22.054 / 14.018 ms. This is an algorithm diagnostic, not complete-source CPU qualification.
+Matched build-282 normal-user System captures have equal settings, XENEON rectangle/DPI and rendering adapter.
+Before / after-1 / after-2 report CPU 2.186 / 2.653 / 2.238 percent of one core, submissions 12.324 / 13.166 / 11.991
+per second and private 57.84 / 58.39 / 59.01 MiB. Threads 43, modules 78 and local adapter usage 26.26 MiB remain
+equal; handles 1177 / 1178 / 1177. These observations establish no whole-process CPU or submission saving and do not
+accept the proposed System budgets. The capacity test rejects the old retry algorithm and accepts the single query;
+oversized, failed, empty and invalid-length queries expose no bytes. Real DLL field/catalog, row-cap, history and
+allocation checks pass in all 16 Release scopes and 15 Debug/15 ASan Debug native scopes. Source storage remains
+16,437,760 bytes. ARM64 Release compiles and all 10 skills pass. Receipts:
+`.build/receipts/runtime-2026-10-10-p21-nt-query-before`, `-p21-before`,
+`-p21-after-1`, `-p21-after-2` and `-p21`.
+
+The 2026-10-11 activity consumer cut preserves the legacy 39-column detail dataset and adds an eight-column
+native path with zero per-PID handle opens. Combined requests share one population/history epoch and borrow the
+leading values. Before the subsequent arena cut, fixed source storage was 16,487,056 bytes, up 49,296 for a 49,152-byte row-view array and bounded
+metadata/test state; this compatibility cost is accepted below the 16-MiB ceiling. All 145 Viewer references are
+identical. Real native zero-opens, request ordering, PID reuse/rates, abort recovery, row/name caps and fallback
+quality pass all 16 Release scopes, 15 Debug/ASan native scopes, ARM64 Release compilation and 10 skills. Row-cap
+collection has zero steady heap/handle/private/working-set growth.
+Two matched System pairs changing only SystemData.dll and ProcessViewer.dll report control/candidate CPU
+1.895/1.689 and reversed-order 1.898/1.612 percent of one core; submissions 12.760/13.106 and 12.198/11.097/s.
+Private bytes are 59.23/57.60 and 57.44/57.42 MiB; local adapter usage is 26.26 throughout. Live data is unpinned,
+submission direction reverses and memory reduction does not repeat, so no causal whole-process saving is claimed.
+QPC-joined PresentMon cohorts use hardware-composed independent flip, all cohort frames display and none is
+hybrid. The reversed candidate's maximum display-change interval is 1,928.487 ms; sparse update intervals include
+idle and do not qualify input/callback latency. Receipts: `.build/receipts/runtime-2026-10-11-p21-activity`,
+`-control`, `-images`, `-paired`, `-paired-reverse`, `-presented` and `-presented-reverse`.
+
+The independent 2026-10-11 source-arena cut passes actual region/fault/history/COM/native-owner tests,
+all Release/Debug/ASan scope obligations, ARM64 compilation and ten skills. A final correction changes only the
+source test's subscription set; fresh source scopes cover it and frozen comparisons preserve the remaining Full
+scope evidence. All 145 Viewer frames match. Actual 15 shipped subscriptions use system.summary and no gpu.engine:
+default commitment is 9,920,512 bytes, full 16,531,456, maximum layout 16,592,896 and controller 2,816. The 105,840
+layout-byte increase for alignment/control reserve is accepted within the one 16-MiB reservation; unused pages stay
+uncommitted. Private diagnostics are 104 bytes and cold module counters cost 28 bytes before linker alignment.
+Public-factory median construction is 1,830.05/2.35 us and counterbalanced 1,978.3/2.3 us, including equal FFI
+overhead. Matched System private falls 58.67/51.43 and 58.50/51.25 MiB; CPU is 1.248/2.312 and 2.005/1.691%
+of one core, submissions 5.507/11.985 and 12.147/12.184/s. Live data and first-pair thread/module counts vary;
+no causal CPU/cadence saving is claimed. All PresentMon cohort frames display through hardware-composed independent
+flip, hybrid zero. Three exact-PID/DLL/PDB observations each show one 9,920,512-byte arena on System and zero
+source/reservation/commit/GPU/network/power owners after return. D cold private is 35.79/36.69 MiB, returned
+104.46/105.65; local usage 25.01 cold/46.26 returned in both, inactive submissions zero. Source retirement does
+not accept the proposed whole-process +4-MiB budget. The failed observer guard and final PDB-copy hash recovery
+are retained; production DLL bytes remain unchanged. Receipts: .build/receipts/runtime-2026-10-11-p41-arena*.
+
+The independent CPU-atlas lifetime cut replaces ProcessViewer and Weather's inline one-MiB arrays with lazy,
+shared virtual-memory owners. Real DLL tests reject the old lifetime and verify cold construction, two users,
+surviving-user draws, repeated device loss, last release, failure after CPU construction and retry. Process Viewer
+Unicode readback remains identical across shared recovery and complete re-acquisition; all eight Weather WARP
+images remain byte-identical to their prior Release outputs, including hero twins, accents, alerts and raised view.
+One matched build-282 Release D-cycle pair across 2026-10-10/11 has identical scene, rectangle, DPI, platform and
+DxUi identity. Only ProcessViewer.dll and Weather.dll change among its runtime binaries. Cold Matrix private is
+38.23 / 35.51 MiB; returned private 106.39 / 105.06 and working set 98.16 / 96.16. Return-over-cold remains
+68.16 / 69.55 MiB, so this pair does not accept the proposed cold-plus-four-MiB budget. Local adapter usage remains
+25.01 MiB cold and 46.26 returned. Returned submissions are 60.150 / 60.102 per second, hidden/minimized zero;
+CPU 2.057 / 1.692 percent of one core establishes no causal saving from one pair. The storage tests establish
+exact release of the two CPU owners; the process measurements do not attribute every retained heap or driver byte.
+All 16 Release scopes, 15 Debug and 15 ASan Debug native scopes, ARM64 Release compilation and 10 skill checks pass.
+ASan keeps its default quarantine and reports process-byte growth diagnostically; ordinary soaks retain the
+four-MiB private/eight-MiB working-set guards.
+Receipts: `.build/receipts/runtime-2026-10-10-p28-before`,
+`.build/receipts/runtime-2026-10-11-atlas-after`, `-atlas-red`, `-atlas-weather-pixels-before` and `-p28-atlas`.
+
 The measured baseline System Data source is an accepted bounded local pull source. Its fixed x64 source object is
 786,936 bytes and owns no worker or timer. Three Release row-cap runs of the production per-process row path, using
 2,048 accessible synthetic entries and two steady collections per run, produced 3.806, 3.823, and 3.921 ms average
@@ -292,8 +600,9 @@ wall time per collection; the corresponding 64-collection CPU probe medians were
 reported zero busy-heap block/byte growth, zero handle growth, zero private-byte growth, and a 4 KiB working-set delta.
 This evidence accepts the current Toolhelp/per-process-query baseline; future metric expansion must remeasure before
 raising storage, cadence, worker, or per-row work. The expansion fast-lane ceiling is 16 MiB of source-owned storage
-with compact previous samples; the shipped source object MUST remain under 16 MiB. After the CPU/memory/process,
-network/storage, GPU, and power/thermal expansion, x64 `sizeof(SystemDataSource)` is 15,920,696 bytes. Release x64
+with compact previous samples. The current arena rule above bounds fully-used commitment and the maximum used
+layout below 16 MiB within one 16-MiB reservation. After the historical CPU/memory/process,
+network/storage, GPU, and power/thermal expansion, x64 `sizeof(SystemDataSource)` was 15,920,696 bytes. Release x64
 `--domains` (2026-09-01, eight samples on a hot source after the contract suite) measured cheap datasets under 0.4 ms,
 live `process.list` (673 rows) at 73.9 ms, truncated `thread.list` (8,192 rows) at 43.8 ms, `thermal.sensor` at 11.3 ms,
 `gpu.engine` at 9.6 ms, and one 18-dataset batch at 127.5 ms; the hang budget is five seconds per collection. Network
@@ -340,10 +649,10 @@ per frame for the overlay draw plus the much smaller tile draw, about 3 percent 
 negligible on a hardware GPU. The increase is accepted because it is fill-rate only, stays at the 256-pixel tile's
 cost except while the clock is raised next to a continuous widget, and `glowPercent` 0 submits no halo at all.
 
-The measured Desk Clock is also an accepted bounded low-cadence `IRedXeGpuWidget`. One static instance uses three
-draws and 40 submitted instances; its configured 250–800 ms split-flap burst uses four draws and 46 submitted
+The measured Desk Clock is also an accepted bounded low-cadence `IRedXeGpuWidget`. One static instance uses two
+draws and 40 submitted instances; its configured 250–800 ms split-flap burst uses two draws and 46 submitted
 instances. It maps one 400-byte provider-shared constant buffer only when cached visual state changes, uses one
-1024×1024 single-channel atlas and three immutable 16-byte instance-offset buffers, and owns no timer, worker, HWND,
+1024×1024 single-channel atlas, and owns no instance-offset buffers, timer, worker, HWND,
 off-screen target, or shader compiler. It wakes at one second boundaries and requests presentation-paced frames only
 while the flap moves. This second measured clock remains within the immediate-context mechanism and does not justify a
 host primitive-batching IID; a materially larger family still requires aggregate measurement and review.
@@ -355,21 +664,167 @@ collection references do not survive initialization. The larger atlas preserves 
 while keeping inactive discovery and the steady path free of font work, frame uploads, additional draws, allocations,
 state changes, and wake-ups.
 
+Compatible clock batching preserves exact original-draw pixels and removes the three offset buffers while keeping
+40/46 instances and one changed-only upload. A shared Release probe observes WARP static/active submission medians
+0.03020/0.04620 -> 0.02465/0.03640 ms. The default RTX adapter's active API median is adversely 0.01030 -> 0.01120 ms;
+this bounded 0.9-microsecond observation is accepted for the simpler two-draw/resource set and unchanged pixels,
+alongside lower WARP submission work and both AMD XENEON CPU observations. It is not an all-backend CPU guarantee.
+The XENEON pairs observe private changes +7.19/+0.17 MiB with unchanged local GPU usage; these variable process
+observations do not establish a memory win, identify a new retained owner, or accept the overall retention budget.
+
 The Process Viewer family is a sample-driven `IRedXeGpuWidget` plus `IRedXeScheduledWidget` set in one DLL. Ten
 settings-visible widgets share one device resource hub: build-time Shader Model 5.0 blobs, one instanced pipeline, one
 1024×1024 `R8` atlas, and one dynamic instance buffer. Each visible widget frame maps that buffer and issues one
-`DrawInstanced`. DirectWrite loads only while filling new atlas glyphs, then releases. Ranked lists copy at most
+`DrawInstanced`. The acquisition worker updates bounded pending storage with no font/GPU access. UI-thread
+preparation freezes the paint sample and uploads only changed 48×48 atlas cells (2,304 bytes each), outside frame
+construction and its draw lock. Tile and raised draws consume that same prepared sample; later deliveries stay
+pending. Clean preparation has no allocation, rasterization or upload, and Render does no atlas upload. DirectWrite
+loads only while filling new atlas glyphs: one temporary session is reused across that preparation's strings and
+released before drawing, including failure. One additional 11,160-byte pending sample per widget (111,600 bytes
+for the default System page, plus bounded interface/phase bookkeeping) is accepted to freeze complete paint while
+delivery continues, without adding a timer, thread or render allocation. Ranked lists copy at most
 `topN` rows; the CPU heatmap stores at most 64 display cells. Sparkline history is 60 samples of widget-local fixed
-storage. Eases last 320 ms. `GetNextFrameDelayMilliseconds` returns the dataset interval, not a 1 ms poll; while an
-ease or pulse is in flight the widget calls `IRedXeHost::RequestFrame` after each presented frame so motion is
-presentation-paced. Glyph rasterization runs when a snapshot arrives or at device creation, never inside `Render`.
+storage. Eases last 320 ms from a fixed displayed start pose; tile and raised draws share the host timestamp. Delivery
+already coalesces a host invalidation. Settled viewers return `S_FALSE` with zero delay; only real easing or the
+bounded 420 ms high-band pulse requests a 33 ms visual deadline, with no Render-side immediate frame request.
+Unchanged targets and sub-pixel projected changes snap to the exact current values in the delivery frame, preserving
+labels, quality, histories and intent colors. Celsius numeral changes of at least one degree still ease even on a
+saturated level track. CPU heat changes below an 8-bit luminance step snap except band
+crossings. Auxiliary data and identical targets do not restart an ease. A continuous sibling/host motion can draw
+sooner without another deadline wake. The fixed target/start pose adds at most 1,320 bytes per widget (12.9 KiB for
+ten), accepted for cadence-independent interpolation and avoiding repeated empty bursts; it adds no allocation,
+thread, timer, GPU resource or synchronization to scheduling. Sample/draw-list storage otherwise remains unchanged.
+Dynamic glyph rasterization runs in UI preparation and static glyphs are built at device creation, never on the
+acquisition worker or inside `Render`.
+Viewer's bounded dynamic pool recycles only its non-static slots. A reused 48×48 cell MUST be cleared before
+rasterization, including an unsupported or empty glyph, so previous ink cannot survive. Clearing touches only
+the reused cell; fresh cells are already blank and the shared CPU/GPU atlas budgets do not grow.
 A settled System page MUST NOT set continuous animation. Hidden, minimized, suspended, occluded, and
 display-off states stop eases and drain subscriptions; recovery draws current values and does not replay missed
-motion. Snapshot copy stays on the acquisition worker. After delivery, the host coalesces one UI-thread invalidation.
-This family remains on the immediate-context GPU path. Release x64 `HostPluginTests` at 2560×720 measured an 8.24 ms
-mean production `Renderer::Render` over 32 frames after warmup and device-loss rebuild (Debug was 8.25 ms). The
-near-identical Debug and Release times show WARP Present of the full swap chain dominates; each visible widget issues
-one instance-buffer map and one `DrawInstanced`. That measurement does not justify a host primitive-batching IID.
+motion. Snapshot ingestion stays on the acquisition worker; UI preparation promotes the bounded paint sample.
+After delivery, the host coalesces one UI-thread invalidation.
+This family remains on the immediate-context GPU path. The 2026-10-10 full gates measured a 0.399 ms Release and
+0.388 ms Debug mean production `Renderer::Render` over the 32-frame hidden WARP fixture at 2560×720 after warmup
+and device-loss rebuild. This is off-screen submission evidence, not hardware presented-frame/input latency or
+CPU-thread attribution. Each visible widget issues one instance-buffer map and one `DrawInstanced`; this fixture
+does not justify a host primitive-batching IID. The older September timings are historical, unmatched evidence.
+
+## Production resource probe
+
+`--probe[=seconds]` enables a UI-thread diagnostic timeout, 1–3600 seconds (default 5). Normal launches have no
+diagnostic timeout, thread, handle, allocation or query per frame. Enabled sampling uses process-local thread-ID
+snapshots (PSS without context/handle/VA capture), PSAPI module counts and process-resource
+snapshots and read-only DXGI/AV queries outside Prepare/Render; those OS queries may allocate temporary storage and
+delay the UI thread. `sample_us` reports their elapsed cost. The existing event-blocked JSONL writer receives one
+complete record per actual interval in its unchanged 32×1024 ring. No diagnostic flush waits on the UI thread.
+Hidden/minimized/occluded/display-off states remain inactive: the diagnostic timeout never invalidates or presents a
+frame. Delayed samples restart the interval from their completion, without a catch-up loop. The waits preserve the
+earlier scheduled-frame deadline. A valid probe is ignored by `--self-test`.
+
+With this probe enabled, each newly staged dashboard page also emits a bounded `page-stage`, version 1 record into
+the same log ring. This cold operation uses a local collector, with no worker, owned handle or periodic wake-up.
+A disabled probe performs no timing, CPU query or logging for staging or its callbacks. The record includes
+the source and selected page indices, signed direction, start tick and actual HRESULT. `phase_mask` bits 0–6 identify
+cumulative `wall_us` entries for retirement, settings selection/copy, validation and providers, layout, GPU setup,
+visibility and completion (including local cleanup on failure). A clear bit means unavailable. `cpu_valid: 1`
+identifies the calling UI thread's kernel-plus-user `cpu_100ns` delta. Short CPU measurements can be quantized;
+a zero does not establish a two-millisecond CPU budget. Repeated CPU batches or external attribution are required
+alongside wall timing. Logging happens after measurement and diagnostic failure does not change the stage result.
+
+An enabled stage receives a nonzero process-local `stage_id`. Its forward `OnDeviceCreated`,
+`OnTargetSizeChanged` and `SetVisible` calls emit individual `page-callback`, version 1 records, including failed
+attempts. `kind` is 0 device creation, 1 target size, 2 visibility, or 3 first preparation; `widget` is the selected
+page's immutable zero-based placement ordinal. `detail` is 0 hidden / 1 shown for visibility and 0 otherwise.
+Each record carries UTC `ts`, `pid`, `stage_id` and `page`, plus at most six numeric `calls`, each in this order:
+start tick; widget ordinal; kind; detail; actual unsigned HRESULT; elapsed wall microseconds; CPU-valid bit;
+calling-thread CPU delta in 100 ns. Packing preserves every individual sample and lets a production hidden-incoming
+32-widget setup and first-preparation burst fit at most 24 logger lines, including parent and terminal, without enlarging the ring
+or waiting for its writer. These timers surround the callback itself; host subscription/network draining,
+factory construction, rollback, retirement and later promotion are outside them. Aggregate phase costs include timing and
+enqueue overhead and MUST NOT be compared to uninstrumented stages as a callback saving.
+
+The local collector uses one fixed six-sample batch, flushed when full and at stage completion; the final tail is
+flushed after the stage clock stops. The first-preparation collector flushes before its terminal record. A batch
+contains only one stage/page identity and is refused whole on enqueue failure; its drop count is in samples.
+
+The first attempted `IRedXePreparedGpuWidget::Prepare` for each staged widget is traced even if the page is promoted
+before that attempt. A later retry or frame is not traced. Enabled staging MAY acquire one 784-byte pending table
+for at most two borrowed page identities and their 32-bit ordinal masks; those identities are never dereferenced.
+Promotion retains only the incoming identity. Cancellation, successful retirement, device loss and shutdown clear
+pending identities before their pages can be destroyed. A terminal `page-prepared`, version 1 record contains the
+stage/page identity, `expected` interface count, remaining `pending_mask`, `hr` (S_OK when all first attempts ran,
+E_ABORT when retired), `callbacks` and `callback_dropped`. S_OK here establishes attempt completeness, not success
+of every callback or a presented frame. Placeholders that skip Prepare remain pending until retirement. A page with
+no prepared interfaces emits a zero-count terminal without retaining the table. The table is freed when empty;
+allocation failure leaves product behavior unchanged and is reported by the parent `prepare_trace_hr`.
+This attribution costs one 8-byte owner in Renderer, one process-local 8-byte stage counter and 40 additional
+bytes in the local stage sample, plus a 376-byte local callback collector, in exchange for identifying indivisible cold callbacks before choosing a staging
+architecture. It adds no per-widget field, permanent font cache, thread, timer or Render work.
+
+`page-stage.callbacks` counts attempted setup/size/visibility calls, in kind order; `page-prepared.callbacks`
+counts only first-preparation attempts, in the same four-element order. Both include `callback_dropped` for records
+the diagnostic enqueue refused. Stage/callback/terminal enqueues refuse a full ring instead of replacing its oldest
+line; they return immediately, with no flush or enlarged queue. Other log traffic retains its existing overwrite
+policy. Before using a callback cohort, require its parent, a successful `prepare_trace_hr`, its terminal, zero
+reported drops, exact per-kind/ordinal record counts, and matching PID/stage/page identity. A missing parent or
+terminal, count mismatch, canceled required preparation, or reported drop makes that cohort incomplete even when
+other records say zero drops. Numeric extremes MUST fit a complete 1024-byte slot; partial records are refused.
+
+Page validation evidence has at most 64 KiB of logical payload, plus one shared vector/control object and a 16-byte
+shared owner per page manager. Only a successful complete typed/published-contract validation may create it; a warm
+comparison allocates nothing and parses no JSON. Larger valid documents and cache allocation failure use full cold
+validation. The shipped Release document currently retains 6,166 payload bytes, compared with 209,460 bytes of typed
+settings/vector/source capacity that staging previously duplicated. This is a logical ownership comparison, not a
+whole-process memory saving. Staging now keeps only an optional page index and shares proof across the two live pages.
+
+Record `event: "probe", v: 1` includes UTC `ts`, `pid`, monotonic completion `tick`, actual interval `ms`,
+query cost `sample_us`, current page index `page`, host `state`, and cached absolute scheduled `deadline` (0 = none).
+The numeric arrays keep even maximum-width values within one logger slot:
+
+| Field | Array order |
+| --- | --- |
+| `process` | validity bits; private bytes; working-set bytes; peak commit (`PeakPagefileUsage`); peak working set; cumulative kernel+user CPU in 100 ns; handles; threads; GDI objects; USER objects; mapped modules |
+| `present` | swap-chain generation; GetLastPresentCount HRESULT; cumulative count; delta-validity bits; interval count; GetFrameStatistics HRESULT; PresentCount delta; PresentRefreshCount delta; SyncRefreshCount delta; SyncQPCTime delta; SyncGPUTime delta |
+| `local`, `nonlocal` | QueryVideoMemoryInfo HRESULT; budget; current usage; available reservation; current reservation (bytes, adapter node 0) |
+| `av` | query HRESULT; live widgets; preparations; composites; surface bytes; summed per-view replacement peaks; surface allocations; cached brushes; cached text formats |
+
+HRESULTs are unsigned 32-bit values. Only S_OK (0) supplies a successful value; AV S_FALSE (1) means the module is
+absent. Process validity bits 0–6 correspond to memory, CPU, handles, threads, modules, GDI and USER queries. Host
+state bits 0–8 mean continuous, visible, display on, renderer suspended, DXGI occluded, dock hidden, navigation,
+overlay/dock motion and an active raised widget. The raised bit remains set through raise/dismiss motion and clears
+when dismissal completes; with motion clear it identifies a settled raised widget. Consumers MUST tolerate unknown
+state bits. Visible is the host's show state and can remain set while minimized; renderer suspended identifies that
+inactive case. Present delta bits 0/1 mean count/statistics deltas. A first sample, resize/recreation,
+disjoint/failing statistics, or regressing QPC/GPU clock makes the affected delta unavailable until two matching
+successful samples exist. UINT counters wrap modulo 2^32. Zero without its validity bit MUST NOT be treated as a
+measured zero. Frame-statistics refresh/QPC/GPU deltas are DXGI counters, not input latency or hardware FPS.
+Adapter memory queries are driver-reported usage for this process on the device adapter; they are not whole-process
+GPU attribution across every adapter or AV helper-process memory. Replacement peaks are summed per-view historical
+high-water marks, not a simultaneous process peak. Lifetime AV counters disappear with the owning views.
+
+Required automated coverage: disabled/no-deadline behavior, competing frame/probe deadlines, late sampling, UINT
+wrap, missing/disjoint statistics, generation and clock resets, extreme-width complete JSON, logger drain, real
+process-resource sampling, read-only hidden WARP queries, and two-instance AV aggregation/hide/destruction. The
+end-to-end screenshot fixture also runs `--probe=1` to exercise the real application loop without focus or input.
+The hidden production self-test MUST raise an eligible real Gallery/System widget, settle and render its frame,
+observe the raised bit, dismiss immediately and observe it clear. Serialization MUST retain that bit without
+changing the record version, arrays or logger capacity. Periodic samples do not guarantee capture of shorter
+transitions; input qualification must wait for an observed raised state before testing dismissal.
+Callback coverage additionally requires disabled exactly-once/result preservation, independent CPU validity,
+six extreme samples per slot, short/absent destinations and mixed-identity refusal, two-page mask bounds/reuse, real staged setup failure/rollback, promotion before
+first preparation, cancellation, device loss, shutdown and saturated writer refusal accounting. No such fixture
+qualifies physical input or hardware presented-frame latency.
+
+`measure-runtime.ps1` is the reusable Release x64 receipt collector. It uses portable template copies, fresh
+processes per starting page and an all-page return/inactive run. It records scene, phase/window/machine context,
+source/binary hashes before and after, raw logs and validity-aware summaries under `.build/receipts/`. Its
+non-activating 2560×720, 96-DPI XENEON popup disables Logicon/tray and is explicitly a measurement variant;
+it does not qualify the exact shipped-services budget or helper-process/PresentMode/input-latency acceptance.
+`-InactiveOnly` keeps fresh starting-page windows hidden and collects retained-memory/zero-present evidence only.
+Its accepted receipt covers those requested inactive phases, never the visible-page budgets. The visible collector
+rejects display-off/occluded/unsettled baselines and missing records; a diagnostic wake cannot manufacture that evidence.
+Hidden phases require the visible flag to clear; minimized phases require renderer suspension. Both require zero
+present deltas in complete intervals, excluding intervals that straddle the state change.
 
 ## ABI and data-layout rules
 
@@ -420,6 +875,15 @@ remain with the AV owner.
   retain all runs, including baseline-versus-baseline noise checks. These measurements do not establish
   presented FPS, peak memory, allocation counts, hardware AV or real-client accessibility acceptance.
 - Debug and Release x64 WARP smoke tests must pass.
+- Current composition accounting (2026-10-11) is retained in `.build/receipts/runtime-2026-10-11-p04-accounting`
+  and `-p04-accounting-canonical`. The 2560×720 / 96-DPI Focus Matrix grid calculates 5,248 glyph instances;
+  Gallery's 640×720 Matrix calculates 1,066. These are source/scene calculations. Successful host submissions in
+  the accepted D capture are 60.150/s on Focus and 60.100/s over a ten-second Gallery visit. Gallery's 512×720 AV
+  tile reports 1,474,560 bytes; the expected 1280×720 overlay adds 3,686,400 bytes, still requiring a production
+  raised hardware capture. The canonical WARP fixture reports its different 4,608,000-byte tile/overlay total,
+  zero clean preparations and zero hidden storage/work against the actual current linked archive. Retain the
+  earlier 192-DPI completion outlier and its repeat; these offscreen runs establish neither hardware FPS nor a
+  matched I19 adoption regression.
 - Release ARM64 must compile.
 - The plugin contract test must validate factory behavior, borrowed metadata, rendering-IID negotiation, COM
   identity, and `IRedXeRaisedWidget` extent queries.
@@ -451,8 +915,12 @@ remain with the AV owner.
   by the scheduler decision seam additionally require a live check that inactive windows do not spin and recovery
   resumes rendering.
 - System-data validation must exercise two 2,048-row steady collections through the production row-population path,
-  report CPU/wall time, private bytes, working set, heap, handles, and fixed source storage, and fail on heap or handle
-  growth or source storage of 16 MiB or more. Release x64 must also time each catalog dataset and one full-catalog batch
+  report CPU/wall time, private bytes, working set, heap, handles, and bounded source storage, and fail on heap or handle
+  growth or a maximum used layout/fully-used commitment of 16 MiB or more. Actual `VirtualQuery` state must agree with
+  cold, single-family, default and full-catalog diagnostics; cold commitment is at most 64 KiB and the 15 default
+  System datasets use at most 10 MiB. Reserve/control/first-use/partial/detail-expansion failure, history preservation,
+  steady reuse, malformed native thread ranges with and without scratch, copied fixture ownership, COM identity and
+  final reservation/nontrivial-owner release must pass. Release x64 must also time each catalog dataset and one full-catalog batch
   (`SystemDataTests --domains`) and fail only on collect failure or a hang exceeding five seconds per collection.
   Collecting every dataset MUST NOT load `wbemprox.dll`, `fastprox.dll`, or `wbemcomn.dll`. The host integration test
   must leave Process Viewer and the System page hidden for longer than the dataset interval and observe no additional
@@ -466,7 +934,34 @@ remain with the AV owner.
   descriptors, the square clock plus lower date band, zero steady render allocations, unchanged-frame zero maps,
   shared immutable resources, and complete device-loss teardown.
 - Desk Clock validation additionally proves deterministic rollover phases, changed-tile-only animation with every
-  unchanged tile visible and pixel-stable, 40/46 static/active instance bounds, three/four draw bounds, one 400-byte
+  unchanged tile visible and pixel-stable, 40/46 static/active instance bounds, two draws in either state, one 400-byte
   upload only on visual change, zero steady render allocations, one shared 1 MiB DirectWrite-rasterized atlas, no
   persistent DirectWrite or runtime shader/image dependencies, a five-minute scheduled flip soak with stable resources
   and hidden zero work, and complete device-loss teardown.
+  Compatible card, moving-face and glyph work MUST preserve the original primitive order in one instanced draw,
+  with the opaque background drawn separately. Independent GPU queries verify 243/279 total vertices and 81/93
+  primitives in static/active frames. Tests compare complete frames to frozen original vertex and pixel shaders
+  and draw sequence across static/rollover/date phases, landscape/portrait/minimum/DPI extents and both atlas tiers.
+  Contrasting target clears MUST prove complete opaque background overwrite. Date-only fades cover both equal and
+  unequal glyph-string lengths; every listed pixel and GPU-query cohort must actually run.
+  Batching adds no CPU owner, cache, map, instance, wake or allocation, and removes three immutable offset buffers.
+  API-submission improvements MUST NOT be reported as displayed cadence or an explanation of an intermittent
+  whole-process memory peak without matching evidence.
+- Shaders device setup MUST preserve every background/mip texel against the original pixel-major oracle. Its
+  background rasterization uses one reusable 6 KiB stack row and conservative light ranges, preserving each
+  pixel's contribution order. This temporary stack cost replaces repeated full-canvas light scans without new
+  heap storage or retained cache; resolution, lighting, filtering and shader selection remain unchanged.
+  Thread-stack commitment MAY retain high-water pages after the row's lifetime ends. Qualification MUST report
+  the measured setup benefit and any observed returned-private change; lower setup cost is not memory acceptance.
+- The automated `HostPlugin` scope runs separate 60-second Matrix, Studio Clock and Desk Clock WARP soaks.
+  Matrix's 1,024-frame warm-up and measurement both wait for DXGI readiness, sleep 16 ms after each draw and use
+  one continuous monotonic animation timeline. Each clock warms for 20 seconds with its scheduled deadlines.
+  Initial, warm-up and measured clock draws acquire the DXGI frame-latency permit before building the frame,
+  matching the application's in-flight bound. A failed/expired permit refuses the draw; the widget's deadline
+  remains a separate condition. Fixture pacing must not be replaced by relying on Present to block.
+  After that warm-up, peak sampled private/working-set growth
+  in uninstrumented builds MUST remain within 4/8 MiB; sample every five seconds and at the end. ASan keeps its
+  normal quarantine/shadow settings, reports process bytes diagnostically and enforces the same functional
+  object/resource, scheduling and teardown bounds. These coarse whole-process regression
+  guards include WARP/runtime caches. They supplement fixed resource counts, scheduling bounds and teardown;
+  they do not replace hardware budgets, allocation checks or the five-minute plugin qualification.

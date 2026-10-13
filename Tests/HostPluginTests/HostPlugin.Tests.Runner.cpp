@@ -7,6 +7,8 @@
 #include "DockPlacement.h"
 #include "FrameScheduler.h"
 #include "HostActions.h"
+#include "HostPlugin.Tests.FramePacing.h"
+#include "HostPlugin.Tests.PageStaging.h"
 #include "Launcher.Tests.Contract.h"
 #include "MatrixRain.Tests.Contract.h"
 #include "NoticeWindow.h"
@@ -19,6 +21,7 @@
 #include "PointerCancellation.h"
 #include "ProcessViewer.Tests.Contract.h"
 #include "Renderer.h"
+#include "RuntimeProbe.h"
 #include "Settings.h"
 #include "StudioClock.Tests.Contract.h"
 #include "TrayIcon.h"
@@ -66,8 +69,56 @@ namespace
 [[nodiscard]] size_t CountText(std::string_view text, std::string_view needle) noexcept;
 } // namespace
 
+void TestRuntimeProbe(bool& success) noexcept;
+void TestProcessViewerScheduling(bool& success) noexcept;
+void TestProcessViewerPixelReference(const wchar_t* path, bool& success) noexcept;
+void TestDataSourceLifetime(bool& success) noexcept;
+void TestConstructionWork(bool& success) noexcept;
+void TestConstructionPages(bool& success) noexcept;
+void TestGpuResourceRetirement(bool& success) noexcept;
+HRESULT RecoverPageProbeTestDevice(Renderer& renderer) noexcept;
+
 struct PluginHostTestAccess final
 {
+    [[nodiscard]] static size_t RegisteredNetworkWidgets(const PluginHost& host) noexcept
+    {
+        size_t count = 0;
+        for (const auto& slot : host._networkSlots)
+            count += slot.widget ? 1U : 0U;
+        return count;
+    }
+    [[nodiscard]] static uint64_t StatusKeyAt(PluginHost& host, size_t index) noexcept
+    {
+        return (host._widgetStatus[index].statusAndGeneration.load() & 0xFFFFFFFF00000000ULL) | (index + 1);
+    }
+
+    [[nodiscard]] static uint32_t ReadStatusKey(PluginHost& host, uint64_t key) noexcept
+    {
+        return host.BoundWidgetStatus(key);
+    }
+
+    [[nodiscard]] static bool ReadStatusWhileLocked(PluginHost& host,
+                                                    const PluginHost::WidgetStatusBinding& binding) noexcept
+    {
+        wil::unique_event_nothrow completed;
+        if (FAILED(completed.create(wil::EventOptions::ManualReset)))
+            return false;
+        std::atomic<bool> correct{true};
+        AcquireSRWLockExclusive(&host._widgetStatusLock);
+        std::jthread reader(
+            [&]() noexcept
+            {
+                for (uint32_t index = 0; index < 10000; ++index)
+                    if (binding.Status() != RedXeWidgetStatusUnavailable)
+                        correct.store(false);
+                completed.SetEvent();
+            });
+        const bool finished = WaitForSingleObject(completed.get(), 2000) == WAIT_OBJECT_0;
+        ReleaseSRWLockExclusive(&host._widgetStatusLock);
+        reader.join();
+        return finished && correct.load();
+    }
+
     struct StallProbe final
     {
         wil::unique_event_nothrow entered;
@@ -272,6 +323,26 @@ struct PluginHostTestAccess final
         host.StopLogService();
         host._logDirectory.clear();
         host._logFilePath.clear();
+        host._logWriterGate.reset();
+    }
+
+    [[nodiscard]] static bool BlockLogWriter(PluginHost& host) noexcept
+    {
+        host._logWriterGate.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+        return !!host._logWriterGate;
+    }
+    static void UnblockLogWriter(PluginHost& host) noexcept
+    {
+        if (host._logWriterGate)
+            SetEvent(host._logWriterGate.get());
+    }
+
+    // No writer is started: date rollover can be tested without changing the machine clock or a live worker.
+    [[nodiscard]] static HRESULT EnsureLogDate(PluginHost& host, const std::filesystem::path& root,
+                                               const SYSTEMTIME& utc) noexcept
+    {
+        host._logDirectory = root.native();
+        return host.EnsureLogFileForDate(utc);
     }
 
     // Replaces the tray icon's Shell_NotifyIconW and taskbar probe, so a test never reaches the shell.
@@ -304,6 +375,56 @@ struct PluginHostTestAccess final
 
 struct PluginManagerTestAccess final
 {
+    [[nodiscard]] static HRESULT ConstructTemporaryWidget(PluginManager& plugins,
+                                                          const WidgetInstanceSettings& settings) noexcept
+    {
+        if (plugins._providerCount != 1)
+            return E_UNEXPECTED;
+        PluginManager::WidgetSlot temporary;
+        return plugins.CreateWidgetInstance(*plugins._providers[0].provider, settings, plugins.BackgroundRgb(),
+                                            temporary);
+    }
+    [[nodiscard]] static size_t ProviderKeyBytes() noexcept
+    {
+        return sizeof(PluginManager::ProviderBuildKey) * PluginManager::kMaximumWidgetInstances;
+    }
+
+    [[nodiscard]] static bool CacheComparisonsAreExact(const AppSettings& settings) noexcept
+    {
+        const auto& page = settings.dashboard.pages[0];
+        if (page.widgetCount != 3)
+            return false;
+        const PluginSettings* plugin = FindPluginSettings(settings, page.widgets[0].pluginId.View());
+        if (!plugin)
+            return false;
+        std::array<char, kFactoryConfigurationCapacity> serialized{};
+        uint32_t bytes = 0;
+        if (FAILED(SerializeFactoryConfigurationJson(*plugin, page.widgets[1], serialized, bytes)))
+            return false;
+        constexpr char pluginId[] = "builtin.process-viewer";
+        PluginManager::ProviderBuildKey key;
+        key.pluginId = pluginId;
+        key.widgetIndex = 0;
+        key.configurationBytes = bytes;
+        // Deliberately collide two different instance objects at the filter. Full equality must still reject them.
+        key.configurationHash = PluginManager::HashFactoryConfiguration(serialized.data(), bytes);
+        if (PluginManager::ProviderConfigurationMatches(key, page, page.widgets[1], pluginId, key.configurationHash,
+                                                        bytes, key.backgroundRgb))
+            return false;
+        if (FAILED(SerializeFactoryConfigurationJson(*plugin, page.widgets[2], serialized, bytes)))
+            return false;
+        key.configurationBytes = bytes;
+        key.configurationHash = PluginManager::HashFactoryConfiguration(serialized.data(), bytes);
+        if (!PluginManager::ProviderConfigurationMatches(key, page, page.widgets[2], pluginId, key.configurationHash,
+                                                         bytes, key.backgroundRgb) ||
+            PluginManager::ProviderConfigurationMatches(key, page, page.widgets[2], pluginId, key.configurationHash,
+                                                        bytes, key.backgroundRgb ^ 1U))
+            return false;
+        key.widgetIndex = page.widgetCount;
+        return !PluginManager::ProviderConfigurationMatches(key, page, page.widgets[2], pluginId, key.configurationHash,
+                                                            bytes, key.backgroundRgb);
+    }
+
     // Replaces the GPU interface the host calls for one placed widget, for a fault-injecting wrapper around it.
     [[nodiscard]] static bool ReplaceGpuWidget(PluginManager& plugins, size_t index,
                                                IRedXeGpuWidget* replacement) noexcept
@@ -324,28 +445,30 @@ constexpr UINT kHostHeight = 720;
 
 // Thread count for this process. The shared plugin runtime owns exactly one acquisition worker no matter how many
 // PluginManager instances are live, so staging an adjacent page must not raise this.
-[[nodiscard]] DWORD CountProcessThreads() noexcept
+
+// These hidden WARP fixtures grant frames explicitly, including after DXGI reports occlusion. Prepare the real
+// cached interfaces before drawing; production occlusion/scheduling suppression has its own decision tests.
+[[nodiscard]] HRESULT RenderPreparedTestFrame(Renderer& renderer, DashboardHost& dashboard, float now,
+                                              float delta) noexcept
 {
-    const wil::unique_handle snapshot{CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)};
-    if (!snapshot)
+    for (size_t index = 0; index < dashboard.WidgetCount(); ++index)
     {
-        return 0;
+        auto* prepared = dashboard.PreparedGpuWidgetAt(index);
+        if (!prepared || dashboard.RequiresPlaceholderAt(index))
+            continue;
+        const RECT bounds = dashboard.PixelBoundsAt(index, kHostWidth, kHostHeight);
+        const RedXeGpuPreparationContext context{sizeof(context),
+                                                 96,
+                                                 static_cast<uint32_t>(bounds.right - bounds.left),
+                                                 static_cast<uint32_t>(bounds.bottom - bounds.top),
+                                                 0,
+                                                 0,
+                                                 {}};
+        const HRESULT result = prepared->Prepare(&context);
+        if (FAILED(result))
+            return result;
     }
-    THREADENTRY32 entry{};
-    entry.dwSize = sizeof(entry);
-    const DWORD processId = GetCurrentProcessId();
-    DWORD count = 0;
-    if (Thread32First(snapshot.get(), &entry))
-    {
-        do
-        {
-            if (entry.th32OwnerProcessID == processId)
-            {
-                ++count;
-            }
-        } while (Thread32Next(snapshot.get(), &entry));
-    }
-    return count;
+    return renderer.Render(now, delta);
 }
 
 void Check(bool condition, std::wstring_view message, bool& success) noexcept
@@ -442,26 +565,6 @@ class AttachedHostWindow final
 
     wil::unique_hwnd _window;
 };
-
-struct ProcessMemorySnapshot final
-{
-    uint64_t privateBytes = 0;
-    uint64_t workingSetBytes = 0;
-};
-
-[[nodiscard]] HRESULT QueryProcessMemorySnapshot(ProcessMemorySnapshot& snapshot) noexcept
-{
-    PROCESS_MEMORY_COUNTERS_EX counters{};
-    counters.cb = sizeof(counters);
-    if (!GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
-                              sizeof(counters)))
-    {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    snapshot.privateBytes = counters.PrivateUsage;
-    snapshot.workingSetBytes = counters.WorkingSetSize;
-    return S_OK;
-}
 
 [[nodiscard]] HRESULT LoadDeployedSettings(const wchar_t* fileName, AppSettings& settings) noexcept
 {
@@ -2543,7 +2646,7 @@ void TestWidgetRaiseHost(bool& success) noexcept
               SUCCEEDED(renderer.SetRaisedOverlay(3, layout.content)),
           L"host raises Process Viewer to the plugin-requested half overlay", success);
 
-    result = renderer.Render(0.5f, 1.0f / 60.0f);
+    result = RenderPreparedTestFrame(renderer, dashboard, 0.5f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.HasRaisedOverlay() && renderer.RaisedOverlayIndex() == 3 &&
               renderer.LastFrameWidgetCount() == 11 && renderer.LastFrameSuccessfulWidgetCount() == 11 &&
               renderer.RaisedContentRect().left == layout.content.left &&
@@ -2551,13 +2654,14 @@ void TestWidgetRaiseHost(bool& success) noexcept
           L"raised Process Viewer keeps every tile drawing and draws itself again at overlay content", success);
     Check(!dashboard.RequiresContinuousFrames(), L"raising Process Viewer does not start continuous frames", success);
     uint32_t delay = 0;
-    Check(dashboard.GetNextFrameDelayMilliseconds(&delay) == S_OK && delay != 0,
-          L"settled raised Process Viewer still publishes a scheduled delay", success);
+    const HRESULT raisedSchedule = dashboard.GetNextFrameDelayMilliseconds(&delay);
+    Check((raisedSchedule == S_FALSE && delay == 0) || (raisedSchedule == S_OK && delay == 33),
+          L"raised viewers publish only a visible animation deadline, never an idle dataset poll", success);
 
     Check(SUCCEEDED(processRaised->SetRaised(FALSE)), L"Process Viewer accepts SetRaised(FALSE)", success);
     renderer.ClearRaisedOverlay();
     Check(SUCCEEDED(dashboard.ClearRaisedNativeLayout(window.Dpi())), L"native raise layout restores", success);
-    result = renderer.Render(0.6f, 1.0f / 60.0f);
+    result = RenderPreparedTestFrame(renderer, dashboard, 0.6f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && !renderer.HasRaisedOverlay() && renderer.LastFrameWidgetCount() == 10 &&
               renderer.LastFrameSuccessfulWidgetCount() == 10,
           L"dismissing the overlay restores every System Data GPU tile", success);
@@ -2608,6 +2712,8 @@ void TestHostChromeComposition(bool& success) noexcept
     Check(glyphs || chrome.Font() == FluentIcons::IconFont::TextFallback,
           L"glyph rasterization succeeds or reports the text fallback", success);
 
+    (void)renderer.PrepareWidgets();
+
     result = renderer.Render(0.0f, 0.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == 0,
           L"a settled page with no raise and no revealed band draws no chrome quad", success);
@@ -2627,6 +2733,7 @@ void TestHostChromeComposition(bool& success) noexcept
     raisedState.dimAlpha = kRaiseOverlayDimAlpha;
     raisedState.closeHovered = true;
     Check(renderer.SetHostChrome(raisedState), L"a raised chrome state is reported as a change", success);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.1f, 1.0f / 60.0f);
     const size_t expectedRaised = HostChromeQuadCount(raisedState, kHostWidth, kHostHeight, glyphs);
     Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == expectedRaised && expectedRaised >= 4,
@@ -2635,11 +2742,13 @@ void TestHostChromeComposition(bool& success) noexcept
           L"host chrome never displaces the tile and raised widget draws", success);
     raisedState.closeHovered = false;
     Check(renderer.SetHostChrome(raisedState), L"clearing close hover is one chrome change", success);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.2f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() + 1 == expectedRaised,
           L"an idle close control drops exactly the hover wash", success);
     raisedState.dimAlpha = 0;
     (void)renderer.SetHostChrome(raisedState);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.3f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) &&
               renderer.LastFrameChromeQuadCount() == HostChromeQuadCount(raisedState, kHostWidth, kHostHeight, glyphs),
@@ -2652,11 +2761,13 @@ void TestHostChromeComposition(bool& success) noexcept
     bandState.bands[1].direction = kPageEdgeDirectionNext;
     bandState.bands[1].revealed = true;
     Check(renderer.SetHostChrome(bandState), L"revealing an edge band is one chrome change", success);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.4f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == (glyphs ? 2U : 1U) &&
               renderer.LastFrameWidgetCount() == 10,
           L"a revealed edge band draws its wash and chevron over every tile", success);
     Check(renderer.SetHostChrome(HostChromeState{}), L"hiding the band is one chrome change", success);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.5f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameChromeQuadCount() == 0, L"hidden chrome draws nothing", success);
 
@@ -3006,6 +3117,7 @@ void TestRendererDeviceIdentity(bool& success) noexcept
           L"forced WARP reports a software device that owns no window monitor", success);
     Check(identity.adapterName[0] != L'\0', L"the device identity carries the adapter name", success);
     const HANDLE waitable = renderer.FrameLatencyWaitableObject();
+    const uint64_t waitableGeneration = renderer.FrameLatencyGeneration();
     Check(waitable != nullptr, L"the swap chain exposes its frame-latency waitable object", success);
     Check(waitable && WaitForSingleObject(waitable, 0) == WAIT_OBJECT_0,
           L"a free back buffer is signaled before the first frame", success);
@@ -3013,9 +3125,20 @@ void TestRendererDeviceIdentity(bool& success) noexcept
           success);
     result = renderer.Render(0.0f, 0.0f);
     Check(SUCCEEDED(result), L"hidden host presents one frame through the waitable swap chain", success);
+    const auto probeBefore = renderer.QueryProbeGraphics();
+    const auto probeAfter = renderer.QueryProbeGraphics();
+    Check(probeBefore.generation != 0 && probeBefore.presentResult == S_OK && probeAfter.presentResult == S_OK &&
+              probeBefore.presentCount == probeAfter.presentCount,
+          L"diagnostic queries preserve the present count on a hidden WARP host", success);
     Check(waitable && WaitForSingleObject(waitable, 2000) == WAIT_OBJECT_0,
           L"the waitable object signals again once the presented frame is consumed", success);
     Check(renderer.FrameLatencyWaitableObject() == waitable, L"the waitable object is stable across frames", success);
+    ContinuousFramePacer retainedPermit;
+    retainedPermit.AcceptFrameLatency(waitableGeneration);
+    retainedPermit.Reset();
+    Check(retainedPermit.HasFrameLatency(renderer.FrameLatencyGeneration()) &&
+              WaitForSingleObject(waitable, 0) == WAIT_TIMEOUT,
+          L"canceling a deadline retains consumed DXGI readiness without reacquiring its signal", success);
     result = dashboard.Resize(kHostWidth / 2, kHostHeight, window.Dpi());
     if (SUCCEEDED(result))
     {
@@ -3023,13 +3146,27 @@ void TestRendererDeviceIdentity(bool& success) noexcept
     }
     if (SUCCEEDED(result))
     {
+        Check(renderer.FrameLatencyWaitableObject() == waitable &&
+                  retainedPermit.HasFrameLatency(renderer.FrameLatencyGeneration()),
+              L"resize preserves the waitable permit even when diagnostic buffers change", success);
         result = renderer.Render(1.0f, 1.0f / 60.0f);
     }
     Check(SUCCEEDED(result) && renderer.FrameLatencyWaitableObject() != nullptr,
           L"resizing keeps the waitable swap chain flag", success);
+    Check(renderer.QueryProbeGraphics().generation > probeAfter.generation,
+          L"a real resize invalidates diagnostic presentation deltas", success);
     renderer.Shutdown();
+    Check(renderer.FrameLatencyGeneration() == 0 && !retainedPermit.HasFrameLatency(renderer.FrameLatencyGeneration()),
+          L"a retired waitable object cannot reuse the retained permit", success);
+    Check(renderer.QueryProbeGraphics().generation == 0 && renderer.QueryProbeGraphics().presentResult == E_UNEXPECTED,
+          L"a released swap chain reports unavailable diagnostic values", success);
     Check(renderer.FrameLatencyWaitableObject() == nullptr && !renderer.DeviceInfo().warp,
           L"shutdown releases the waitable object and clears the device identity", success);
+    result = renderer.Initialize(window.Get(), true, dashboard);
+    Check(SUCCEEDED(result) && renderer.FrameLatencyGeneration() > waitableGeneration &&
+              !retainedPermit.HasFrameLatency(renderer.FrameLatencyGeneration()),
+          L"recreating a waitable object rejects readiness from the previous lifetime", success);
+    renderer.Shutdown();
     dashboard.Shutdown();
 }
 
@@ -3129,6 +3266,8 @@ void TestReleaseHostIntegration(bool& success) noexcept
         Check(SUCCEEDED(result) && diagnostics.liveDeviceResourceSetCount == 1,
               L"renderer creates exactly one Matrix device-resource set", success);
 
+        (void)renderer.PrepareWidgets();
+
         result = renderer.Render(0.0f, 0.0f);
         Check(SUCCEEDED(result) && renderer.LastFrameWidgetCount() == 1 &&
                   renderer.LastFrameSuccessfulWidgetCount() == 1,
@@ -3141,6 +3280,7 @@ void TestReleaseHostIntegration(bool& success) noexcept
         }
         if (SUCCEEDED(result))
         {
+            (void)renderer.PrepareWidgets();
             result = renderer.Render(1.0f, 1.0f / 60.0f);
         }
         Check(SUCCEEDED(result) && renderer.IsSuspended() && renderer.LastFrameWidgetCount() == 0,
@@ -3153,6 +3293,7 @@ void TestReleaseHostIntegration(bool& success) noexcept
         }
         if (SUCCEEDED(result))
         {
+            (void)renderer.PrepareWidgets();
             result = renderer.Render(2.0f, 1.0f / 60.0f);
         }
         Check(SUCCEEDED(result) && !renderer.IsSuspended() && renderer.LastFrameSuccessfulWidgetCount() == 1,
@@ -3197,6 +3338,7 @@ void TestReleaseHostIntegration(bool& success) noexcept
         }
         if (SUCCEEDED(result))
         {
+            (void)renderer.PrepareWidgets();
             result = renderer.Render(3.0f, 1.0f / 60.0f);
         }
         Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 1,
@@ -3459,8 +3601,8 @@ void TestDeskClockScheduling(bool& success) noexcept
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 1 &&
               afterStatic.liveDeviceResourceSets == 1 &&
               afterStatic.constantUploads == beforeRender.constantUploads + 1 &&
-              afterStatic.drawCalls == beforeRender.drawCalls + 3,
-          L"Desk Clock renders one static upload and three batched draws at 2560x720", success);
+              afterStatic.drawCalls == beforeRender.drawCalls + 2,
+          L"Desk Clock renders one static upload and two batched draws at 2560x720", success);
 
     if (SUCCEEDED(result))
     {
@@ -3490,8 +3632,8 @@ void TestDeskClockScheduling(bool& success) noexcept
         result = ReadDeskClockDiagnostics(duringFlip);
     }
     Check(SUCCEEDED(result) && duringFlip.constantUploads == afterStatic.constantUploads + 1 &&
-              duringFlip.drawCalls == afterStatic.drawCalls + 4,
-          L"an active half-flap uses one upload and four bounded draws", success);
+              duringFlip.drawCalls == afterStatic.drawCalls + 2,
+          L"an active half-flap uses one upload and two bounded draws", success);
     if (SUCCEEDED(result))
     {
         result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
@@ -3512,9 +3654,9 @@ void TestDeskClockScheduling(bool& success) noexcept
     {
         result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
     }
-    Check(SUCCEEDED(result) && afterFlip.drawCalls == duringFlip.drawCalls + 3 && scheduledDelay >= 640 &&
+    Check(SUCCEEDED(result) && afterFlip.drawCalls == duringFlip.drawCalls + 2 && scheduledDelay >= 640 &&
               scheduledDelay <= 650,
-          L"Desk Clock returns to three static draws and a blocked deadline after the flip", success);
+          L"Desk Clock returns to two static draws and a blocked deadline after the flip", success);
 
     const uint64_t hiddenSamples = afterFlip.timeSamples;
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -3577,7 +3719,7 @@ void TestDataProviderLookup(bool& success) noexcept
     {
         result = first->GetDataSets(&descriptors, &descriptorCount);
     }
-    Check(SUCCEEDED(result) && descriptors && descriptorCount == 22, L"host data provider exposes its source datasets",
+    Check(SUCCEEDED(result) && descriptors && descriptorCount == 23, L"host data provider exposes its source datasets",
           success);
 
     wil::com_ptr_nothrow<IRedXeDataProvider> unsupported;
@@ -3777,7 +3919,7 @@ void TestSystemDataViewers(bool& success) noexcept
     QueryPerformanceFrequency(&frequency);
     for (uint32_t frame = 0; frame < 8; ++frame)
     {
-        result = renderer.Render(static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        result = RenderPreparedTestFrame(renderer, dashboard, static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
         if (FAILED(result))
         {
             break;
@@ -3815,7 +3957,7 @@ void TestSystemDataViewers(bool& success) noexcept
     }
     for (uint32_t frame = 0; frame < 2 && SUCCEEDED(result); ++frame)
     {
-        result = renderer.Render(0.8f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        result = RenderPreparedTestFrame(renderer, dashboard, 0.8f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
     }
     if (SUCCEEDED(result))
     {
@@ -3848,7 +3990,8 @@ void TestSystemDataViewers(bool& success) noexcept
         HRESULT rendered = S_OK;
         for (uint32_t frame = 0; frame < 2 && SUCCEEDED(rendered); ++frame)
         {
-            rendered = renderer.Render(1.0f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+            rendered =
+                RenderPreparedTestFrame(renderer, dashboard, 1.0f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
         }
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(down == S_FALSE && up == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 1,
@@ -3858,7 +4001,7 @@ void TestSystemDataViewers(bool& success) noexcept
         (void)processViewer->OnPointer(&tap);
         tap.phase = RedXePointerPhaseUp;
         const HRESULT back = processViewer->OnPointer(&tap);
-        rendered = renderer.Render(1.1f, 1.0f / 60.0f);
+        rendered = RenderPreparedTestFrame(renderer, dashboard, 1.1f, 1.0f / 60.0f);
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(back == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 0,
               L"a tap on the first page dot returns to page one", success);
@@ -3871,14 +4014,14 @@ void TestSystemDataViewers(bool& success) noexcept
         const HRESULT upAtFirst = processViewer->OnPointer(&wheel);
         wheel.wheelDelta = -120.0f;
         const HRESULT wheelDown = processViewer->OnPointer(&wheel);
-        rendered = renderer.Render(1.2f, 1.0f / 60.0f);
+        rendered = RenderPreparedTestFrame(renderer, dashboard, 1.2f, 1.0f / 60.0f);
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(upAtFirst == S_OK && wheelDown == S_OK && SUCCEEDED(rendered) && SUCCEEDED(result) &&
                   diagnostics.pageIndex == 1,
               L"a paged viewer keeps wheel-up at its first page and pages forward on wheel-down", success);
         wheel.wheelDelta = 120.0f;
         (void)processViewer->OnPointer(&wheel);
-        rendered = renderer.Render(1.3f, 1.0f / 60.0f);
+        rendered = RenderPreparedTestFrame(renderer, dashboard, 1.3f, 1.0f / 60.0f);
         result = ReadProcessViewerDiagnostics(diagnostics);
         Check(SUCCEEDED(rendered) && SUCCEEDED(result) && diagnostics.pageIndex == 0,
               L"wheel-up returns the viewer to its first page", success);
@@ -3891,7 +4034,7 @@ void TestSystemDataViewers(bool& success) noexcept
     }
     if (SUCCEEDED(result))
     {
-        result = renderer.Render(0.25f, 1.0f / 60.0f);
+        result = RenderPreparedTestFrame(renderer, dashboard, 0.25f, 1.0f / 60.0f);
     }
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 10,
           L"System Data widgets rebuild after device loss", success);
@@ -3900,7 +4043,7 @@ void TestSystemDataViewers(bool& success) noexcept
     constexpr uint32_t kMeasuredFrames = 32;
     for (uint32_t frame = 0; frame < kMeasuredFrames; ++frame)
     {
-        result = renderer.Render(0.5f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        result = RenderPreparedTestFrame(renderer, dashboard, 0.5f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
         if (FAILED(result))
         {
             break;
@@ -3914,8 +4057,66 @@ void TestSystemDataViewers(bool& success) noexcept
     std::wcout << L"[       -- ] System page WARP mean frame " << meanMs << L" ms\n";
 
     uint32_t delay = 0;
-    Check(dashboard.GetNextFrameDelayMilliseconds(&delay) == S_OK && delay > 1U,
-          L"settled System page publishes a rest interval rather than a 1 ms ease poll", success);
+    const HRESULT systemSchedule = dashboard.GetNextFrameDelayMilliseconds(&delay);
+    Check((systemSchedule == S_FALSE && delay == 0) || (systemSchedule == S_OK && delay == 33),
+          L"System page parks when settled and schedules only bounded visible motion", success);
+
+    // Use the actual process runtime's coalesced delivery messages and the dashboard's visual deadline, rather
+    // than drawing unconditionally. This is a hidden WARP production-host soak; it never activates the desktop.
+    PluginHost& runtime = PluginHost::Instance();
+    runtime.SetUiInvalidateTarget(window.Get());
+    const auto clearTarget = wil::scope_exit([&] { runtime.SetUiInvalidateTarget(nullptr); });
+    result = dashboard.SetWidgetsVisible(true); // The manual renderer shutdown above drained subscriptions.
+    const ULONGLONG soakStart = GetTickCount64();
+    const ULONGLONG soakEnd = soakStart + 10'000;
+    ULONGLONG nextFrame = 0;
+    ULONGLONG previousFrame = soakStart;
+    uint32_t soakFrames = 0;
+    uint32_t deliveredInvalidations = 0;
+    bool invalidated = true;
+    bool validDeadlines = true;
+    while (SUCCEEDED(result) && GetTickCount64() < soakEnd)
+    {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+        {
+            if (message.hwnd == window.Get() && message.message == PluginHost::kDataSnapshotInvalidateMessage)
+            {
+                runtime.AcknowledgeUiInvalidate();
+                invalidated = true;
+                ++deliveredInvalidations;
+            }
+            else
+            {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+        const ULONGLONG now = GetTickCount64();
+        if (invalidated || (nextFrame != 0 && now >= nextFrame))
+        {
+            result = RenderPreparedTestFrame(renderer, dashboard, 2.0f + static_cast<float>(now - soakStart) / 1000.0f,
+                                             static_cast<float>(now - previousFrame) / 1000.0f);
+            previousFrame = now;
+            ++soakFrames;
+            invalidated = false;
+            delay = 0;
+            const HRESULT schedule = dashboard.GetNextFrameDelayMilliseconds(&delay);
+            validDeadlines =
+                validDeadlines && ((schedule == S_FALSE && delay == 0) || (schedule == S_OK && delay == 33));
+            nextFrame = schedule == S_OK ? GetTickCount64() + delay : 0;
+        }
+        const ULONGLONG afterFrame = GetTickCount64();
+        const ULONGLONG wake = nextFrame == 0 ? soakEnd : (std::min)(nextFrame, soakEnd);
+        const DWORD wait = wake > afterFrame ? static_cast<DWORD>(wake - afterFrame) : 0;
+        (void)MsgWaitForMultipleObjectsEx(0, nullptr, wait, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    }
+    Check(SUCCEEDED(result) && validDeadlines && deliveredInvalidations > 0 && soakFrames > 0 &&
+              soakFrames <= 310 + deliveredInvalidations && !dashboard.RequiresContinuousFrames(),
+          L"scheduled System host soak follows coalesced delivery and parked/33 ms deadlines", success);
+    std::wcout << L"[       -- ] System scheduled soak: " << soakFrames << L" frames, " << deliveredInvalidations
+               << L" coalesced deliveries in 10 seconds\n";
+    runtime.SetUiInvalidateTarget(nullptr);
 
     if (SUCCEEDED(result))
     {
@@ -4338,6 +4539,7 @@ void TestGpuPageLifetime(bool& success)
     result = renderer.AdoptPrimaryDashboard(dashboards[1]);
     Check(SUCCEEDED(result) && dashboards[1].WidgetsVisible() && !dashboards[2].WidgetsVisible(),
           L"adopting an unprepared page quiesces it for device creation and restores visibility", success);
+    (void)renderer.PrepareWidgets();
     result = renderer.Render(0.0f, 0.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 3, L"the adopted page draws every widget",
           success);
@@ -4354,7 +4556,10 @@ void TestGpuPageLifetime(bool& success)
     if (SUCCEEDED(result))
         result = dashboards[0].SetWidgetsVisible(true);
     if (SUCCEEDED(result))
+    {
+        (void)renderer.PrepareWidgets();
         result = renderer.Render(0.1f, 0.1f);
+    }
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 6,
           L"a fresh WARP device rebuilds and draws both surviving pages", success);
     renderer.Shutdown();
@@ -4366,6 +4571,179 @@ void TestGpuPageLifetime(bool& success)
               viewerAfter.deviceCallbacksWhileVisible == viewerBefore.deviceCallbacksWhileVisible &&
               weatherAfter.deviceCallbacksWhileVisible == weatherBefore.deviceCallbacksWhileVisible,
           L"all data and network widget device callbacks run while the widget is quiescent", success);
+}
+
+void TestPageCallbackProbe(bool& success)
+{
+    std::wcout << L"[ RUN      ] production page callback probe: promotion, cancellation, device loss and ring loss\n";
+    const auto root =
+        std::filesystem::temp_directory_path() /
+        (L"RedXe.PageCallback." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    PluginHost& host = PluginHost::Instance();
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            PluginHostTestAccess::UnblockLogWriter(host);
+            PluginHostTestAccess::DetachLog(host);
+            std::error_code ignored;
+            std::filesystem::remove_all(root, ignored);
+        });
+    if (error || FAILED(host.SetLogDirectory(root.c_str())) || host.FlushLog(10'000) != S_OK ||
+        !PluginHostTestAccess::BlockLogWriter(host))
+    {
+        Check(false, L"callback probe owns a blocked temporary logger", success);
+        return;
+    }
+    RuntimePageStageProbe overflow(true, 0, 1);
+    overflow.Select(1);
+    bool resultsPreserved = true;
+    for (uint32_t index = 0; index < 384; ++index)
+        resultsPreserved =
+            TraceRuntimePageCallback(overflow.Callbacks(), index % 32, RuntimePageCallbackKind::DeviceCreated,
+                                     []() noexcept { return E_ABORT; }) == E_ABORT &&
+            resultsPreserved;
+    FlushRuntimePageCallbacks(*overflow.Callbacks());
+    Check(resultsPreserved && overflow.Callbacks()->counts[0] == 384 && overflow.Callbacks()->dropped == 192,
+          L"a full 32-slot ring reports refused callbacks and never changes the callback HRESULT", success);
+    PluginHostTestAccess::UnblockLogWriter(host);
+    Check(host.FlushLog(10'000) == S_OK, L"the blocked callback log drains", success);
+
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(
+        R"json({"version":{"major":5},"pages":[{"id":"primary","columns":[{"plugin":"builtin.rotating-triangle"}]},)json"
+        R"json({"id":"incoming","columns":[{"plugin":"builtin.launcher"},{"plugin":"builtin.launcher"}]}]})json",
+        settings);
+    AttachedHostWindow window;
+    if (SUCCEEDED(result))
+        result = window.Initialize(kHostWidth, kHostHeight);
+    auto primaryPlugins = std::make_unique<PluginManager>();
+    PluginManager incomingPlugins, canceledPlugins;
+    if (SUCCEEDED(result))
+        result = primaryPlugins->Initialize(settings);
+    if (SUCCEEDED(result))
+        result = MoveDashboardPage(settings, 1);
+    if (SUCCEEDED(result))
+        result = incomingPlugins.Initialize(settings);
+    DashboardHost primary, incoming, canceled;
+    if (SUCCEEDED(result))
+        result = primary.Initialize(*primaryPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    if (SUCCEEDED(result))
+        result = incoming.Initialize(incomingPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    Renderer renderer;
+    if (SUCCEEDED(result))
+        result = renderer.Initialize(window.Get(), true, primary);
+    Check(SUCCEEDED(result) && incoming.WidgetCount() == 2 && incoming.PreparedGpuWidgetAt(0) &&
+              incoming.PreparedGpuWidgetAt(1),
+          L"real WARP primary and two prepared Launcher widgets construct", success);
+    if (FAILED(result))
+        return;
+
+    RuntimePageStageProbe promoted(true, 0, 1);
+    promoted.Select(1);
+    HRESULT tracing = E_UNEXPECTED;
+    result = renderer.SetTransitionDashboard(&incoming, promoted.Callbacks(), &tracing);
+    if (SUCCEEDED(result))
+        result = incoming.SetWidgetsVisible(true, promoted.Callbacks());
+    Check(SUCCEEDED(result) && tracing == S_OK && promoted.Callbacks()->dropped == 0 &&
+              promoted.Callbacks()->counts == std::array<uint32_t, 4>{2, 2, 2, 0},
+          L"real staging traces device, size and shown visibility exactly once per widget", success);
+    if (FAILED(result))
+        return;
+    result = renderer.AdoptPrimaryDashboard(incoming);
+    primary.Shutdown();
+    primaryPlugins.reset();
+    if (SUCCEEDED(result))
+        result = renderer.PrepareWidgets();
+    if (SUCCEEDED(result))
+        result = renderer.PrepareWidgets();
+    if (SUCCEEDED(result))
+        result = renderer.Render(0.0f, 0.0f);
+    Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 2,
+          L"promotion before first preparation preserves incoming identity, then both real widgets draw", success);
+    if (FAILED(result))
+        return;
+    Check(host.FlushLog(10'000) == S_OK, L"the promoted trace drains", success);
+
+    result = canceledPlugins.Initialize(settings);
+    if (SUCCEEDED(result))
+        result = canceled.Initialize(canceledPlugins, window.Get(), kHostWidth, kHostHeight, window.Dpi(), false);
+    RuntimePageStageProbe aborted(true, 1, -1);
+    aborted.Select(1);
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(&canceled, aborted.Callbacks(), &tracing);
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(nullptr);
+    Check(SUCCEEDED(result) && tracing == S_OK, L"cancel before Prepare retires the incoming page", success);
+    Check(host.FlushLog(10'000) == S_OK, L"the cancellation trace drains", success);
+
+    RuntimePageStageProbe lost(true, 1, -1);
+    lost.Select(1);
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(&canceled, lost.Callbacks(), &tracing);
+    if (SUCCEEDED(result))
+        result = RecoverPageProbeTestDevice(renderer);
+    if (SUCCEEDED(result))
+        result = renderer.PrepareWidgets();
+    Check(SUCCEEDED(result), L"device loss retires pending trace identities before rebuilding the two pages", success);
+    Check(host.FlushLog(10'000) == S_OK, L"the device-loss trace drains", success);
+    (void)renderer.SetTransitionDashboard(nullptr);
+    RuntimePageStageProbe stopped(true, 1, -1);
+    stopped.Select(1);
+    if (SUCCEEDED(result))
+        result = renderer.SetTransitionDashboard(&canceled, stopped.Callbacks(), &tracing);
+    renderer.Shutdown();
+    Check(SUCCEEDED(result) && host.FlushLog(10'000) == S_OK, L"shutdown emits a terminal record for pending work",
+          success);
+
+    const std::string log = ReadTodayLog(root);
+    std::array<uint32_t, 4> firstPreparations{}, terminals{};
+    bool complete = true;
+    size_t start = 0;
+    while (start < log.size())
+    {
+        const size_t end = log.find('\n', start);
+        const size_t length = (end == std::string::npos ? log.size() : end) - start;
+        using Document = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
+        Document document(yyjson_read(log.data() + start, length, 0));
+        if (document)
+        {
+            auto* record = yyjson_doc_get_root(document.get());
+            const uint64_t id = yyjson_get_uint(yyjson_obj_get(record, "stage_id"));
+            const std::array<uint64_t, 4> ids{promoted.Callbacks()->stageId, aborted.Callbacks()->stageId,
+                                              lost.Callbacks()->stageId, stopped.Callbacks()->stageId};
+            for (size_t index = 0; index < ids.size(); ++index)
+            {
+                if (id != ids[index])
+                    continue;
+                auto* event = yyjson_obj_get(record, "event");
+                if (yyjson_equals_str(event, "page-callback"))
+                {
+                    auto* calls = yyjson_obj_get(record, "calls");
+                    for (size_t call = 0; call < yyjson_arr_size(calls); ++call)
+                        if (yyjson_get_uint(yyjson_arr_get(yyjson_arr_get(calls, call), 2)) == 3)
+                            ++firstPreparations[index];
+                }
+                if (yyjson_equals_str(event, "page-prepared"))
+                {
+                    ++terminals[index];
+                    complete = complete && yyjson_get_uint(yyjson_obj_get(record, "expected")) == 2 &&
+                               yyjson_get_uint(yyjson_obj_get(record, "pending_mask")) == (index == 0 ? 0U : 3U) &&
+                               yyjson_get_uint(yyjson_obj_get(record, "hr")) ==
+                                   static_cast<uint32_t>(index == 0 ? S_OK : E_ABORT) &&
+                               yyjson_get_uint(yyjson_obj_get(record, "callback_dropped")) == 0 &&
+                               yyjson_get_uint(yyjson_arr_get(yyjson_obj_get(record, "callbacks"), 3)) ==
+                                   (index == 0 ? 2U : 0U);
+                }
+            }
+        }
+        start = end == std::string::npos ? log.size() : end + 1;
+    }
+    Check(complete && firstPreparations == std::array<uint32_t, 4>{2, 0, 0, 0} &&
+              terminals == std::array<uint32_t, 4>{1, 1, 1, 1},
+          L"raw production log has exactly two first attempts after promotion and one accurate terminal per lifecycle",
+          success);
 }
 
 // Wraps one placed GPU widget so a host test can fail its device or size callback on demand and count what the host
@@ -4393,11 +4771,14 @@ class FaultInjectingGpuWidget final : public RedXeComObject<FaultInjectingGpuWid
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
         ++renderCalls;
-        return _inner->Render(context);
+        return FAILED(renderFailure) && (!tileFailureOnly || context->viewId == 0) ? renderFailure
+                                                                                   : _inner->Render(context);
     }
 
     HRESULT deviceCreatedFailure = S_OK;
     HRESULT targetSizeFailure = S_OK;
+    HRESULT renderFailure = S_OK;
+    bool tileFailureOnly = false;
     uint32_t deviceCreatedCalls = 0;
     uint32_t deviceLostCalls = 0;
     uint32_t targetSizeCalls = 0;
@@ -4461,7 +4842,9 @@ void TestGpuWidgetCallbackFailures(bool& success)
 {
     std::wcout << L"[ RUN      ] GPU widget device-setup rollback and isolated target-size failure, logged\n";
     constexpr std::string_view settingsJson =
-        R"json({"version":{"major":5},"pages":[{"columns":[{"plugin":"builtin.rotating-triangle"},)json"
+        R"json({"version":{"major":5},"pages":[{"id":"primary","columns":[{"plugin":"builtin.rotating-triangle"},)json"
+        R"json({"plugin":"builtin.rotating-triangle"},{"plugin":"builtin.rotating-triangle"}]},)json"
+        R"json({"id":"incoming","columns":[{"plugin":"builtin.rotating-triangle"},)json"
         R"json({"plugin":"builtin.rotating-triangle"},{"plugin":"builtin.rotating-triangle"}]}]})json";
     constexpr HRESULT kStartupFailure = HRESULT_FROM_WIN32(ERROR_GEN_FAILURE);
     constexpr HRESULT kStagingFailure = HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
@@ -4496,6 +4879,8 @@ void TestGpuWidgetCallbackFailures(bool& success)
     PluginManager stagedPlugins;
     if (SUCCEEDED(result))
         result = plugins.Initialize(settings);
+    if (SUCCEEDED(result))
+        result = MoveDashboardPage(settings, 1);
     if (SUCCEEDED(result))
         result = stagedPlugins.Initialize(settings);
     GpuFaults faults;
@@ -4553,7 +4938,11 @@ void TestGpuWidgetCallbackFailures(bool& success)
     // Staging for a swipe: the third widget fails; the staged page is dropped and the current page keeps drawing.
     stagedFaults[2]->deviceCreatedFailure = kStagingFailure;
     const bool stagedVisible = staged.WidgetsVisible();
-    result = renderer.SetTransitionDashboard(&staged);
+    RuntimePageStageProbe failedStage(true, 0, 1);
+    failedStage.Select(1);
+    result = renderer.SetTransitionDashboard(&staged, failedStage.Callbacks());
+    Check(failedStage.Callbacks()->counts == std::array<uint32_t, 4>{3, 0, 3, 0},
+          L"failed setup traces each attempted callback while preserving rollback", success);
     Check(stagedVisible && result == kStagingFailure && stagedFaults[0]->deviceLostCalls == 1 &&
               stagedFaults[1]->deviceLostCalls == 1 && stagedFaults[2]->deviceCreatedCalls == 1 &&
               stagedFaults[2]->deviceLostCalls == 0 && !staged.WidgetsVisible(),
@@ -4598,6 +4987,43 @@ void TestGpuWidgetCallbackFailures(bool& success)
           L"the widget whose size notification failed keeps drawing with its previous resources beside the others, "
           L"and the notification is not retried per frame",
           success);
+
+    // Each ordinary failure burst emits one diagnostic. Other widgets keep drawing, and recovery permits one
+    // new report if the same instance fails again. Both OutputDebugString and JSONL use this one transition guard.
+    faults[0]->targetSizeFailure = S_OK;
+    bool isolated = true;
+    const auto failureBurst = [&](HRESULT failure)
+    {
+        faults[0]->renderFailure = failure;
+        for (uint32_t frame = 0; frame < 100; ++frame)
+        {
+            isolated = SUCCEEDED(renderer.Render(0.4f + static_cast<float>(frame) / 60.0f, 1.0f / 60.0f)) &&
+                       renderer.LastFrameWidgetCount() == 3 && renderer.LastFrameSuccessfulWidgetCount() == 2 &&
+                       isolated;
+        }
+    };
+    failureBurst(E_FAIL);
+    faults[0]->renderFailure = S_OK;
+    Check(SUCCEEDED(renderer.Render(2.1f, 1.0f / 60.0f)) && renderer.LastFrameSuccessfulWidgetCount() == 3,
+          L"a recovered GPU widget draws again", success);
+    failureBurst(E_FAIL);
+    failureBurst(E_INVALIDARG);
+    Check(isolated, L"300 failing widget draws preserve every sibling and the host frame", success);
+    faults[0]->tileFailureOnly = true;
+    const RECT raisedContent{0, 0, static_cast<LONG>(kHostWidth / 2), static_cast<LONG>(kHostHeight)};
+    Check(renderer.SetRaisedOverlay(0, raisedContent) == S_OK, L"a partly failing widget can have a raised view",
+          success);
+    bool partialRecovery = true;
+    for (uint32_t frame = 0; frame < 100; ++frame)
+        partialRecovery = SUCCEEDED(renderer.Render(4.0f, 1.0f / 60.0f)) &&
+                          renderer.LastFrameSuccessfulWidgetCount() == 3 && partialRecovery;
+    Check(partialRecovery, L"successful raised draws do not restart a tile failure diagnostic", success);
+    renderer.ClearRaisedOverlay();
+    stagedFaults[0]->renderFailure = E_INVALIDARG;
+    const char* const incomingId = stagedPlugins.WidgetInstanceIdAt(0);
+    Check(renderer.AdoptPrimaryDashboard(staged) == S_OK && staged.SetWidgetsVisible(true) == S_OK &&
+              SUCCEEDED(renderer.Render(4.1f, 1.0f / 60.0f)),
+          L"promotion gives reused viewport slots a fresh diagnostic identity", success);
     renderer.Shutdown();
 
     Check(SUCCEEDED(processHost.FlushLog(10'000)), L"the GPU failure log drains", success);
@@ -4610,6 +5036,12 @@ void TestGpuWidgetCallbackFailures(bool& success)
               CountInstanceRecords(bytes, "warning", firstId, "gpu-target-size-failed", kSizeFailure) == 1,
           L"the failed size notification logs one gpu-target-size-failed Warning naming the instance and HRESULT",
           success);
+    Check(CountInstanceRecords(bytes, "error", firstId, "gpu-render-failed", E_FAIL) == 2 &&
+              CountInstanceRecords(bytes, "error", firstId, "gpu-render-failed", E_INVALIDARG) == 1,
+          L"300 failing draws emit three reports: initial failure, recurrence after recovery, and changed HRESULT",
+          success);
+    Check(CountInstanceRecords(bytes, "error", incomingId, "gpu-render-failed", E_INVALIDARG) == 1,
+          L"an incoming instance at the same slot reports its own failure", success);
 }
 
 void TestSharedPluginRuntime(bool& success) noexcept
@@ -4909,7 +5341,6 @@ void TestHostJsonlLog(bool& success) noexcept
         return;
     }
 
-    Check(SUCCEEDED(host.SetLogDirectory(root.c_str())), L"SetLogDirectory starts the JSONL writer", success);
     Check(host.SetLogRetentionDays(0) == E_INVALIDARG, L"retention below 1 day is rejected", success);
     Check(host.SetLogRetentionDays(366) == E_INVALIDARG, L"retention above 365 days is rejected", success);
     Check(SUCCEEDED(host.SetLogRetentionDays(15)), L"a 15-day retention is accepted", success);
@@ -4928,6 +5359,8 @@ void TestHostJsonlLog(bool& success) noexcept
         std::ofstream rotatedStream(legacyRotated, std::ios::binary);
         rotatedStream << "{\"event\":\"rotated\"}\n";
     }
+
+    Check(SUCCEEDED(host.SetLogDirectory(root.c_str())), L"SetLogDirectory starts the JSONL writer", success);
 
     const HRESULT notFound = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     const RedXeLogRecord line{sizeof(RedXeLogRecord),
@@ -5070,6 +5503,81 @@ void TestHostJsonlLog(bool& success) noexcept
     Check(!std::filesystem::exists(stale, existsError) && !std::filesystem::exists(staleRelease, existsError) &&
               !std::filesystem::exists(legacy, existsError) && !std::filesystem::exists(legacyRotated, existsError),
           L"dated logs older than retention and legacy undated log files are deleted", success);
+
+    {
+        std::ofstream reapplied(staleRelease, std::ios::binary);
+        reapplied << "policy change without a queued log line\n";
+    }
+    Check(host.SetLogRetentionDays(30) == S_OK && flushLog() == S_OK &&
+              !std::filesystem::exists(staleRelease, existsError),
+          L"changing retention wakes the idle writer and FlushLog waits for cleanup", success);
+}
+
+void TestLogRetentionTransitions(bool& success) noexcept
+{
+    std::wcout << L"[ RUN      ] log retention: open, policy change and UTC date rollover\n";
+    std::error_code error;
+    const auto root =
+        std::filesystem::temp_directory_path() /
+        (L"RedXe.RetentionTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+    std::filesystem::create_directories(root, error);
+    const auto cleanup = wil::scope_exit([&]() noexcept { std::filesystem::remove_all(root, error); });
+    if (error)
+    {
+        Check(false, L"a retention fixture directory can be created", success);
+        return;
+    }
+    // Host closes its WIL-owned file before cleanup removes the fixture.
+    PluginHost host;
+    SYSTEMTIME today{};
+    today.wYear = 2026;
+    today.wMonth = 10;
+    today.wDay = 10;
+    const auto put = [&](const wchar_t* name) { std::ofstream(root / name) << "fixture\n"; };
+    const auto exists = [&](const wchar_t* name) { return std::filesystem::exists(root / name, error); };
+    put(L"RedXe-2026-09-25.jsonl");       // Exactly 15 days old.
+    put(L"RedXe-debug-2026-09-26.jsonl"); // 14 days old.
+    put(L"RedXe-2026-10-11.jsonl");       // Future dates are kept.
+    put(L"other-2000-01-01.jsonl");
+    put(L"RedXe.jsonl");
+    std::filesystem::create_directory(root / L"RedXe-2000-01-01.jsonl", error);
+    Check(PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK && !exists(L"RedXe-2026-09-25.jsonl") &&
+              !exists(L"RedXe.jsonl") && exists(L"RedXe-debug-2026-09-26.jsonl") && exists(L"RedXe-2026-10-11.jsonl") &&
+              exists(L"other-2000-01-01.jsonl") && exists(L"RedXe-2000-01-01.jsonl"),
+          L"opening purges both builds at the UTC boundary and preserves future, unrelated and directory entries",
+          success);
+
+    // An expired file created after the first sweep proves ordinary writes do not enumerate again.
+    put(L"RedXe-debug.jsonl.1");
+    const auto before = std::chrono::steady_clock::now();
+    bool ordinary = true;
+    for (uint32_t index = 0; index < 1000; ++index)
+    {
+        today.wSecond = static_cast<WORD>(index % 60);
+        ordinary = PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK && ordinary;
+    }
+    const auto ordinaryNs =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - before).count();
+    Check(ordinary && exists(L"RedXe-debug.jsonl.1") && host.SetLogRetentionDays(15) == S_OK &&
+              PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK && exists(L"RedXe-debug.jsonl.1"),
+          L"1000 same-day writes and an unchanged retention value perform no new sweep", success);
+    Check(host.SetLogRetentionDays(7) == S_OK && PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK &&
+              !exists(L"RedXe-debug-2026-09-26.jsonl") && !exists(L"RedXe-debug.jsonl.1"),
+          L"a shorter retention policy sweeps once without reopening today's file", success);
+
+    put(L"RedXe-2026-10-04.jsonl"); // Six days old now, seven after rollover.
+    put(L"RedXe.jsonl");
+    Check(host.SetLogRetentionDays(7) == S_OK && PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK &&
+              exists(L"RedXe.jsonl"),
+          L"reapplying an unchanged policy does not enumerate", success);
+    today.wDay = 11;
+    Check(PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK && !exists(L"RedXe-2026-10-04.jsonl") &&
+              !exists(L"RedXe.jsonl") && exists(L"RedXe-2026-10-11.jsonl"),
+          L"UTC rollover opens the next file and expires the new boundary", success);
+    today.wDay = 10;
+    Check(PluginHostTestAccess::EnsureLogDate(host, root, today) == S_OK,
+          L"a backwards UTC correction reopens the appropriate file", success);
+    std::wcout << L"log_retention same_day_calls=1000 sweeps=0 total_ns=" << ordinaryNs << L'\n';
 }
 
 // PluginHost::SetStandardErrorLog, which --self-test turns on because it opens no log directory: each Warning and
@@ -5221,6 +5729,142 @@ void TestHostOwnedPlaceholderTiles(bool& success) noexcept
     result = renderer.Render(0.2f, 1.0f / 60.0f);
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 3,
           L"every widget draws again after recovery", success);
+}
+
+void TestWidgetSlotRollback(bool& success) noexcept
+{
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(
+        R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.weather"}]}]})json", settings);
+    PluginManager plugins;
+    if (SUCCEEDED(result))
+        result = plugins.Initialize(settings);
+    if (FAILED(result))
+    {
+        Check(false, L"Weather rollback fixture constructs its provider.", success);
+        return;
+    }
+    auto temporary = settings.dashboard.pages[0].widgets[0];
+    temporary.id = SettingsText{};
+    constexpr std::string_view id = "status.rollback.weather";
+    id.copy(temporary.id.utf8.data(), id.size());
+    temporary.id.bytes = static_cast<uint32_t>(id.size());
+    const size_t before = PluginHostTestAccess::RegisteredNetworkWidgets(PluginHost::Instance());
+    result = PluginManagerTestAccess::ConstructTemporaryWidget(plugins, temporary);
+    Check(SUCCEEDED(result) && PluginHostTestAccess::RegisteredNetworkWidgets(PluginHost::Instance()) == before &&
+              PluginHost::Instance().WidgetStatus(temporary.id.utf8.data()) == RedXeWidgetStatusOk,
+          L"A rolled-back temporary widget drains network registration and releases its status pin.", success);
+}
+
+void TestAtomicWidgetStatusBindings(bool& success) noexcept
+{
+    PluginHost host;
+    PluginHost::WidgetStatusBinding first;
+    PluginHost::WidgetStatusBinding replacement;
+    Check(host.BindWidgetStatus("status.bound", first) == S_OK && first.Status() == RedXeWidgetStatusOk,
+          L"A cold status binding defaults to healthy without a report.", success);
+    const uint64_t oldKey = PluginHostTestAccess::StatusKeyAt(host, 0);
+    RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusUnavailable, L"offline"};
+    Check(host.ReportWidgetStatus("STATUS.BOUND", &report) == S_OK && first.Status() == RedXeWidgetStatusUnavailable,
+          L"Worker publication reaches the cached binding with case-insensitive instance identity.", success);
+    Check(PluginHostTestAccess::ReadStatusWhileLocked(host, first),
+          L"Ten thousand status reads finish while the status-table lock is held.", success);
+    Check(host.BindWidgetStatus("status.bound", replacement) == S_OK, L"A staged replacement shares the status pin.",
+          success);
+    first.Reset();
+    host.ClearWidgetStatus("status.bound");
+    Check(replacement.Status() == RedXeWidgetStatusUnavailable,
+          L"Retiring an old widget preserves its live same-ID replacement's status.", success);
+    PluginHost::WidgetStatusBinding moved{std::move(replacement)};
+    Check(replacement.Status() == RedXeWidgetStatusOk && moved.Status() == RedXeWidgetStatusUnavailable,
+          L"Moving the binding transfers its pin exactly once.", success);
+    std::atomic<bool> reportsValid{true};
+    std::jthread writer(
+        [&]() noexcept
+        {
+            for (uint32_t index = 0; index < 20000; ++index)
+            {
+                const RedXeWidgetStatusReport next{sizeof(RedXeWidgetStatusReport), index % 4, nullptr};
+                if (host.ReportWidgetStatus("status.bound", &next) != S_OK)
+                    reportsValid.store(false);
+            }
+        });
+    bool readsValid = true;
+    for (uint32_t index = 0; index < 100000; ++index)
+        readsValid = readsValid && moved.Status() <= RedXeWidgetStatusUnavailable;
+    writer.join();
+    Check(reportsValid.load() && readsValid && moved.Status() == RedXeWidgetStatusUnavailable,
+          L"Concurrent reports publish complete valid status values to atomic readers.", success);
+    moved.Reset();
+    Check(host.BindWidgetStatus("status.reused", first) == S_OK && first.Status() == RedXeWidgetStatusOk &&
+              PluginHostTestAccess::ReadStatusKey(host, oldKey) == RedXeWidgetStatusOk,
+          L"Reusing a freed slot does not revive the previous generation's cached status.", success);
+    host.Shutdown();
+    Check(first.Status() == RedXeWidgetStatusOk,
+          L"Host shutdown invalidates outstanding bindings; later release is harmless.", success);
+
+    PluginHost capacityHost;
+    std::array<PluginHost::WidgetStatusBinding, 64> bindings;
+    bool capacityValid = true;
+    for (size_t index = 0; index < bindings.size(); ++index)
+    {
+        std::array<char, 32> id{};
+        (void)sprintf_s(id.data(), id.size(), "status.capacity.%zu", index);
+        capacityValid = capacityValid && capacityHost.BindWidgetStatus(id.data(), bindings[index]) == S_OK;
+    }
+    PluginHost::WidgetStatusBinding overflow;
+    Check(capacityValid &&
+              capacityHost.BindWidgetStatus("status.overflow", overflow) == HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES),
+          L"The current/staged status table remains bounded to 64 slots.", success);
+    bindings[23].Reset();
+    Check(capacityHost.BindWidgetStatus("status.overflow", overflow) == S_OK,
+          L"Releasing a status pin makes its slot reusable without allocation.", success);
+    report.status = RedXeWidgetStatusDegraded;
+    Check(capacityHost.ReportWidgetStatus("status.capacity.63", &report) == S_OK,
+          L"The last status slot accepts the same report as a cached view.", success);
+    constexpr uint32_t iterations = 100000;
+    uint64_t cachedSum = 0;
+    uint64_t lookupSum = 0;
+    const auto cachedStart = std::chrono::steady_clock::now();
+    for (uint32_t index = 0; index < iterations; ++index)
+        cachedSum += bindings[63].Status();
+    const auto lookupStart = std::chrono::steady_clock::now();
+    for (uint32_t index = 0; index < iterations; ++index)
+        lookupSum += capacityHost.WidgetStatus("status.capacity.63");
+    const auto lookupEnd = std::chrono::steady_clock::now();
+    Check(cachedSum == lookupSum && cachedSum == uint64_t{iterations} * RedXeWidgetStatusDegraded,
+          L"Cached and legacy cold lookups produce identical status values.", success);
+    std::wcout << L"widget_status_read iterations=" << iterations << L" cached_nanoseconds="
+               << std::chrono::duration_cast<std::chrono::nanoseconds>(lookupStart - cachedStart).count()
+               << L" cold_lookup_nanoseconds="
+               << std::chrono::duration_cast<std::chrono::nanoseconds>(lookupEnd - lookupStart).count() << L'\n';
+}
+
+void TestCompactProviderCache(bool& success) noexcept
+{
+    std::wcout << L"provider_cache key_array_bytes=" << PluginManagerTestAccess::ProviderKeyBytes() << L'\n';
+    Check(PluginManagerTestAccess::ProviderKeyBytes() <= 1024, L"The compact provider key array is bounded to one KiB.",
+          success);
+    constexpr std::string_view json = R"json({"version":{"major":5},"pages":[{"widgets":[)json"
+                                      R"json({"plugin":"builtin.process-viewer","topN":11},)json"
+                                      R"json({"plugin":"builtin.process-viewer","topN":12},)json"
+                                      R"json({"plugin":"builtin.process-viewer","topN":11}]}]})json";
+    AppSettings settings{};
+    HRESULT result = ParseAppSettingsJson(json, settings);
+    Check(SUCCEEDED(result) && PluginManagerTestAccess::CacheComparisonsAreExact(settings),
+          L"Compact provider keys reject forced hash collisions, background changes and invalid source indices.",
+          success);
+    if (FAILED(result))
+        return;
+    PluginManager plugins;
+    result = plugins.Initialize(settings);
+    Check(SUCCEEDED(result) && plugins.ProviderCount() == 2 && plugins.WidgetCount() == 3 &&
+              !plugins.IsPlaceholderAt(0) && !plugins.IsPlaceholderAt(1) && !plugins.IsPlaceholderAt(2),
+          L"Equal original configuration shares a provider; a different same-length configuration stays isolated.",
+          success);
+    result = plugins.Reconfigure(settings);
+    Check(SUCCEEDED(result) && plugins.ProviderCount() == 2 && plugins.WidgetCount() == 3,
+          L"Reconfiguration rebuilds compact provider keys from the new staging pass.", success);
 }
 
 void TestDashboardBackground(bool& success) noexcept
@@ -5380,7 +6024,7 @@ void TestShortTilePageControl(bool& success) noexcept
     {
         window.PumpMessages();
         (void)MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
-        result = renderer.Render(static_cast<float>(frame++) / 60.0f, 1.0f / 60.0f);
+        result = RenderPreparedTestFrame(renderer, dashboard, static_cast<float>(frame++) / 60.0f, 1.0f / 60.0f);
         if (SUCCEEDED(result))
         {
             result = ReadProcessViewerDiagnostics(diagnostics);
@@ -6859,14 +7503,14 @@ void TestServiceLifetime(bool& success) noexcept
     Check(host.StartedServiceCount() == 0, L"StopServices is idempotent", success);
 }
 
-// A retired services entry (the Zoom one, empty as earlier templates wrote it, with its v1.0.102 members, or with a retired member set to null) is
-// recorded by the settings store at the startup load and at a live load, and an unchanged notification loads nothing.
-// Its one Warning per load (Core_Settings.md "Services") comes from the report both of Application's load paths make,
-// PluginHost::LogRetiredServiceSettings: one service-retired-settings-ignored from builtin.zoom, without an HRESULT,
-// per entry of the document it is given, and none for a document without one. Starting the services and applying them
-// again, as Application does with every load and on a returning device lane, never logs it. Application's own startup
-// order (the load, the log, the report) runs for real in test.ps1's --screenshot step, whose file carries such an
-// entry.
+// A retired services entry (the Zoom one, empty as earlier templates wrote it, with its v1.0.102 members, or with a
+// retired member set to null) is recorded by the settings store at the startup load and at a live load, and an
+// unchanged notification loads nothing. Its one Warning per load (Core_Settings.md "Services") comes from the report
+// both of Application's load paths make, PluginHost::LogRetiredServiceSettings: one service-retired-settings-ignored
+// from builtin.zoom, without an HRESULT, per entry of the document it is given, and none for a document without one.
+// Starting the services and applying them again, as Application does with every load and on a returning device lane,
+// never logs it. Application's own startup order (the load, the log, the report) runs for real in test.ps1's
+// --screenshot step, whose file carries such an entry.
 void TestRetiredServiceWarnings(bool& success) noexcept
 {
     std::wcout << L"[ RUN      ] retired services entry: recorded per load, one warning per report\n";
@@ -7105,7 +7749,7 @@ void TestHostDefaultsMatchPublishedDefaults(bool& success) noexcept
         if (SUCCEEDED(result) && contract)
         {
             const JsonObjectSettings& merged = settings.dashboard.pages[0].widgets[0].privateConfiguration;
-            unique_doc host{yyjson_read(merged.utf8.data(), merged.bytes, YYJSON_READ_NOFLAG)};
+            unique_doc host{yyjson_read(merged.Data(), merged.Bytes(), YYJSON_READ_NOFLAG)};
             unique_doc published{yyjson_read(contract->defaultsJsonUtf8, contract->defaultsBytes, YYJSON_READ_NOFLAG)};
             matches = host && published &&
                       yyjson_equals(yyjson_doc_get_root(host.get()), yyjson_doc_get_root(published.get()));
@@ -7119,6 +7763,19 @@ void TestHostDefaultsMatchPublishedDefaults(bool& success) noexcept
 
 void TestPageEdgeAffordancePolicy(bool& success) noexcept
 {
+    constexpr std::array geometryMessages{WM_NCCREATE,      WM_CREATE,           WM_NCDESTROY,  WM_MOVE,
+                                          WM_SIZE,          WM_WINDOWPOSCHANGED, WM_DPICHANGED, WM_DISPLAYCHANGE,
+                                          WM_SETTINGCHANGE, WM_STYLECHANGED};
+    for (const UINT message : geometryMessages)
+    {
+        Check(PageEdgeGeometryMayChange(message), L"Window/display geometry notifications invalidate edge cache.",
+              success);
+    }
+    constexpr std::array stableMessages{WM_PAINT, WM_TIMER, WM_MOUSEMOVE, WM_KEYDOWN, WM_LBUTTONUP, WM_GETOBJECT};
+    for (const UINT message : stableMessages)
+    {
+        Check(!PageEdgeGeometryMayChange(message), L"Ordinary frame/input messages preserve the edge cache.", success);
+    }
     // A live multi-page dashboard in the middle of the document offers both directions.
     PageEdgeState middle{};
     middle.rendererReady = true;
@@ -8002,6 +8659,147 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     currentDashboard.Shutdown();
 }
 
+constexpr uint64_t kSoakPrivateGrowthBudget = 4ULL * 1024 * 1024;
+constexpr uint64_t kSoakWorkingSetGrowthBudget = 8ULL * 1024 * 1024;
+constexpr auto kClockSoakWarmup = std::chrono::seconds(20);
+
+[[nodiscard]] constexpr bool SoakGrowthWithinBudget(uint64_t before, uint64_t peak, uint64_t budget) noexcept
+{
+    return peak <= before || peak - before <= budget;
+}
+
+struct SoakMemoryWindow final
+{
+    ProcessMemorySnapshot peak{};
+    std::chrono::steady_clock::time_point nextSample{};
+
+    void Begin(const ProcessMemorySnapshot& before) noexcept
+    {
+        peak = before;
+        nextSample = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    }
+
+    void Observe(const ProcessMemorySnapshot& sample) noexcept
+    {
+        peak.privateBytes = (std::max)(peak.privateBytes, sample.privateBytes);
+        peak.workingSetBytes = (std::max)(peak.workingSetBytes, sample.workingSetBytes);
+    }
+
+    [[nodiscard]] HRESULT Sample(std::chrono::steady_clock::time_point now) noexcept
+    {
+        if (now < nextSample)
+            return S_OK;
+        ProcessMemorySnapshot sample{};
+        const HRESULT result = QueryProcessMemorySnapshot(sample);
+        if (SUCCEEDED(result))
+            Observe(sample);
+        nextSample = now + std::chrono::seconds(5);
+        return result;
+    }
+
+    void CheckGrowth(const ProcessMemorySnapshot& before, const ProcessMemorySnapshot& after, bool& success) noexcept
+    {
+        Observe(after);
+#if !defined(__SANITIZE_ADDRESS__)
+        Check(SoakGrowthWithinBudget(before.privateBytes, peak.privateBytes, kSoakPrivateGrowthBudget),
+              L"Warmed soak peak private growth stays within four MiB.", success);
+        Check(SoakGrowthWithinBudget(before.workingSetBytes, peak.workingSetBytes, kSoakWorkingSetGrowthBudget),
+              L"Warmed soak peak working-set growth stays within eight MiB.", success);
+#else
+        // ASan quarantine/shadow retain freed allocations. Keep the normal sanitizer settings and the functional
+        // resource/lifetime assertions, but do not compare instrumented process bytes with the ordinary WARP bar.
+        (void)success;
+        std::wcout << L"soak_memory_guard=diagnostic-only-sanitized\n";
+#endif
+        std::wcout << L"soak_memory_peak private_bytes_delta=" << (peak.privateBytes - before.privateBytes)
+                   << L" working_set_delta=" << (peak.workingSetBytes - before.workingSetBytes) << L'\n';
+    }
+};
+
+struct ClockSoakTimeline final
+{
+    std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point previous = started;
+};
+
+// Match Application's in-flight bound before building clock frames. Sleeping until the widget deadline alone
+// can build another WARP draw before DXGI permits it, exercising a different driver allocation workload.
+template <typename RenderFrame>
+[[nodiscard]] HRESULT WithClockFramePermit(HANDLE waitable, DWORD timeoutMilliseconds,
+                                           RenderFrame&& renderFrame) noexcept
+{
+    if (!waitable)
+        return E_UNEXPECTED;
+    const DWORD waited = WaitForSingleObject(waitable, timeoutMilliseconds);
+    if (waited == WAIT_OBJECT_0)
+        return renderFrame();
+    return HRESULT_FROM_WIN32(waited == WAIT_FAILED ? GetLastError() : ERROR_TIMEOUT);
+}
+
+void TestClockFramePermits(bool& success) noexcept
+{
+    wil::unique_event_nothrow permit;
+    const HRESULT created = permit.create(wil::EventOptions::None);
+    Check(SUCCEEDED(created), L"Clock pacing fixture creates an auto-reset frame permit", success);
+    if (FAILED(created))
+        return;
+    uint32_t draws = 0;
+    const auto draw = [&]() noexcept -> HRESULT
+    {
+        ++draws;
+        return S_OK;
+    };
+    Check(WithClockFramePermit(nullptr, 0, draw) == E_UNEXPECTED && draws == 0,
+          L"A missing clock permit refuses before drawing", success);
+    Check(WithClockFramePermit(permit.get(), 0, draw) == HRESULT_FROM_WIN32(ERROR_TIMEOUT) && draws == 0,
+          L"An unavailable clock permit refuses before drawing", success);
+    permit.SetEvent();
+    Check(WithClockFramePermit(permit.get(), 0, draw) == S_OK && draws == 1 &&
+              WithClockFramePermit(permit.get(), 0, draw) == HRESULT_FROM_WIN32(ERROR_TIMEOUT) && draws == 1,
+          L"A clock frame consumes one permit and cannot reuse it", success);
+    permit.SetEvent();
+    Check(WithClockFramePermit(permit.get(), 0, []() noexcept { return E_ABORT; }) == E_ABORT,
+          L"A clock draw failure propagates after acquiring its permit", success);
+}
+
+[[nodiscard]] HRESULT WarmScheduledClockHost(DashboardHost& dashboard, Renderer& renderer,
+                                             ClockSoakTimeline& timeline) noexcept
+{
+    const auto deadline = timeline.started + kClockSoakWarmup;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        uint32_t delay = 0;
+        const HRESULT scheduled = dashboard.GetNextFrameDelayMilliseconds(&delay);
+        if (scheduled != S_OK || delay == 0 || delay > 1001)
+            return FAILED(scheduled) ? scheduled : E_UNEXPECTED;
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+        const HRESULT result =
+            WithClockFramePermit(renderer.FrameLatencyWaitableObject(), 2000,
+                                 [&]() noexcept
+                                 {
+                                     const auto now = std::chrono::steady_clock::now();
+                                     const float elapsed = std::chrono::duration<float>(now - timeline.started).count();
+                                     const float delta = std::chrono::duration<float>(now - timeline.previous).count();
+                                     timeline.previous = now;
+                                     return renderer.Render(elapsed, delta);
+                                 });
+        if (FAILED(result))
+            return result;
+    }
+    return S_OK;
+}
+
+void TestSoakGrowthBudgets(bool& success) noexcept
+{
+    TestClockFramePermits(success);
+    Check(SoakGrowthWithinBudget(100, 100 + kSoakPrivateGrowthBudget, kSoakPrivateGrowthBudget) &&
+              !SoakGrowthWithinBudget(100, 101 + kSoakPrivateGrowthBudget, kSoakPrivateGrowthBudget) &&
+              SoakGrowthWithinBudget(100, 0, kSoakPrivateGrowthBudget) &&
+              !SoakGrowthWithinBudget(0, UINT64_MAX, kSoakPrivateGrowthBudget),
+          L"Soak guards accept the exact cap and reductions, reject excess growth, and avoid unsigned wraparound.",
+          success);
+}
+
 [[nodiscard]] bool RunStudioClockHostSoak(std::chrono::seconds duration) noexcept
 {
     bool success = true;
@@ -8042,11 +8840,15 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     {
         return false;
     }
-    result = renderer.Render(0.0f, 0.0f);
+    result = WithClockFramePermit(renderer.FrameLatencyWaitableObject(), 2000,
+                                  [&]() noexcept { return renderer.Render(0.0f, 0.0f); });
     StudioClockTestDiagnostics diagnosticsBefore{};
     StudioClockTestDiagnostics diagnosticsAfter{};
     ProcessMemorySnapshot memoryBefore{};
     ProcessMemorySnapshot memoryAfter{};
+    ClockSoakTimeline timeline;
+    if (SUCCEEDED(result))
+        result = WarmScheduledClockHost(dashboard, renderer, timeline);
     if (SUCCEEDED(result))
     {
         result = ReadStudioClockDiagnostics(diagnosticsBefore);
@@ -8056,11 +8858,14 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryBefore);
     }
 
+    SoakMemoryWindow memoryWindow;
+    memoryWindow.Begin(memoryBefore);
+
     uint64_t frames = 1;
     uint64_t correctiveFrames = 0;
     const auto started = std::chrono::steady_clock::now();
     const auto deadline = started + duration;
-    auto previous = started;
+    auto previous = timeline.previous;
     while (SUCCEEDED(result) && std::chrono::steady_clock::now() < deadline)
     {
         uint32_t delay = 0;
@@ -8076,16 +8881,26 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
             ++correctiveFrames;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-        const auto now = std::chrono::steady_clock::now();
-        if (now >= deadline)
-        {
+        auto now = std::chrono::steady_clock::now();
+        bool drawn = false;
+        result = WithClockFramePermit(renderer.FrameLatencyWaitableObject(), 2000,
+                                      [&]() noexcept -> HRESULT
+                                      {
+                                          now = std::chrono::steady_clock::now();
+                                          if (now >= deadline)
+                                              return S_FALSE;
+                                          const float elapsed =
+                                              std::chrono::duration<float>(now - timeline.started).count();
+                                          const float delta = std::chrono::duration<float>(now - previous).count();
+                                          previous = now;
+                                          drawn = true;
+                                          return renderer.Render(elapsed, delta);
+                                      });
+        if (!drawn)
             break;
-        }
-        const float elapsed = std::chrono::duration<float>(now - started).count();
-        const float delta = std::chrono::duration<float>(now - previous).count();
-        previous = now;
-        result = renderer.Render(elapsed, delta);
         ++frames;
+        if (SUCCEEDED(result))
+            result = memoryWindow.Sample(now);
     }
     if (SUCCEEDED(result))
     {
@@ -8096,6 +8911,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryAfter);
     }
     Check(SUCCEEDED(result), L"Studio Clock scheduled soak frames render without failure", success);
+    memoryWindow.CheckGrowth(memoryBefore, memoryAfter, success);
     const uint64_t expectedSeconds = static_cast<uint64_t>(duration.count());
     Check(correctiveFrames <= 1 && frames >= expectedSeconds && frames <= expectedSeconds + 1 + correctiveFrames,
           L"Studio Clock soak renders no more than one scheduled frame per displayed second plus one correction",
@@ -8111,8 +8927,9 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     result = ReadStudioClockDiagnostics(diagnosticsAfter);
     Check(SUCCEEDED(result) && diagnosticsAfter.timeSampleCount == hiddenSampleCount,
           L"a hidden Studio Clock interval performs no plugin-owned clock work", success);
-    std::wcout << L"studio_clock_host_soak seconds=" << duration.count() << L" frames=" << frames
-               << L" corrective_frames=" << correctiveFrames << L" private_bytes_delta="
+    std::wcout << L"studio_clock_host_soak warmup_seconds=" << kClockSoakWarmup.count() << L" seconds="
+               << duration.count() << L" frames=" << frames << L" corrective_frames=" << correctiveFrames
+               << L" private_bytes_delta="
                << (static_cast<std::int64_t>(memoryAfter.privateBytes) -
                    static_cast<std::int64_t>(memoryBefore.privateBytes))
                << L" working_set_delta="
@@ -8172,11 +8989,15 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     {
         return false;
     }
-    result = renderer.Render(0.0f, 0.0f);
+    result = WithClockFramePermit(renderer.FrameLatencyWaitableObject(), 2000,
+                                  [&]() noexcept { return renderer.Render(0.0f, 0.0f); });
     DeskClockTestDiagnostics diagnosticsBefore{};
     DeskClockTestDiagnostics diagnosticsAfter{};
     ProcessMemorySnapshot memoryBefore{};
     ProcessMemorySnapshot memoryAfter{};
+    ClockSoakTimeline timeline;
+    if (SUCCEEDED(result))
+        result = WarmScheduledClockHost(dashboard, renderer, timeline);
     if (SUCCEEDED(result))
     {
         result = ReadDeskClockDiagnostics(diagnosticsBefore);
@@ -8186,12 +9007,15 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryBefore);
     }
 
+    SoakMemoryWindow memoryWindow;
+    memoryWindow.Begin(memoryBefore);
+
     uint64_t frames = 0;
     uint64_t activeDelayCount = 0;
     uint64_t idleDelayCount = 0;
     const auto started = std::chrono::steady_clock::now();
     const auto deadline = started + duration;
-    auto previous = started;
+    auto previous = timeline.previous;
     while (SUCCEEDED(result) && std::chrono::steady_clock::now() < deadline)
     {
         uint32_t delay = 0;
@@ -8211,16 +9035,26 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
             ++idleDelayCount;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-        const auto now = std::chrono::steady_clock::now();
-        if (now >= deadline)
-        {
+        auto now = std::chrono::steady_clock::now();
+        bool drawn = false;
+        result = WithClockFramePermit(renderer.FrameLatencyWaitableObject(), 2000,
+                                      [&]() noexcept -> HRESULT
+                                      {
+                                          now = std::chrono::steady_clock::now();
+                                          if (now >= deadline)
+                                              return S_FALSE;
+                                          const float elapsed =
+                                              std::chrono::duration<float>(now - timeline.started).count();
+                                          const float delta = std::chrono::duration<float>(now - previous).count();
+                                          previous = now;
+                                          drawn = true;
+                                          return renderer.Render(elapsed, delta);
+                                      });
+        if (!drawn)
             break;
-        }
-        const float elapsed = std::chrono::duration<float>(now - started).count();
-        const float delta = std::chrono::duration<float>(now - previous).count();
-        previous = now;
-        result = renderer.Render(elapsed, delta);
         ++frames;
+        if (SUCCEEDED(result))
+            result = memoryWindow.Sample(now);
     }
     if (SUCCEEDED(result))
     {
@@ -8231,6 +9065,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryAfter);
     }
     Check(SUCCEEDED(result), L"Desk Clock scheduled soak frames render without failure", success);
+    memoryWindow.CheckGrowth(memoryBefore, memoryAfter, success);
     const uint64_t expectedSeconds = static_cast<uint64_t>(duration.count());
     Check(frames >= expectedSeconds && frames <= expectedSeconds * 1002 + 1,
           L"Desk Clock soak stays bounded to its second boundary and flip bursts", success);
@@ -8241,16 +9076,16 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
               diagnosticsAfter.liveDeviceResourceSets == diagnosticsBefore.liveDeviceResourceSets,
           L"Desk Clock soak retains stable object and resource counts", success);
     const uint64_t soakDraws = diagnosticsAfter.drawCalls - diagnosticsBefore.drawCalls;
-    Check(soakDraws >= frames * 3 && soakDraws <= frames * 4,
-          L"Desk Clock soak remains within three static or four animated draws per frame", success);
+    Check(soakDraws == frames * 2, L"Desk Clock soak uses two draws per static or animated frame", success);
 
     const uint64_t hiddenSampleCount = diagnosticsAfter.timeSamples;
     std::this_thread::sleep_for(std::chrono::seconds(2));
     result = ReadDeskClockDiagnostics(diagnosticsAfter);
     Check(SUCCEEDED(result) && diagnosticsAfter.timeSamples == hiddenSampleCount,
           L"a hidden Desk Clock interval performs no plugin-owned clock work", success);
-    std::wcout << L"desk_clock_host_soak seconds=" << duration.count() << L" frames=" << frames << L" active_delays="
-               << activeDelayCount << L" idle_delays=" << idleDelayCount << L" private_bytes_delta="
+    std::wcout << L"desk_clock_host_soak warmup_seconds=" << kClockSoakWarmup.count() << L" seconds="
+               << duration.count() << L" frames=" << frames << L" active_delays=" << activeDelayCount
+               << L" idle_delays=" << idleDelayCount << L" private_bytes_delta="
                << (static_cast<std::int64_t>(memoryAfter.privateBytes) -
                    static_cast<std::int64_t>(memoryBefore.privateBytes))
                << L" working_set_delta="
@@ -8300,13 +9135,33 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         return false;
     }
 
+    // Match the measured cadence during warm-up and bound in-flight work like Application's production loop.
+    // An unpaced warm-up followed by delayed draws measured a different driver/allocator workload.
+    const auto animationStarted = std::chrono::steady_clock::now();
+    auto previous = animationStarted;
+    const auto waitForBuffer = [&renderer]() noexcept -> HRESULT
+    {
+        const HANDLE waitable = renderer.FrameLatencyWaitableObject();
+        if (!waitable)
+            return E_UNEXPECTED;
+        const DWORD waited = WaitForSingleObject(waitable, 2000);
+        if (waited == WAIT_OBJECT_0)
+            return S_OK;
+        return HRESULT_FROM_WIN32(waited == WAIT_FAILED ? GetLastError() : ERROR_TIMEOUT);
+    };
     for (uint32_t frame = 0; frame < 1024; ++frame)
     {
-        result = renderer.Render(static_cast<float>(frame) / 60.0f, 1.0f / 60.0f);
+        result = waitForBuffer();
+        const auto now = std::chrono::steady_clock::now();
+        if (SUCCEEDED(result))
+            result = renderer.Render(std::chrono::duration<float>(now - animationStarted).count(),
+                                     std::chrono::duration<float>(now - previous).count());
+        previous = now;
         if (FAILED(result))
         {
             return false;
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
 
     MatrixRainTestDiagnostics diagnosticsBefore{};
@@ -8319,18 +9174,25 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
         result = QueryProcessMemorySnapshot(memoryBefore);
     }
 
+    SoakMemoryWindow memoryWindow;
+    memoryWindow.Begin(memoryBefore);
+
     uint64_t frames = 0;
     const auto started = std::chrono::steady_clock::now();
     const auto deadline = started + duration;
-    auto previous = started;
     while (SUCCEEDED(result) && std::chrono::steady_clock::now() < deadline)
     {
+        result = waitForBuffer();
+        if (FAILED(result))
+            break;
         const auto now = std::chrono::steady_clock::now();
-        const float elapsed = std::chrono::duration<float>(now - started).count();
+        const float elapsed = std::chrono::duration<float>(now - animationStarted).count();
         const float delta = std::chrono::duration<float>(now - previous).count();
         previous = now;
         result = renderer.Render(elapsed, delta);
         ++frames;
+        if (SUCCEEDED(result))
+            result = memoryWindow.Sample(now);
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
     if (SUCCEEDED(result))
@@ -8343,6 +9205,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     }
 
     Check(SUCCEEDED(result), L"soak frames render without failure", success);
+    memoryWindow.CheckGrowth(memoryBefore, memoryAfter, success);
     Check(diagnosticsAfter.liveProviderCount == diagnosticsBefore.liveProviderCount &&
               diagnosticsAfter.liveWidgetCount == diagnosticsBefore.liveWidgetCount &&
               diagnosticsAfter.liveDeviceResourceSetCount == diagnosticsBefore.liveDeviceResourceSetCount,
@@ -8410,6 +9273,37 @@ int wmain(int argumentCount, wchar_t** arguments)
     RedXeFailureReports::RouteAwayFromDialogs();
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (argumentCount == 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--construction-work")
+    {
+        bool success = true;
+        TestConstructionWork(success);
+        TestConstructionPages(success);
+        return success ? 0 : 1;
+    }
+    if (argumentCount == 3 && arguments[1] && std::wstring_view(arguments[1]) == L"--viewer-pixels")
+    {
+        bool success = true;
+        TestProcessViewerPixelReference(arguments[2], success);
+        return success ? 0 : 1;
+    }
+    if (argumentCount == 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--viewer-scheduling")
+    {
+        bool success = true;
+        TestProcessViewerScheduling(success);
+        return success ? 0 : 1;
+    }
+    if (argumentCount == 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--gpu-resource-retirement")
+    {
+        bool success = true;
+        TestGpuResourceRetirement(success);
+        return success ? 0 : 1;
+    }
+    if (argumentCount == 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--data-source-lifetime")
+    {
+        bool success = true;
+        TestDataSourceLifetime(success);
+        return success ? 0 : 1;
+    }
     if (argumentCount >= 2 && arguments[1] && std::wstring_view(arguments[1]) == L"--matrix-soak")
     {
         std::chrono::seconds duration{};
@@ -8456,6 +9350,10 @@ int wmain(int argumentCount, wchar_t** arguments)
     PluginHost::Instance().SetNetworkAccessEnabled(false);
     PluginHost::Instance().SetControlAccessEnabled(false);
     TestFrameScheduler(success);
+    TestContinuousFramePacing(success);
+    TestSoakGrowthBudgets(success);
+    TestRuntimeProbe(success);
+    TestCheckedPageStaging(success);
     TestAdapterSelectionPolicy(success);
     TestRendererDeviceIdentity(success);
     TestWindowCapture(success);
@@ -8483,20 +9381,28 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestDeskClockScheduling(success);
     TestDebugHostComposition(success);
     TestDataProviderLookup(success);
+    TestDataSourceLifetime(success);
     TestProcessViewerSubscription(success);
     TestProcessViewerSubscription(success); // Repeat with nonzero process-lifetime diagnostics.
     TestSystemDataViewers(success);
+    TestProcessViewerScheduling(success);
     TestSubscriptionDrain(success);
     TestReservedSubscriptionDrain(success);
     TestGpuTargetSizeNotification(success);
     TestGpuPageLifetime(success);
+    TestGpuResourceRetirement(success);
     TestGpuWidgetCallbackFailures(success);
+    TestPageCallbackProbe(success);
     TestSharedPluginRuntime(success);
     TestHostRequestFrameAndWidgetStatus(success);
     TestWidgetSettingsPersist(success);
     TestHostJsonlLog(success);
+    TestLogRetentionTransitions(success);
     TestStandardErrorLog(success);
     TestHostOwnedPlaceholderTiles(success);
+    TestWidgetSlotRollback(success);
+    TestAtomicWidgetStatusBindings(success);
+    TestCompactProviderCache(success);
     TestDashboardBackground(success);
     TestUnmappedCatalogModulePlaceholder(success);
     TestShortTilePageControl(success);
@@ -8505,6 +9411,8 @@ int wmain(int argumentCount, wchar_t** arguments)
     TestHostActionQueue(success);
     TestQueuedInputAge(success);
     TestLaunchWorker(success);
+    TestConstructionWork(success);
+    TestConstructionPages(success);
     TestSessionEndDeadline(success);
     TestActionValidation(success);
     TestActionMonitorSelection(success);

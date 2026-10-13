@@ -85,6 +85,11 @@ Orientation is runtime state and MUST NOT appear in settings.
 - Neighbor staging MUST NOT block the first follow-finger frame. The current page may slide immediately; the
   directionally adjacent page is created on the following idle turn. Reversing through zero tears down the prior
   neighbor before staging the opposite page.
+- Staging borrows the current typed document with a checked target index; it MUST NOT deep-copy the document merely
+  to select the neighbor. Promotion changes only the current document's active selector, preserving source-only
+  reloads, dock edits and widget persists made during the gesture. Failed staging MUST clear the renderer's borrowed
+  neighbor before local ownership ends. Retirement clears that borrow even when a visibility callback fails, reports
+  the callback error and releases initialized GPU resources; it preserves the primary page and presentation resources.
 - On release the host settles with presentation-paced ease-out frames. It commits when travel reaches one quarter of
   the client width or a same-direction flick exceeds the DPI-scaled speed threshold; otherwise it returns to the
   current page. Commit promotes the already-staged neighbor in place and MUST NOT recreate the Direct3D device.
@@ -135,6 +140,10 @@ navigation. This section owns that affordance; it changes nothing about the pan 
   or occluded, a widget is raised, a pointer pan is in progress, or a settle or staged transition is in progress.
 - In the dock window kind (`UI_XeneonDisplayWindowing.md`) the reachable client is the whole client, and a collapsed
   autohide dock (its peek strip) counts as a hidden window: no band exists until the bar reveals.
+- Non-dock reachable geometry is cached on the UI thread and invalidated before dispatch of
+  window creation/destruction, move/size/position/style, DPI, display-topology and system-settings notifications.
+  Repeated frame, hover and hit-test queries with unchanged geometry MUST NOT enumerate displays. Work-area
+  notifications refresh the same bounded union and preserve the full-height band rule.
 - A blocked end has no band. `wrapPages` and the first/last page rule are the same ones the pan path uses, so both
   input paths stop and wrap identically.
 - A band reveals within one coalesced frame as a translucent wash and a chevron pointing in the travel direction,
@@ -149,8 +158,12 @@ navigation. This section owns that affordance; it changes nothing about the pan 
   movement and releases to the top-level window. No shipped page places a native-window widget.
 - Clicking a revealed band stages the adjacent page, then commits through the same ease-out settle and in-place
   promote a committed pan uses. It MUST NOT recreate the Direct3D device. Unlike a pan there is no follow-finger
-  phase, so staging is synchronous at click time and the settle starts from rest, which places its duration at the
-  clamped upper bound of the shared settle policy.
+  phase. GPU page setup remains synchronous; bounded CPU content construction may run on the host STA while the
+  neighbour stays fully offscreen. The current page keeps animating at its normal cadence until every incoming
+  widget has full-quality CPU pixels and a complete GPU upload (or a locally failed host placeholder). Then the
+  settle starts from rest at the clamped upper bound of the shared policy. A parked current page waits on messages
+  and one three-second expiry deadline; an unfinished wait cancels navigation. A touch gesture withdraws this
+  unexposed neighbour before its live 1:1 pan. No snapshot, partial icon grid, downsampling or device rebuild is used.
 - A navigation click MUST NOT count as part of a double-activate raise gesture. Accepted trade: a revealed band
   consumes the click in its strip, so a widget under a band cannot be double-click-raised there; it stays raisable
   everywhere else in its tile. Band width is a single DPI-scaled constant so this is tunable in one place.
@@ -305,7 +318,9 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
 - After a successful frame, the application selects the earliest valid delay from the current and staged dashboards,
   converts it immediately to a monotonic deadline, and blocks in one message-aware wait. Deadline expiry coalesces one
   ordinary frame invalidation.
-- A continuous widget on either participating dashboard supersedes scheduled waits. An active pan, settle, or staged
+- A continuous widget on either participating dashboard supersedes scheduled waits, using display pacing by default
+  or the optional settled 30-fps deadline (`Core_Settings.md`, `Core_PerformanceAndResources.md`). Explicit
+  invalidation bypasses that deadline. An active pan, settle, or staged
   neighbor also supersedes them so the scroll ease and in-widget animation keep presenting. Unrelated messages do not
   render a clean static dashboard.
 - Hidden, minimized, suspended, display-off, occluded, inactive-page, transition-cancel, and shutdown paths discard

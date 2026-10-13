@@ -984,6 +984,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     }
 
     const auto startTime = std::chrono::steady_clock::now();
+    _probe.Start(_probeSeconds, GetTickCount64());
     float previousElapsedSeconds = 0.0f;
     MSG message{};
     while (_window)
@@ -1020,6 +1021,8 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             break;
         }
 
+        TickRuntimeProbe();
+
         if (_pageSettleActive)
         {
             TickPageSettle();
@@ -1042,7 +1045,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             _occlusionStatusChanged = false;
         }
 
-        HostFrameAction frameAction = SelectHostFrameAction(HostFrameState{
+        HostFrameState frameState{
             _windowVisible,
             _displayPoweredOn,
             _renderer.IsSuspended(),
@@ -1050,11 +1053,12 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             _occlusionStatusChanged,
             DashboardRequiresContinuousFrames(),
             _frameInvalidated,
-            PageNavigationInProgress(),
+            PageNavigationInProgress() && !_pageSettleWaiting,
             // A dock slide is visible motion like a raise settle: every frame presents until it ends.
             OverlayMotionInProgress() || _dockSlideActive,
             DockHidden(),
-        });
+        };
+        HostFrameAction frameAction = SelectHostFrameAction(frameState);
         if (frameAction == HostFrameAction::ProbeOcclusion)
         {
             _occlusionStatusChanged = false;
@@ -1077,7 +1081,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                 CloseMainWindow();
                 continue;
             }
-            frameAction = SelectHostFrameAction(HostFrameState{
+            frameState = HostFrameState{
                 _windowVisible,
                 _displayPoweredOn,
                 _renderer.IsSuspended(),
@@ -1085,14 +1089,17 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                 false,
                 DashboardRequiresContinuousFrames(),
                 _frameInvalidated,
-                PageNavigationInProgress(),
+                PageNavigationInProgress() && !_pageSettleWaiting,
                 OverlayMotionInProgress() || _dockSlideActive,
                 DockHidden(),
-            });
+            };
+            frameAction = SelectHostFrameAction(frameState);
         }
 
         if (frameAction == HostFrameAction::WaitForMessage)
         {
+            _continuousFramePacer.Reset();
+            _continuousFrameWait.Cancel();
             if (_dockSlideActive)
             {
                 // No frame will show the slide's next step (a hidden window, the display off, a suspended renderer):
@@ -1111,7 +1118,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             continue;
         }
 
-        if (!WaitForFrameLatency())
+        if (!WaitForFrameLatency() || !WaitForContinuousFrameDeadline(frameState))
         {
             // Input arrived while a back buffer was still in flight: dispatch it before building the frame.
             continue;
@@ -1136,6 +1143,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         RefreshAccessibility(preparedWidgets);
         if (SUCCEEDED(result))
             result = _renderer.Render(elapsedSeconds, deltaSeconds);
+        _continuousFramePacer.ConsumeFrameLatency();
         if (FAILED(result))
         {
             RecordRuntimeFailure(result, "render-failed");
@@ -1147,6 +1155,13 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         {
             _frameInvalidated = false;
             RefreshScheduledFrameDeadline();
+            if (_settings->continuousFrameRate == ContinuousFrameRate::Thirty && frameState.continuousFramesRequired)
+                _continuousFramePacer.Presented(ContinuousFramePacer::Clock::now());
+            else
+            {
+                _continuousFramePacer.Reset();
+                _continuousFrameWait.Cancel();
+            }
         }
         FlushPendingTransitionStage();
         result = UpdateDashboardVisibility();
@@ -1297,6 +1312,26 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     }
 
     {
+        const RECT reachable = ReachableClientRect();
+        const uint32_t walks = _reachableClientDisplayWalks;
+        for (uint32_t index = 0; index < 1000; ++index)
+        {
+            const RECT cached = ReachableClientRect();
+            if (!EqualRect(&reachable, &cached) || _reachableClientDisplayWalks != walks)
+            {
+                return FailSelfTest(L"Unchanged page-edge geometry repeated a display enumeration.");
+            }
+        }
+        // A notification to this hidden test window exercises production invalidation without changing the desktop.
+        (void)SendMessageW(_window.get(), WM_SETTINGCHANGE, SPI_SETWORKAREA, 0);
+        const RECT refreshed = ReachableClientRect();
+        if (!EqualRect(&reachable, &refreshed) || _reachableClientDisplayWalks != walks + 1)
+        {
+            return FailSelfTest(L"A work-area notification did not refresh page-edge geometry exactly once.");
+        }
+    }
+
+    {
         // Native-widget containers are layered children. Windows honors WS_EX_LAYERED on a child only for processes
         // whose manifest declares Windows 8 or later, so prove it here rather than at the first native attach.
         const wil::unique_hwnd layeredProbe(CreateWindowExW(WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED, L"STATIC", L"",
@@ -1382,6 +1417,38 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         return FailSelfTest(L"The plugin smoke frame did not render every GPU-widget instance.", result);
     }
 
+    // A pacing-only reload preserves the live widgets and swap chain, removes the old deadline, and invalidates once.
+    {
+        const ContinuousFrameRate original = _settings->continuousFrameRate;
+        const IRedXeWidget* first = _pluginManager->WidgetAt(0);
+        const HANDLE latency = _renderer.FrameLatencyWaitableObject();
+        const ContinuousFrameRate changedRate =
+            original == ContinuousFrameRate::Display ? ContinuousFrameRate::Thirty : ContinuousFrameRate::Display;
+        for (const ContinuousFrameRate rate : {changedRate, original})
+        {
+            std::unique_ptr<AppSettings> changed{new (std::nothrow) AppSettings{*_settings}};
+            if (!changed)
+                return FailSelfTest(L"The pacing reload test could not copy settings.", E_OUTOFMEMORY);
+            changed->continuousFrameRate = rate;
+            _frameInvalidated = false;
+            _continuousFramePacer.Presented(ContinuousFramePacer::Clock::now());
+            _continuousFramePacer.AcceptFrameLatency(_renderer.FrameLatencyGeneration());
+            bool timerReady = false;
+            result = _continuousFrameWait.Wait(std::chrono::seconds{1}, 0, timerReady);
+            if (result != S_OK || timerReady || !_continuousFrameWait.Handle())
+                return FailSelfTest(L"The pacing reload test could not arm its stale timer.", result);
+            result = ApplySettings(std::move(changed));
+            if (result != S_OK || _settings->continuousFrameRate != rate || !_frameInvalidated ||
+                _continuousFramePacer.Remaining(ContinuousFramePacer::Clock::now()) !=
+                    std::chrono::nanoseconds::zero() ||
+                !_continuousFramePacer.HasFrameLatency(_renderer.FrameLatencyGeneration()) ||
+                _pluginManager->WidgetAt(0) != first || _renderer.FrameLatencyWaitableObject() != latency ||
+                (rate == ContinuousFrameRate::Display && _continuousFrameWait.Handle()))
+                return FailSelfTest(L"A live pacing-only reload rebuilt widgets or retained its deadline.", result);
+        }
+        // The self-test seeded a model permit rather than consuming the actual DXGI signal.
+        _continuousFramePacer.ConsumeFrameLatency();
+    }
     const uint32_t pageCount = _settings->dashboard.pageCount;
     for (uint32_t page = 1; page < pageCount; ++page)
     {
@@ -1402,6 +1469,27 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
             _renderer.LastFrameSuccessfulWidgetCount() != changedGpuWidgetCount)
         {
             return FailSelfTest(L"The dashboard page/private settings reconfiguration smoke test failed.", result);
+        }
+        for (size_t widget = 0; widget < _dashboardHost->WidgetCount(); ++widget)
+        {
+            result = TryRaiseWidgetAt(_window.get(), widget);
+            if (result == HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED))
+                continue;
+            if (FAILED(result))
+                return FailSelfTest(L"The hidden raised-state probe setup failed.", result);
+            const auto dismiss = wil::scope_exit([this]() noexcept { CompleteDismissImmediate(); });
+            CompleteRaiseSettle();
+            if (!(RuntimeProbeState() & kRuntimeProbeRaisedState))
+                return FailSelfTest(L"A settled real widget raise is absent from the runtime probe state.");
+            result = _renderer.PrepareWidgets();
+            if (SUCCEEDED(result))
+                result = _renderer.Render(0.0f, 0.0f);
+            if (FAILED(result))
+                return FailSelfTest(L"The hidden raised-state probe frame failed.", result);
+            DismissWidgetRaise(false);
+            if (RuntimeProbeState() & kRuntimeProbeRaisedState)
+                return FailSelfTest(L"An immediate widget dismissal retained the runtime probe raised state.");
+            break;
         }
     }
 
@@ -1428,8 +1516,8 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         if (SUCCEEDED(result))
             result = ApplySettings(std::move(annotated));
         if (SUCCEEDED(result))
-            result = (result == S_FALSE && _transitionSettings) ? PromoteTransitionPage() : E_UNEXPECTED;
-        if (FAILED(result) || _transitionSettings || _settings->dashboard.activePageIndex != firstPage ||
+            result = (result == S_FALSE && _transitionPageIndex) ? PromoteTransitionPage() : E_UNEXPECTED;
+        if (FAILED(result) || _transitionPageIndex || _settings->dashboard.activePageIndex != firstPage ||
             _settings->sourceDocument != expectedSource)
         {
             return FailSelfTest(L"A source-only reload during a staged swipe did not survive the page commit.", result);
@@ -2936,7 +3024,9 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
         {
             return result;
         }
+        const ContinuousFrameRate previousRate = _settings->continuousFrameRate;
         _settings = std::move(settings);
+        ApplyContinuousFrameRate(previousRate);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
         ApplyTrayIconSettings();
@@ -2970,7 +3060,9 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     }
     if (SUCCEEDED(applyResult))
     {
+        const ContinuousFrameRate previousRate = _settings->continuousFrameRate;
         _settings = std::move(settings);
+        ApplyContinuousFrameRate(previousRate);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
         // The window already has the candidate's kind, so only same-kind dock members remain, and they never fail.
@@ -3088,91 +3180,131 @@ void Application::EditSettingsFile() noexcept
     }
 }
 
-HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPageIndex) noexcept
+HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPageIndex,
+                                         bool allowConstruction) noexcept
 {
     if (!_settings || !_rendererReady || !_window || (direction != -1 && direction != 1))
     {
         return E_INVALIDARG;
     }
-    if (targetPageIndex && (*targetPageIndex >= _settings->dashboard.pageCount ||
-                            *targetPageIndex == _settings->dashboard.activePageIndex))
+    if (_settings->dashboard.pages.size() != _settings->dashboard.pageCount ||
+        (targetPageIndex && (*targetPageIndex >= _settings->dashboard.pageCount ||
+                             *targetPageIndex == _settings->dashboard.activePageIndex)))
     {
         return E_INVALIDARG;
     }
-    if (_pageTransitionDirection == direction && _transitionDashboardHost && _transitionSettings &&
-        (!targetPageIndex || _transitionSettings->dashboard.activePageIndex == *targetPageIndex))
+    if (_pageTransitionDirection == direction && _transitionDashboardHost && _transitionPageIndex &&
+        (!targetPageIndex || *_transitionPageIndex == *targetPageIndex))
     {
         return S_OK;
     }
-    ClearTransitionPage();
-    auto settings = std::unique_ptr<AppSettings>(new (std::nothrow) AppSettings(*_settings));
-    if (!settings)
+    RuntimePageStageProbe stageProbe(_probe.Enabled(), _settings->dashboard.activePageIndex, direction);
+    HRESULT stageResult = S_OK;
+    const auto stage = [&]() -> HRESULT
     {
-        return E_OUTOFMEMORY;
-    }
-    HRESULT result = S_OK;
-    if (targetPageIndex)
+        ClearTransitionPage();
+        stageProbe.Mark(RuntimePageStagePhase::Retirement);
+        uint32_t selected = targetPageIndex ? *targetPageIndex : 0;
+        HRESULT result = targetPageIndex ? S_OK : ResolveAdjacentDashboardPage(*_settings, direction, selected);
+        if (FAILED(result))
+            return result;
+        stageProbe.Select(selected);
+        stageProbe.Mark(RuntimePageStagePhase::SettingsCopy);
+        auto plugins = std::unique_ptr<PluginManager>(new (std::nothrow) PluginManager());
+        if (!plugins)
+        {
+            return E_OUTOFMEMORY;
+        }
+        result = plugins->InitializePage(*_settings, selected, _pluginManager.get());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        stageProbe.Mark(RuntimePageStagePhase::Providers);
+        // The neighbour is laid out on the same canvas as the page it replaces: a dock's full bar, never its strip.
+        UINT width = 0;
+        UINT height = 0;
+        UINT dpi = 0;
+        result = PresentationCanvas(width, height, dpi);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        auto dashboard = std::unique_ptr<DashboardHost>(new (std::nothrow) DashboardHost());
+        if (!dashboard)
+        {
+            return E_OUTOFMEMORY;
+        }
+        const auto rollback = wil::scope_exit(
+            [&]() noexcept
+            {
+                if (dashboard)
+                {
+                    (void)_renderer.SetTransitionDashboard(nullptr);
+                    dashboard->Shutdown();
+                }
+            });
+        const bool visible = _windowVisible && _displayPoweredOn && !_renderer.IsSuspended() && !_renderer.IsOccluded();
+        result = dashboard->Initialize(*plugins, _window.get(), width, height, dpi, false);
+        if (SUCCEEDED(result))
+            result = dashboard->SetHorizontalOffset(_pageCurrentOffset + direction * static_cast<LONG>(width));
+        // Both pages share a dock slide's translation (zero once settled, as it is when navigation starts).
+        if (SUCCEEDED(result) && _dashboardHost)
+            result = dashboard->SetSlideOffset(_dashboardHost->SlideOffset());
+        if (SUCCEEDED(result))
+            stageProbe.Mark(RuntimePageStagePhase::Layout);
+        if (SUCCEEDED(result))
+        {
+            HRESULT preparationTrace = S_FALSE;
+            result = _renderer.SetTransitionDashboard(dashboard.get(), stageProbe.Callbacks(), &preparationTrace);
+            stageProbe.PreparationTraceResult(preparationTrace);
+        }
+        if (SUCCEEDED(result))
+            stageProbe.Mark(RuntimePageStagePhase::GpuSetup);
+        if (SUCCEEDED(result))
+        {
+            auto& host = PluginHost::Instance();
+            const bool previous = host.ConstructionAccessEnabled();
+            // A touch pan has already exposed its neighbour. Only a discrete navigation at rest may keep it
+            // offscreen while CPU icons are constructed. Hidden/self-test activation retains synchronous setup.
+            host.SetConstructionAccessEnabled(allowConstruction && visible && !_pagePointerActive && !_pagePanStarted &&
+                                              _pageCurrentOffset == 0);
+            const auto restore = wil::scope_exit([&]() noexcept { host.SetConstructionAccessEnabled(previous); });
+            result = dashboard->SetWidgetsVisible(visible, stageProbe.Callbacks());
+        }
+        if (SUCCEEDED(result))
+            stageProbe.Mark(RuntimePageStagePhase::Visibility);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        _transitionPageIndex = selected;
+        _transitionPluginManager = std::move(plugins);
+        _transitionDashboardHost = std::move(dashboard);
+        _pageTransitionDirection = direction;
+        return S_OK;
+    };
+    try
     {
-        settings->dashboard.activePageIndex = *targetPageIndex;
-        settings->dashboard.activePageId = settings->dashboard.pages[*targetPageIndex].id;
+        stageResult = stage();
     }
-    else
+    catch (const std::bad_alloc&)
     {
-        result = MoveDashboardPage(*settings, direction);
+        stageResult = E_OUTOFMEMORY;
     }
-    if (FAILED(result))
+    catch (...)
     {
-        return result;
+        stageResult = E_FAIL;
     }
-    auto plugins = std::unique_ptr<PluginManager>(new (std::nothrow) PluginManager());
-    if (!plugins)
-    {
-        return E_OUTOFMEMORY;
-    }
-    result = plugins->Initialize(*settings);
-    if (FAILED(result))
-    {
-        return result;
-    }
-    // The neighbour is laid out on the same canvas as the page it replaces: a dock's full bar, never its strip.
-    UINT width = 0;
-    UINT height = 0;
-    UINT dpi = 0;
-    result = PresentationCanvas(width, height, dpi);
-    if (FAILED(result))
-    {
-        return result;
-    }
-    auto dashboard = std::unique_ptr<DashboardHost>(new (std::nothrow) DashboardHost());
-    if (!dashboard)
-    {
-        return E_OUTOFMEMORY;
-    }
-    const bool visible = _windowVisible && _displayPoweredOn && !_renderer.IsSuspended() && !_renderer.IsOccluded();
-    result = dashboard->Initialize(*plugins, _window.get(), width, height, dpi, false);
-    if (SUCCEEDED(result))
-        result = dashboard->SetHorizontalOffset(_pageCurrentOffset + direction * static_cast<LONG>(width));
-    // Both pages share a dock slide's translation (zero once settled, as it is when navigation starts).
-    if (SUCCEEDED(result) && _dashboardHost)
-        result = dashboard->SetSlideOffset(_dashboardHost->SlideOffset());
-    if (SUCCEEDED(result))
-        result = _renderer.SetTransitionDashboard(dashboard.get());
-    if (SUCCEEDED(result))
-        result = dashboard->SetWidgetsVisible(visible);
-    if (FAILED(result))
-    {
-        dashboard->Shutdown();
-        return result;
-    }
-    _transitionSettings = std::move(settings);
-    _transitionPluginManager = std::move(plugins);
-    _transitionDashboardHost = std::move(dashboard);
-    _pageTransitionDirection = direction;
-    return S_OK;
+    if (stageProbe.Enabled())
+        (void)PluginHost::Instance().LogRuntimePageStage(stageProbe.Complete(stageResult));
+    return stageResult;
 }
 
 void Application::ClearTransitionPage() noexcept
 {
+    _pageSettleWaiting = false;
+    _pageConstructionDeadlineTick = 0;
     (void)_renderer.SetTransitionDashboard(nullptr);
     if (_transitionDashboardHost)
     {
@@ -3180,7 +3312,7 @@ void Application::ClearTransitionPage() noexcept
     }
     _transitionDashboardHost.reset();
     _transitionPluginManager.reset();
-    _transitionSettings.reset();
+    _transitionPageIndex.reset();
     _pageTransitionDirection = 0;
     _pageStagePendingDirection = 0;
 }
@@ -3225,7 +3357,7 @@ void Application::FlushPendingTransitionStage() noexcept
 
 HRESULT Application::PromoteTransitionPage() noexcept
 {
-    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionSettings || !_settings ||
+    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionPageIndex || !_settings ||
         !_pluginManager || !_dashboardHost)
     {
         return E_UNEXPECTED;
@@ -3242,12 +3374,12 @@ HRESULT Application::PromoteTransitionPage() noexcept
     std::unique_ptr<PluginManager> retiringPlugins = std::move(_pluginManager);
     _dashboardHost = std::move(_transitionDashboardHost);
     _pluginManager = std::move(_transitionPluginManager);
-    // The staged copy differs from the document only in the active page (StageTransitionPage), and every change to
+    // Staging borrows this document with a narrow selector, and every change to
     // the page list cancels navigation first. Take only the page, so a source-only reload, a dock drag, or a widget
     // persist made during the swipe stays in the document.
-    _settings->dashboard.activePageIndex = _transitionSettings->dashboard.activePageIndex;
-    _settings->dashboard.activePageId = _transitionSettings->dashboard.activePageId;
-    _transitionSettings.reset();
+    _settings->dashboard.activePageIndex = *_transitionPageIndex;
+    _settings->dashboard.activePageId = _settings->dashboard.pages[*_transitionPageIndex].id;
+    _transitionPageIndex.reset();
     _pageTransitionDirection = 0;
     _pageStagePendingDirection = 0;
     _pageCurrentOffset = 0;
@@ -3294,10 +3426,18 @@ void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
     _pageSettleCommit = commit;
     _pageSettleStart = _pageCurrentOffset;
     _pageSettleTarget = targetOffset;
+    _pageSettleWaiting =
+        commit && _pageCurrentOffset == 0 && _transitionDashboardHost && !_transitionDashboardHost->ConstructionReady();
+    _pageConstructionDeadlineTick = _pageSettleWaiting ? GetTickCount64() + ConstructionWorkQueue::WorkMilliseconds : 0;
     _pagePanStarted = false;
     LARGE_INTEGER now{};
     if (!QueryPerformanceCounter(&now) || _qpcFrequency == 0)
     {
+        if (_pageSettleWaiting)
+        {
+            CancelPageNavigation();
+            return;
+        }
         ApplyPageOffset(targetOffset, canvas.cx);
         _pageSettleActive = false;
         if (commit)
@@ -3478,6 +3618,26 @@ void Application::TickPageSettle() noexcept
         return;
     }
 
+    if (_pageSettleWaiting)
+    {
+        if (GetTickCount64() >= _pageConstructionDeadlineTick)
+        {
+            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+                               "page-construction-timeout", "The incoming page was not ready; navigation was canceled.",
+                               HRESULT_FROM_WIN32(ERROR_TIMEOUT));
+            CancelPageNavigation();
+            return;
+        }
+        if (!_transitionDashboardHost || !_transitionDashboardHost->ConstructionReady())
+            return;
+        _pageSettleWaiting = false;
+        _pageConstructionDeadlineTick = 0;
+        LARGE_INTEGER start{};
+        if (QueryPerformanceCounter(&start))
+            _pageSettleStartQpc = static_cast<uint64_t>(start.QuadPart);
+        _frameInvalidated = true;
+    }
+
     float t = 1.0f;
     LARGE_INTEGER now{};
     if (_pageSettleDurationQpc != 0 && QueryPerformanceCounter(&now))
@@ -3626,6 +3786,10 @@ void Application::RefreshPageEdgeAffordances() noexcept
 
 RECT Application::ReachableClientRect() const noexcept
 {
+    if (_window && !_dockActive && _reachableClientCacheValid)
+    {
+        return _reachableClientCache;
+    }
     RECT client{};
     if (!_window || !GetClientRect(_window.get(), &client))
     {
@@ -3640,6 +3804,8 @@ RECT Application::ReachableClientRect() const noexcept
     RECT windowBounds{};
     if (!GetWindowRect(_window.get(), &windowBounds))
     {
+        _reachableClientCache = client;
+        _reachableClientCacheValid = true;
         return client;
     }
 
@@ -3676,8 +3842,11 @@ RECT Application::ReachableClientRect() const noexcept
         ++target->count;
         return TRUE;
     };
+    ++_reachableClientDisplayWalks;
     (void)EnumDisplayMonitors(nullptr, &windowBounds, collect, reinterpret_cast<LPARAM>(&collector));
-    return PageEdgeReachableClient(client, collector.areas.data(), collector.count);
+    _reachableClientCache = PageEdgeReachableClient(client, collector.areas.data(), collector.count);
+    _reachableClientCacheValid = true;
+    return _reachableClientCache;
 }
 
 void Application::UpdatePageEdgeHover() noexcept
@@ -3755,7 +3924,7 @@ HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
         return S_FALSE;
     }
 
-    const HRESULT staged = StageTransitionPage(direction);
+    const HRESULT staged = StageTransitionPage(direction, nullptr, true);
     if (FAILED(staged))
     {
         return staged;
@@ -3794,7 +3963,7 @@ HRESULT Application::NavigateToPage(uint32_t pageIndex) noexcept
     }
     const int direction =
         pageIndex > _settings->dashboard.activePageIndex ? kPageEdgeDirectionNext : kPageEdgeDirectionPrevious;
-    const HRESULT staged = StageTransitionPage(direction, &pageIndex);
+    const HRESULT staged = StageTransitionPage(direction, &pageIndex, true);
     if (FAILED(staged))
     {
         return staged;
@@ -4293,6 +4462,10 @@ void Application::OnPointerDown(HWND window, WPARAM wParam, LPARAM lParam) noexc
             ids[index] = contacts[index].id;
             points[index] = contacts[index].client;
         }
+        // A full-quality discrete neighbour has not been exposed while waiting. Retire it before a live touch
+        // gesture instead of allowing an unprepared tile to enter the follow-finger canvas.
+        if (_pageSettleWaiting)
+            CancelPageNavigation();
         const bool grabbingSettle = _pageSettleActive || _pageCurrentOffset != 0;
         if (_pageSettleActive)
         {
@@ -5891,6 +6064,8 @@ bool Application::WaitUntilMessage() noexcept
         timeoutMilliseconds = static_cast<DWORD>(remaining);
     }
 
+    if (_probe.Enabled())
+        timeoutMilliseconds = RuntimeProbeWaitTimeout(GetTickCount64(), _scheduledFrameDeadlineTick, _probe.Deadline());
     const DWORD waitResult =
         MsgWaitForMultipleObjectsEx(0, nullptr, timeoutMilliseconds, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     if (waitResult == WAIT_OBJECT_0)
@@ -5899,8 +6074,12 @@ bool Application::WaitUntilMessage() noexcept
     }
     if (waitResult == WAIT_TIMEOUT)
     {
-        _scheduledFrameDeadlineTick = 0;
-        _frameInvalidated = true;
+        // A diagnostic wake never requests a frame, including while hidden/minimized/display-off/occluded.
+        if (_scheduledFrameDeadlineTick != 0 && GetTickCount64() >= _scheduledFrameDeadlineTick)
+        {
+            _scheduledFrameDeadlineTick = 0;
+            _frameInvalidated = true;
+        }
         return true;
     }
 
@@ -5917,14 +6096,19 @@ bool Application::WaitForFrameLatency() noexcept
     {
         return true;
     }
+    const uint64_t generation = _renderer.FrameLatencyGeneration();
+    if (_continuousFramePacer.HasFrameLatency(generation))
+        return true;
     // Handles are checked before the message queue, so a free buffer always wins over pending input; pending input
     // only defers the frame while the previous one is still being consumed.
-    const DWORD waitResult = MsgWaitForMultipleObjectsEx(1, &waitable, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    const DWORD timeout = _probe.Enabled() ? RuntimeProbeWaitTimeout(GetTickCount64(), 0, _probe.Deadline()) : INFINITE;
+    const DWORD waitResult = MsgWaitForMultipleObjectsEx(1, &waitable, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     if (waitResult == WAIT_OBJECT_0)
     {
+        _continuousFramePacer.AcceptFrameLatency(generation);
         return true;
     }
-    if (waitResult == WAIT_OBJECT_0 + 1)
+    if (waitResult == WAIT_OBJECT_0 + 1 || waitResult == WAIT_TIMEOUT)
     {
         return false;
     }
@@ -5932,6 +6116,64 @@ bool Application::WaitForFrameLatency() noexcept
     _runtimeFailure = error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
     CloseMainWindow();
     return false;
+}
+
+bool Application::WaitForContinuousFrameDeadline(const HostFrameState& state) noexcept
+{
+    if (!LimitContinuousFrames(_settings->continuousFrameRate, state))
+        return true;
+    const auto delay = _continuousFramePacer.Remaining(ContinuousFramePacer::Clock::now());
+    const DWORD timeout = _probe.Enabled() ? RuntimeProbeWaitTimeout(GetTickCount64(), 0, _probe.Deadline()) : INFINITE;
+    bool ready = false;
+    const HRESULT result = _continuousFrameWait.Wait(delay, timeout, ready);
+    if (FAILED(result))
+    {
+        _runtimeFailure = result;
+        CloseMainWindow();
+        return false;
+    }
+    return ready;
+}
+
+void Application::ApplyContinuousFrameRate(ContinuousFrameRate previous) noexcept
+{
+    if (_settings->continuousFrameRate == previous)
+        return;
+    ClearScheduledFrameDeadline();
+    if (_settings->continuousFrameRate == ContinuousFrameRate::Display)
+        _continuousFrameWait.Reset();
+    _frameInvalidated = true;
+}
+
+uint32_t Application::RuntimeProbeState() const noexcept
+{
+    return (DashboardRequiresContinuousFrames() ? 1u : 0u) | (_windowVisible ? 2u : 0u) |
+           (_displayPoweredOn ? 4u : 0u) | (_renderer.IsSuspended() ? 8u : 0u) | (_renderer.IsOccluded() ? 16u : 0u) |
+           (DockHidden() ? 32u : 0u) | (PageNavigationInProgress() ? 64u : 0u) |
+           (OverlayMotionInProgress() || _dockSlideActive ? 128u : 0u) |
+           (_raisedActive ? kRuntimeProbeRaisedState : 0u);
+}
+
+void Application::TickRuntimeProbe() noexcept
+{
+    if (!_probe.Enabled() || !_probe.Due(GetTickCount64()))
+        return;
+    const auto started = std::chrono::steady_clock::now();
+    RuntimeProbeSample sample;
+    sample.page = _settings->dashboard.activePageIndex;
+    sample.state = RuntimeProbeState();
+    sample.scheduledDeadline = _scheduledFrameDeadlineTick;
+    sample.process = QueryProcessResources();
+    sample.graphics = _renderer.QueryProbeGraphics();
+    auto& host = PluginHost::Instance();
+    sample.avResult = host.QueryAvProbeStatistics(sample.av);
+    _probe.Complete(sample, GetTickCount64());
+    sample.sampleMicroseconds = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count());
+    const HRESULT result = host.LogRuntimeProbe(sample);
+    if (FAILED(result))
+        (void)RedXeHostLog(host.Interface(), RedXeLogLevelWarning, nullptr, nullptr, "probe-failed",
+                           "The diagnostic record could not be queued.", result);
 }
 
 void Application::CheckDeviceAdapter() noexcept
@@ -5958,7 +6200,7 @@ void Application::CheckDeviceAdapter() noexcept
 bool Application::DashboardRequiresContinuousFrames() const noexcept
 {
     return (_dashboardHost && _dashboardHost->RequiresContinuousFrames()) ||
-           (_transitionDashboardHost && _transitionDashboardHost->RequiresContinuousFrames());
+           (!_pageSettleWaiting && _transitionDashboardHost && _transitionDashboardHost->RequiresContinuousFrames());
 }
 
 bool Application::PageNavigationInProgress() const noexcept
@@ -5995,10 +6237,11 @@ void Application::ResumePageSettleIfNeeded() noexcept
 
 void Application::RefreshScheduledFrameDeadline() noexcept
 {
-    ClearScheduledFrameDeadline();
+    // The current frame consumed its continuous deadline; avoid canceling an already-completed one-shot every frame.
+    _scheduledFrameDeadlineTick = 0;
     if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
-        DashboardRequiresContinuousFrames() || PageNavigationInProgress() || OverlayMotionInProgress() ||
-        _dockSlideActive || DockHidden())
+        DashboardRequiresContinuousFrames() || (PageNavigationInProgress() && !_pageSettleWaiting) ||
+        OverlayMotionInProgress() || _dockSlideActive || DockHidden())
     {
         return;
     }
@@ -6009,7 +6252,8 @@ void Application::RefreshScheduledFrameDeadline() noexcept
     {
         earliest = candidate;
     }
-    if (_transitionDashboardHost && _transitionDashboardHost->GetNextFrameDelayMilliseconds(&candidate) == S_OK &&
+    if (!_pageSettleWaiting && _transitionDashboardHost &&
+        _transitionDashboardHost->GetNextFrameDelayMilliseconds(&candidate) == S_OK &&
         (earliest == 0 || candidate < earliest))
     {
         earliest = candidate;
@@ -6018,11 +6262,16 @@ void Application::RefreshScheduledFrameDeadline() noexcept
     {
         _scheduledFrameDeadlineTick = GetTickCount64() + earliest;
     }
+    if (_pageSettleWaiting &&
+        (_scheduledFrameDeadlineTick == 0 || _pageConstructionDeadlineTick < _scheduledFrameDeadlineTick))
+        _scheduledFrameDeadlineTick = _pageConstructionDeadlineTick;
 }
 
 void Application::ClearScheduledFrameDeadline() noexcept
 {
     _scheduledFrameDeadlineTick = 0;
+    _continuousFramePacer.Reset();
+    _continuousFrameWait.Cancel();
 }
 
 HRESULT Application::UpdateDashboardVisibility() noexcept
@@ -6121,6 +6370,8 @@ void Application::OnEndSession(LPARAM reason) noexcept
     CloseMainWindow(deadline);
     PluginHost::Instance().StopLaunches(PluginHost::TeardownStageMilliseconds(
         GetTickCount64(), deadline, kSessionEndLogFlushMilliseconds, LaunchWorker::kStopMilliseconds));
+    PluginHost::Instance().StopConstruction(PluginHost::TeardownStageMilliseconds(
+        GetTickCount64(), deadline, kSessionEndLogFlushMilliseconds, ConstructionWorkQueue::StopMilliseconds));
     if (FAILED(PluginHost::Instance().FlushLog(
             PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadline, 0, kSessionEndMaximumMilliseconds))))
     {
@@ -6184,6 +6435,10 @@ LRESULT CALLBACK Application::SettingsDialogProcedure(HWND window, UINT message,
 
 LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
 {
+    if (PageEdgeGeometryMayChange(message))
+    {
+        _reachableClientCacheValid = false;
+    }
     if (PointerMessageCancelsGesture(message, wParam))
     {
         const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
@@ -6743,6 +6998,7 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
 
 LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
 {
+    _reachableClientCacheValid = false;
     if (_dockActive)
     {
         // PlaceDock owns the dock's dashboard size: a reveal or hide changes only the window, and every other
@@ -6790,6 +7046,7 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
 
 LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBounds) noexcept
 {
+    _reachableClientCacheValid = false;
     ClearKeyboardFocus();
     CancelInteractivePointer();
     const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });

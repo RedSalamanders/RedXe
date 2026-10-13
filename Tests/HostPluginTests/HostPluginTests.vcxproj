@@ -82,8 +82,19 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="HostPlugin.Tests.Runner.cpp" />
+    <ClCompile Include="HostPlugin.Tests.FramePacing.cpp" />
+    <ClInclude Include="HostPlugin.Tests.FramePacing.h" />
+    <ClCompile Include="HostPlugin.Tests.RuntimeProbe.cpp" />
+    <ClCompile Include="HostPlugin.Tests.PageStaging.cpp" />
+    <ClInclude Include="HostPlugin.Tests.PageStaging.h" />
+    <ClCompile Include="HostPlugin.Tests.ProcessViewerScheduling.cpp" />
+    <ClCompile Include="HostPlugin.Tests.DataSourceLifetime.cpp" />
+    <ClCompile Include="HostPlugin.Tests.GpuResourceRetirement.cpp" />
+    <ClCompile Include="..\..\RedXe\RuntimeProbe.cpp" />
     <ClCompile Include="..\..\RedXe\PluginHost.cpp" />
     <ClCompile Include="..\..\RedXe\ControlWorkQueue.cpp" />
+    <ClCompile Include="..\..\RedXe\ConstructionWorkQueue.cpp" />
+    <ClCompile Include="HostPlugin.Tests.ConstructionWork.cpp" />
     <ClCompile Include="..\..\RedXe\LaunchWorker.cpp" />
     <ClCompile Include="..\..\RedXe\DashboardHost.cpp" />
     <ClCompile Include="..\..\RedXe\DisplayEnumeration.cpp" />

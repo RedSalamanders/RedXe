@@ -1,6 +1,8 @@
 #include "../../Common/FailureReports.h"
 #include "../../Plugins/Launcher/Launcher.Tests.Contract.h"
 #include "../../Plugins/Launcher/LauncherPaging.h"
+#include "../../Plugins/Launcher/LauncherShellPath.h"
+#include "Launcher.Tests.GlyphBatch.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
@@ -8,13 +10,16 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
+#include <new>
 #include <string>
 #include <string_view>
+#include <thread>
 
 #if defined(_DEBUG)
 #include <crtdbg.h>
@@ -25,6 +30,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <wincodec.h>
+#include <winioctl.h>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
@@ -82,8 +88,49 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     return S_OK;
 }
 
+[[nodiscard]] HRESULT RunConstructionOnSta(IRedXeConstructionWork* work, HANDLE cancellation = nullptr,
+                                           uint32_t budget = 3000) noexcept
+{
+    if (!work)
+        return E_POINTER;
+    wil::unique_event_nothrow stop;
+    if (!cancellation)
+    {
+        RETURN_IF_FAILED(stop.create(wil::EventOptions::ManualReset));
+        cancellation = stop.get();
+    }
+    HRESULT result = E_UNEXPECTED;
+    try
+    {
+        std::thread worker(
+            [&]() noexcept
+            {
+                const HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+                result = FAILED(apartment) ? apartment : work->Run(cancellation, budget);
+                if (SUCCEEDED(apartment))
+                    CoUninitialize();
+            });
+        worker.join();
+    }
+    catch (...)
+    {
+        return E_FAIL;
+    }
+    return result;
+}
+
 class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
 {
+    HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork* work) noexcept override
+    {
+        ++constructionCalls;
+        if (!supportsConstruction)
+            return E_NOTIMPL;
+        if (FAILED(constructionResult))
+            return constructionResult;
+        constructionWork = work;
+        return S_OK;
+    }
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork*) noexcept override
     {
         return E_ACCESSDENIED;
@@ -103,7 +150,9 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
         {
             *descriptor = nullptr;
         }
-        return S_OK;
+        ++validationCalls;
+        validationThread = GetCurrentThreadId();
+        return validationResult;
     }
 
   public:
@@ -151,8 +200,9 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char*, const RedXeWidgetStatusReport*) noexcept override
+    HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char*, const RedXeWidgetStatusReport* report) noexcept override
     {
+        lastStatus = report ? report->status : UINT32_MAX;
         return S_OK;
     }
 
@@ -172,8 +222,10 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
         return persistResult;
     }
 
-    HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord*) noexcept override
+    HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override
     {
+        if (record && record->eventId && std::strcmp(record->eventId, "launcher-construction") == 0)
+            constructionLog = record->messageUtf8 ? record->messageUtf8 : "";
         return S_OK;
     }
 
@@ -199,6 +251,15 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
     }
 
     bool supportsQueue = true;
+    bool supportsConstruction = false;
+    HRESULT constructionResult = S_OK;
+    wil::com_ptr_nothrow<IRedXeConstructionWork> constructionWork;
+    uint32_t constructionCalls = 0;
+    HRESULT validationResult = S_OK;
+    uint32_t validationCalls = 0;
+    DWORD validationThread = 0;
+    uint32_t lastStatus = RedXeWidgetStatusOk;
+    std::string constructionLog;
     HRESULT queueResult = S_OK;
     uint32_t queueCalls = 0;
     std::string pendingInstance;
@@ -210,6 +271,524 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
     std::string persistInstance;
     std::string persistJson;
 };
+
+class TestShellIconExtractor final : public IExtractIconW
+{
+  public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** result) noexcept override
+    {
+        if (!result)
+            return E_POINTER;
+        *result = nullptr;
+        if (iid != IID_IUnknown && iid != __uuidof(IExtractIconW))
+            return E_NOINTERFACE;
+        *result = static_cast<IExtractIconW*>(this);
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return ++references;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        return --references;
+    }
+    HRESULT STDMETHODCALLTYPE GetIconLocation(UINT flags, PWSTR path, UINT capacity, int* index,
+                                              UINT* resultFlags) noexcept override
+    {
+        ++locationCalls;
+        if ((flags != GIL_FORSHELL && !(allowShieldCheck && flags == (GIL_FORSHELL | GIL_CHECKSHIELD))) ||
+            capacity != MAX_PATH || !path || !index || !resultFlags)
+            return E_INVALIDARG;
+        if (!(flags & GIL_CHECKSHIELD))
+        {
+            ++ordinaryCalls;
+            if (requireClearedOrdinary &&
+                (*index || *resultFlags ||
+                 std::any_of(path, path + capacity, [](wchar_t value) noexcept { return value != 0; })))
+                return E_UNEXPECTED;
+        }
+        expectedLocation = (flags & GIL_CHECKSHIELD) && shieldLocation ? shieldLocation : location;
+        expectedIndex = (flags & GIL_CHECKSHIELD) && shieldLocation ? shieldIndex : locationIndex;
+        if ((flags & GIL_CHECKSHIELD) ? (unterminatedShield || poisonShieldOutput) : unterminatedLocation)
+            std::fill_n(path, capacity, L'x');
+        else
+            (void)wcscpy_s(path, capacity, expectedLocation);
+        *index = poisonShieldOutput && (flags & GIL_CHECKSHIELD) ? INT_MIN : expectedIndex;
+        *resultFlags = locationFlags | ((flags & GIL_CHECKSHIELD) ? shieldFlags : 0);
+        if (cancelAfterLocation)
+            (void)SetEvent(cancelAfterLocation);
+        if (flags & GIL_CHECKSHIELD)
+        {
+            ++shieldCalls;
+            return shieldResult;
+        }
+        return locationResult;
+    }
+    HRESULT STDMETHODCALLTYPE Extract(PCWSTR path, UINT index, HICON* largeIcon, HICON* smallIcon,
+                                      UINT size) noexcept override
+    {
+        ++extractCalls;
+        if (!path || std::wcscmp(path, expectedLocation) != 0 || index != static_cast<UINT>(expectedIndex) ||
+            !largeIcon || smallIcon || LOWORD(size) != 256 || HIWORD(size) != 0)
+            return E_INVALIDARG;
+        if (returnIcon)
+        {
+            lastIcon = CopyIcon(source.get());
+            *largeIcon = lastIcon;
+            if (!lastIcon)
+                return HRESULT_FROM_WIN32(GetLastError());
+        }
+        return extractResult;
+    }
+    HRESULT Initialize(uint32_t colorValue = 0xFFD25028U) noexcept
+    {
+        BITMAPINFO info{};
+        info.bmiHeader.biSize = sizeof(info.bmiHeader);
+        info.bmiHeader.biWidth = 256;
+        info.bmiHeader.biHeight = -256;
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+        void* pixels = nullptr;
+        wil::unique_hbitmap color{CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &pixels, nullptr, 0)};
+        wil::unique_hbitmap mask{CreateBitmap(256, 256, 1, 1, nullptr)};
+        if (!color || !mask || !pixels)
+            return E_OUTOFMEMORY;
+        std::fill_n(static_cast<uint32_t*>(pixels), 256 * 256, colorValue);
+        ICONINFO icon{};
+        icon.fIcon = TRUE;
+        icon.hbmColor = color.get();
+        icon.hbmMask = mask.get();
+        source.reset(CreateIconIndirect(&icon));
+        return source ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    }
+    bool LastIconReleased() const noexcept
+    {
+        if (!lastIcon)
+            return true;
+        ICONINFO info{};
+        const BOOL alive = GetIconInfo(lastIcon, &info);
+        wil::unique_hbitmap color{info.hbmColor};
+        wil::unique_hbitmap mask{info.hbmMask};
+        return alive == FALSE;
+    }
+    wil::unique_hicon source;
+    HICON lastIcon = nullptr; // Observed handle only; the production helper takes ownership.
+    ULONG references = 1;
+    uint32_t locationCalls = 0;
+    uint32_t extractCalls = 0;
+    uint32_t shieldCalls = 0;
+    uint32_t ordinaryCalls = 0;
+    HANDLE cancelAfterLocation = nullptr;
+    const wchar_t* location = L"synthetic-icon-resource";
+    int locationIndex = -7;
+    const wchar_t* shieldLocation = nullptr;
+    int shieldIndex = -17;
+    const wchar_t* expectedLocation = nullptr;
+    int expectedIndex = 0;
+    UINT locationFlags = GIL_NOTFILENAME | GIL_PERINSTANCE;
+    UINT shieldFlags = GIL_FORCENOSHIELD;
+    HRESULT locationResult = S_OK;
+    HRESULT shieldResult = S_OK;
+    HRESULT extractResult = S_OK;
+    bool returnIcon = true;
+    bool allowShieldCheck = false;
+    bool requireClearedOrdinary = false;
+    bool poisonShieldOutput = false;
+    bool unterminatedShield = false;
+    bool unterminatedLocation = false;
+};
+
+[[nodiscard]] HRESULT ValidateSingleShellIcon(LauncherTestShellHandlerFn extract) noexcept
+{
+    if (!extract)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    TestShellIconExtractor extractor;
+    if (FAILED(extractor.Initialize()))
+        return kTestFailure;
+    uint64_t hash = 123;
+    uint32_t edge = 123;
+    if (extract(nullptr, &hash, &edge) != E_POINTER || hash || edge ||
+        extract(&extractor, nullptr, &edge) != E_POINTER || extract(&extractor, &hash, nullptr) != E_POINTER ||
+        extractor.locationCalls || extractor.extractCalls)
+        return kTestFailure;
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", nullptr);
+    const HRESULT denied = extract(&extractor, &hash, &edge);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (denied != E_ACCESSDENIED || hash || edge || extractor.locationCalls || extractor.extractCalls)
+        return kTestFailure;
+    uint64_t expected = 14695981039346656037ULL;
+    constexpr std::array<uint8_t, 4> bgra{0x28, 0x50, 0xD2, 0xFF};
+    for (uint32_t pixel = 0; pixel < 256 * 256; ++pixel)
+        for (uint8_t byte : bgra)
+            expected = (expected ^ byte) * 1099511628211ULL;
+    if (extract(&extractor, &hash, &edge) != S_OK || hash != expected || edge != 256 || extractor.locationCalls != 1 ||
+        extractor.extractCalls != 1 || !extractor.LastIconReleased() || extractor.references != 1)
+    {
+        std::wprintf(L"Shell handler did not produce exactly one full-quality icon.\n");
+        return kTestFailure;
+    }
+    const DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    const DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    for (const HRESULT result : {S_FALSE, E_FAIL, E_OUTOFMEMORY})
+    {
+        extractor.extractResult = result;
+        for (uint32_t repeat = 0; repeat < 16; ++repeat)
+        {
+            hash = 123;
+            edge = 123;
+            if (extract(&extractor, &hash, &edge) != result || hash || edge || !extractor.LastIconReleased())
+                return kTestFailure;
+        }
+    }
+    extractor.extractResult = S_OK;
+    extractor.returnIcon = false;
+    extractor.lastIcon = nullptr;
+    if (extract(&extractor, &hash, &edge) != E_UNEXPECTED || hash || edge)
+        return kTestFailure;
+    extractor.locationResult = E_ACCESSDENIED;
+    const uint32_t calls = extractor.extractCalls;
+    if (extract(&extractor, &hash, &edge) != E_ACCESSDENIED || hash || edge || extractor.extractCalls != calls ||
+        extractor.references != 1 || GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
+        GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
+        return kTestFailure;
+    std::wprintf(L"Single 256-pixel shell output, exact BGRA, refusal and partial-handle cleanup passed.\n");
+    return S_OK;
+}
+
+[[nodiscard]] bool ConsistentShellTimings(const LauncherShellTimings& timings) noexcept
+{
+    if (timings.sizeBytes != sizeof(timings) || !timings.frequency ||
+        (timings.completedMask >> kLauncherShellPhaseCount) != 0)
+        return false;
+    uint64_t measured = 0;
+    for (uint32_t index = 0; index < kLauncherShellPhaseCount; ++index)
+    {
+        const bool completed = (timings.completedMask & (1U << index)) != 0;
+        if (completed != (timings.phaseCalls[index] != 0) ||
+            (!completed && (timings.phaseTicks[index] || timings.phaseResults[index])))
+            return false;
+        measured += timings.phaseTicks[index];
+    }
+    return measured <= timings.totalTicks;
+}
+
+[[nodiscard]] HRESULT ValidateShellTimings(LauncherTestShellIconFn inspect, LauncherTestShellHandlerFn extract) noexcept
+{
+    if (!inspect || !extract)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    TestShellIconExtractor extractor;
+    if (FAILED(extractor.Initialize()))
+        return kTestFailure;
+    LauncherShellTimings timings{sizeof(LauncherShellTimings)};
+    timings.pixelHash = 123;
+    if (inspect(nullptr, &extractor, nullptr) != E_POINTER || inspect(nullptr, nullptr, &timings) != E_POINTER ||
+        timings.pixelHash || timings.frequency || inspect(L"", nullptr, &timings) != E_INVALIDARG ||
+        inspect(L"C:\\test", &extractor, &timings) != E_INVALIDARG || extractor.locationCalls || extractor.extractCalls)
+        return kTestFailure;
+    for (uint32_t size : {static_cast<uint32_t>(sizeof(LauncherShellTimings) - 1U),
+                          static_cast<uint32_t>(sizeof(LauncherShellTimings) + 1U)})
+    {
+        timings.sizeBytes = size;
+        if (inspect(nullptr, &extractor, &timings) != E_INVALIDARG || timings.sizeBytes != size)
+            return kTestFailure;
+    }
+    timings.sizeBytes = sizeof(timings);
+    timings.pixelHash = 123;
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", nullptr);
+    const HRESULT denied = inspect(nullptr, &extractor, &timings);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (denied != E_ACCESSDENIED || timings.pixelHash || timings.frequency || timings.completedMask ||
+        extractor.locationCalls || extractor.extractCalls)
+        return kTestFailure;
+    uint64_t expected = 0;
+    uint32_t edge = 0;
+    if (extract(&extractor, &expected, &edge) != S_OK || inspect(nullptr, &extractor, &timings) != S_OK ||
+        !ConsistentShellTimings(timings) || timings.pixelHash != expected || timings.sourceEdge != edge ||
+        timings.sourceKind != 1 || timings.completedMask != 0x1CU || timings.phaseCalls[2] != 1 ||
+        timings.phaseCalls[3] != 1 || timings.phaseCalls[4] != 1 || !extractor.LastIconReleased())
+        return kTestFailure;
+    const DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    const DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    for (const HRESULT failure : {S_FALSE, E_FAIL, E_OUTOFMEMORY})
+    {
+        extractor.extractResult = failure;
+        for (uint32_t repeat = 0; repeat < 16; ++repeat)
+        {
+            if (inspect(nullptr, &extractor, &timings) != failure || !ConsistentShellTimings(timings) ||
+                timings.completedMask != 0x0CU || timings.phaseResults[3] != failure || timings.pixelHash ||
+                timings.sourceEdge || timings.sourceKind || !extractor.LastIconReleased())
+                return kTestFailure;
+        }
+    }
+    extractor.extractResult = S_OK;
+    extractor.returnIcon = false;
+    extractor.lastIcon = nullptr;
+    if (inspect(nullptr, &extractor, &timings) != E_UNEXPECTED || !ConsistentShellTimings(timings) ||
+        timings.completedMask != 0x0CU || timings.phaseResults[3] != S_OK || timings.pixelHash)
+        return kTestFailure;
+    extractor.locationResult = E_ACCESSDENIED;
+    if (inspect(nullptr, &extractor, &timings) != E_ACCESSDENIED || !ConsistentShellTimings(timings) ||
+        timings.completedMask != 0x04U || timings.phaseResults[2] != E_ACCESSDENIED || timings.pixelHash ||
+        timings.sourceEdge || timings.sourceKind || extractor.references != 1 ||
+        GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
+        GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
+        return kTestFailure;
+    std::wprintf(L"Call-local shell phase completeness, unchanged BGRA, refusal and failure ownership passed.\n");
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT ValidateIconCache(LauncherTestCachedShellHandlerFn inspect, LauncherTestIconCacheFn control,
+                                        RedXePluginShutdownFn shutdown, bool opaque) noexcept
+{
+    if (!inspect || !control || !shutdown)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    LauncherIconCacheDiagnostics diagnostics{sizeof(LauncherIconCacheDiagnostics)};
+    LauncherShellTimings timings{sizeof(LauncherShellTimings)};
+    TestShellIconExtractor extractor;
+    extractor.allowShieldCheck = true;
+    const UINT baseFlags = GIL_PERINSTANCE | (opaque ? GIL_NOTFILENAME : 0);
+    extractor.locationFlags = baseFlags;
+    if (FAILED(extractor.Initialize()) || control(1, &diagnostics) != S_OK || diagnostics.allocatedBytes ||
+        diagnostics.residentCount || diagnostics.capacity != 8 || control(0, nullptr) != E_POINTER ||
+        inspect(nullptr, &extractor, nullptr) != E_POINTER)
+        return kTestFailure;
+    --diagnostics.sizeBytes;
+    if (control(1, &diagnostics) != E_INVALIDARG || diagnostics.sizeBytes != sizeof(diagnostics) - 1)
+        return kTestFailure;
+    diagnostics.sizeBytes = sizeof(diagnostics);
+    --timings.sizeBytes;
+    if (inspect(L"C:\\test", &extractor, &timings) != E_INVALIDARG || timings.sizeBytes != sizeof(timings) - 1)
+        return kTestFailure;
+    timings.sizeBytes = sizeof(timings);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", nullptr);
+    const HRESULT denied = control(1, &diagnostics);
+    const HRESULT deniedInspect = inspect(L"C:\\test", &extractor, &timings);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (denied != E_ACCESSDENIED || deniedInspect != E_ACCESSDENIED || diagnostics.capacity || timings.frequency ||
+        extractor.locationCalls || control(4, &diagnostics) != E_INVALIDARG || diagnostics.capacity ||
+        inspect(nullptr, &extractor, &timings) != E_POINTER || inspect(L"", &extractor, &timings) != E_INVALIDARG ||
+        inspect(L"C:\\test", nullptr, &timings) != E_POINTER)
+        return kTestFailure;
+
+    std::array<wchar_t, MAX_PATH> temporary{};
+    std::array<std::array<wchar_t, MAX_PATH>, 34> files{};
+    if (!GetTempPathW(static_cast<DWORD>(temporary.size()), temporary.data()))
+        return E_UNEXPECTED;
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            (void)control(1, &diagnostics);
+            for (const auto& path : files)
+                if (path[0])
+                    (void)DeleteFileW(path.data());
+        });
+    const auto writeFile = [](const wchar_t* path, uint8_t value, bool preserveWrite = false) noexcept
+    {
+        wil::unique_hfile file{CreateFileW(path, GENERIC_READ | GENERIC_WRITE,
+                                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
+                                           FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if (!file)
+            return false;
+        FILETIME oldWrite{};
+        DWORD written = 0;
+        return (!preserveWrite || GetFileTime(file.get(), nullptr, nullptr, &oldWrite)) &&
+               WriteFile(file.get(), &value, 1, &written, nullptr) && written == 1 &&
+               (!preserveWrite || SetFileTime(file.get(), nullptr, nullptr, &oldWrite));
+    };
+    for (uint32_t index = 0; index < files.size(); ++index)
+        if (swprintf_s(files[index].data(), files[index].size(), L"%sRedXeIconCache-%lu-%u.bin", temporary.data(),
+                       GetCurrentProcessId(), index) <= 0 ||
+            !writeFile(files[index].data(), 1))
+            return kTestFailure;
+    extractor.location = files.back().data();
+    const auto pixelHash = [](uint32_t color) noexcept
+    {
+        uint64_t hash = 14695981039346656037ULL;
+        for (uint32_t pixel = 0; pixel < 256 * 256; ++pixel)
+            for (uint32_t byte = 0; byte < 4; ++byte)
+                hash = (hash ^ static_cast<uint8_t>(color >> (byte * 8))) * 1099511628211ULL;
+        return hash;
+    };
+    const uint64_t first = pixelHash(0xFFD25028U);
+    const uint64_t second = pixelHash(0xFF2868D2U);
+    const auto check = [&](const wchar_t* target, uint64_t hash, uint32_t source) noexcept
+    {
+        return inspect(target, &extractor, &timings) == S_OK && ConsistentShellTimings(timings) &&
+               timings.pixelHash == hash && timings.sourceEdge == 256 && timings.sourceKind == source &&
+               extractor.references == 1 && extractor.LastIconReleased();
+    };
+    if (!check(files[0].data(), first, 1) || timings.phaseCalls[8] != 1 || timings.phaseCalls[9] != 2 ||
+        timings.phaseCalls[11] != 1 || timings.phaseCalls[2] || extractor.ordinaryCalls || extractor.locationCalls != 1)
+        return kTestFailure;
+    const uint32_t extracts = extractor.extractCalls;
+    const uint32_t locations = extractor.locationCalls;
+    const DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    const DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    if (!check(files[0].data(), first, 5) || extractor.extractCalls != extracts ||
+        extractor.locationCalls != locations + 1 || timings.phaseCalls[2] || timings.phaseCalls[3] ||
+        timings.phaseCalls[4] || timings.phaseCalls[10] != 1 || control(0, &diagnostics) != S_OK ||
+        diagnostics.hits != 1 || diagnostics.allocatedBytes != 256 * 256 * 4 || diagnostics.residentCount != 1)
+        return kTestFailure;
+
+    // The valid shield-aware location is authoritative; an unrequested ordinary query may fail or name another icon.
+    extractor.locationResult = E_ACCESSDENIED;
+    if (!check(files[0].data(), first, 5) || extractor.ordinaryCalls)
+        return kTestFailure;
+    extractor.locationResult = S_OK;
+    extractor.shieldLocation = files[32].data();
+    if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1) ||
+        !check(files[0].data(), second, 5) || extractor.ordinaryCalls)
+        return kTestFailure;
+    extractor.shieldLocation = nullptr;
+    if (FAILED(extractor.Initialize()) || !check(files[0].data(), first, 1) || !check(files[0].data(), first, 5))
+        return kTestFailure;
+
+    // Refusals must discard eligibility; changed dynamic pixels must never reuse a prior entry.
+    for (UINT flags : std::array<UINT, 4>{GIL_DONTCACHE, GIL_SIMULATEDOC, GIL_SHIELD, 0x80000000U})
+    {
+        extractor.locationFlags = baseFlags | flags;
+        if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1) ||
+            control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+            return kTestFailure;
+        extractor.locationFlags = baseFlags;
+        if (FAILED(extractor.Initialize()) || !check(files[0].data(), first, 1) || !check(files[0].data(), first, 5))
+            return kTestFailure;
+    }
+    for (UINT shield : {0U, static_cast<UINT>(GIL_SHIELD)})
+    {
+        extractor.shieldFlags = shield;
+        if (!check(files[0].data(), first, 1) || control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+            return kTestFailure;
+    }
+    extractor.shieldFlags = GIL_FORCENOSHIELD;
+    extractor.requireClearedOrdinary = true;
+    extractor.poisonShieldOutput = true;
+    for (HRESULT refusal : {S_FALSE, E_FAIL, E_PENDING, E_NOTIMPL, E_ACCESSDENIED, E_OUTOFMEMORY})
+    {
+        extractor.shieldResult = refusal;
+        if (!check(files[0].data(), first, 1) || timings.phaseCalls[8] != 1 || timings.phaseCalls[2] != 1 ||
+            timings.phaseCalls[10] || control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+            return kTestFailure;
+    }
+    extractor.shieldResult = S_OK;
+    extractor.poisonShieldOutput = false;
+    extractor.unterminatedShield = true;
+    if (!check(files[0].data(), first, 1) || timings.phaseCalls[8] != 1 || timings.phaseCalls[2] != 1 ||
+        control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+        return kTestFailure;
+    extractor.unterminatedLocation = true;
+    const uint32_t beforeMalformed = extractor.extractCalls;
+    if (inspect(files[0].data(), &extractor, &timings) != E_UNEXPECTED || timings.pixelHash ||
+        extractor.extractCalls != beforeMalformed || !ConsistentShellTimings(timings))
+        return kTestFailure;
+    extractor.unterminatedLocation = false;
+    extractor.unterminatedShield = false;
+    extractor.allowShieldCheck = false;
+    if (!check(files[0].data(), first, 1) || timings.phaseResults[8] != E_INVALIDARG || timings.phaseCalls[2] != 1 ||
+        control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+        return kTestFailure;
+    extractor.allowShieldCheck = true;
+    for (const wchar_t* path :
+         std::array<const wchar_t*, 6>{L"", L"C:\\RedXeMissingIconResource.bin", L"\\\\server\\share\\icon.ico",
+                                       temporary.data(), L"opaque-token", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"})
+    {
+        extractor.location = path;
+        if (!check(files[0].data(), first, 1) || control(0, &diagnostics) != S_OK || diagnostics.residentCount)
+            return kTestFailure;
+    }
+    extractor.location = files.back().data();
+    if (!check(L"https://example.com", first, 1) || !check(files[0].data(), first, 1))
+        return kTestFailure;
+    // A token is not a filename/index pair. Distinct literal tokens that expand to the same file
+    // must not alias, and a negative opaque identifier must reach the native handler unchanged.
+    std::array<wchar_t, 64> environmentName{};
+    std::array<wchar_t, 68> locationAlias{};
+    if (swprintf_s(environmentName.data(), environmentName.size(), L"RedXeIconCacheTest-%lu", GetCurrentProcessId()) <=
+            0 ||
+        swprintf_s(locationAlias.data(), locationAlias.size(), L"%%%s%%", environmentName.data()) <= 0 ||
+        GetEnvironmentVariableW(environmentName.data(), nullptr, 0) || GetLastError() != ERROR_ENVVAR_NOT_FOUND ||
+        !SetEnvironmentVariableW(environmentName.data(), files.back().data()))
+        return kTestFailure;
+    const auto restoreEnvironment =
+        wil::scope_exit([&]() noexcept { (void)SetEnvironmentVariableW(environmentName.data(), nullptr); });
+    extractor.location = locationAlias.data();
+    if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1) ||
+        !check(files[0].data(), second, 5))
+        return kTestFailure;
+    extractor.location = files.back().data();
+    if (FAILED(extractor.Initialize()) || !check(files[0].data(), first, 1) || !check(files[0].data(), first, 5))
+        return kTestFailure;
+    ++extractor.locationIndex;
+    if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1) ||
+        !check(files[0].data(), second, 5))
+        return kTestFailure;
+    extractor.location = files[32].data();
+    if (FAILED(extractor.Initialize()) || !check(files[0].data(), first, 1))
+        return kTestFailure;
+    // Equal resource/identifier but different instances cannot share per-instance pixels.
+    if (FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[1].data(), second, 1) ||
+        !check(files[0].data(), first, 5))
+        return kTestFailure;
+    if (!writeFile(files[0].data(), 2, true) || !check(files[0].data(), second, 1) ||
+        !writeFile(files[32].data(), 2, true) || FAILED(extractor.Initialize()) || !check(files[0].data(), first, 1))
+        return kTestFailure;
+    if (!DeleteFileW(files[32].data()) || !writeFile(files[32].data(), 3) ||
+        FAILED(extractor.Initialize(0xFF2868D2U)) || !check(files[0].data(), second, 1))
+        return kTestFailure;
+
+    // A failed cache allocation must retain the successful ordinary extraction.
+    if (control(2, &diagnostics) != S_OK || !check(files[0].data(), second, 1) ||
+        timings.phaseResults[10] != E_OUTOFMEMORY || !check(files[0].data(), second, 5) ||
+        control(1, &diagnostics) != S_OK || control(3, &diagnostics) != S_OK || !check(files[0].data(), second, 1) ||
+        timings.phaseResults[11] != E_OUTOFMEMORY || control(0, &diagnostics) != S_OK || diagnostics.residentCount ||
+        diagnostics.allocatedBytes)
+        return kTestFailure;
+    for (HRESULT failure : {S_FALSE, E_FAIL, E_OUTOFMEMORY})
+    {
+        extractor.extractResult = failure;
+        if (inspect(files[0].data(), &extractor, &timings) != failure || !ConsistentShellTimings(timings) ||
+            timings.pixelHash || !extractor.LastIconReleased() || control(0, &diagnostics) != S_OK ||
+            diagnostics.residentCount)
+            return kTestFailure;
+    }
+    extractor.extractResult = S_OK;
+    extractor.returnIcon = false;
+    extractor.lastIcon = nullptr;
+    if (inspect(files[0].data(), &extractor, &timings) != E_UNEXPECTED || timings.pixelHash)
+        return kTestFailure;
+    extractor.returnIcon = true;
+    extractor.shieldResult = E_NOTIMPL;
+    extractor.locationResult = E_FAIL;
+    const uint32_t beforeFailure = extractor.extractCalls;
+    if (inspect(files[0].data(), &extractor, &timings) != E_FAIL || timings.pixelHash ||
+        timings.phaseResults[8] != E_NOTIMPL || timings.phaseResults[2] != E_FAIL ||
+        extractor.extractCalls != beforeFailure)
+        return kTestFailure;
+    extractor.locationResult = S_OK;
+    extractor.shieldResult = S_OK;
+    if (control(1, &diagnostics) != S_OK)
+        return kTestFailure;
+    for (uint32_t index = 0; index < 32; ++index)
+        if (!check(files[index].data(), second, 1) || control(0, &diagnostics) != S_OK ||
+            diagnostics.residentCount != std::min(index + 1, 8U) ||
+            diagnostics.allocatedBytes != std::min(index + 1, 8U) * 256 * 256 * 4)
+            return kTestFailure;
+    if (diagnostics.evictions != 24 || !check(files[31].data(), second, 5) || !check(files[0].data(), second, 1) ||
+        GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
+        GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
+        return kTestFailure;
+    shutdown();
+    if (control(0, &diagnostics) != S_OK || diagnostics.residentCount || diagnostics.allocatedBytes ||
+        diagnostics.hits || extractor.references != 1)
+        return kTestFailure;
+    std::wprintf(L"Bounded %s icon reuse, exact tokens/pixels, fresh shield/file checks, invalidation, OOM and "
+                 L"shutdown passed.\n",
+                 opaque ? L"opaque" : L"filename");
+    return S_OK;
+}
 
 struct RenderTarget final
 {
@@ -258,9 +837,24 @@ struct RenderTarget final
 }
 
 [[nodiscard]] HRESULT RenderFrame(IRedXeGpuWidget& widget, RenderTarget& target, float elapsedSeconds,
-                                  float deltaSeconds, float originX = 0.0f, uint32_t width = 0,
-                                  uint32_t height = 0) noexcept
+                                  float deltaSeconds, float originX = 0.0f, uint32_t width = 0, uint32_t height = 0,
+                                  bool prepare = true, uint32_t dpi = USER_DEFAULT_SCREEN_DPI) noexcept
 {
+    if (prepare)
+    {
+        wil::com_ptr_nothrow<IRedXePreparedGpuWidget> prepared;
+        const HRESULT query = widget.QueryInterface(IID_PPV_ARGS(prepared.put()));
+        if (FAILED(query) && query != E_NOINTERFACE)
+            return query;
+        if (prepared)
+        {
+            const RedXeGpuPreparationContext preparation{sizeof(RedXeGpuPreparationContext), dpi, target.width,
+                                                         target.height};
+            const HRESULT result = prepared->Prepare(&preparation);
+            if (FAILED(result))
+                return result;
+        }
+    }
     width = width == 0 ? target.width : width;
     height = height == 0 ? target.height : height;
     target.context->ClearState();
@@ -271,7 +865,7 @@ struct RenderTarget final
     };
     target.context->RSSetViewports(1, &viewport);
     const RedXeWidgetFrameContext widgetFrame{
-        sizeof(RedXeWidgetFrameContext), width, height, USER_DEFAULT_SCREEN_DPI, elapsedSeconds, deltaSeconds,
+        sizeof(RedXeWidgetFrameContext), width, height, dpi, elapsedSeconds, deltaSeconds,
     };
     const RedXeGpuFrameContext frame{sizeof(RedXeGpuFrameContext), &widgetFrame, target.context.get(), viewport};
     return widget.Render(&frame);
@@ -440,7 +1034,8 @@ struct RenderTarget final
     return encoder->Commit();
 }
 
-[[nodiscard]] HRESULT WriteShortcut(const wchar_t* path) noexcept
+[[nodiscard]] HRESULT WriteShortcut(const wchar_t* path, const wchar_t* target = kNotepad,
+                                    const wchar_t* iconPath = nullptr) noexcept
 {
     wil::com_ptr_nothrow<IShellLinkW> link;
     HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(link.put()));
@@ -448,10 +1043,16 @@ struct RenderTarget final
     {
         return result;
     }
-    result = link->SetPath(kNotepad);
+    result = link->SetPath(target);
     if (FAILED(result))
     {
         return result;
+    }
+    if (iconPath)
+    {
+        result = link->SetIconLocation(iconPath, 0);
+        if (FAILED(result))
+            return result;
     }
     wil::com_ptr_nothrow<IPersistFile> persist;
     result = link.query_to(persist.put());
@@ -460,6 +1061,307 @@ struct RenderTarget final
         return result;
     }
     return persist->Save(path, TRUE);
+}
+
+[[nodiscard]] HRESULT ValidateShellBatch(LauncherTestShellBatchFn batch, LauncherTestShellIconFn single) noexcept
+{
+    if (!batch || !single)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    for (std::wstring_view unsupported :
+         {L"", L"C:", L"C:relative", L"C:\\", L"C:\\.", L"C:\\..", L"C:/Windows/file", L"relative\\file", L"\\\\server",
+          L"\\\\server\\share", L"\\\\server\\share\\file", L"\\\\?\\C:\\file", L"\\\\.\\C:\\file", L"::{shell}",
+          L"https://example.com"})
+        if (Launcher::ShellIconParentLength(unsupported) != 0)
+            return kTestFailure;
+    if (Launcher::ShellIconParentLength(L"C:\\file") != 3 ||
+        Launcher::ShellIconParentLength(L"c:\\Windows\\file") != 10 ||
+        Launcher::ShellIconParentLength(L"C:\\Unicode-\x00E9\\file") != 12)
+        return kTestFailure;
+    std::array<wchar_t, 513> longest{};
+    longest.fill(L'x');
+    longest[0] = L'C';
+    longest[1] = L':';
+    longest[2] = L'\\';
+    if (Launcher::ShellIconParentLength(std::wstring_view(longest.data(), 512)) != 3 ||
+        Launcher::ShellIconParentLength(std::wstring_view(longest.data(), 513)) != 0)
+        return kTestFailure;
+    std::array<LauncherShellTimings, 32> timings{};
+    for (auto& record : timings)
+        record = LauncherShellTimings{sizeof(LauncherShellTimings)};
+    std::array<const wchar_t*, 32> targets{};
+    targets.fill(kNotepad);
+    if (batch(nullptr, 0, nullptr) != E_INVALIDARG || batch(nullptr, 33, nullptr) != E_INVALIDARG ||
+        batch(targets.data(), 1, nullptr) != E_POINTER)
+        return kTestFailure;
+    timings[0].pixelHash = 123;
+    --timings[1].sizeBytes;
+    const auto untouched = timings;
+    if (batch(targets.data(), 2, timings.data()) != E_INVALIDARG ||
+        std::memcmp(timings.data(), untouched.data(), sizeof(timings)) != 0)
+        return kTestFailure;
+    timings[1].sizeBytes = sizeof(LauncherShellTimings);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", nullptr);
+    const HRESULT denied = batch(targets.data(), 2, timings.data());
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (denied != E_ACCESSDENIED || timings[0].pixelHash || timings[0].frequency || timings[1].frequency)
+        return kTestFailure;
+    targets[1] = L"";
+    if (batch(targets.data(), 2, timings.data()) != E_INVALIDARG || timings[0].frequency || timings[1].frequency)
+        return kTestFailure;
+    targets[1] = nullptr;
+    if (batch(targets.data(), 2, timings.data()) != E_POINTER || timings[0].frequency ||
+        batch(nullptr, 2, timings.data()) != E_POINTER || timings[0].frequency)
+        return kTestFailure;
+
+    std::array<wchar_t, MAX_PATH> temporary{};
+    std::array<wchar_t, MAX_PATH> firstDirectory{};
+    std::array<wchar_t, MAX_PATH> secondDirectory{};
+    std::array<wchar_t, MAX_PATH> firstLink{};
+    std::array<wchar_t, MAX_PATH> secondLink{};
+    if (!GetTempPathW(static_cast<DWORD>(temporary.size()), temporary.data()) ||
+        swprintf_s(firstDirectory.data(), firstDirectory.size(), L"%sRedXeShellBatch-%lu-a", temporary.data(),
+                   GetCurrentProcessId()) <= 0 ||
+        swprintf_s(secondDirectory.data(), secondDirectory.size(), L"%sRedXeShellBatch-%lu-b", temporary.data(),
+                   GetCurrentProcessId()) <= 0 ||
+        swprintf_s(firstLink.data(), firstLink.size(), L"%s\\Same.lnk", firstDirectory.data()) <= 0 ||
+        swprintf_s(secondLink.data(), secondLink.size(), L"%s\\Same.lnk", secondDirectory.data()) <= 0)
+        return E_UNEXPECTED;
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            (void)DeleteFileW(firstLink.data());
+            (void)DeleteFileW(secondLink.data());
+            (void)RemoveDirectoryW(firstDirectory.data());
+            (void)RemoveDirectoryW(secondDirectory.data());
+        });
+    if (!CreateDirectoryW(firstDirectory.data(), nullptr) || !CreateDirectoryW(secondDirectory.data(), nullptr))
+        return HRESULT_FROM_WIN32(GetLastError());
+    constexpr wchar_t explorer[] = L"C:\\Windows\\explorer.exe";
+    if (FAILED(WriteShortcut(firstLink.data(), kNotepad, kNotepad)) ||
+        FAILED(WriteShortcut(secondLink.data(), explorer, explorer)))
+        return kTestFailure;
+    // Same filename in two parents, a drive-root child, normal executable, directory, URI, and
+    // refused parent/child parsing all retain the full-path route's pixels and fallback precedence.
+    const std::array<const wchar_t*, 11> cases{firstLink.data(),
+                                               firstLink.data(),
+                                               secondLink.data(),
+                                               firstLink.data(),
+                                               kNotepad,
+                                               explorer,
+                                               L"C:\\Windows",
+                                               L"https://example.com",
+                                               L"C:\\RedXeMissingParent\\missing.exe",
+                                               L"C:\\Windows\\RedXeMissing.exe",
+                                               L"RedXeMissingRelative.exe"};
+    std::array<LauncherShellTimings, cases.size()> reference{};
+    for (uint32_t index = 0; index < cases.size(); ++index)
+    {
+        reference[index].sizeBytes = sizeof(LauncherShellTimings);
+        if (single(cases[index], nullptr, &reference[index]) != S_OK || !ConsistentShellTimings(reference[index]) ||
+            !reference[index].pixelHash)
+            return kTestFailure;
+    }
+    for (uint32_t index = 0; index < targets.size(); ++index)
+        targets[index] = cases[index % cases.size()];
+    if (batch(targets.data(), static_cast<uint32_t>(targets.size()), timings.data()) != S_OK)
+        return kTestFailure;
+    const DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    const DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    for (uint32_t repeat = 0; repeat < 4; ++repeat)
+    {
+        if (batch(targets.data(), static_cast<uint32_t>(targets.size()), timings.data()) != S_OK)
+            return kTestFailure;
+        for (uint32_t index = 0; index < targets.size(); ++index)
+        {
+            const auto& expected = reference[index % cases.size()];
+            if (!ConsistentShellTimings(timings[index]) || timings[index].pixelHash != expected.pixelHash ||
+                timings[index].phaseCalls[15] || timings[index].phaseCalls[16] ||
+                timings[index].sourceEdge != expected.sourceEdge ||
+                (timings[index].sourceKind != expected.sourceKind &&
+                 !(timings[index].sourceKind == 5 && expected.sourceKind == 1)))
+                return kTestFailure;
+        }
+        if (GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
+            GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
+            return kTestFailure;
+    }
+    // The second entry reuses its parent: only child parsing/binding are repeated.
+    if (timings[0].phaseCalls[12] != 1 || timings[0].phaseCalls[13] != 1 || timings[0].phaseCalls[14] != 1 ||
+        timings[0].phaseCalls[1] != 1 || timings[1].phaseCalls[12] || timings[1].phaseCalls[13] ||
+        timings[1].phaseCalls[14] != 1 || timings[1].phaseCalls[1] != 1 ||
+        reference[0].pixelHash == reference[2].pixelHash)
+        return kTestFailure;
+    // Drive letters remain equivalent to the shell, but distinct spellings must not alias the folder
+    // key: an authored path may live under a case-sensitive directory elsewhere in the same volume.
+    const std::array<const wchar_t*, 2> differentlyCased{L"C:\\Windows\\System32\\notepad.exe",
+                                                         L"c:\\Windows\\System32\\notepad.exe"};
+    if (batch(differentlyCased.data(), 2, timings.data()) != S_OK || timings[0].pixelHash != timings[1].pixelHash ||
+        timings[1].phaseCalls[12] != 1 || timings[1].phaseCalls[13] != 1 || timings[1].phaseCalls[14] != 1 ||
+        timings[1].phaseCalls[1] != 1)
+        return kTestFailure;
+    const uint64_t previous = reference[0].pixelHash;
+    if (FAILED(WriteShortcut(firstLink.data(), explorer, explorer)) ||
+        single(firstLink.data(), nullptr, &reference[0]) != S_OK || batch(targets.data(), 2, timings.data()) != S_OK ||
+        timings[0].pixelHash == previous || timings[0].pixelHash != reference[0].pixelHash ||
+        timings[1].pixelHash != reference[0].pixelHash)
+        return kTestFailure;
+    std::wprintf(L"Refresh-local folder reuse, mixed parents, root and fallback pixels, 32 targets, retargeted icons, "
+                 L"atomic validation and resource ownership passed.\n");
+    return S_OK;
+}
+
+// A junction inside the test-owned temporary scene exercises the actual reparse fallback without elevation.
+[[nodiscard]] HRESULT MakeShellParentJunction(const wchar_t* path, const wchar_t* destination) noexcept
+{
+    struct MountPoint final
+    {
+        DWORD tag = IO_REPARSE_TAG_MOUNT_POINT;
+        USHORT bytes = 0;
+        USHORT reserved = 0;
+        USHORT substituteOffset = 0;
+        USHORT substituteBytes = 0;
+        USHORT printOffset = 0;
+        USHORT printBytes = 0;
+        std::array<wchar_t, 1024> text{};
+    } data;
+    static_assert(offsetof(MountPoint, text) == 16);
+    const int written = swprintf_s(data.text.data(), data.text.size(), L"\\??\\%s", destination);
+    if (written <= 0)
+        return E_INVALIDARG;
+    data.substituteBytes = static_cast<USHORT>(written * sizeof(wchar_t));
+    data.printOffset = static_cast<USHORT>((written + 1) * sizeof(wchar_t));
+    const size_t printIndex = static_cast<size_t>(written) + 1;
+    const int printed = swprintf_s(data.text.data() + printIndex, data.text.size() - printIndex, L"%s", destination);
+    if (printed <= 0)
+        return E_INVALIDARG;
+    data.printBytes = static_cast<USHORT>(printed * sizeof(wchar_t));
+    data.bytes = static_cast<USHORT>(8 + data.printOffset + data.printBytes + sizeof(wchar_t));
+    wil::unique_handle folder{CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                          nullptr, OPEN_EXISTING,
+                                          FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr)};
+    if (!folder)
+        return HRESULT_FROM_WIN32(GetLastError());
+    DWORD returned = 0;
+    return DeviceIoControl(folder.get(), FSCTL_SET_REPARSE_POINT, &data, 8 + data.bytes, nullptr, 0, &returned, nullptr)
+               ? S_OK
+               : HRESULT_FROM_WIN32(GetLastError());
+}
+
+[[nodiscard]] HRESULT ValidateShellParent(LauncherTestShellParentFn inspect, LauncherTestShellIconFn single) noexcept
+{
+    if (!inspect || !single)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    using Failure = LauncherShellParentFailure;
+    LauncherShellTimings timing{sizeof(LauncherShellTimings)};
+    timing.pixelHash = 123;
+    --timing.sizeBytes;
+    const auto untouched = timing;
+    if (inspect(kNotepad, Failure::None, &timing) != E_INVALIDARG ||
+        std::memcmp(&timing, &untouched, sizeof(timing)) != 0 || inspect(kNotepad, Failure::None, nullptr) != E_POINTER)
+        return kTestFailure;
+    timing.sizeBytes = sizeof(timing);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", nullptr);
+    const HRESULT denied = inspect(kNotepad, Failure::None, &timing);
+    (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
+    if (denied != E_ACCESSDENIED || timing.frequency || timing.pixelHash ||
+        inspect(nullptr, Failure::None, &timing) != E_POINTER || inspect(L"", Failure::None, &timing) != E_INVALIDARG ||
+        inspect(kNotepad, static_cast<Failure>(9), &timing) != E_INVALIDARG || timing.frequency)
+        return kTestFailure;
+
+    for (const wchar_t* path :
+         {L"C:\\Windows\\..\\Windows\\System32\\notepad.exe", L"C:\\Windows\\.\\System32\\notepad.exe",
+          L"C:\\Windows\\*\\notepad.exe", L"C:\\Windows\\?\\notepad.exe", L"C:\\RedXeMissingRootChild.exe"})
+    {
+        LauncherShellTimings expected{sizeof(LauncherShellTimings)};
+        if (single(path, nullptr, &expected) != S_OK || inspect(path, Failure::None, &timing) != S_OK ||
+            !ConsistentShellTimings(timing) || timing.pixelHash != expected.pixelHash ||
+            timing.sourceEdge != expected.sourceEdge || timing.phaseResults[15] != S_FALSE || timing.phaseCalls[16])
+            return kTestFailure;
+    }
+
+    std::array<wchar_t, MAX_PATH> temporary{}, directory{}, link{}, junction{}, junctionLink{};
+    if (!GetTempPathW(static_cast<DWORD>(temporary.size()), temporary.data()) ||
+        swprintf_s(directory.data(), directory.size(), L"%sRedXeParent-%lu-\x00E9", temporary.data(),
+                   GetCurrentProcessId()) <= 0 ||
+        swprintf_s(link.data(), link.size(), L"%s\\Shortcut.lnk", directory.data()) <= 0 ||
+        swprintf_s(junction.data(), junction.size(), L"%sRedXeParent-%lu-junction", temporary.data(),
+                   GetCurrentProcessId()) <= 0 ||
+        swprintf_s(junctionLink.data(), junctionLink.size(), L"%s\\Shortcut.lnk", junction.data()) <= 0)
+        return E_UNEXPECTED;
+    const auto cleanup = wil::scope_exit(
+        [&]() noexcept
+        {
+            (void)RemoveDirectoryW(junction.data());
+            (void)DeleteFileW(link.data());
+            (void)RemoveDirectoryW(directory.data());
+        });
+    if (!CreateDirectoryW(directory.data(), nullptr) || !CreateDirectoryW(junction.data(), nullptr))
+        return HRESULT_FROM_WIN32(GetLastError());
+    if (FAILED(WriteShortcut(link.data(), kNotepad, kNotepad)))
+        return kTestFailure;
+    LauncherShellTimings reference{sizeof(LauncherShellTimings)};
+    if (single(link.data(), nullptr, &reference) != S_OK || !reference.pixelHash)
+        return kTestFailure;
+    const auto check = [&](Failure fault) noexcept
+    {
+        if (inspect(link.data(), fault, &timing) != S_OK || !ConsistentShellTimings(timing) ||
+            timing.pixelHash != reference.pixelHash || timing.sourceEdge != reference.sourceEdge ||
+            (timing.sourceKind != reference.sourceKind && !(timing.sourceKind == 5 && reference.sourceKind == 1)) ||
+            timing.phaseCalls[0] || timing.phaseCalls[15] != 1 || timing.phaseCalls[13] != 1)
+            return false;
+        const bool metadataRefused =
+            fault == Failure::Metadata || fault == Failure::ReparseMetadata || fault == Failure::FileMetadata;
+        const bool itemRefused = fault == Failure::PartialItem || fault == Failure::NullItem;
+        if (timing.phaseCalls[16] != (metadataRefused ? 0U : 1U) || timing.phaseCalls[12] != (itemRefused ? 2U : 1U))
+            return false;
+        if (fault == Failure::Metadata && timing.phaseResults[15] != E_ACCESSDENIED)
+            return false;
+        if ((fault == Failure::ReparseMetadata || fault == Failure::FileMetadata) && timing.phaseResults[15] != S_FALSE)
+            return false;
+        if ((fault == Failure::Allocation || fault == Failure::BindContext) && timing.phaseResults[16] != E_OUTOFMEMORY)
+            return false;
+        return fault != Failure::Registration || timing.phaseResults[16] == E_FAIL;
+    };
+    if (!check(Failure::None))
+        return kTestFailure;
+    for (uint32_t fault = 1; fault <= 8; ++fault)
+        if (!check(static_cast<Failure>(fault)))
+            return kTestFailure;
+    DWORD handles = 0;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &handles))
+        return HRESULT_FROM_WIN32(GetLastError());
+    const DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    const DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    for (uint32_t repeat = 0; repeat < 4; ++repeat)
+        for (uint32_t fault = 0; fault <= 8; ++fault)
+            if (!check(static_cast<Failure>(fault)))
+                return kTestFailure;
+    DWORD after = 0;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &after) || after != handles ||
+        GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) != gdi ||
+        GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) != user)
+        return kTestFailure;
+    const HRESULT made = MakeShellParentJunction(junction.data(), directory.data());
+    if (FAILED(made))
+        return made;
+    if (single(junctionLink.data(), nullptr, &reference) != S_OK ||
+        inspect(junctionLink.data(), Failure::None, &timing) != S_OK || !ConsistentShellTimings(timing) ||
+        timing.pixelHash != reference.pixelHash || timing.sourceEdge != reference.sourceEdge ||
+        timing.phaseResults[15] != S_FALSE || timing.phaseCalls[16] || timing.phaseCalls[12] != 1)
+        return kTestFailure;
+    if (!RemoveDirectoryW(junction.data()))
+        return HRESULT_FROM_WIN32(GetLastError());
+    // A recreated same-spelling parent must get fresh metadata and native pixels, with no owner/fault retained.
+    const uint64_t previous = reference.pixelHash;
+    if (!DeleteFileW(link.data()) || !RemoveDirectoryW(directory.data()) ||
+        !CreateDirectoryW(directory.data(), nullptr) ||
+        FAILED(WriteShortcut(link.data(), L"C:\\Windows\\explorer.exe", L"C:\\Windows\\explorer.exe")) ||
+        single(link.data(), nullptr, &reference) != S_OK || reference.pixelHash == previous || !check(Failure::None))
+        return kTestFailure;
+    std::wprintf(L"Literal/Unicode parent metadata, root/pattern/dot and junction fallbacks, eight setup refusals, "
+                 L"partial/null owners, "
+                 L"recreated parents, native pixels and handle/GDI/USER stability passed.\n");
+    return S_OK;
 }
 
 [[nodiscard]] HRESULT AttachGpu(IRedXeWidget& widget, RenderTarget& target, IRedXeGpuWidget** gpuOut) noexcept
@@ -1639,7 +2541,768 @@ struct RenderTarget final
     return S_OK;
 }
 
-[[nodiscard]] HRESULT Run() noexcept
+class TextureLifetime final : public IUnknown
+{
+  public:
+    explicit TextureLifetime(std::atomic<uint32_t>& live) noexcept : _live(live)
+    {
+        ++_live;
+    }
+    ~TextureLifetime()
+    {
+        --_live;
+    }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** output) noexcept override
+    {
+        if (!output)
+            return E_POINTER;
+        *output = nullptr;
+        if (iid != IID_IUnknown)
+            return E_NOINTERFACE;
+        *output = static_cast<IUnknown*>(this);
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return ++_references;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = --_references;
+        if (remaining == 0)
+            delete this;
+        return remaining;
+    }
+
+  private:
+    std::atomic<uint32_t>& _live;
+    ULONG _references = 1;
+};
+constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5, 0xC0, 0x1B, 0x38, 0x14, 0x11}};
+[[nodiscard]] HRESULT BoundIconTexture(RenderTarget& target, wil::com_ptr_nothrow<ID3D11Texture2D>& texture) noexcept
+{
+    texture.reset();
+    wil::com_ptr_nothrow<ID3D11ShaderResourceView> view;
+    target.context->PSGetShaderResources(0, 1, view.put());
+    if (!view)
+        return S_FALSE;
+    wil::com_ptr_nothrow<ID3D11Resource> resource;
+    view->GetResource(resource.put());
+    return resource.query_to(texture.put());
+}
+[[nodiscard]] HRESULT MarkIconTexture(RenderTarget& target, std::atomic<uint32_t>& live) noexcept
+{
+    wil::com_ptr_nothrow<ID3D11Texture2D> texture;
+    HRESULT result = BoundIconTexture(target, texture);
+    if (result != S_OK)
+        return kTestFailure;
+    wil::com_ptr_nothrow<IUnknown> marker;
+    marker.attach(new (std::nothrow) TextureLifetime(live));
+    if (!marker)
+        return E_OUTOFMEMORY;
+    return texture->SetPrivateDataInterface(kTextureLifetimeId, marker.get());
+}
+[[nodiscard]] HRESULT FrameChecksum(RenderTarget& target, uint32_t width, uint32_t height, uint64_t& hash) noexcept
+{
+    D3D11_TEXTURE2D_DESC description{};
+    target.texture->GetDesc(&description);
+    description.Usage = D3D11_USAGE_STAGING;
+    description.BindFlags = 0;
+    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    wil::com_ptr_nothrow<ID3D11Texture2D> staging;
+    HRESULT result = target.device->CreateTexture2D(&description, nullptr, staging.put());
+    if (FAILED(result))
+        return result;
+    target.context->CopyResource(staging.get(), target.texture.get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    result = target.context->Map(staging.get(), 0, D3D11_MAP_READ, 0, &mapped);
+    if (FAILED(result))
+        return result;
+    const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(staging.get(), 0); });
+    hash = 14695981039346656037ULL;
+    for (uint32_t y = 0; y < height; ++y)
+    {
+        const auto* row = static_cast<const uint8_t*>(mapped.pData) + static_cast<size_t>(y) * mapped.RowPitch;
+        for (uint32_t x = 0; x < width * 4; ++x)
+            hash = (hash ^ row[x]) * 1099511628211ULL;
+    }
+    return S_OK;
+}
+[[nodiscard]] std::string MakeGlyphShortcutList(uint32_t count)
+{
+    std::string json = R"({"iconSize":"large","shortcuts":[)";
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        if (index)
+            json += ',';
+        char item[128]{};
+        (void)sprintf_s(item, R"({"target":"https://example.com/launcher/%u","icon":"Settings"})", index);
+        json += item;
+    }
+    json += "]}";
+    return json;
+}
+[[nodiscard]] HRESULT ValidateIconStorage(RedXeCreateFn create, LauncherSetTestPinDirectoryFn setPins,
+                                          LauncherGetTestDiagnosticsFn getDiagnostics,
+                                          LauncherSetTestIconFailureFn setFailure, FILE* pixels = nullptr) noexcept
+{
+    if (FAILED(setPins(L"")))
+        return kTestFailure;
+    const bool qualify = pixels == nullptr;
+    const RedXeGpuPreparationContext preparation{sizeof(RedXeGpuPreparationContext), 96, 800, 720};
+    for (uint32_t count : {0U, 8U, 32U})
+    {
+        std::atomic<uint32_t> liveTexture{0}; // Outlives every D3D owner, including rollback on a failed assertion.
+        TestHost host;
+        RenderTarget target;
+        HRESULT result = CreateRenderTarget(800, 720, target);
+        if (FAILED(result))
+            return result;
+        wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+        result = CreateProvider(create, MakeGlyphShortcutList(count), &host, provider);
+        if (FAILED(result))
+            return result;
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        result = provider->CreateWidget(kWidgetTypeId, "launcher.capacity", widget.put());
+        if (FAILED(result))
+            return result;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+        result = AttachGpu(*widget, target, gpu.put());
+        if (FAILED(result))
+            return result;
+        wil::com_ptr_nothrow<IRedXePreparedGpuWidget> prepared;
+        const HRESULT query = widget.query_to(prepared.put());
+        if (qualify && (query != S_OK || !prepared))
+            return kTestFailure;
+        if (qualify)
+        {
+            wil::com_ptr_nothrow<IUnknown> genericIdentity;
+            wil::com_ptr_nothrow<IUnknown> preparedIdentity;
+            if (FAILED(widget.query_to(genericIdentity.put())) || FAILED(prepared.query_to(preparedIdentity.put())) ||
+                genericIdentity.get() != preparedIdentity.get() || prepared->Prepare(nullptr) != E_INVALIDARG)
+                return kTestFailure;
+        }
+        LauncherTestDiagnostics before{sizeof(LauncherTestDiagnostics)};
+        if (FAILED(getDiagnostics(&before)) || FAILED(widget->SetVisible(TRUE)))
+            return kTestFailure;
+        LauncherTestDiagnostics after{sizeof(LauncherTestDiagnostics)};
+        if (FAILED(getDiagnostics(&after)) || after.displayCount != count || host.frameRequests != 0)
+            return kTestFailure;
+        if (qualify && after.textureUploads != before.textureUploads)
+            return kTestFailure;
+        for (const auto& extent : std::array<std::array<uint32_t, 3>, 5>{
+                 {{160, 160, 96}, {480, 480, 96}, {256, 720, 96}, {799, 559, 144}, {480, 480, 192}}})
+        {
+            result = RenderFrame(*gpu, target, 0.0f, 0.0f, 0.0f, extent[0], extent[1], true, extent[2]);
+            if (FAILED(result))
+                return result;
+            wil::com_ptr_nothrow<ID3D11Texture2D> texture;
+            result = BoundIconTexture(target, texture);
+            uint32_t slices = 0;
+            if (texture)
+            {
+                D3D11_TEXTURE2D_DESC description{};
+                texture->GetDesc(&description);
+                slices = description.ArraySize;
+                if (description.Width != 256 || description.Height != 256 || description.MipLevels != 1 ||
+                    description.Format != DXGI_FORMAT_B8G8R8A8_UNORM || description.SampleDesc.Count != 1)
+                    return kTestFailure;
+            }
+            if (qualify && (FAILED(result) || slices != count))
+                return kTestFailure;
+            uint64_t hash = 0;
+            if (FAILED(FrameChecksum(target, extent[0], extent[1], hash)))
+                return kTestFailure;
+            if (pixels && std::fprintf(pixels, "%u %u %u %u %016llX\n", count, extent[0], extent[1], extent[2],
+                                       static_cast<unsigned long long>(hash)) < 0)
+                return E_FAIL;
+            std::wprintf(L"launcher_icon_texture count=%u slices=%u bytes=%llu\n", count, slices,
+                         static_cast<unsigned long long>(slices) * 256 * 256 * 4);
+        }
+        if (qualify)
+        {
+            if (prepared->Prepare(&preparation) != S_FALSE)
+                return kTestFailure;
+            if (count && FAILED(MarkIconTexture(target, liveTexture)))
+                return kTestFailure;
+            gpu->OnDeviceLost();
+            target.context->ClearState();
+            // Test-only submission drains deferred runtime references before observing final COM ownership.
+            target.context->Flush();
+            if (liveTexture != 0)
+            {
+                std::wprintf(L"Icon owner survived device loss: count=%u live=%u\n", count, liveTexture.load());
+                return kTestFailure;
+            }
+            const RedXeGpuDeviceContext recreated{sizeof(RedXeGpuDeviceContext), target.device.get(),
+                                                  DXGI_FORMAT_B8G8R8A8_UNORM, target.featureLevel};
+            const uint64_t extracts = after.extractCalls;
+            if (FAILED(gpu->OnDeviceCreated(&recreated)) || FAILED(RenderFrame(*gpu, target, 0, 0)) ||
+                FAILED(getDiagnostics(&after)) || after.extractCalls != extracts)
+                return kTestFailure;
+            wil::com_ptr_nothrow<ID3D11Texture2D> texture;
+            result = BoundIconTexture(target, texture);
+            D3D11_TEXTURE2D_DESC description{};
+            if (texture)
+                texture->GetDesc(&description);
+            if (FAILED(result) || description.ArraySize != count)
+                return kTestFailure;
+            if (count == 8)
+            {
+                wil::com_ptr_nothrow<IRedXeInteractiveWidget> input;
+                if (FAILED(widget.query_to(input.put())) || !setFailure)
+                    return kTestFailure;
+                texture.reset();
+                for (uint32_t phase : {1U, 2U})
+                {
+                    if (FAILED(MarkIconTexture(target, liveTexture)))
+                        return kTestFailure;
+                    target.context->ClearState();
+                    // Test-only submission drains deferred runtime references before observing final COM ownership.
+                    target.context->Flush();
+                    if (liveTexture != 1)
+                        return kTestFailure;
+                    const wchar_t* url = phase == 1 ? L"https://example.com/new-one" : L"https://example.com/new-two";
+                    const RedXeDropItem item{sizeof(RedXeDropItem), 0, url};
+                    const RedXeDropEvent drop{sizeof(RedXeDropEvent), 1, 1, 1, &item};
+                    if (input->OnDrop(&drop) != S_OK || FAILED(setFailure(phase)))
+                        return kTestFailure;
+                    const HRESULT failed = prepared->Prepare(&preparation);
+                    if (failed != E_OUTOFMEMORY || liveTexture != 1)
+                    {
+                        std::wprintf(L"Icon rollback phase=%u hr=%08X live=%u\n", phase,
+                                     static_cast<unsigned int>(failed), liveTexture.load());
+                        return kTestFailure;
+                    }
+                    if (prepared->Prepare(&preparation) != S_FALSE || liveTexture != 1)
+                        return kTestFailure;
+                    if (RenderFrame(*gpu, target, 0, 0, 0, 0, 0, false) != E_UNEXPECTED)
+                        return kTestFailure;
+                    if (phase == 1)
+                    {
+                        if (FAILED(widget->SetVisible(TRUE)))
+                            return kTestFailure;
+                    }
+                    else
+                    {
+                        const RedXeGpuTargetSizeContext extent{sizeof(RedXeGpuTargetSizeContext), 799, 720, 96};
+                        if (FAILED(gpu->OnTargetSizeChanged(&extent)))
+                            return kTestFailure;
+                    }
+                    const HRESULT recovered = prepared->Prepare(&preparation);
+                    target.context->Flush(); // Drain the runtime's deferred release after successful replacement.
+                    if (recovered != S_OK || liveTexture != 0)
+                    {
+                        std::wprintf(L"Icon retry phase=%u hr=%08X live=%u\n", phase,
+                                     static_cast<unsigned int>(recovered), liveTexture.load());
+                        return kTestFailure;
+                    }
+                    if (FAILED(RenderFrame(*gpu, target, 0, 0)))
+                        return kTestFailure;
+                    wil::com_ptr_nothrow<ID3D11Texture2D> grown;
+                    if (BoundIconTexture(target, grown) != S_OK)
+                        return kTestFailure;
+                    grown->GetDesc(&description);
+                    if (description.ArraySize != count + phase)
+                        return kTestFailure;
+                }
+                if (FAILED(setFailure(0)))
+                    return kTestFailure;
+            }
+            if (FAILED(widget->SetVisible(FALSE)) || prepared->Prepare(&preparation) != S_FALSE)
+                return kTestFailure;
+            gpu->OnDeviceLost();
+            target.context->ClearState();
+            // Test-only submission drains deferred runtime references before observing final COM ownership.
+            target.context->Flush();
+            if (liveTexture)
+                return kTestFailure;
+        }
+    }
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT ValidateConstruction(RedXeCreateFn create, LauncherSetTestPinDirectoryFn setPin,
+                                           LauncherGetTestDiagnosticsFn diagnostics,
+                                           LauncherTestCanceledShellHandlerFn canceledShell) noexcept
+{
+    uint32_t checks = 0;
+    const auto check = [&](bool passed, const wchar_t* name) noexcept
+    {
+        ++checks;
+        if (!passed)
+            std::wprintf(L"Construction check %u failed: %ls\n", checks, name);
+        return passed;
+    };
+    try
+    {
+        if (!canceledShell)
+            return E_POINTER;
+        wil::unique_event_nothrow cancellation;
+        RETURN_IF_FAILED(cancellation.create(wil::EventOptions::ManualReset));
+        TestShellIconExtractor extractor;
+        RETURN_IF_FAILED(extractor.Initialize());
+        extractor.cancelAfterLocation = cancellation.get();
+        LauncherShellTimings canceledTimings{sizeof(LauncherShellTimings)};
+        if (!check(
+                canceledShell(&extractor, cancellation.get(), 3000, &canceledTimings) == E_ABORT &&
+                    extractor.locationCalls == 1 && extractor.extractCalls == 0 &&
+                    (canceledTimings.completedMask & (1U << static_cast<uint32_t>(LauncherShellPhase::GetLocation))) &&
+                    extractor.references == 1,
+                L"cancellation after native location prevents the next indivisible extraction and retains no owner"))
+            return kTestFailure;
+        cancellation.ResetEvent();
+        extractor.cancelAfterLocation = nullptr;
+        if (!check(canceledShell(&extractor, cancellation.get(), 0, &canceledTimings) == E_ABORT &&
+                       extractor.locationCalls == 1 && extractor.extractCalls == 0 &&
+                       canceledTimings.completedMask == 0,
+                   L"an expired call-local native budget invokes no phase"))
+            return kTestFailure;
+        RenderTarget target;
+        RETURN_IF_FAILED(CreateRenderTarget(800, 720, target));
+        const auto make = [&](TestHost& host, std::string_view json, wil::com_ptr_nothrow<IRedXeWidget>& widget,
+                              wil::com_ptr_nothrow<IRedXeGpuWidget>& gpu) noexcept -> HRESULT
+        {
+            wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+            RETURN_IF_FAILED(CreateProvider(create, json, &host, provider));
+            RETURN_IF_FAILED(provider->CreateWidget(kWidgetTypeId, "launcher.construction", widget.put()));
+            return AttachGpu(*widget, target, gpu.put());
+        };
+        const auto complete = [](TestHost& host) noexcept -> HRESULT
+        {
+            auto work = std::move(host.constructionWork);
+            if (!work)
+                return E_POINTER;
+            const HRESULT result = RunConstructionOnSta(work.get());
+            work->Complete(result);
+            return result;
+        };
+        const auto state = [](IRedXeWidget* widget) noexcept
+        {
+            wil::com_ptr_nothrow<IRedXeConstructionStateWidget> readiness;
+            RedXeConstructionState value = RedXeConstructionStateUnavailable;
+            if (!widget || FAILED(widget->QueryInterface(IID_PPV_ARGS(readiness.put()))) ||
+                FAILED(readiness->GetConstructionState(&value)))
+                return RedXeConstructionStateUnavailable;
+            return value;
+        };
+        const std::string glyphs = MakeGlyphShortcutList(32);
+        TestHost host;
+        host.supportsConstruction = true;
+        wil::com_ptr_nothrow<IRedXeWidget> widget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+        RETURN_IF_FAILED(make(host, glyphs, widget, gpu));
+        wil::com_ptr_nothrow<IRedXeConstructionStateWidget> readiness;
+        RETURN_IF_FAILED(widget.query_to(readiness.put()));
+        if (!check(readiness->GetConstructionState(nullptr) == E_POINTER, L"readiness validates its output"))
+            return kTestFailure;
+        LauncherTestDiagnostics before{sizeof(LauncherTestDiagnostics)}, after{sizeof(LauncherTestDiagnostics)};
+        RETURN_IF_FAILED(diagnostics(&before));
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        RETURN_IF_FAILED(diagnostics(&after));
+        if (!check(host.constructionWork && state(widget.get()) == RedXeConstructionStatePending &&
+                       after.extractCalls == before.extractCalls && after.textureUploads == before.textureUploads,
+                   L"visibility only queues copied CPU inputs, without Shell work or GPU uploads"))
+            return kTestFailure;
+        if (!check(RenderFrame(*gpu, target, 0, 0) == S_FALSE && host.constructionCalls == 1,
+                   L"pending render publishes no partial icons or duplicate work"))
+            return kTestFailure;
+        const uint32_t validated = host.validationCalls;
+        const HRESULT run = RunConstructionOnSta(host.constructionWork.get());
+        RETURN_IF_FAILED(diagnostics(&after));
+        if (!check(run == S_OK && state(widget.get()) == RedXeConstructionStatePending &&
+                       host.validationCalls == validated && after.textureUploads == before.textureUploads,
+                   L"STA Run borrows no host validation or GPU state and publishes nothing"))
+            return kTestFailure;
+        host.constructionWork->Complete(run);
+        host.constructionWork.reset();
+        if (!check(state(widget.get()) == RedXeConstructionStateNeedsPreparation && host.frameRequests == 1 &&
+                       host.constructionLog.find("worker_wall_us=") != std::string::npos &&
+                       host.constructionLog.find("icons=32") != std::string::npos &&
+                       host.constructionLog.size() <= kRedXeMaximumLogMessageBytes,
+                   L"UI completion publishes CPU pixels and requests one preparation frame"))
+            return kTestFailure;
+        uint64_t asynchronous = 0, synchronous = 0;
+        RETURN_IF_FAILED(RenderFrame(*gpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, asynchronous));
+        if (!check(state(widget.get()) == RedXeConstructionStateReady, L"Ready follows full GPU upload"))
+            return kTestFailure;
+        TestHost referenceHost;
+        wil::com_ptr_nothrow<IRedXeWidget> reference;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> referenceGpu;
+        RETURN_IF_FAILED(make(referenceHost, glyphs, reference, referenceGpu));
+        RETURN_IF_FAILED(reference->SetVisible(TRUE));
+        RETURN_IF_FAILED(RenderFrame(*referenceGpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, synchronous));
+        if (!check(asynchronous == synchronous, L"all 32 full-resolution glyphs match synchronous WARP pixels"))
+            return kTestFailure;
+        readiness.reset();
+        gpu->OnDeviceLost();
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        RETURN_IF_FAILED(complete(host));
+        if (!check(state(widget.get()) == RedXeConstructionStateNeedsPreparation,
+                   L"CPU completion while device-lost retains owned pixels without a GPU borrow"))
+            return kTestFailure;
+        const RedXeGpuDeviceContext restored{sizeof(RedXeGpuDeviceContext), target.device.get(),
+                                             DXGI_FORMAT_B8G8R8A8_UNORM, target.featureLevel};
+        RETURN_IF_FAILED(gpu->OnDeviceCreated(&restored));
+        RETURN_IF_FAILED(RenderFrame(*gpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, asynchronous));
+        if (!check(asynchronous == synchronous, L"device recovery preserves exact completed pixels"))
+            return kTestFailure;
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        auto obsolete = std::move(host.constructionWork);
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        {
+            wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
+            RETURN_IF_FAILED(widget.query_to(interactive.put()));
+            RedXePointerEvent wheel{};
+            wheel.sizeBytes = sizeof(wheel);
+            wheel.kind = RedXePointerKindMouse;
+            wheel.phase = RedXePointerPhaseWheel;
+            wheel.wheelDelta = 120;
+            if (!check(interactive->OnPointer(&wheel) == S_FALSE,
+                       L"pending replacement suppresses input against the previous icon grid"))
+                return kTestFailure;
+            wheel.phase = RedXePointerPhaseCancel;
+            if (!check(interactive->OnPointer(&wheel) == S_FALSE,
+                       L"pending input still accepts release/cancellation cleanup"))
+                return kTestFailure;
+        }
+        const uint32_t requests = host.frameRequests;
+        const HRESULT stale = RunConstructionOnSta(obsolete.get());
+        obsolete->Complete(stale);
+        if (!check(stale == E_ABORT && host.frameRequests == requests &&
+                       state(widget.get()) == RedXeConstructionStatePending,
+                   L"a replacement generation rejects both obsolete Run and Complete"))
+            return kTestFailure;
+        obsolete.reset();
+        RETURN_IF_FAILED(complete(host));
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        RETURN_IF_FAILED(RunConstructionOnSta(host.constructionWork.get()));
+        RETURN_IF_FAILED(widget->SetVisible(FALSE));
+        const uint32_t hiddenRequests = host.frameRequests;
+        host.constructionWork->Complete(S_OK);
+        if (!check(host.frameRequests == hiddenRequests, L"hide withdraws a completed result before publication"))
+            return kTestFailure;
+        host.constructionWork.reset();
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        const uint32_t deadRequests = host.frameRequests;
+        gpu->OnDeviceLost();
+        gpu.reset();
+        widget.reset();
+        RETURN_IF_FAILED(diagnostics(&before));
+        const HRESULT retired = RunConstructionOnSta(host.constructionWork.get());
+        host.constructionWork->Complete(retired);
+        RETURN_IF_FAILED(diagnostics(&after));
+        if (!check(retired == E_ABORT && before.liveWidgets == after.liveWidgets && host.frameRequests == deadRequests,
+                   L"retired work retains no widget/provider/device and cannot resurrect an owner"))
+            return kTestFailure;
+        host.constructionWork.reset();
+
+        RETURN_IF_FAILED(make(host, glyphs, widget, gpu));
+        host.constructionResult = HRESULT_FROM_WIN32(ERROR_BUSY);
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        if (!check(state(widget.get()) == RedXeConstructionStatePending && !host.constructionWork,
+                   L"bounded saturation defers admission without running Shell work on the UI thread"))
+            return kTestFailure;
+        host.constructionResult = S_OK;
+        if (!check(RenderFrame(*gpu, target, 0, 0) == S_FALSE && host.constructionWork,
+                   L"a preparation opportunity admits a waiting job without publishing partial pixels"))
+            return kTestFailure;
+        RETURN_IF_FAILED(complete(host));
+        RETURN_IF_FAILED(RenderFrame(*gpu, target, 0, 0));
+        host.constructionResult = E_FAIL;
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        if (!check(state(widget.get()) == RedXeConstructionStateUnavailable &&
+                       host.lastStatus == RedXeWidgetStatusUnavailable,
+                   L"a submission failure becomes a local unavailable tile"))
+            return kTestFailure;
+        host.constructionResult = E_ACCESSDENIED;
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        RETURN_IF_FAILED(RenderFrame(*gpu, target, 0, 0));
+        if (!check(state(widget.get()) == RedXeConstructionStateReady && host.lastStatus == RedXeWidgetStatusOk,
+                   L"ordinary activation retains synchronous quality and recovers a failed local status"))
+            return kTestFailure;
+        host.constructionResult = S_OK;
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        wil::unique_event_nothrow canceled;
+        RETURN_IF_FAILED(canceled.create(wil::EventOptions::ManualReset));
+        canceled.SetEvent();
+        const HRESULT stopped = RunConstructionOnSta(host.constructionWork.get(), canceled.get());
+        host.constructionWork->Complete(stopped);
+        if (!check(stopped == E_ABORT && state(widget.get()) == RedXeConstructionStateUnavailable,
+                   L"signaled cancellation refuses CPU work and partial publication"))
+            return kTestFailure;
+        host.constructionWork.reset();
+        RETURN_IF_FAILED(widget->SetVisible(TRUE));
+        const HRESULT expired = RunConstructionOnSta(host.constructionWork.get(), nullptr, 0);
+        host.constructionWork->Complete(expired);
+        if (!check(expired == E_ABORT && state(widget.get()) == RedXeConstructionStateUnavailable,
+                   L"an exhausted work budget publishes no pixels"))
+            return kTestFailure;
+        host.constructionWork.reset();
+
+        std::array<wchar_t, MAX_PATH> temporary{}, directory{}, shortcut{};
+        if (!GetTempPathW(static_cast<DWORD>(temporary.size()), temporary.data()))
+            return HRESULT_FROM_WIN32(GetLastError());
+        (void)swprintf_s(directory.data(), directory.size(), L"%sRedXeAsyncPins-%lu", temporary.data(),
+                         GetCurrentProcessId());
+        if (!CreateDirectoryW(directory.data(), nullptr))
+            return HRESULT_FROM_WIN32(GetLastError());
+        (void)swprintf_s(shortcut.data(), shortcut.size(), L"%s\\Alpha.lnk", directory.data());
+        const auto cleanup = wil::scope_exit(
+            [&]() noexcept
+            {
+                (void)setPin(nullptr);
+                (void)DeleteFileW(shortcut.data());
+                (void)RemoveDirectoryW(directory.data());
+            });
+        RETURN_IF_FAILED(WriteShortcut(shortcut.data()));
+        RETURN_IF_FAILED(setPin(directory.data()));
+        TestHost pins;
+        pins.supportsConstruction = true;
+        wil::com_ptr_nothrow<IRedXeWidget> pinWidget;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> pinGpu;
+        RETURN_IF_FAILED(make(pins, kEmptyShortcuts, pinWidget, pinGpu));
+        RETURN_IF_FAILED(pinWidget->SetVisible(TRUE));
+        RETURN_IF_FAILED(RunConstructionOnSta(pins.constructionWork.get()));
+        if (!check(pins.queueCalls == 0 && pins.persistCalls == 0, L"worker pin discovery never persists settings"))
+            return kTestFailure;
+        pins.constructionWork->Complete(S_OK);
+        pins.constructionWork.reset();
+        if (!check(pins.queueCalls == 1 && pins.persistCalls == 0 && pins.validationThread == GetCurrentThreadId() &&
+                       pins.pendingJson.find("Alpha.lnk") != std::string::npos && pins.pendingJson.size() <= 4096,
+                   L"UI validates discovered actions and queues only a bounded per-instance import"))
+            return kTestFailure;
+        RETURN_IF_FAILED(RenderFrame(*pinGpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, asynchronous));
+        TestHost ordinaryPins;
+        wil::com_ptr_nothrow<IRedXeWidget> pinReference;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> pinReferenceGpu;
+        RETURN_IF_FAILED(make(ordinaryPins, kEmptyShortcuts, pinReference, pinReferenceGpu));
+        RETURN_IF_FAILED(pinReference->SetVisible(TRUE));
+        RETURN_IF_FAILED(RenderFrame(*pinReferenceGpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, synchronous));
+        if (!check(asynchronous == synchronous, L"fresh native pin pixels match the ordinary full-quality path"))
+            return kTestFailure;
+        TestHost invalidPins;
+        invalidPins.supportsConstruction = true;
+        invalidPins.validationResult = E_INVALIDARG;
+        wil::com_ptr_nothrow<IRedXeWidget> invalid;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> invalidGpu;
+        RETURN_IF_FAILED(make(invalidPins, kEmptyShortcuts, invalid, invalidGpu));
+        RETURN_IF_FAILED(invalid->SetVisible(TRUE));
+        RETURN_IF_FAILED(complete(invalidPins));
+        RETURN_IF_FAILED(RenderFrame(*invalidGpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, asynchronous));
+        TestHost refusedReferenceHost;
+        refusedReferenceHost.validationResult = E_INVALIDARG;
+        wil::com_ptr_nothrow<IRedXeWidget> refusedReference;
+        wil::com_ptr_nothrow<IRedXeGpuWidget> refusedGpu;
+        RETURN_IF_FAILED(make(refusedReferenceHost, invalidPins.pendingJson, refusedReference, refusedGpu));
+        RETURN_IF_FAILED(refusedReference->SetVisible(TRUE));
+        RETURN_IF_FAILED(RenderFrame(*refusedGpu, target, 0, 0));
+        RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, synchronous));
+        if (!check(state(invalid.get()) == RedXeConstructionStateReady && asynchronous == synchronous,
+                   L"a host-refused imported action receives exact ordinary warning pixels in Prepare"))
+            return kTestFailure;
+        for (HRESULT persisted : {S_OK, E_FAIL})
+        {
+            TestHost dropping;
+            dropping.supportsConstruction = true;
+            dropping.persistResult = persisted;
+            wil::com_ptr_nothrow<IRedXeWidget> dropWidget;
+            wil::com_ptr_nothrow<IRedXeGpuWidget> dropGpu;
+            RETURN_IF_FAILED(make(dropping, MakeGlyphShortcutList(1), dropWidget, dropGpu));
+            RETURN_IF_FAILED(dropWidget->SetVisible(TRUE));
+            auto superseded = std::move(dropping.constructionWork);
+            RETURN_IF_FAILED(RunConstructionOnSta(superseded.get()));
+            wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
+            RETURN_IF_FAILED(dropWidget.query_to(interactive.put()));
+            const RedXeDropItem item{sizeof(RedXeDropItem), 0, kNotepad};
+            const RedXeDropEvent event{sizeof(RedXeDropEvent), 0, 0, 1, &item};
+            const HRESULT dropped = interactive->OnDrop(&event);
+            RETURN_IF_FAILED(RenderFrame(*dropGpu, target, 0, 0));
+            RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, synchronous));
+            superseded->Complete(S_OK);
+            RETURN_IF_FAILED(RenderFrame(*dropGpu, target, 0, 0));
+            RETURN_IF_FAILED(FrameChecksum(target, target.width, target.height, asynchronous));
+            RETURN_IF_FAILED(diagnostics(&after));
+            if (!check(dropped == persisted && dropping.persistCalls == 1 && synchronous == asynchronous &&
+                           after.authoredCount == (SUCCEEDED(persisted) ? 2U : 1U),
+                       L"committed drop or rollback withdraws older results and preserves current full-quality pixels"))
+                return kTestFailure;
+        }
+        std::wprintf(L"Launcher construction: %u lifecycle, admission, publication and exact-pixel checks passed.\n",
+                     checks);
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_OUTOFMEMORY;
+    }
+}
+
+[[nodiscard]] HRESULT ValidateShellPixels(RedXeCreateFn create, const wchar_t* configurationPath, FILE* pixels,
+                                          bool asynchronous = false) noexcept
+{
+    FILE* input = nullptr;
+    if (_wfopen_s(&input, configurationPath, L"rb") != 0 || !input)
+        return E_INVALIDARG;
+    const auto close = wil::scope_exit([input]() noexcept { (void)std::fclose(input); });
+    std::array<char, 4097> json{};
+    const size_t bytes = std::fread(json.data(), 1, json.size(), input);
+    if (std::ferror(input) || bytes == 0 || bytes > 4096)
+        return E_INVALIDARG;
+    TestHost host;
+    host.supportsConstruction = asynchronous;
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+    HRESULT result = CreateProvider(create, std::string_view(json.data(), bytes), &host, provider);
+    if (FAILED(result))
+        return result;
+    wil::com_ptr_nothrow<IRedXeWidget> widget;
+    if (FAILED(result = provider->CreateWidget(kWidgetTypeId, "launcher.shell-pixels", widget.put())))
+        return result;
+    RenderTarget target;
+    if (FAILED(result = CreateRenderTarget(800, 720, target)))
+        return result;
+    wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+    if (FAILED(result = AttachGpu(*widget, target, gpu.put())) || FAILED(result = widget->SetVisible(TRUE)))
+        return result;
+    if (asynchronous)
+    {
+        RETURN_IF_FAILED(RunConstructionOnSta(host.constructionWork.get()));
+        host.constructionWork->Complete(S_OK);
+        host.constructionWork.reset();
+    }
+    for (const auto& extent : std::array<std::array<uint32_t, 3>, 5>{
+             {{160, 160, 96}, {480, 480, 96}, {256, 720, 96}, {799, 559, 144}, {480, 480, 192}}})
+    {
+        uint64_t hash = 0;
+        if (FAILED(result = RenderFrame(*gpu, target, 0, 0, 0, extent[0], extent[1], true, extent[2])) ||
+            FAILED(result = FrameChecksum(target, extent[0], extent[1], hash)))
+            return result;
+        if (std::fprintf(pixels, "frame %u %u %u %016llX\n", extent[0], extent[1], extent[2],
+                         static_cast<unsigned long long>(hash)) < 0)
+            return E_FAIL;
+    }
+    wil::com_ptr_nothrow<ID3D11Texture2D> icons;
+    if (FAILED(result = BoundIconTexture(target, icons)) || !icons)
+        return FAILED(result) ? result : E_UNEXPECTED;
+    D3D11_TEXTURE2D_DESC description{};
+    icons->GetDesc(&description);
+    if (description.Width != 256 || description.Height != 256 || description.ArraySize > 32)
+        return kTestFailure;
+    description.Usage = D3D11_USAGE_STAGING;
+    description.BindFlags = 0;
+    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    description.MiscFlags = 0;
+    wil::com_ptr_nothrow<ID3D11Texture2D> staging;
+    if (FAILED(result = target.device->CreateTexture2D(&description, nullptr, staging.put())))
+        return result;
+    target.context->CopyResource(staging.get(), icons.get());
+    for (uint32_t slice = 0; slice < description.ArraySize; ++slice)
+    {
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(result = target.context->Map(staging.get(), slice, D3D11_MAP_READ, 0, &mapped)))
+            return result;
+        const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(staging.get(), slice); });
+        uint64_t hash = 14695981039346656037ULL;
+        uint32_t inkPixels = 0;
+        for (uint32_t y = 0; y < 256; ++y)
+        {
+            const auto* row = static_cast<const uint8_t*>(mapped.pData) + y * mapped.RowPitch;
+            for (uint32_t x = 0; x < 256 * 4; ++x)
+                hash = (hash ^ row[x]) * 1099511628211ULL;
+            for (uint32_t x = 0; x < 256; ++x)
+                inkPixels += row[x * 4 + 3] != 0;
+        }
+        if (!inkPixels ||
+            std::fprintf(pixels, "slice %u %u %016llX\n", slice, inkPixels, static_cast<unsigned long long>(hash)) < 0)
+            return kTestFailure;
+    }
+    gpu->OnDeviceLost();
+    target.context->ClearState();
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT WriteShellAttribution(LauncherTestShellBatchFn inspect, const wchar_t* directory,
+                                            FILE* output) noexcept
+{
+    if (!inspect || !directory || !output)
+        return E_POINTER;
+    std::array<wchar_t, 1024> pattern{};
+    if (swprintf_s(pattern.data(), pattern.size(), L"%s\\*.lnk", directory) <= 0)
+        return E_INVALIDARG;
+    WIN32_FIND_DATAW entry{};
+    wil::unique_hfind find{FindFirstFileW(pattern.data(), &entry)};
+    if (!find)
+        return HRESULT_FROM_WIN32(GetLastError());
+    std::array<std::array<wchar_t, 1024>, 32> paths{};
+    uint32_t count = 0;
+    do
+    {
+        if ((entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+        {
+            if (swprintf_s(paths[count].data(), paths[count].size(), L"%s\\%s", directory, entry.cFileName) <= 0)
+                return E_INVALIDARG;
+            ++count;
+        }
+    } while (count < paths.size() && FindNextFileW(find.get(), &entry));
+    std::sort(paths.begin(), paths.begin() + count, [](const auto& a, const auto& b) noexcept
+              { return CompareStringOrdinal(a.data(), -1, b.data(), -1, TRUE) == CSTR_LESS_THAN; });
+    constexpr std::array names{
+        "item",         "bind",          "location",    "extract",          "decode",        "image",
+        "image_decode", "list",          "shield",      "cache_validation", "cache_read",    "cache_store",
+        "parent_item",  "parent_folder", "child_parse", "parent_metadata",  "parent_context"};
+    static_assert(names.size() == kLauncherShellPhaseCount);
+    if (std::fputs("round,icon,hr,mask,source,freq,total_ticks,pixel_hash,source_edge", output) < 0)
+        return E_FAIL;
+    for (const char* name : names)
+        if (std::fprintf(output, ",%s_ticks,%s_calls,%s_hr", name, name, name) < 0)
+            return E_FAIL;
+    if (std::fputc('\n', output) == EOF)
+        return E_FAIL;
+    for (uint32_t round = 0; round < 16; ++round)
+    {
+        std::array<const wchar_t*, 32> targets{};
+        std::array<LauncherShellTimings, 32> records{};
+        for (uint32_t index = 0; index < count; ++index)
+        {
+            targets[index] = paths[index].data();
+            records[index].sizeBytes = sizeof(LauncherShellTimings);
+        }
+        const HRESULT result = inspect(targets.data(), count, records.data());
+        if (result != S_OK)
+            return result;
+        for (uint32_t index = 0; index < count; ++index)
+        {
+            const auto& timings = records[index];
+            if (result != S_OK || !ConsistentShellTimings(timings) || !timings.pixelHash || !timings.sourceEdge ||
+                !timings.sourceKind || (timings.phaseCalls[0] + timings.phaseCalls[14]) < 1)
+                return kTestFailure;
+            if (std::fprintf(output, "%u,%u,%u,%u,%u,%llu,%llu,%016llX,%u", round, index, static_cast<uint32_t>(result),
+                             timings.completedMask, timings.sourceKind,
+                             static_cast<unsigned long long>(timings.frequency),
+                             static_cast<unsigned long long>(timings.totalTicks),
+                             static_cast<unsigned long long>(timings.pixelHash), timings.sourceEdge) < 0)
+                return E_FAIL;
+            for (uint32_t phase = 0; phase < kLauncherShellPhaseCount; ++phase)
+                if (std::fprintf(output, ",%llu,%u,%u", static_cast<unsigned long long>(timings.phaseTicks[phase]),
+                                 timings.phaseCalls[phase], static_cast<uint32_t>(timings.phaseResults[phase])) < 0)
+                    return E_FAIL;
+            if (std::fputc('\n', output) == EOF)
+                return E_FAIL;
+        }
+    }
+    return std::fflush(output) == 0 ? S_OK : E_FAIL;
+}
+
+[[nodiscard]] HRESULT Run(const wchar_t* pixelsPath, const wchar_t* shellConfiguration = nullptr,
+                          const wchar_t* attributionDirectory = nullptr, bool asynchronousShell = false,
+                          bool constructionOnly = false) noexcept
 {
     const bool compilerLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
     (void)SetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", L"1");
@@ -1679,10 +3342,101 @@ struct RenderTarget final
         OleUninitialize();
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
-    result = ValidateFactoryAndSettings(create, enumerate, getContract);
-    if (FAILED(result))
+    const LauncherSetTestIconFailureFn setFailure =
+        Resolve<LauncherSetTestIconFailureFn>(module.get(), kLauncherSetTestIconFailureExport);
+    if (constructionOnly)
     {
-        std::wprintf(L"ValidateFactoryAndSettings failed: 0x%08X\n", static_cast<unsigned int>(result));
+        result = ValidateConstruction(
+            create, setPin, getDiagnostics,
+            Resolve<LauncherTestCanceledShellHandlerFn>(module.get(), kLauncherTestCanceledShellHandlerExport));
+        shutdown();
+        OleUninitialize();
+        return result;
+    }
+    if (pixelsPath)
+    {
+        FILE* file = nullptr;
+        if (_wfopen_s(&file, pixelsPath, L"wb") != 0 || !file)
+            result = E_FAIL;
+        else
+        {
+            const auto close = wil::scope_exit([file]() noexcept { (void)std::fclose(file); });
+            if (attributionDirectory)
+                result = WriteShellAttribution(
+                    Resolve<LauncherTestShellBatchFn>(module.get(), kLauncherTestShellBatchExport),
+                    attributionDirectory, file);
+            else
+                result = shellConfiguration ? ValidateShellPixels(create, shellConfiguration, file, asynchronousShell)
+                                            : ValidateIconStorage(create, setPin, getDiagnostics, setFailure, file);
+        }
+        shutdown();
+        OleUninitialize();
+        return result;
+    }
+    result =
+        ValidateSingleShellIcon(Resolve<LauncherTestShellHandlerFn>(module.get(), kLauncherTestShellHandlerExport));
+    if (FAILED(result))
+        std::wprintf(L"ValidateSingleShellIcon failed: 0x%08X\n", static_cast<unsigned int>(result));
+    if (SUCCEEDED(result))
+    {
+        result =
+            ValidateShellTimings(Resolve<LauncherTestShellIconFn>(module.get(), kLauncherTestShellIconExport),
+                                 Resolve<LauncherTestShellHandlerFn>(module.get(), kLauncherTestShellHandlerExport));
+        if (FAILED(result))
+            std::wprintf(L"ValidateShellTimings failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
+        for (bool opaque : {false, true})
+        {
+            result = ValidateIconCache(
+                Resolve<LauncherTestCachedShellHandlerFn>(module.get(), kLauncherTestCachedShellHandlerExport),
+                Resolve<LauncherTestIconCacheFn>(module.get(), kLauncherTestIconCacheExport), shutdown, opaque);
+            if (FAILED(result))
+                break;
+        }
+        if (FAILED(result))
+            std::wprintf(L"ValidateIconCache failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ValidateShellBatch(Resolve<LauncherTestShellBatchFn>(module.get(), kLauncherTestShellBatchExport),
+                                    Resolve<LauncherTestShellIconFn>(module.get(), kLauncherTestShellIconExport));
+        if (FAILED(result))
+            std::wprintf(L"ValidateShellBatch failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ValidateShellParent(Resolve<LauncherTestShellParentFn>(module.get(), kLauncherTestShellParentExport),
+                                     Resolve<LauncherTestShellIconFn>(module.get(), kLauncherTestShellIconExport));
+        if (FAILED(result))
+            std::wprintf(L"ValidateShellParent failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ValidateLauncherGlyphRasterization();
+        if (FAILED(result))
+            std::wprintf(L"ValidateLauncherGlyphRasterization failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ValidateIconStorage(create, setPin, getDiagnostics, setFailure);
+        if (FAILED(result))
+            std::wprintf(L"ValidateIconStorage failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ValidateConstruction(
+            create, setPin, getDiagnostics,
+            Resolve<LauncherTestCanceledShellHandlerFn>(module.get(), kLauncherTestCanceledShellHandlerExport));
+        if (FAILED(result))
+            std::wprintf(L"ValidateConstruction failed: 0x%08X\n", static_cast<unsigned int>(result));
+    }
+    if (SUCCEEDED(result))
+    {
+        result = ValidateFactoryAndSettings(create, enumerate, getContract);
+        if (FAILED(result))
+            std::wprintf(L"ValidateFactoryAndSettings failed: 0x%08X\n", static_cast<unsigned int>(result));
     }
     if (SUCCEEDED(result))
     {
@@ -1717,10 +3471,22 @@ struct RenderTarget final
 }
 } // namespace
 
-int wmain() noexcept
+int wmain(int argc, wchar_t** argv) noexcept
 {
     RedXeFailureReports::RouteAwayFromDialogs();
-    const HRESULT result = Run();
+    if (argc == 2 && std::wcscmp(argv[1], L"--construction") == 0)
+        return SUCCEEDED(Run(nullptr, nullptr, nullptr, false, true)) ? 0 : 1;
+    if (argc == 4 && std::wcscmp(argv[1], L"--async-shell-pixels") == 0)
+        return SUCCEEDED(Run(argv[2], argv[3], nullptr, true)) ? 0 : 1;
+    if (argc == 3 && std::wcscmp(argv[1], L"--glyph-pixels") == 0)
+        return SUCCEEDED(ValidateLauncherGlyphRasterization(argv[2])) ? 0 : 1;
+    if (argc == 4 && std::wcscmp(argv[1], L"--shell-pixels") == 0)
+        return SUCCEEDED(Run(argv[2], argv[3])) ? 0 : 1;
+    if (argc == 4 && std::wcscmp(argv[1], L"--shell-attribution") == 0)
+        return SUCCEEDED(Run(argv[2], nullptr, argv[3])) ? 0 : 1;
+    if (argc != 1 && (argc != 3 || std::wcscmp(argv[1], L"--icon-pixels") != 0))
+        return 2;
+    const HRESULT result = Run(argc == 3 ? argv[2] : nullptr);
     if (FAILED(result))
     {
         std::wprintf(L"Launcher tests failed: 0x%08X\n", static_cast<unsigned int>(result));

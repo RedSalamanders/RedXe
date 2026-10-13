@@ -4,6 +4,7 @@
 #include "PluginHost.h"
 
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -72,10 +73,40 @@ void Renderer::Shutdown() noexcept
     _raisedTargetSize = {};
     _raisedViewport = {};
     _lastLoggedRenderFailure = {};
+    _failedWidgetMask = 0;
 }
 
-HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
+HRESULT Renderer::DropTransitionDashboard() noexcept
 {
+    DashboardHost* const previous = _transitionDashboardHost;
+    if (_pagePreparationProbe)
+    {
+        _pagePreparationProbe->Retire(previous);
+        if (_pagePreparationProbe->Empty())
+            _pagePreparationProbe.reset();
+    }
+    const bool ready = _transitionWidgetsDeviceReady;
+    _transitionDashboardHost = nullptr;
+    _transitionWidgetsDeviceReady = false;
+    _transitionTargetSizes = {};
+    _transitionWidgetViewports = {};
+    const HRESULT result = previous ? previous->SetWidgetsVisible(false) : S_OK;
+    if (previous && ready)
+    {
+        if (_context)
+            _context->ClearState();
+        for (size_t index = 0; index < previous->WidgetCount(); ++index)
+            if (IRedXeGpuWidget* widget = previous->GpuWidgetAt(index))
+                widget->OnDeviceLost();
+    }
+    return result;
+}
+
+HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost, RuntimePageCallbackContext* callbacks,
+                                         HRESULT* preparationTraceResult) noexcept
+{
+    if (preparationTraceResult)
+        *preparationTraceResult = S_FALSE;
     if (dashboardHost && dashboardHost->WidgetCount() > _transitionWidgetViewports.size())
     {
         return E_INVALIDARG;
@@ -83,24 +114,14 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
     const bool incomingVisible = dashboardHost && dashboardHost->WidgetsVisible();
     if (dashboardHost)
     {
-        const HRESULT result = dashboardHost->SetWidgetsVisible(false);
+        const HRESULT result = dashboardHost->SetWidgetsVisible(false, callbacks);
         if (FAILED(result))
             return result;
     }
-    if (_transitionWidgetsDeviceReady && _transitionDashboardHost)
-    {
-        const HRESULT result = _transitionDashboardHost->SetWidgetsVisible(false);
-        if (FAILED(result))
-            return result;
-        for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
-        {
-            if (IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index))
-                widget->OnDeviceLost();
-        }
-    }
-    _transitionWidgetsDeviceReady = false;
+    const HRESULT retired = DropTransitionDashboard();
+    if (FAILED(retired))
+        return retired;
     _transitionDashboardHost = dashboardHost;
-    _transitionTargetSizes = {};
     if (!dashboardHost)
     {
         return S_OK;
@@ -114,7 +135,9 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
     {
         if (IRedXeGpuWidget* widget = dashboardHost->GpuWidgetAt(index))
         {
-            const HRESULT result = widget->OnDeviceCreated(&context);
+            const HRESULT result = TraceRuntimePageCallback(callbacks, static_cast<uint32_t>(index),
+                                                            RuntimePageCallbackKind::DeviceCreated, [&]() noexcept
+                                                            { return widget->OnDeviceCreated(&context); });
             if (FAILED(result))
             {
                 (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
@@ -131,14 +154,34 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost) noexcept
         }
     }
     _transitionWidgetsDeviceReady = true;
+    if (callbacks && callbacks->stageId != 0)
+    {
+        static_assert(kMaximumWidgetViewports <= 32);
+        uint32_t pending = 0;
+        for (size_t index = 0; index < dashboardHost->WidgetCount(); ++index)
+            if (dashboardHost->PreparedGpuWidgetAt(index))
+                pending |= uint32_t{1} << index;
+        if (!_pagePreparationProbe)
+            _pagePreparationProbe.reset(new (std::nothrow) RuntimePagePreparationProbe());
+        const HRESULT traced =
+            _pagePreparationProbe ? _pagePreparationProbe->Arm(dashboardHost, *callbacks, pending) : E_OUTOFMEMORY;
+        if (preparationTraceResult)
+            *preparationTraceResult = traced;
+        if (_pagePreparationProbe && _pagePreparationProbe->Empty())
+            _pagePreparationProbe.reset();
+    }
     // During device recovery both pages are initialized before the new render target exists. Its creation will
     // calculate viewports and send the initial size notifications for both pages together.
     if (_width == 0 || _height == 0)
     {
         return S_OK;
     }
-    const HRESULT result = UpdateCachedViewports();
-    return SUCCEEDED(result) ? dashboardHost->SetWidgetsVisible(incomingVisible) : result;
+    HRESULT result = UpdateCachedViewports(callbacks);
+    if (SUCCEEDED(result))
+        result = dashboardHost->SetWidgetsVisible(incomingVisible, callbacks);
+    if (FAILED(result))
+        (void)DropTransitionDashboard();
+    return result;
 }
 
 HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
@@ -149,6 +192,12 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
     }
     if (_dashboardHost == &dashboardHost)
     {
+        if (_pagePreparationProbe)
+        {
+            _pagePreparationProbe->Retain(&dashboardHost);
+            if (_pagePreparationProbe->Empty())
+                _pagePreparationProbe.reset();
+        }
         _transitionDashboardHost = nullptr;
         _transitionWidgetsDeviceReady = false;
         return (_width == 0 || _height == 0) ? S_OK : UpdateCachedViewports();
@@ -217,9 +266,30 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
         return result;
     }
 
-    if (previousGpuReady && previousPrimary && previousPrimary != &dashboardHost)
+    const bool retirePrimary = previousGpuReady && previousPrimary && previousPrimary != &dashboardHost;
+    if (_pagePreparationProbe)
+    {
+        _pagePreparationProbe->Retain(&dashboardHost);
+        if (_pagePreparationProbe->Empty())
+            _pagePreparationProbe.reset();
+    }
+    const bool retireTransition = previousTransitionReady && previousTransition && previousTransition != &dashboardHost;
+    if (retirePrimary)
     {
         (void)previousPrimary->SetWidgetsVisible(false);
+    }
+    if (retireTransition)
+    {
+        (void)previousTransition->SetWidgetsVisible(false);
+    }
+    if (retirePrimary || retireTransition)
+    {
+        // Successful adoption is the commit point. Drop context-held references after both retiring pages quiesce,
+        // without flushing, rebuilding the device, or disturbing the incoming page's owned resources.
+        _context->ClearState();
+    }
+    if (retirePrimary)
+    {
         for (size_t index = 0; index < previousPrimary->WidgetCount(); ++index)
         {
             if (IRedXeGpuWidget* widget = previousPrimary->GpuWidgetAt(index))
@@ -228,9 +298,8 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
             }
         }
     }
-    if (previousTransitionReady && previousTransition && previousTransition != &dashboardHost)
+    if (retireTransition)
     {
-        (void)previousTransition->SetWidgetsVisible(false);
         for (size_t index = 0; index < previousTransition->WidgetCount(); ++index)
         {
             if (IRedXeGpuWidget* widget = previousTransition->GpuWidgetAt(index))
@@ -239,6 +308,8 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
             }
         }
     }
+    _lastLoggedRenderFailure = {};
+    _failedWidgetMask = 0;
     return S_OK;
 }
 
@@ -592,6 +663,32 @@ Renderer::DeviceIdentity Renderer::DeviceInfo() const noexcept
     return _deviceInfo;
 }
 
+RuntimeProbeGraphics Renderer::QueryProbeGraphics() const noexcept
+{
+    RuntimeProbeGraphics sample;
+    if (!_swapChain || !_device)
+        return sample;
+    sample.generation = _swapChainGeneration;
+    sample.presentResult = _swapChain->GetLastPresentCount(&sample.presentCount);
+    sample.statisticsResult = _swapChain->GetFrameStatistics(&sample.statistics);
+    wil::com_ptr_nothrow<IDXGIDevice> device;
+    wil::com_ptr_nothrow<IDXGIAdapter> adapter;
+    wil::com_ptr_nothrow<IDXGIAdapter3> adapter3;
+    HRESULT result = _device.query_to(device.put());
+    if (SUCCEEDED(result))
+        result = device->GetAdapter(adapter.put());
+    if (SUCCEEDED(result))
+        result = adapter.query_to(adapter3.put());
+    sample.localResult = sample.nonLocalResult = result;
+    if (SUCCEEDED(result))
+    {
+        sample.localResult = adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &sample.local);
+        sample.nonLocalResult =
+            adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &sample.nonLocal);
+    }
+    return sample;
+}
+
 HRESULT Renderer::GetSwapChainDescription(DXGI_SWAP_CHAIN_DESC1& description) const noexcept
 {
     description = {};
@@ -649,6 +746,7 @@ HRESULT Renderer::CreateSwapChain() noexcept
     {
         return result;
     }
+    ++_swapChainGeneration;
 
     // Maximum frame latency one, enforced by the swap chain's waitable object rather than a blocking Present: the UI
     // thread waits on this handle before building a frame, so input queued meanwhile is dispatched first.
@@ -668,6 +766,7 @@ HRESULT Renderer::CreateSwapChain() noexcept
     {
         return E_UNEXPECTED;
     }
+    ++_frameLatencyGeneration;
 
     result = factory->MakeWindowAssociation(_window, DXGI_MWA_NO_ALT_ENTER);
     if (FAILED(result))
@@ -768,11 +867,12 @@ void Renderer::ResetTargetSizes() noexcept
     _transitionTargetSizes = {};
 }
 
-void Renderer::NotifyTargetSizes() noexcept
+void Renderer::NotifyTargetSizes(RuntimePageCallbackContext* callbacks) noexcept
 {
-    const auto notify =
-        [this](DashboardHost* dashboard, const std::array<D3D11_VIEWPORT, kMaximumWidgetViewports>& viewports,
-               std::array<ReportedTarget, kMaximumWidgetViewports>& reported, bool includeRaised) noexcept
+    const auto notify = [this, callbacks](DashboardHost* dashboard,
+                                          const std::array<D3D11_VIEWPORT, kMaximumWidgetViewports>& viewports,
+                                          std::array<ReportedTarget, kMaximumWidgetViewports>& reported,
+                                          bool includeRaised) noexcept
     {
         if (!dashboard)
         {
@@ -812,7 +912,9 @@ void Renderer::NotifyTargetSizes() noexcept
                 _dpi,
             };
             // A failed rebuild is isolated: the widget keeps whatever resources it already had and still renders.
-            const HRESULT sized = widget->OnTargetSizeChanged(&context);
+            const HRESULT sized = TraceRuntimePageCallback(
+                dashboard == _transitionDashboardHost ? callbacks : nullptr, static_cast<uint32_t>(index),
+                RuntimePageCallbackKind::TargetSize, [&]() noexcept { return widget->OnTargetSizeChanged(&context); });
             if (FAILED(sized))
             {
                 OutputDebugStringW(L"A GPU widget failed to resize its resources; keeping the previous ones.\n");
@@ -829,7 +931,7 @@ void Renderer::NotifyTargetSizes() noexcept
     notify(_transitionDashboardHost, _transitionWidgetViewports, _transitionTargetSizes, false);
 }
 
-HRESULT Renderer::UpdateCachedViewports() noexcept
+HRESULT Renderer::UpdateCachedViewports(RuntimePageCallbackContext* callbacks) noexcept
 {
     // Render indexes the cached viewport arrays with a widget count bounded by PluginManager, so the two limits must
     // not drift apart. Raising kMaximumWidgetsPerPage alone fails here instead of overrunning a frame.
@@ -887,7 +989,7 @@ HRESULT Renderer::UpdateCachedViewports() noexcept
             viewport.MaxDepth = 1.0f;
         }
     }
-    NotifyTargetSizes();
+    NotifyTargetSizes(callbacks);
     return S_OK;
 }
 
@@ -944,6 +1046,11 @@ HRESULT Renderer::NotifyDeviceCreated() noexcept
 
 void Renderer::NotifyDeviceLost() noexcept
 {
+    if (_pagePreparationProbe)
+    {
+        _pagePreparationProbe->Retain(nullptr);
+        _pagePreparationProbe.reset();
+    }
     if (!_gpuWidgetsDeviceReady || !_dashboardHost)
     {
         return;
@@ -1011,6 +1118,8 @@ HRESULT Renderer::Resize(UINT width, UINT height) noexcept
         return result;
     }
 
+    ++_swapChainGeneration;
+
     return CreateRenderTarget(width, height);
 }
 
@@ -1041,6 +1150,14 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
             IRedXePreparedGpuWidget* widget = dashboard->PreparedGpuWidgetAt(index);
             if (!widget || dashboard->RequiresPlaceholderAt(index))
                 continue;
+            bool constructionPending = false;
+            if (auto* construction = dashboard->ConstructionStateWidgetAt(index))
+            {
+                RedXeConstructionState state = RedXeConstructionStatePending;
+                if (FAILED(construction->GetConstructionState(&state)))
+                    continue;
+                constructionPending = state == RedXeConstructionStatePending;
+            }
             if (!unbound)
             {
                 _context->OMSetRenderTargets(0, nullptr, nullptr);
@@ -1060,7 +1177,24 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
                                                                         : _raisedViewport.Height + 0.5f)
                        : 0U,
                 _appearance};
-            const HRESULT result = widget->Prepare(&context);
+            RuntimePageCallbackContext* const probeContext =
+                _pagePreparationProbe && !constructionPending
+                    ? _pagePreparationProbe->Take(dashboard, static_cast<uint32_t>(index))
+                    : nullptr;
+            auto* host = constructionPending ? &PluginHost::Instance() : nullptr;
+            const bool previousConstructionAccess = host && host->ConstructionAccessEnabled();
+            if (host)
+                host->SetConstructionAccessEnabled(dashboard == _transitionDashboardHost &&
+                                                   (tile.TopLeftX >= _width || tile.TopLeftX + tile.Width <= 0));
+            const auto restoreConstructionAccess = wil::scope_exit(
+                [&]() noexcept
+                {
+                    if (host)
+                        host->SetConstructionAccessEnabled(previousConstructionAccess);
+                });
+            const HRESULT result = TraceRuntimePageCallback(probeContext, static_cast<uint32_t>(index),
+                                                            RuntimePageCallbackKind::FirstPreparation,
+                                                            [&]() noexcept { return widget->Prepare(&context); });
             if (observedChanged && dashboard == _dashboardHost && index == observedWidget && result == S_OK)
                 *observedChanged = true;
             if (changedWidgets && dashboard == _dashboardHost && index < 64 && result == S_OK)
@@ -1068,6 +1202,12 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
             if (IsDeviceLost(result))
                 return result;
             // Other failures are local to the prepared widget, which suppresses stale input/composition.
+        }
+        if (_pagePreparationProbe)
+        {
+            _pagePreparationProbe->Finish(dashboard);
+            if (_pagePreparationProbe->Empty())
+                _pagePreparationProbe.reset();
         }
         return S_OK;
     };
@@ -1125,6 +1265,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     }
 
     const size_t widgetCount = _dashboardHost->WidgetCount();
+    uint32_t failedWidgets = 0;
     const auto drawWidget = [&](size_t index, const D3D11_VIEWPORT& viewport, uint32_t viewId) noexcept -> HRESULT
     {
         if (viewport.Width < 1.0f || viewport.Height < 1.0f)
@@ -1165,10 +1306,11 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         }
         if (FAILED(widgetResult))
         {
-            OutputDebugStringW(L"A GPU widget failed to render; continuing with remaining widgets.\n");
+            failedWidgets |= uint32_t{1} << index;
             if (index < _lastLoggedRenderFailure.size() && _lastLoggedRenderFailure[index] != widgetResult)
             {
                 _lastLoggedRenderFailure[index] = widgetResult;
+                OutputDebugStringW(L"A GPU widget failed to render; continuing with remaining widgets.\n");
                 (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
                                    _dashboardHost->WidgetInstanceIdAt(index), "gpu-render-failed",
                                    "IRedXeGpuWidget::Render failed.", widgetResult);
@@ -1218,6 +1360,16 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
     }
 
+    // A successful raised draw does not recover a still-failing tile (or vice versa). Clear only instances whose
+    // entire drawn frame recovered. The ordinary path has no recovered bits and scans no widget slots.
+    uint32_t recovered = _failedWidgetMask & ~failedWidgets;
+    while (recovered != 0)
+    {
+        _lastLoggedRenderFailure[static_cast<size_t>(std::countr_zero(recovered))] = S_OK;
+        recovered &= recovered - 1;
+    }
+    _failedWidgetMask = failedWidgets;
+
     if (!_raisedOverlayActive && _transitionDashboardHost && _transitionWidgetsDeviceReady)
     {
         for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
@@ -1252,6 +1404,8 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
             }
             if (SUCCEEDED(widgetResult))
                 ++_lastFrameSuccessfulWidgetCount;
+            else
+                DrawPlaceholder(viewport);
         }
     }
 

@@ -25,6 +25,7 @@ enum class RedXeSwitch : uint8_t
     Page,
     Widget,
     After,
+    Probe,
     SelfTest,
     CrashTest,
     CrashTestStackOverflow,
@@ -40,6 +41,8 @@ enum class RedXeSwitchValue : uint8_t
     Separate,
     // The value is joined with `=`: `--crash-test-directory=<dir>`.
     Joined,
+    // Optional joined value: --probe or --probe=<seconds>.
+    OptionalJoined,
 };
 
 struct RedXeCommandLineSwitch final
@@ -94,6 +97,9 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
                            L"Crop the capture to the 0-based widget on that page.", L"Screenshot"},
     RedXeCommandLineSwitch{RedXeSwitch::After, L"--after", nullptr, RedXeSwitchValue::Separate, L"<milliseconds>",
                            L"Settle time before the capture, 1 through 120000 (default 3000).", L"Screenshot"},
+    RedXeCommandLineSwitch{RedXeSwitch::Probe, L"--probe", nullptr, RedXeSwitchValue::OptionalJoined, L"[=seconds]",
+                           L"Log production resource samples every 1 through 3600 seconds (default 5); keeps running.",
+                           L"Diagnostics"},
     RedXeCommandLineSwitch{RedXeSwitch::SelfTest, L"--self-test", nullptr, RedXeSwitchValue::None, nullptr,
                            L"Hidden startup validation with the deployed template; exits 0 when the host works and 6 "
                            L"when a check fails, which it names on stderr.",
@@ -144,9 +150,11 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General
     for (const RedXeCommandLineSwitch& entry : kRedXeCommandLineSwitches)
     {
         const std::wstring_view name{entry.name};
-        if (entry.valueKind == RedXeSwitchValue::Joined)
+        if (entry.valueKind == RedXeSwitchValue::Joined || entry.valueKind == RedXeSwitchValue::OptionalJoined)
         {
-            if (argument.size() > name.size() + 1 && argument.starts_with(name) && argument[name.size()] == L'=')
+            if ((entry.valueKind == RedXeSwitchValue::OptionalJoined && argument == name) ||
+                (argument.size() >= name.size() + (entry.valueKind == RedXeSwitchValue::OptionalJoined ? 1 : 2) &&
+                 argument.starts_with(name) && argument[name.size()] == L'='))
             {
                 return &entry;
             }
@@ -158,6 +166,47 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General
         }
     }
     return nullptr;
+}
+
+// Strict decimal, no whitespace/signs/suffixes and no repeated switch. Skip other switches' separate values so a
+// portable filename spelled --probe is never treated as an option. Zero means diagnostics are disabled.
+[[nodiscard]] inline bool RedXeParseProbeArguments(wchar_t* const* arguments, int count, uint32_t& seconds) noexcept
+{
+    seconds = 0;
+    const std::wstring_view name{RedXeSwitchName(RedXeSwitch::Probe)};
+    for (int i = 1; i < count; ++i)
+    {
+        const std::wstring_view token{arguments[i]};
+        const auto* entry = RedXeFindSwitch(token);
+        if (entry && entry->valueKind == RedXeSwitchValue::Separate)
+        {
+            ++i;
+            continue;
+        }
+        if (!entry || entry->id != RedXeSwitch::Probe)
+            continue;
+        if (seconds != 0)
+            return false;
+        if (token == name)
+        {
+            seconds = 5;
+            continue;
+        }
+        const auto value = token.substr(name.size() + 1);
+        if (value.empty())
+            return false;
+        uint32_t parsed = 0;
+        for (wchar_t digit : value)
+        {
+            if (digit < L'0' || digit > L'9' || parsed > 360)
+                return false;
+            parsed = parsed * 10 + static_cast<uint32_t>(digit - L'0');
+        }
+        if (parsed == 0 || parsed > 3600)
+            return false;
+        seconds = parsed;
+    }
+    return true;
 }
 
 // First argument that is neither a catalog switch nor the value of a separate-value switch, else nullptr. A
@@ -262,7 +311,8 @@ inline constexpr int kRedXeScreenshotFailedExitCode = 8;
             lead += entry.name;
             if (entry.value)
             {
-                lead += entry.valueKind == RedXeSwitchValue::Joined ? L"=" : L" ";
+                if (entry.valueKind != RedXeSwitchValue::OptionalJoined)
+                    lead += entry.valueKind == RedXeSwitchValue::Joined ? L"=" : L" ";
                 lead += entry.value;
             }
             if (entry.aliases)

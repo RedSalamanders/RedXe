@@ -1,5 +1,7 @@
 #include "../../Common/FailureReports.h"
 #include "../../Plugins/DeskClock/DeskClock.Tests.Contract.h"
+#include "DeskClockReferencePixelShader.h"
+#include "DeskClockReferenceVertexShader.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
 
@@ -35,6 +37,8 @@ constexpr HRESULT kTestFailure = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
 std::atomic<uint64_t> gRenderAllocations{0};
 std::atomic<DWORD> gRenderThread{0};
+uint64_t gOriginalDrawPixelChecks = 0;
+uint64_t gGpuWorkChecks = 0;
 
 #if defined(_DEBUG)
 int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*, int)
@@ -85,17 +89,23 @@ struct RenderTarget final
     wil::com_ptr_nothrow<ID3D11Texture2D> texture;
     wil::com_ptr_nothrow<ID3D11RenderTargetView> view;
     wil::com_ptr_nothrow<ID3D11Texture2D> staging;
+    wil::com_ptr_nothrow<ID3D11VertexShader> originalVertexShader;
+    wil::com_ptr_nothrow<ID3D11PixelShader> originalPixelShader;
+    std::array<wil::com_ptr_nothrow<ID3D11Buffer>, 3> originalOffsets;
+    wil::com_ptr_nothrow<ID3D11Buffer> constantReadback;
+    wil::com_ptr_nothrow<ID3D11Query> pipelineStatistics;
 };
 
-[[nodiscard]] HRESULT CreateRenderTarget(uint32_t width, uint32_t height, RenderTarget& target) noexcept
+[[nodiscard]] HRESULT CreateRenderTarget(uint32_t width, uint32_t height, RenderTarget& target,
+                                         D3D_DRIVER_TYPE driver = D3D_DRIVER_TYPE_WARP) noexcept
 {
     constexpr std::array featureLevels{D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
     RenderTarget created{};
     created.width = width;
     created.height = height;
-    HRESULT result = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                                       featureLevels.data(), static_cast<UINT>(featureLevels.size()), D3D11_SDK_VERSION,
-                                       created.device.put(), &created.featureLevel, created.context.put());
+    HRESULT result = D3D11CreateDevice(nullptr, driver, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, featureLevels.data(),
+                                       static_cast<UINT>(featureLevels.size()), D3D11_SDK_VERSION, created.device.put(),
+                                       &created.featureLevel, created.context.put());
     if (FAILED(result))
     {
         std::wprintf(L"Desk Clock initial WARP composition failed: 0x%08X\n", static_cast<unsigned int>(result));
@@ -132,12 +142,164 @@ struct RenderTarget final
     return S_OK;
 }
 
-[[nodiscard]] HRESULT RenderFrame(IRedXeGpuWidget& widget, RenderTarget& target, float elapsedSeconds,
-                                  float deltaSeconds, std::vector<std::uint8_t>* pixels,
-                                  uint32_t dpi = USER_DEFAULT_SCREEN_DPI) noexcept
+[[nodiscard]] HRESULT ReadTargetPixels(RenderTarget& target, std::vector<std::uint8_t>& pixels) noexcept
 {
     try
     {
+        target.context->CopyResource(target.staging.get(), target.texture.get());
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        const HRESULT result = target.context->Map(target.staging.get(), 0, D3D11_MAP_READ, 0, &mapped);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(target.staging.get(), 0); });
+        const size_t rowBytes = static_cast<size_t>(target.width) * 4U;
+        pixels.resize(rowBytes * target.height);
+        for (uint32_t row = 0; row < target.height; ++row)
+        {
+            std::memcpy(pixels.data() + static_cast<size_t>(row) * rowBytes,
+                        static_cast<const std::uint8_t*>(mapped.pData) + static_cast<size_t>(row) * mapped.RowPitch,
+                        rowBytes);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_OUTOFMEMORY;
+    }
+}
+
+// Compare the changed submission/mapping against the frozen original shader and three-pass draw order.
+// Borrow visual constants and atlas with frozen vertex/pixel shaders so font servicing cannot change the oracle.
+[[nodiscard]] HRESULT ValidateOriginalDrawPixels(RenderTarget& target, const std::vector<std::uint8_t>& actual) noexcept
+{
+    if (!target.originalVertexShader)
+    {
+        HRESULT result = target.device->CreateVertexShader(g_DeskClockReferenceVertexShader,
+                                                           sizeof(g_DeskClockReferenceVertexShader), nullptr,
+                                                           target.originalVertexShader.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        result =
+            target.device->CreatePixelShader(g_DeskClockReferencePixelShader, sizeof(g_DeskClockReferencePixelShader),
+                                             nullptr, target.originalPixelShader.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+        constexpr std::array<std::array<uint32_t, 4>, 3> offsets{{{0, 0, 0, 0}, {16, 0, 0, 0}, {32, 0, 0, 0}}};
+        D3D11_BUFFER_DESC description{};
+        description.ByteWidth = 16;
+        description.Usage = D3D11_USAGE_IMMUTABLE;
+        description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        for (size_t index = 0; index < offsets.size(); ++index)
+        {
+            D3D11_SUBRESOURCE_DATA data{};
+            data.pSysMem = offsets[index].data();
+            result = target.device->CreateBuffer(&description, &data, target.originalOffsets[index].put());
+            if (FAILED(result))
+            {
+                return result;
+            }
+        }
+        description.ByteWidth = 400;
+        description.Usage = D3D11_USAGE_STAGING;
+        description.BindFlags = 0;
+        description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        result = target.device->CreateBuffer(&description, nullptr, target.constantReadback.put());
+        if (FAILED(result))
+        {
+            return result;
+        }
+    }
+    wil::com_ptr_nothrow<ID3D11Buffer> constants;
+    target.context->VSGetConstantBuffers(0, 1, constants.put());
+    if (!constants)
+    {
+        return kTestFailure;
+    }
+    D3D11_BUFFER_DESC description{};
+    constants->GetDesc(&description);
+    if (description.ByteWidth != 400)
+    {
+        return kTestFailure;
+    }
+    target.context->CopyResource(target.constantReadback.get(), constants.get());
+    std::array<uint32_t, 100> words{};
+    {
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        const HRESULT result = target.context->Map(target.constantReadback.get(), 0, D3D11_MAP_READ, 0, &mapped);
+        if (FAILED(result))
+        {
+            return result;
+        }
+        const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(target.constantReadback.get(), 0); });
+        std::memcpy(words.data(), mapped.pData, sizeof(words));
+    }
+    // Original 400-byte layout: background at byte 48, animation phase at byte 180.
+    if (words[45] > 2U)
+    {
+        return kTestFailure;
+    }
+    std::array<float, 4> background{};
+    std::memcpy(background.data(), words.data() + 12, sizeof(background));
+    target.context->ClearRenderTargetView(target.view.get(), background.data());
+    target.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    target.context->VSSetShader(target.originalVertexShader.get(), nullptr, 0);
+    target.context->PSSetShader(target.originalPixelShader.get(), nullptr, 0);
+    ID3D11Buffer* offset = target.originalOffsets[0].get();
+    target.context->VSSetConstantBuffers(1, 1, &offset);
+    target.context->DrawInstanced(6, 12, 0, 0);
+    if (words[45] != 0U)
+    {
+        offset = target.originalOffsets[1].get();
+        target.context->VSSetConstantBuffers(1, 1, &offset);
+        target.context->DrawInstanced(6, 6, 0, 0);
+    }
+    offset = target.originalOffsets[2].get();
+    target.context->VSSetConstantBuffers(1, 1, &offset);
+    target.context->DrawInstanced(6, 28, 0, 0);
+    std::vector<std::uint8_t> expected;
+    const HRESULT result = ReadTargetPixels(target, expected);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    if (actual != expected)
+    {
+        std::wprintf(L"Desk Clock batch differs from the original draw pixels at %ux%u, phase %u.\n", target.width,
+                     target.height, words[45]);
+        return kTestFailure;
+    }
+    ++gOriginalDrawPixelChecks;
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT RenderFrame(IRedXeGpuWidget& widget, RenderTarget& target, float elapsedSeconds,
+                                  float deltaSeconds, std::vector<std::uint8_t>* pixels,
+                                  uint32_t dpi = USER_DEFAULT_SCREEN_DPI, uint32_t expectedInstances = 0) noexcept
+{
+    try
+    {
+        if (expectedInstances != 0U)
+        {
+            if (!pixels)
+            {
+                return E_INVALIDARG;
+            }
+            if (!target.pipelineStatistics)
+            {
+                const D3D11_QUERY_DESC description{D3D11_QUERY_PIPELINE_STATISTICS, 0};
+                const HRESULT result = target.device->CreateQuery(&description, target.pipelineStatistics.put());
+                if (FAILED(result))
+                {
+                    return result;
+                }
+            }
+        }
         target.context->ClearState();
         ID3D11RenderTargetView* views[] = {target.view.get()};
         target.context->OMSetRenderTargets(1, views, nullptr);
@@ -145,33 +307,49 @@ struct RenderTarget final
             0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f,
         };
         target.context->RSSetViewports(1, &viewport);
+        if (pixels)
+        {
+            constexpr std::array<float, 4> poison{0.05f, 0.90f, 0.20f, 0.35f};
+            target.context->ClearRenderTargetView(target.view.get(), poison.data());
+        }
         const RedXeWidgetFrameContext widgetFrame{
             sizeof(RedXeWidgetFrameContext), target.width, target.height, dpi, elapsedSeconds, deltaSeconds,
         };
         const RedXeGpuFrameContext frame{sizeof(RedXeGpuFrameContext), &widgetFrame, target.context.get(), viewport};
+        if (expectedInstances != 0U)
+        {
+            target.context->Begin(target.pipelineStatistics.get());
+        }
         HRESULT result = widget.Render(&frame);
+        if (expectedInstances != 0U)
+        {
+            target.context->End(target.pipelineStatistics.get());
+        }
         if (FAILED(result) || !pixels)
         {
             return result;
         }
 
-        target.context->CopyResource(target.staging.get(), target.texture.get());
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        result = target.context->Map(target.staging.get(), 0, D3D11_MAP_READ, 0, &mapped);
+        result = ReadTargetPixels(target, *pixels);
         if (FAILED(result))
         {
             return result;
         }
-        const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(target.staging.get(), 0); });
-        const size_t rowBytes = static_cast<size_t>(target.width) * 4U;
-        pixels->resize(rowBytes * target.height);
-        for (uint32_t row = 0; row < target.height; ++row)
+        if (expectedInstances != 0U)
         {
-            std::memcpy(pixels->data() + static_cast<size_t>(row) * rowBytes,
-                        static_cast<const std::uint8_t*>(mapped.pData) + static_cast<size_t>(row) * mapped.RowPitch,
-                        rowBytes);
+            // The staging readback above completes the preceding query; do not poll for GPU completion.
+            D3D11_QUERY_DATA_PIPELINE_STATISTICS statistics{};
+            result = target.context->GetData(target.pipelineStatistics.get(), &statistics, sizeof(statistics), 0);
+            if (result != S_OK || statistics.IAVertices != 3U + 6U * expectedInstances ||
+                statistics.IAPrimitives != 1U + 2U * expectedInstances)
+            {
+                std::wprintf(L"Desk Clock submitted %llu vertices / %llu primitives; expected %u instances.\n",
+                             statistics.IAVertices, statistics.IAPrimitives, expectedInstances);
+                return FAILED(result) ? result : kTestFailure;
+            }
+            ++gGpuWorkChecks;
         }
-        return S_OK;
+        return ValidateOriginalDrawPixels(target, *pixels);
     }
     catch (const std::bad_alloc&)
     {
@@ -754,7 +932,7 @@ struct PixelBounds final
     constexpr double bytesPerMebibyte = 1024.0 * 1024.0;
     const auto mebibyteDelta = [=](SIZE_T current, SIZE_T baseline) noexcept
     { return (static_cast<double>(current) - static_cast<double>(baseline)) / bytesPerMebibyte; };
-    std::wprintf(L"Desk Clock Release measurement: disabled/static/animation CPU %.4f/%.4f/%.4f ms/frame, active WARP "
+    std::wprintf(L"Desk Clock Release measurement: disabled/static/animation CPU %.4f/%.4f/%.4f ms/frame, active GPU "
                  L"timestamp %.4f ms/frame, WARP-inclusive activation private/working-set %.2f/%.2f MiB, "
                  L"steady private/working-set delta %.2f/%.2f MiB, static/animation draws %.2f/%.2f per frame.\n",
                  disabledMilliseconds / sampleFrames, staticMilliseconds / sampleFrames,
@@ -893,7 +1071,7 @@ struct PixelBounds final
     std::vector<std::uint8_t> first;
     if (SUCCEEDED(result))
     {
-        result = RenderFrame(*gpu, target, 0.0f, 0.0f, &first);
+        result = RenderFrame(*gpu, target, 0.0f, 0.0f, &first, USER_DEFAULT_SCREEN_DPI, 40);
     }
     if (SUCCEEDED(result))
     {
@@ -917,9 +1095,16 @@ struct PixelBounds final
     DeskClockTestDiagnostics after{sizeof(DeskClockTestDiagnostics)};
     if (FAILED(getDiagnostics(&before)) || FAILED(RenderFrame(*gpu, target, 0.0f, 0.0f, nullptr)) ||
         FAILED(getDiagnostics(&after)) || after.constantUploads != before.constantUploads ||
-        after.drawCalls - before.drawCalls != 3)
+        after.drawCalls - before.drawCalls != 2)
     {
         std::wprintf(L"Desk Clock static upload/draw cache validation failed.\n");
+        return kTestFailure;
+    }
+    wil::com_ptr_nothrow<ID3D11Buffer> unusedOffsetBuffer;
+    target.context->VSGetConstantBuffers(1, 1, unusedOffsetBuffer.put());
+    if (unusedOffsetBuffer)
+    {
+        std::wprintf(L"Desk Clock retained an unnecessary instance-offset buffer binding.\n");
         return kTestFailure;
     }
     delay = 0;
@@ -948,7 +1133,8 @@ struct PixelBounds final
     for (size_t index = 0; index < transition.size(); ++index)
     {
         elapsed += deltas[index];
-        result = RenderFrame(*gpu, target, elapsed, deltas[index], &transition[index]);
+        result = RenderFrame(*gpu, target, elapsed, deltas[index], &transition[index], USER_DEFAULT_SCREEN_DPI,
+                             index + 1U == transition.size() ? 40U : 46U);
         if (FAILED(result))
         {
             return result;
@@ -1000,16 +1186,16 @@ struct PixelBounds final
     std::vector<std::uint8_t> midnightStart;
     std::vector<std::uint8_t> midnightPhase;
     std::vector<std::uint8_t> midnightFinal;
-    result = RenderFrame(*gpu, target, elapsed, 0.0f, &midnightStart);
+    result = RenderFrame(*gpu, target, elapsed, 0.0f, &midnightStart, USER_DEFAULT_SCREEN_DPI, 46);
     elapsed += 0.105f;
     if (SUCCEEDED(result))
     {
-        result = RenderFrame(*gpu, target, elapsed, 0.105f, &midnightPhase);
+        result = RenderFrame(*gpu, target, elapsed, 0.105f, &midnightPhase, USER_DEFAULT_SCREEN_DPI, 46);
     }
     elapsed += 0.316f;
     if (SUCCEEDED(result))
     {
-        result = RenderFrame(*gpu, target, elapsed, 0.316f, &midnightFinal);
+        result = RenderFrame(*gpu, target, elapsed, 0.316f, &midnightFinal, USER_DEFAULT_SCREEN_DPI, 40);
     }
     if (FAILED(result) || RectangleEquals(transition[4], midnightPhase, target.width, 250, 220, 300, 60) ||
         RectangleEquals(midnightPhase, midnightFinal, target.width, 250, 220, 300, 60))
@@ -1033,6 +1219,40 @@ struct PixelBounds final
         std::wprintf(L"Desk Clock native date advances/centering failed: double=%u/%u, single=%u/%u.\n",
                      doubleDigitWidth, doubleDigitCenter, singleDigitWidth, singleDigitCenter);
         return kTestFailure;
+    }
+
+    // Date-only changes keep both visible dates in their original order, including unequal lengths and the
+    // maximum two-digit-to-two-digit fade. The frozen shader checks pixels; the query checks real GPU work.
+    DeskClockTestTime changedDate = midnight;
+    for (const uint16_t day : {uint16_t{10}, uint16_t{11}})
+    {
+        changedDate.day = day;
+        result = setTime(&changedDate);
+        uint32_t dateDelay = 0;
+        if (SUCCEEDED(result))
+        {
+            result = scheduled->GetNextFrameDelayMilliseconds(&dateDelay);
+        }
+        if (SUCCEEDED(result) && dateDelay != 1U)
+        {
+            result = scheduled->GetNextFrameDelayMilliseconds(&dateDelay);
+        }
+        if (FAILED(result) || dateDelay != 1U)
+        {
+            return FAILED(result) ? result : kTestFailure;
+        }
+        std::vector<std::uint8_t> datePixels;
+        for (uint32_t phase = 0; SUCCEEDED(result) && phase < 5U; ++phase)
+        {
+            const float delta = phase == 0U ? 0.0f : (phase == 4U ? 0.106f : 0.105f);
+            elapsed += delta;
+            const uint32_t expectedInstances = phase == 4U ? 40U : 46U;
+            result = RenderFrame(*gpu, target, elapsed, delta, &datePixels, USER_DEFAULT_SCREEN_DPI, expectedInstances);
+        }
+        if (FAILED(result))
+        {
+            return result;
+        }
     }
 
     const auto animateTo = [&](const DeskClockTestTime& time) noexcept -> HRESULT
@@ -1211,7 +1431,8 @@ struct PixelBounds final
     {
         return result;
     }
-    constexpr std::array<std::array<uint32_t, 3>, 3> geometryCases{{{300, 800, 144}, {320, 120, 192}, {1024, 256, 96}}};
+    constexpr std::array<std::array<uint32_t, 3>, 4> geometryCases{
+        {{300, 800, 144}, {320, 120, 192}, {1024, 256, 96}, {1800, 800, 144}}};
     for (const auto& geometry : geometryCases)
     {
         RenderTarget geometryTarget;
@@ -1227,9 +1448,54 @@ struct PixelBounds final
             geometryTarget.featureLevel,
         };
         result = gpu->OnDeviceCreated(&geometryDevice);
+        std::vector<std::uint8_t> geometryPixels;
         if (SUCCEEDED(result))
         {
-            result = RenderFrame(*gpu, geometryTarget, elapsed, 3.0f, nullptr, geometry[2]);
+            result = setTime(&initial);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = RenderFrame(*gpu, geometryTarget, elapsed, 3.0f, &geometryPixels, geometry[2]);
+        }
+        // Exercise the existing initialized resize path. The current cold callback ignores a size notification
+        // before the first clock sample; that separate setup gap is tracked in the runtime WIP.
+        if (SUCCEEDED(result))
+        {
+            const RedXeGpuTargetSizeContext size{sizeof(RedXeGpuTargetSizeContext), geometry[0], geometry[1],
+                                                 geometry[2]};
+            result = gpu->OnTargetSizeChanged(&size);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = RenderFrame(*gpu, geometryTarget, elapsed, 0.0f, &geometryPixels, geometry[2]);
+        }
+        DeskClockTestDiagnostics geometryDiagnostics{sizeof(DeskClockTestDiagnostics)};
+        if (SUCCEEDED(result))
+        {
+            result = getDiagnostics(&geometryDiagnostics);
+        }
+        const uint32_t expectedTier = geometry[0] == 1800 ? 2U : 1U;
+        if (SUCCEEDED(result) && geometryDiagnostics.atlasScale != expectedTier)
+        {
+            std::wprintf(L"Desk Clock resized atlas tier was %u, expected %u at %ux%u.\n",
+                         geometryDiagnostics.atlasScale, expectedTier, geometry[0], geometry[1]);
+            result = kTestFailure;
+        }
+        if (SUCCEEDED(result))
+        {
+            result = setTime(&next);
+        }
+        if (SUCCEEDED(result))
+        {
+            result = scheduled->GetNextFrameDelayMilliseconds(&delay);
+        }
+        for (const float delta : {0.0f, 0.105f, 0.211f})
+        {
+            if (SUCCEEDED(result))
+            {
+                elapsed += delta;
+                result = RenderFrame(*gpu, geometryTarget, elapsed, delta, &geometryPixels, geometry[2]);
+            }
         }
         if (FAILED(result))
         {
@@ -1310,6 +1576,118 @@ struct PixelBounds final
     return setTime(nullptr);
 }
 
+// Identical diagnostic fixture for old/new DLLs. Unlike the ordinary contract suite, this checks no expected
+// draw count and performs no original-draw pixel comparisons before its measured submission batches.
+[[nodiscard]] HRESULT RunSubmissionProbe(D3D_DRIVER_TYPE driver) noexcept
+{
+#if defined(NDEBUG)
+    std::array<wchar_t, 1024> path{};
+    HRESULT result = BuildSiblingPath(L"Plugins\\DeskClock.dll", path);
+    if (FAILED(result))
+    {
+        return result;
+    }
+    wil::unique_hmodule module{
+        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (!module)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    const auto create = Resolve<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    const auto setTime = Resolve<DeskClockSetTestTimeFn>(module.get(), kDeskClockSetTestTimeExport);
+    const auto diagnostics = Resolve<DeskClockGetTestDiagnosticsFn>(module.get(), kDeskClockGetTestDiagnosticsExport);
+    if (!create || !setTime || !diagnostics)
+    {
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    RenderTarget target;
+    result = CreateRenderTarget(2560, 720, target, driver);
+    if (SUCCEEDED(result))
+    {
+        wil::com_ptr_nothrow<IDXGIDevice> dxgiDevice;
+        wil::com_ptr_nothrow<IDXGIAdapter> adapter;
+        DXGI_ADAPTER_DESC description{};
+        result = target.device.query_to(dxgiDevice.put());
+        if (SUCCEEDED(result))
+        {
+            result = dxgiDevice->GetAdapter(adapter.put());
+        }
+        if (SUCCEEDED(result))
+        {
+            result = adapter->GetDesc(&description);
+        }
+        if (SUCCEEDED(result))
+        {
+            std::wprintf(L"Clock submission probe backend=%ls adapter=%ls luid=%08X-%08X.\n",
+                         driver == D3D_DRIVER_TYPE_WARP ? L"WARP" : L"default hardware", description.Description,
+                         static_cast<unsigned int>(description.AdapterLuid.HighPart), description.AdapterLuid.LowPart);
+        }
+    }
+    wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
+    if (SUCCEEDED(result))
+    {
+        result = CreateProvider(create, kDefaultConfiguration, provider);
+    }
+    wil::com_ptr_nothrow<IRedXeWidget> widget;
+    wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
+    wil::com_ptr_nothrow<IRedXeScheduledWidget> scheduled;
+    if (SUCCEEDED(result))
+    {
+        result = provider->CreateWidget(kWidgetTypeId, "desk.clock.submission-probe", widget.put());
+    }
+    if (SUCCEEDED(result))
+    {
+        result = widget.query_to(gpu.put());
+    }
+    if (SUCCEEDED(result))
+    {
+        result = widget.query_to(scheduled.put());
+    }
+    PROCESS_MEMORY_COUNTERS_EX baseline{};
+    baseline.cb = sizeof(baseline);
+    if (SUCCEEDED(result) &&
+        !GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&baseline),
+                              sizeof(baseline)))
+    {
+        result = HRESULT_FROM_WIN32(GetLastError());
+    }
+    if (SUCCEEDED(result))
+    {
+        const RedXeGpuDeviceContext device{sizeof(RedXeGpuDeviceContext), target.device.get(),
+                                           DXGI_FORMAT_R8G8B8A8_UNORM, target.featureLevel};
+        result = gpu->OnDeviceCreated(&device);
+    }
+    const DeskClockTestTime initial{sizeof(DeskClockTestTime), 2026, 11, 0, 1, 12, 34, 56, 0};
+    if (SUCCEEDED(result))
+    {
+        result = setTime(&initial);
+    }
+    for (uint32_t index = 0; SUCCEEDED(result) && index < 240; ++index)
+    {
+        result = RenderFrame(*gpu, target, 0.0f, 0.0f, nullptr);
+    }
+    PROCESS_MEMORY_COUNTERS_EX warmed{};
+    warmed.cb = sizeof(warmed);
+    if (SUCCEEDED(result) &&
+        !GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&warmed), sizeof(warmed)))
+    {
+        result = HRESULT_FROM_WIN32(GetLastError());
+    }
+    if (SUCCEEDED(result))
+    {
+        result = MeasureReleaseSubmission(*gpu, target, diagnostics, setTime, *scheduled, baseline, warmed);
+    }
+    if (gpu)
+    {
+        gpu->OnDeviceLost();
+    }
+    return result;
+#else
+    (void)driver;
+    return E_NOTIMPL;
+#endif
+}
+
 [[nodiscard]] HRESULT Run() noexcept
 {
     const bool compilerLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
@@ -1368,15 +1746,37 @@ struct PixelBounds final
 }
 } // namespace
 
-int wmain() noexcept
+int wmain(int argumentCount, wchar_t* arguments[]) noexcept
 {
     RedXeFailureReports::RouteAwayFromDialogs();
+    if (argumentCount >= 2 && std::wstring_view(arguments[1]) == L"--submission-probe")
+    {
+        if (argumentCount > 3 || (argumentCount == 3 && std::wstring_view(arguments[2]) != L"--hardware"))
+        {
+            return 2;
+        }
+        const HRESULT result = RunSubmissionProbe(argumentCount == 3 ? D3D_DRIVER_TYPE_HARDWARE : D3D_DRIVER_TYPE_WARP);
+        return SUCCEEDED(result) ? 0 : 1;
+    }
+    if (argumentCount != 1)
+    {
+        return 2;
+    }
     const HRESULT result = Run();
     if (FAILED(result))
     {
         std::wprintf(L"Desk Clock tests failed: 0x%08X\n", static_cast<unsigned int>(result));
         return 1;
     }
+    if (gOriginalDrawPixelChecks < 40 || gGpuWorkChecks != 19)
+    {
+        std::wprintf(L"Desk Clock original-draw pixel coverage did not reach the required extents/phases.\n");
+        return 1;
+    }
+    std::wprintf(L"Desk Clock original-draw oracle passed %llu exact frame comparisons across both atlas tiers.\n",
+                 static_cast<unsigned long long>(gOriginalDrawPixelChecks));
+    std::wprintf(L"Desk Clock GPU queries passed %llu frames with 243/279 vertices and 81/93 primitives.\n",
+                 static_cast<unsigned long long>(gGpuWorkChecks));
     std::wprintf(L"Desk Clock contract, scheduling, WARP rendering, allocation, and lifecycle tests passed.\n");
     return 0;
 }

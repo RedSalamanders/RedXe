@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <windows.h>
 
 #pragma warning(push)
@@ -30,12 +31,17 @@ class PluginManager final
     PluginManager& operator=(PluginManager&&) = delete;
 
     [[nodiscard]] HRESULT Initialize(const AppSettings& settings) noexcept;
+    // A checked target selector borrows the current document. A peer's immutable validation evidence is reusable
+    // only after an exact bounded comparison of all logical document facts in this process runtime.
+    [[nodiscard]] HRESULT InitializePage(const AppSettings& settings, uint32_t pageIndex,
+                                         const PluginManager* validated = nullptr) noexcept;
     [[nodiscard]] HRESULT Reconfigure(const AppSettings& settings) noexcept;
     [[nodiscard]] size_t ProviderCount() const noexcept;
     [[nodiscard]] size_t WidgetCount() const noexcept;
     [[nodiscard]] IRedXeWidget* WidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeGpuWidget* GpuWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXePreparedGpuWidget* PreparedGpuWidgetAt(size_t index) const noexcept;
+    [[nodiscard]] IRedXeConstructionStateWidget* ConstructionStateWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeScheduledWidget* ScheduledWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeWindowWidget* WindowWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeRaisedWidget* RaisedWidgetAt(size_t index) const noexcept;
@@ -55,6 +61,7 @@ class PluginManager final
     [[nodiscard]] AdaptiveWidgetPlacement AdaptivePlacementAt(size_t index) const noexcept;
     [[nodiscard]] bool UsesAdaptivePlacementAt(size_t index) const noexcept;
     [[nodiscard]] const char* WidgetInstanceIdAt(size_t index) const noexcept;
+    [[nodiscard]] uint32_t WidgetStatusAt(size_t index) const noexcept;
     // Document background (0xRRGGBB) the renderer clears with, and the color each tile paints: the document color
     // unless that instance authored its own backgroundColor.
     [[nodiscard]] uint32_t BackgroundRgb() const noexcept;
@@ -65,11 +72,30 @@ class PluginManager final
   private:
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct PluginManagerTestAccess;
+    friend struct PluginManagerGpuResourceTestAccess;
+    friend struct PluginManagerPageStagingTestAccess;
+    [[nodiscard]] size_t ValidationEvidenceBytes() const noexcept;
+    inline static bool _failValidationEvidenceAllocation = false;
 #endif
+    struct ValidationEvidence;
+    [[nodiscard]] static std::shared_ptr<const ValidationEvidence> BuildValidationEvidence(
+        const AppSettings& settings) noexcept;
+    [[nodiscard]] static bool ValidationEvidenceMatches(const ValidationEvidence& evidence,
+                                                        const AppSettings& settings) noexcept;
+    [[nodiscard]] HRESULT InitializePageImpl(const AppSettings& settings, uint32_t pageIndex,
+                                             const PluginManager* validated) noexcept;
     struct WidgetSlot final
     {
+        WidgetSlot() noexcept = default;
+        ~WidgetSlot() noexcept;
+        WidgetSlot(WidgetSlot&&) noexcept = default;
+        WidgetSlot& operator=(WidgetSlot&& other) noexcept;
+        WidgetSlot(const WidgetSlot&) = delete;
+        WidgetSlot& operator=(const WidgetSlot&) = delete;
+        PluginHost::WidgetStatusBinding status;
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
         wil::com_ptr_nothrow<IRedXePreparedGpuWidget> preparedGpuWidget;
+        wil::com_ptr_nothrow<IRedXeConstructionStateWidget> constructionStateWidget;
         wil::com_ptr_nothrow<IRedXeScheduledWidget> scheduledWidget;
         wil::com_ptr_nothrow<IRedXeWindowWidget> windowWidget;
         wil::com_ptr_nothrow<IRedXeRaisedWidget> raisedWidget;
@@ -98,11 +124,20 @@ class PluginManager final
 
     struct ProviderBuildKey final
     {
-        std::array<char, kFactoryConfigurationCapacity> configuration{};
+        uint64_t configurationHash = 0;
         uint32_t configurationBytes = 0;
         uint32_t backgroundRgb = kRedXeDefaultBackgroundRgb;
         const char* pluginId = nullptr;
+        uint32_t widgetIndex = 0;
     };
+    static_assert(sizeof(ProviderBuildKey) <= 32);
+
+    [[nodiscard]] static uint64_t HashFactoryConfiguration(const char* json, uint32_t bytes) noexcept;
+    [[nodiscard]] static bool ProviderConfigurationMatches(const ProviderBuildKey& key,
+                                                           const DashboardPageSettings& page,
+                                                           const WidgetInstanceSettings& instance, const char* pluginId,
+                                                           uint64_t hash, uint32_t bytes,
+                                                           uint32_t backgroundRgb) noexcept;
 
     [[nodiscard]] HRESULT CreateBundledProvider(const char* pluginId, const char* configurationJson,
                                                 uint32_t configurationBytes, uint32_t backgroundRgb,
@@ -112,13 +147,14 @@ class PluginManager final
     static void MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings, uint32_t backgroundRgb,
                                 HRESULT failure) noexcept;
     void ClearWidgetStatuses() noexcept;
+    static void ReleaseWidgetInterfaces(WidgetSlot& slot) noexcept;
     void ReleaseWidgets() noexcept;
-    [[nodiscard]] HRESULT StageActivePage(const AppSettings& settings,
-                                          std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
-                                          std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
-                                          size_t& providerCount,
-                                          std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
-                                          size_t& widgetCount) noexcept;
+    [[nodiscard]] HRESULT StagePage(const AppSettings& settings, uint32_t pageIndex, const PluginManager* validated,
+                                    std::shared_ptr<const ValidationEvidence>& evidence,
+                                    std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
+                                    std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
+                                    size_t& providerCount, std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
+                                    size_t& widgetCount) noexcept;
 
     // Borrowed process runtime. Every PluginManager, including the one staged for an adjacent page during a swipe,
     // shares the same modules, data sources, subscriptions, and acquisition worker.
@@ -130,4 +166,5 @@ class PluginManager final
     uint32_t _gridRows = 0;
     uint32_t _backgroundRgb = kRedXeDefaultBackgroundRgb;
     bool _initialized = false;
+    std::shared_ptr<const ValidationEvidence> _validationEvidence;
 };

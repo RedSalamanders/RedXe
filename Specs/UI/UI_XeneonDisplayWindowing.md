@@ -1,7 +1,7 @@
 # XENEON display and windowing contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-28
+Last reviewed: 2026-10-10
 Owner: `Application` process, display-selection, HWND, and DPI behavior
 
 ## Scope
@@ -49,6 +49,7 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 
 | Mode | Required behavior |
 | --- | --- |
+| Resource probe (`--probe[=seconds]`) | Run with normal window, settings, services and frame policy; one optional diagnostic sample per 1–3600 seconds (default 5) through the existing JSONL writer. Duplicate, empty, signed, fractional or out-of-range intervals are command-line errors (2). Sampling does not close, activate, move or resize the window, invalidate a frame or override an inactive state. It adds only an opt-in timeout to the normal message/frame-latency waits and continues while inactive; delayed samples never catch up in a burst. `--self-test` ignores a valid probe option. Record format, overhead and validity are owned by `Core_PerformanceAndResources.md`. |
 | Debug with active XENEON | Create a visible `WS_OVERLAPPEDWINDOW` with the RedXe title bar and DPI-adjusted 2560×720 logical client canvas. Place its outer top-left corner at the detected XENEON `rcMonitor` origin; do not force fullscreen. |
 | Debug without active XENEON | Create the same titled window using normal shell-selected placement. Do not prompt and do not force fullscreen. A default settings file installed at this start because it was missing carries the first-run dock ("First start without a XENEON"), so the Dock row applies instead. |
 | Release with active XENEON | Create a `WS_POPUP` borderless window using the detected XENEON monitor's exact `rcMonitor` bounds. |
@@ -634,6 +635,14 @@ must prove that hidden, minimized/suspended, session-display-off, and fully occl
 occlusion probes occur only after a DXGI status notification, and that static content sleeps after its clean frame.
 Changes to the operating-system notification registration or message wiring outside that decision seam additionally
 require a live inactive/resume check.
+
+`continuousFrameRate` defaults to `"display"`; integer `30` opts into a 33⅓-ms monotonic deadline for settled
+continuous animation, overlapping the swap-chain readiness wait. It does not change Present's sync interval, render size,
+widget quality or the first page. Input invalidation and page/overlay/dock motion retain display pacing. A live rate
+change resets the deadline and invalidates once while keeping widgets and presentation resources. Tests MUST cover
+the 60/120-Hz decisions, message/diagnostic interruption, inactive deadline reset, timer reuse/release and both live
+toggles. Acquired readiness survives hide/resize/mode changes while its waitable object lives; replacement rejects
+the retired permit. Production hide/minimize recovery MUST resume presentation.
 
 Dock changes MUST keep the pure tables green: `HostPluginTests` proves the placement rectangles for every edge
 (reserving proposal and shell re-trim, overlay against a work area with a taskbar or another bar, negative coordinates),

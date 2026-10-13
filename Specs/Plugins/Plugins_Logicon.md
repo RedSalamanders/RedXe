@@ -1,7 +1,7 @@
 # Logicon service and monitor
 
 Status: current normative product contract
-Last reviewed: 2026-10-07
+Last reviewed: 2026-10-11
 Owner: `Plugins/Logicon`, `Tests/LogiconTests`, the `services` root of `../Core/Core_Settings.md`
 
 The service ABI, device lane, and developer-only widget class are owned by [`Plugins_API.md`](Plugins_API.md); the
@@ -211,7 +211,31 @@ tile: 18 px text on a 22 px line and 30 px chips at the descriptor's 420 px, sca
 down to 0.9× when the status column is narrower than 400 px; key labels sit on a dark pill so faces never hide
 them. It redraws only when the service publishes a changed snapshot (`RequestFrame`); the raw-input packet counters
 (matched reports, motion, other mice) are not part of that comparison, so packets from other mice never request a
-frame. It uploads the face texture in `Prepare` when the face generation changed and allocates nothing in `Render`.
+frame. It uploads the face texture in `Prepare` when the face generation changed and prepares the copied dashboard
+name's Unicode glyphs and its middle-dot separator there. Changed 48×48 glyph cells upload before drawing.
+Render allocates no fonts and uploads neither atlas nor face texture; late service state waits for the next
+preparation. Device recreation MUST preserve the prepared pixels.
+
+The visible publication stamp includes the displayed host name/index/count/raised state, so changing only a
+dashboard name requests a monitor frame. Stamp and snapshot publication/copy share the service lock; frame requests
+occur after unlocking. With no monitor attached, publication copies service diagnostics without hashing monitor
+fields or requesting a frame. Other-mouse/motion packet counters still cannot wake the monitor.
+One temporary font session serves the preparation's strings and releases every owner before drawing, including
+failure. An unchanged failed preparation returns `S_FALSE` before font/raster/upload work; a changed visible
+publication, DPI/tile/raised extent, visibility transition or device recreation permits recovery. Its bounded key
+is 32 bytes plus a failure flag, with no extra snapshot, worker, timer or allocation. Hidden or unprepared paint
+MUST NOT draw or accept new control taps; Up/Cancel still releases an already held virtual control. Reshow and
+device creation invalidate paint/input until preparation succeeds. Linear glyph sampling clamps to that cell's
+half-texel bounds to prevent a cached neighboring accent from changing unrelated text pixels.
+
+The monitor's CPU face-copy storage is one lazy 434×434 BGRA virtual-memory owner (753,424 payload bytes plus
+page rounding). The first visible preparation allocates it and clean preparations reuse it. Hide, device loss,
+device creation and final destruction MUST release it; repeated lifecycle calls are idempotent. Reshow/recreation
+copies the latest service grid and preserves its pixels. If no composed grid exists, the newly initialized opaque
+black copy is still uploaded before drawing, so an uninitialized texture is never sampled. An allocation failure
+invalidates paint/input and latches the existing publication/extent key before font work; unchanged retry does no
+allocation/font/upload work and changed extent/data/lifecycle permits recovery. The service's own composed grid and
+the monitor's GPU texture retain their separate ownership rules.
 
 Taps: a key cell in `Press` mode injects a press on pointer down and the release on pointer up, running that key's
 binding exactly as the hardware would; `Color` mode pushes the next palette color to the key; `Picture` mode pushes a
@@ -247,7 +271,14 @@ cleared by a new settings object. Release builds keep the tile catalogued but re
   button); the raw-input registration ownership (while another window of the process owns mouse raw input the
   listener's start fails with `ERROR_ALREADY_EXISTS`, creates no window, and leaves that registration; a stop leaves
   a later owner's registration in place and removes only the listener's own); and the shipped DLL's
-  metadata, contract, monitor provider (constructs in Debug, refuses in Release), service creation and rejection,
+  metadata, contract, monitor provider (constructs in Debug, refuses in Release), Debug WARP preparation/drawing
+  with Unicode host names, name-only frame publication, late-state stability and identical pixels after device
+  recreation (including a history of different cached accents), real font acquisition followed by injected failure,
+  100 unchanged failed preparations with zero added font/upload work, extent/new-data/visibility/device recovery,
+  hidden/unprepared input/draw suppression and held virtual-control Up/Cancel release, cold opaque-black faces,
+  lazy/reused face-copy allocation, hide/device-loss/final ownership release and actual page-rounded private-commit
+  return, idempotent lifecycle calls, allocation-failure suppression and extent recovery with identical pixels,
+  service creation and rejection,
   identity, lane start and drain, host state, synthetic connect, faces, actions from injected and raw presses reaching the fake host's `RequestAction`,
   bindings validated through the fake host's `ValidateAction`, `keys.down` / `mouse.down` bindings on a key, a
   dialpad button, and a turn that apply, log `binding-invalid` naming their control, skip `ValidateAction`, and request

@@ -9,21 +9,25 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
-#include <memory>
 #include <new>
 #include <utility>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
 #include <wil/com.h>
+#include <wil/resource.h>
 #pragma warning(pop)
 
 namespace Logicon
 {
 namespace
 {
+std::atomic<uint32_t> g_cpuFaceCopyBytes{0};
+std::atomic<uint32_t> g_faceAllocations{0};
+std::atomic<bool> g_failNextFacePreparationForTest{false};
 constexpr float kPadding = 12.0f;
 constexpr float kPageButtonRowHeight = 38.0f;
 constexpr uint32_t kTraceLines = 8;
@@ -304,10 +308,12 @@ class MonitorGpu final
         return _texture != nullptr;
     }
 
-    void UploadFaces(ID3D11DeviceContext* context, const uint32_t* bgra) noexcept
+    void UploadFaces(const uint32_t* bgra) noexcept
     {
-        if (context && _texture && bgra)
+        if (_deviceIdentity && _texture && bgra)
         {
+            wil::com_ptr_nothrow<ID3D11DeviceContext> context;
+            _deviceIdentity->GetImmediateContext(context.put());
             context->UpdateSubresource(_texture.get(), 0, nullptr, bgra, kGridSize * sizeof(uint32_t), 0);
         }
     }
@@ -388,7 +394,6 @@ void AppendLine(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& me
     }
     if (characters != 0)
     {
-        (void)gpu.EnsureGlyphs(text, characters);
         (void)gpu.AppendText(list, x, y, metrics.text, red, green, blue, 1.0f, text, characters);
     }
     y += metrics.line;
@@ -402,7 +407,6 @@ void AppendChip(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& me
     (void)list.AddStroke(rect.x, rect.y, rect.width, rect.height, 0.70f, 0.75f, 0.85f, active ? 1.0f : 0.7f, 6.0f,
                          1.5f);
     uint32_t characters = static_cast<uint32_t>(wcsnlen_s(text, 32));
-    (void)gpu.EnsureGlyphs(text, characters);
     float textWidth = gpu.MeasureText(text, characters, metrics.text);
     while (characters > 1 && textWidth > rect.width - 6.0f)
     {
@@ -440,6 +444,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
 
     ~MonitorWidget()
     {
+        ReleaseFaceCopy();
         if (_attached)
         {
             if (LogiconService* service = LogiconService::Current())
@@ -451,7 +456,14 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
     {
+        if (_visible != (visible != FALSE))
+        {
+            _snapshotValid = false;
+            _preparationFailed = false;
+        }
         _visible = visible != FALSE;
+        if (!_visible)
+            ReleaseFaceCopy();
         if (_visible && _host)
         {
             (void)_host->RequestFrame();
@@ -475,14 +487,18 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         {
             return E_INVALIDARG;
         }
-        _faceGeneration = 0;
+        ReleaseFaceCopy();
+        _snapshotValid = false;
+        _preparationFailed = false;
         return _gpu.Initialize(context->device);
     }
 
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
     {
         _gpu.Reset();
-        _faceGeneration = 0;
+        ReleaseFaceCopy();
+        _snapshotValid = false;
+        _preparationFailed = false;
     }
 
     HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
@@ -500,27 +516,61 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         {
             return E_INVALIDARG;
         }
+        if (!_visible || !_gpu.Ready())
+            return S_FALSE;
+        _snapshotValid = false;
         LogiconService* service = LogiconService::Current();
         if (!service)
         {
             _snapshotValid = false;
             return S_FALSE;
         }
+        uint64_t visibleStamp = 0;
+        service->CopyMonitorSnapshot(_snapshot, &visibleStamp);
+        const std::array extents{context->dpi, context->tileWidthPixels, context->tileHeightPixels,
+                                 context->raisedWidthPixels, context->raisedHeightPixels};
+        if (_preparationFailed && _failedPreparation.visibleStamp == visibleStamp &&
+            _failedPreparation.extents == extents)
+            return S_FALSE;
+        // Every failure below is suppressed until the published visible state, extent or lifecycle changes.
+        _failedPreparation = PreparationKey{visibleStamp, extents};
+        _preparationFailed = true;
+        const bool newFaceCopy = !_faces;
         if (!_faces)
         {
-            _faces.reset(new (std::nothrow) uint32_t[kGridPixels]);
+            if (g_failNextFacePreparationForTest.exchange(false, std::memory_order_relaxed))
+                return E_OUTOFMEMORY;
+            _faces.reset(static_cast<uint32_t*>(
+                VirtualAlloc(nullptr, kGridPixels * sizeof(uint32_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
             if (!_faces)
             {
                 return E_OUTOFMEMORY;
             }
             std::fill_n(_faces.get(), kGridPixels, 0xFF000000U);
+            g_cpuFaceCopyBytes.fetch_add(kGridPixels * sizeof(uint32_t), std::memory_order_relaxed);
+            g_faceAllocations.fetch_add(1, std::memory_order_relaxed);
         }
-        service->CopyMonitorSnapshot(_snapshot);
-        _snapshotValid = true;
-        if (service->CopyFaceSurface(_faces.get(), kGridPixels, _faceGeneration))
+        const bool changedFaces = service->CopyFaceSurface(_faces.get(), kGridPixels, _faceGeneration);
+        if (newFaceCopy || changedFaces)
         {
-            _facesDirty = true;
+            _gpu.UploadFaces(_faces.get());
         }
+        // Every other generated monitor label is ASCII (including validated action names and hex traces).
+        // The copied dashboard name and the separator are the bounded UTF-16 inputs.
+        auto* gpu = ViewerGpuGet();
+        if (!gpu)
+            return E_UNEXPECTED;
+        const auto releaseFonts = wil::scope_exit([gpu]() noexcept { gpu->ReleasePreparationFonts(); });
+        HRESULT result = gpu->EnsureGlyphs(L"\u00b7", 1);
+        if (SUCCEEDED(result))
+            result = gpu->EnsureGlyphs(
+                _snapshot.host.pageName.data(),
+                static_cast<uint32_t>(wcsnlen_s(_snapshot.host.pageName.data(), _snapshot.host.pageName.size())));
+        if (FAILED(result))
+            return result;
+        gpu->UploadDirtyGlyphs();
+        _preparationFailed = false;
+        _snapshotValid = true;
         return S_OK;
     }
 
@@ -540,20 +590,14 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         {
             return E_UNEXPECTED;
         }
+        if (!_visible || !_snapshotValid)
+            return S_FALSE;
         const float width = static_cast<float>(widget.widthPixels);
         const float height = static_cast<float>(widget.heightPixels);
         const Layout layout = ComputeLayout(width, height);
-        if (_facesDirty && _faces)
-        {
-            _gpu.UploadFaces(context->deviceContext, _faces.get());
-            _facesDirty = false;
-        }
-
-        ViewerGpuLock();
         ViewerGpuResources* gpu = ViewerGpuGet();
         if (!gpu)
         {
-            ViewerGpuUnlock();
             return E_UNEXPECTED;
         }
         _list.Reset();
@@ -570,7 +614,6 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         {
             result = gpu->Render(context->deviceContext, width, height, _list);
         }
-        ViewerGpuUnlock();
         return result;
     }
 
@@ -586,8 +629,6 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             return S_FALSE;
         }
         LogiconService* service = LogiconService::Current();
-        const Layout layout =
-            ComputeLayout(static_cast<float>(event->widthPixels), static_cast<float>(event->heightPixels));
         if (event->phase == RedXePointerPhaseUp || event->phase == RedXePointerPhaseCancel)
         {
             if (_heldKind != 0xFF && service)
@@ -598,6 +639,10 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             _heldKind = 0xFF;
             return consumed ? S_OK : S_FALSE;
         }
+        if (!_visible || !_snapshotValid || !_gpu.Ready())
+            return S_FALSE;
+        const Layout layout =
+            ComputeLayout(static_cast<float>(event->widthPixels), static_cast<float>(event->heightPixels));
         for (uint32_t slot = 0; slot < kKeyCount; ++slot)
         {
             if (layout.keys[slot].Contains(event->x, event->y))
@@ -676,6 +721,16 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     }
 
   private:
+    void ReleaseFaceCopy() noexcept
+    {
+        if (_faces)
+        {
+            g_cpuFaceCopyBytes.fetch_sub(kGridPixels * sizeof(uint32_t), std::memory_order_relaxed);
+            _faces.reset();
+        }
+        _faceGeneration = 0;
+    }
+
     void RequestFrame() noexcept
     {
         if (_host)
@@ -759,7 +814,6 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             }
             (void)swprintf_s(text.data(), text.size(), L"%u %S", slot + 1U, ActionLabel(snapshot.actions[slot]));
             const uint32_t characters = static_cast<uint32_t>(wcsnlen_s(text.data(), text.size()));
-            (void)gpu.EnsureGlyphs(text.data(), characters);
             const float labelWidth = gpu.MeasureText(text.data(), characters, metrics.keyLabel);
             (void)_list.AddFill(key.x + 2.0f, key.y + 2.0f, labelWidth + 8.0f, metrics.keyLabel + 4.0f, 0.0f, 0.0f,
                                 0.0f, 0.55f, 4.0f);
@@ -941,9 +995,16 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     ViewerDrawList _list;
     MonitorSnapshot _snapshot{};
     bool _snapshotValid = false;
-    std::unique_ptr<uint32_t[]> _faces;
+    bool _preparationFailed = false;
+    struct PreparationKey final
+    {
+        uint64_t visibleStamp = 0;
+        std::array<uint32_t, 5> extents{};
+    };
+    static_assert(sizeof(PreparationKey) == 32);
+    PreparationKey _failedPreparation{};
+    wil::unique_virtualalloc_ptr<uint32_t> _faces;
     uint32_t _faceGeneration = 0;
-    bool _facesDirty = false;
     bool _visible = false;
     bool _attached = false;
     TapMode _mode = TapMode::Press;
@@ -1013,6 +1074,21 @@ class MonitorProvider final : public RedXeComObject<MonitorProvider, IRedXeWidge
     IRedXeHost* _host;
 };
 } // namespace
+
+uint32_t MonitorCpuFaceCopyBytesForTest() noexcept
+{
+    return g_cpuFaceCopyBytes.load(std::memory_order_relaxed);
+}
+
+uint32_t MonitorFaceAllocationCountForTest() noexcept
+{
+    return g_faceAllocations.load(std::memory_order_relaxed);
+}
+
+void FailNextMonitorFacePreparationForTest() noexcept
+{
+    g_failNextFacePreparationForTest.store(true, std::memory_order_relaxed);
+}
 
 HRESULT CreateMonitorProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                               void** result) noexcept

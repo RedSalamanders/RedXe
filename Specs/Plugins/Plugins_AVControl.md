@@ -90,6 +90,23 @@ Communications-only profiles select the communications endpoints for the subsequ
 changes only after helper readback. Failure is visible and never presented as a confirmed mute or successful profile.
 Device revision changes rebuild selector options; volume notifications do not rebuild the profile form.
 
+The coordinator cache and shared graphics weak cache MUST release after the last widget-provider reference goes
+away, without waiting for module shutdown. Each widget retains its provider, so releasing caller references or one
+of several providers MUST NOT clear a surviving widget's model. A provider allocation failure releases a newly
+unused cache while preserving one held by existing providers. Queued/in-flight host control work retains its
+retiring coordinator through synchronized completion; its callback wait drains before final destruction. A revisit
+constructs a fresh coordinator and never publishes an old work result into the new model or reuses its borrowed
+host. The image pin for disconnected UIA providers remains process scoped and retains no coordinator or helper.
+
+The shipped-DLL tests MUST cover cold failure, synthetic-only cold and surviving-provider allocation faults and
+their consumed-fault retries, independent providers, widget-held provider references, failed
+foreign-host construction, last-owner release before module shutdown, cold revisit, prepared teardown, queued
+retirement work with a concurrent revisit, and disconnected UIA calls after teardown. These are synthetic lifecycle
+checks; real audio/camera, IME, screen-reader and matched resource acceptance keep their separate gates.
+The explicit allocation fault simulates a null provider allocation after actual coordinator publication; it does
+not replace the process allocator or claim to force an operating-system memory shortage. Production backend
+selection rejects this fault, and backend changes and module shutdown clear any unconsumed fault.
+
 The shared inventory admits at most 32 outputs, 32 microphones and 16 cameras. It reads all three audio defaults
 before admission, prioritizes defaults and the selected camera, then saved bindings from every loaded AV widget,
 then ordinary devices in enumeration order. Defaults are not displaced by a full set of profile references.
@@ -149,6 +166,21 @@ intervening change history. Injected-enumerator component tests exercise this pr
 the Windows device enumerator or default-policy client.
 
 ## Embedded rendering and isolated device work
+
+The UI-thread-only `RedXeAVControlQueryProbeStatistics` export copies the exact 64-byte POD in
+`AVControlDiagnostics.h`, summing the two views of every live widget (at most 64 across current/staged pages).
+It validates the pointer and exact size, refuses a wrong-thread query, performs no preparation, composition,
+allocation or device work, and retains no external pointers. Widget construction/destruction maintains an intrusive
+list with one pointer per widget; no frame work is added. An empty list reports zero widgets and zero surface bytes.
+The production resource probe queries only an already-mapped module; it never loads AV for diagnostics. Hidden
+surfaces report zero as they do in DxUi. This accounting does not qualify real AV hardware, IME or screen readers.
+
+The 2026-10-11 Release x64 production Gallery accounting run on the 2560×720, 96-DPI XENEON confirms the tile's
+512×720×4 = 1,474,560 bytes and a raised 1280×720×4 overlay, totalling 5,160,960 bytes. Dismissal returns to tile
+bytes, hiding reports zero and restore recreates only the tile. The owned non-activating run preserves its page,
+foreground HWND and source/artifact hashes (`runtime-2026-10-11-p04-raised-gallery`). Successful host submissions
+stay about 60/s while visible and zero while hidden. These are surface/host-submission observations; real AV and
+presented-frame/input-latency acceptance remain with the active AV RFC.
 
 `AVControlView` builds retained controls through public DxUi headers. Pin, restore, CRT matching and the COM/POD
 boundary are owned by [`Core_DxUiIntegration.md`](../Core/Core_DxUiIntegration.md). RedXe restores an exact library

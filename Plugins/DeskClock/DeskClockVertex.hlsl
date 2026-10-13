@@ -29,11 +29,6 @@ cbuffer DeskClockConstants : register(b0)
     float4 targetDatePositions2;
 };
 
-cbuffer DeskClockDrawConstants : register(b1)
-{
-    uint4 drawState;
-};
-
 struct ClockOutput
 {
     float4 position : SV_Position;
@@ -83,7 +78,12 @@ float4 ToClip(float2 pixel)
 
 ClockOutput VertexMain(uint vertexId : SV_VertexID, uint rawInstanceId : SV_InstanceID)
 {
-    const uint instanceId = rawInstanceId + drawState.x;
+    // Keep the original card / moving-face / glyph primitive order in one compatible draw.
+    // Static frames skip the six moving faces; logical gaps 12..15 and 22..31 remain unused.
+    const bool moving = state.y != 0U;
+    const uint instanceId = rawInstanceId < 12U ? rawInstanceId
+                           : (moving && rawInstanceId < 18U ? rawInstanceId + 4U
+                                                            : rawInstanceId + (moving ? 14U : 20U));
     ClockOutput output;
     const float2 corner = Corner(vertexId);
     output.position = float4(-2.0f, -2.0f, 0.0f, 1.0f);

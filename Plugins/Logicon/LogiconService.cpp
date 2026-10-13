@@ -422,10 +422,12 @@ void LogiconService::AttachMonitor(bool attached) noexcept
     WakeLane();
 }
 
-void LogiconService::CopyMonitorSnapshot(MonitorSnapshot& snapshot) const noexcept
+void LogiconService::CopyMonitorSnapshot(MonitorSnapshot& snapshot, uint64_t* visibleStamp) const noexcept
 {
     const auto guard = wil::AcquireSRWLockShared(&_lock);
     snapshot = _snapshot;
+    if (visibleStamp)
+        *visibleStamp = _publishedHash;
 }
 
 bool LogiconService::CopyFaceSurface(uint32_t* bgra, uint32_t capacityPixels, uint32_t& generation) const noexcept
@@ -1274,31 +1276,65 @@ HRESULT LogiconService::ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcep
 void LogiconService::PublishSnapshot() noexcept
 {
     uint64_t visibleHash = kFnvOffset;
+    bool changed = false;
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
         FillSnapshot();
+        // Release ships no monitor. Diagnostics still publish without monitor-only comparison work.
+        if (_monitorAttached.load(std::memory_order_acquire) == 0)
+            return;
         const MonitorSnapshot& snapshot = _snapshot;
         HashValue(visibleHash, snapshot.laneRunning);
         HashValue(visibleHash, snapshot.connected);
         HashValue(visibleHash, snapshot.synthetic);
+        HashValue(visibleHash, snapshot.deviceAccess);
+        HashValue(visibleHash, snapshot.rendererReady);
+        HashValue(visibleHash, snapshot.iconFont);
         HashValue(visibleHash, snapshot.keys);
         HashValue(visibleHash, snapshot.pageButtons);
         HashValue(visibleHash, snapshot.keyPage);
+        HashValue(visibleHash, snapshot.keyPageCount);
+        HashValue(visibleHash, snapshot.portCount);
+        HashValue(visibleHash, snapshot.features.display);
+        HashValue(visibleHash, snapshot.features.reprogControls);
+        HashValue(visibleHash, snapshot.features.brightness);
         HashValue(visibleHash, snapshot.brightness);
         HashValue(visibleHash, snapshot.faceGeneration);
         HashValue(visibleHash, snapshot.facesWritten);
         HashValue(visibleHash, snapshot.actionsRequested);
+        HashValue(visibleHash, snapshot.lastAction);
+        HashValue(visibleHash, snapshot.host.flags);
+        HashValue(visibleHash, snapshot.host.pageIndex);
+        HashValue(visibleHash, snapshot.host.pageCount);
+        HashValue(visibleHash, snapshot.host.pageName);
         HashValue(visibleHash, snapshot.counters.reportsIn);
         HashValue(visibleHash, snapshot.counters.reportsOut);
+        HashValue(visibleHash, snapshot.counters.imagesWritten);
+        HashValue(visibleHash, snapshot.counters.commandErrors);
+        HashValue(visibleHash, snapshot.counters.lastHidppError);
         HashValue(visibleHash, snapshot.lastFailure);
+        HashValue(visibleHash, snapshot.connectAttempts);
         HashValue(visibleHash, snapshot.competingWriter);
+        HashValue(visibleHash, snapshot.actions);
+        HashValue(visibleHash, snapshot.bound);
+        HashValue(visibleHash, snapshot.invalid);
+        for (const FaceOverride& face : snapshot.overrides)
+        {
+            HashValue(visibleHash, face.kind);
+            HashValue(visibleHash, face.colorRgb);
+        }
         HashValue(visibleHash, snapshot.dialpad.connected);
         HashValue(visibleHash, snapshot.dialpad.wheelsWanted);
         HashValue(visibleHash, snapshot.dialpad.wheelsListening);
         HashValue(visibleHash, snapshot.dialpad.buttons);
         HashValue(visibleHash, snapshot.dialpad.buttonPresses);
+        HashValue(visibleHash, snapshot.dialpad.divertedButtons);
+        HashValue(visibleHash, snapshot.dialpad.features.reprogControls);
+        HashValue(visibleHash, snapshot.dialpad.turns);
         HashValue(visibleHash, snapshot.dialpad.lastFailure);
+        HashValue(visibleHash, snapshot.dialpad.connectAttempts);
         HashValue(visibleHash, snapshot.dialpad.counters.reportsIn);
+        HashValue(visibleHash, snapshot.dialpad.counters.reportsOut);
         // The wheels themselves, not the diagnostic packet counters: other mice never request a frame.
         HashValue(visibleHash, snapshot.dialpad.wheels.dialRaw);
         HashValue(visibleHash, snapshot.dialpad.wheels.rollerRaw);
@@ -1308,11 +1344,12 @@ void LogiconService::PublishSnapshot() noexcept
         HashValue(visibleHash, snapshot.dialpad.wheelSteps);
         HashValue(visibleHash, snapshot.systemFeed);
         HashValue(visibleHash, snapshot.system);
+        changed = visibleHash != _publishedHash;
+        _publishedHash = visibleHash;
     }
     // A monitor tile redraws only when something it shows changed; RequestFrame is any-thread and coalescing.
-    if (visibleHash != _publishedHash)
+    if (changed)
     {
-        _publishedHash = visibleHash;
         if (_host && _monitorAttached.load(std::memory_order_acquire) != 0)
         {
             (void)_host->RequestFrame();

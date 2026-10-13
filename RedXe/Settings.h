@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DockPlacement.h"
+#include "FrameScheduler.h"
 
 #include <array>
 #include <cstddef>
@@ -18,7 +19,8 @@ inline constexpr uint32_t kRedXeSettingsVersionMajor = 5;
 // Minor 1 added the optional additive `services` root member (headless service plugins such as Logicon); minor 2
 // added the optional additive `dock` root member (the screen-edge bar); minor 3 added the optional additive `trayIcon`
 // root member (the notification-area icon), the `secondary` monitor selector, and `dock.animationMilliseconds`.
-inline constexpr uint32_t kRedXeSettingsVersionMinor = 3;
+// Minor 4 adds optional continuousFrameRate, default display pacing.
+inline constexpr uint32_t kRedXeSettingsVersionMinor = 4;
 // The minor a document needs for `dock` (PatchDockThickness, PatchFirstRunDock), for the `secondary` selector, and for
 // `dock.animationMilliseconds`.
 inline constexpr uint32_t kRedXeSettingsDockMinor = 2;
@@ -155,18 +157,45 @@ struct SettingsText final
     bool operator==(const SettingsText&) const noexcept = default;
 };
 
-struct JsonObjectSettings final
+// Immutable bounded bytes. The default borrows static "{}"; non-default values share one exact-sized buffer.
+// Parsing and plugin-contract validation remain cold operations. Copies cannot mutate an existing owner.
+class JsonObjectSettings final
 {
-    std::array<char, kPrivateConfigurationCapacity + 1> utf8{'{', '}'};
-    uint32_t bytes = 2;
-
+  public:
+    [[nodiscard]] HRESULT Assign(std::string_view utf8) noexcept;
+    [[nodiscard]] const char* Data() const noexcept
+    {
+        return _utf8 ? _utf8.get() : "{}";
+    }
+    [[nodiscard]] uint32_t Bytes() const noexcept
+    {
+        return _utf8 ? _bytes : 2;
+    }
+    [[nodiscard]] uint32_t OwnedPayloadBytes() const noexcept
+    {
+        return _utf8 ? _bytes + 1 : 0;
+    }
     [[nodiscard]] std::string_view View() const noexcept
     {
-        return std::string_view(utf8.data(), bytes);
+        return {Data(), Bytes()};
+    }
+    bool operator==(const JsonObjectSettings& other) const noexcept
+    {
+        return _utf8 == other._utf8 || View() == other.View();
     }
 
-    bool operator==(const JsonObjectSettings&) const noexcept = default;
+  private:
+#if defined(REDXE_SETTINGS_TESTS)
+    friend struct JsonObjectSettingsTestAccess;
+#endif
+    std::shared_ptr<const char[]> _utf8;
+    uint32_t _bytes = 2;
 };
+static_assert(sizeof(JsonObjectSettings) == 24);
+#if defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS)
+// Thread-local one-shot faults at payload (1) and shared-owner (2) allocation. Absent from production builds.
+void FailJsonObjectAllocationForTesting(uint32_t phase) noexcept;
+#endif
 
 struct PluginSettings final
 {
@@ -299,6 +328,7 @@ struct AppSettings final
     DockSettings dock = DefaultDockSettings();
     // The `trayIcon` root member (minor 3): the notification-area icon of an interactive run.
     bool trayIcon = kRedXeDefaultTrayIcon;
+    ContinuousFrameRate continuousFrameRate = ContinuousFrameRate::Display;
     std::string sourceDocument;
     std::vector<PluginSettings> plugins;
     uint32_t pluginCount = 0;
@@ -354,6 +384,8 @@ enum class SettingsReloadStatus : std::uint8_t
 [[nodiscard]] const DashboardPageSettings* FindActiveDashboardPage(const AppSettings& settings) noexcept;
 [[nodiscard]] DashboardPageSettings* FindActiveDashboardPage(AppSettings& settings) noexcept;
 [[nodiscard]] HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept;
+[[nodiscard]] HRESULT ResolveAdjacentDashboardPage(const AppSettings& settings, int direction,
+                                                   uint32_t& selected) noexcept;
 [[nodiscard]] HRESULT PreserveActiveDashboardPage(const AppSettings& previous, AppSettings& candidate) noexcept;
 [[nodiscard]] bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& right) noexcept;
 // True when the two differ at most in the retained source text and the retired services entries: a live reload of such

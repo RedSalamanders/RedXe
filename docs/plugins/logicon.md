@@ -104,4 +104,7 @@ Icons are Segoe Fluent Icons glyph names: `ChevronLeft`, `ChevronRight`, `Back`,
 
 ## The Debug monitor tile
 
+If the monitor cannot prepare its display, taps wait until it recovers. A key or button already held still releases
+when you lift or cancel the press. Returning to a hidden tile or recovering graphics prepares it before taps resume.
+
 Developer builds place `LogiconMonitor` on a `Logicon` page of the Debug template. It shows the nine faces as the keypad shows them, lights up every key and page button you hold, and lists the connection, the HID++ feature indexes, counters, the last host page, and the last HID++ frames. A dialpad section shows whether the dialpad is connected, how far the dial and the roller have turned (in detents, with the raw count, the number of events, and the action each drives; `wheels: idle` when no dialpad is there or no turn is bound), and its four buttons as chips that light while held (unbound, native buttons are shown in brackets). Tap a key cell to press it (`Press`), to push a solid color (`Color`), a test picture (`Picture`), or to restore its face (`Clear`); page-button and dialpad-button chips press that control; `Synthetic` runs everything against an in-memory keypad when no hardware is attached; `Bright -`/`Bright +` change the panel brightness. Text grows with the tile height. In a normal build the tile is not available; a settings file that places it shows an empty placeholder.

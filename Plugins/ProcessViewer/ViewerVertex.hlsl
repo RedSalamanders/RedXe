@@ -19,6 +19,7 @@ struct ViewerOutput
     float2 atlasUv : TEXCOORD1;
     nointerpolation float4 color : COLOR0;
     nointerpolation float4 params : TEXCOORD2;
+    nointerpolation float4 atlasBounds : TEXCOORD3;
 };
 
 float2 Corner(uint vertexId)
@@ -46,5 +47,6 @@ ViewerOutput VertexMain(ViewerInput input)
     output.atlasUv = lerp(input.uv.xy, input.uv.zw, corner);
     output.color = input.color;
     output.params = input.params;
+    output.atlasBounds = input.uv;
     return output;
 }

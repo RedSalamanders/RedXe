@@ -565,12 +565,7 @@ struct DiagnosticSink final
     {
         return false;
     }
-    JsonObjectSettings copied{};
-    std::memcpy(copied.utf8.data(), json.get(), bytes);
-    copied.utf8[bytes] = '\0';
-    copied.bytes = static_cast<uint32_t>(bytes);
-    destination = copied;
-    return true;
+    return SUCCEEDED(destination.Assign({json.get(), bytes}));
 }
 
 [[nodiscard]] bool ColorIsRgbHex(yyjson_val* value) noexcept
@@ -1708,7 +1703,7 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
         const bool allowUnknown = fileMinor > kRedXeSettingsVersionMinor;
         if (!AcceptObjectMembers(sink, path, root,
                                  {"$schema", "version", "wrapPages", "logRetentionDays", "backgroundColor", "dock",
-                                  "trayIcon", "declare", "services", "pages"},
+                                  "trayIcon", "continuousFrameRate", "declare", "services", "pages"},
                                  allowUnknown))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         yyjson_val* schema = yyjson_obj_get(root, "$schema");
@@ -1769,6 +1764,17 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
             return sink.FailHr(path.View(), "trayIcon must be a boolean.");
         }
         parsed->trayIcon = trayIcon ? yyjson_get_bool(trayIcon) : kRedXeDefaultTrayIcon;
+
+        if (yyjson_val* rate = yyjson_obj_get(root, "continuousFrameRate"))
+        {
+            const auto rateScope = path.PushName("continuousFrameRate");
+            if (yyjson_is_str(rate) && std::string_view(yyjson_get_str(rate), yyjson_get_len(rate)) == "display")
+                parsed->continuousFrameRate = ContinuousFrameRate::Display;
+            else if (yyjson_is_uint(rate) && yyjson_get_uint(rate) == 30)
+                parsed->continuousFrameRate = ContinuousFrameRate::Thirty;
+            else
+                return sink.FailHr(path.View(), "continuousFrameRate must be \"display\" or the integer 30.");
+        }
 
         std::vector<Declaration> declarations;
         yyjson_val* declarationObject = yyjson_obj_get(root, "declare");

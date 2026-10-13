@@ -1,12 +1,15 @@
 #pragma once
 
 #include <array>
+#include <bitset>
 #include <cstdint>
 #include <d3d11.h>
+#include <dwrite.h>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
 #include <wil/com.h>
+#include <wil/resource.h>
 #pragma warning(pop)
 
 inline constexpr uint32_t kViewerMaximumQuads = 1024;
@@ -122,7 +125,15 @@ class ViewerGpuResources final
 
     [[nodiscard]] HRESULT Initialize(ID3D11Device* device) noexcept;
     void Reset() noexcept;
+    [[nodiscard]] uint32_t CpuAtlasBytes() const noexcept
+    {
+        return _atlasPixels ? kViewerAtlasSize * kViewerAtlasSize : 0;
+    }
     [[nodiscard]] HRESULT EnsureGlyphs(const wchar_t* text, uint32_t characters) noexcept;
+    // UI-thread preparation only; uploads the changed cells before either tile or raised drawing.
+    void UploadDirtyGlyphs() noexcept;
+    // Cache one font session across this preparation's strings, then release it before drawing.
+    void ReleasePreparationFonts() noexcept;
     [[nodiscard]] float MeasureText(const wchar_t* text, uint32_t characters, float height) const noexcept;
     [[nodiscard]] HRESULT AppendText(ViewerDrawList& list, float x, float y, float height, float red, float green,
                                      float blue, float alpha, const wchar_t* text, uint32_t characters) noexcept;
@@ -136,8 +147,8 @@ class ViewerGpuResources final
     };
 
     [[nodiscard]] HRESULT BuildStaticAtlas() noexcept;
+    void ResetGpuResources() noexcept;
     [[nodiscard]] uint32_t FindGlyph(wchar_t character) const noexcept;
-    void UploadAtlas() noexcept;
 
     ID3D11Device* _deviceIdentity = nullptr;
     wil::com_ptr_nothrow<ID3D11VertexShader> _vertexShader;
@@ -151,17 +162,29 @@ class ViewerGpuResources final
     wil::com_ptr_nothrow<ID3D11RasterizerState> _rasterizer;
     wil::com_ptr_nothrow<ID3D11DepthStencilState> _depthState;
     wil::com_ptr_nothrow<ID3D11BlendState> _blendState;
-    std::array<uint8_t, kViewerAtlasSize * kViewerAtlasSize> _atlasPixels{};
+    wil::unique_virtualalloc_ptr<uint8_t> _atlasPixels;
+    wil::unique_hmodule _preparationFontModule;
+    wil::com_ptr_nothrow<IDWriteFactory> _preparationFontFactory;
+    wil::com_ptr_nothrow<IDWriteFontFace> _preparationFontFace;
     std::array<wchar_t, kViewerGlyphCapacity> _glyphCharacters{};
     std::array<float, kViewerGlyphCapacity> _glyphAdvances{};
     uint32_t _glyphCount = 0;
     uint32_t _dynamicCursor = 0;
-    bool _atlasDirty = false;
+    std::bitset<kViewerGlyphCapacity> _dirtyGlyphs;
 };
 
 [[nodiscard]] HRESULT ViewerGpuAcquire(ID3D11Device* device) noexcept;
 void ViewerGpuRelease() noexcept;
-// Worker callers hold ViewerGpuLock across the instance ownership check, this lookup, and resource use.
+// Private test accounting includes the reusable CPU atlas, independently of context-held GPU bindings.
+[[nodiscard]] uint32_t ViewerGpuCpuAtlasBytes() noexcept;
+[[nodiscard]] uint32_t ViewerGpuResourceSetCount() noexcept;
+void ViewerGpuFailNextInitializationForTest() noexcept;
+[[nodiscard]] uint32_t ViewerGpuUploadCellCount() noexcept;
+[[nodiscard]] uint64_t ViewerGpuUploadBytes() noexcept;
+[[nodiscard]] uint32_t ViewerGpuFontSessionCount() noexcept;
+[[nodiscard]] uint32_t ViewerGpuLivePreparationFonts() noexcept;
+void ViewerGpuFailNextGlyphPreparationForTest() noexcept;
+// Borrowed on the UI thread while this widget holds a GPU user; workers never access the resource hub.
 [[nodiscard]] ViewerGpuResources* ViewerGpuGet() noexcept;
 void ViewerGpuLock() noexcept;
 void ViewerGpuUnlock() noexcept;

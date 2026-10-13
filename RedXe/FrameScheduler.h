@@ -1,5 +1,14 @@
 #pragma once
 
+#include <chrono>
+#include <cstdint>
+
+enum class ContinuousFrameRate : uint32_t
+{
+    Display,
+    Thirty,
+};
+
 enum class HostFrameAction
 {
     WaitForMessage,
@@ -49,3 +58,57 @@ struct HostFrameState final
     }
     return HostFrameAction::Render;
 }
+
+[[nodiscard]] constexpr bool LimitContinuousFrames(ContinuousFrameRate rate, const HostFrameState& state) noexcept
+{
+    return rate == ContinuousFrameRate::Thirty && state.continuousFramesRequired && !state.frameInvalidated &&
+           !state.pageNavigationActive && !state.overlayMotionActive && !state.dockHidden &&
+           SelectHostFrameAction(state) == HostFrameAction::Render;
+}
+
+// A monotonic deadline independent of the panel's refresh rate. Late frames start a fresh interval: no catch-up burst.
+class ContinuousFramePacer final
+{
+  public:
+    using Clock = std::chrono::steady_clock;
+    static constexpr auto Period = std::chrono::nanoseconds{1'000'000'000 / 30};
+
+    void Presented(Clock::time_point now) noexcept
+    {
+        _deadline = now + std::chrono::duration_cast<Clock::duration>(Period);
+        _frameLatencyGeneration = 0;
+    }
+
+    void Reset() noexcept
+    {
+        _deadline = {};
+    }
+
+    // Readiness is consumed by a render attempt, not by deadline cancellation, visibility, or pacing-mode changes.
+    // Resize retains the swap chain's waitable object. Only replacing that object changes this generation.
+    void AcceptFrameLatency(uint64_t generation) noexcept
+    {
+        _frameLatencyGeneration = generation;
+    }
+
+    [[nodiscard]] bool HasFrameLatency(uint64_t generation) const noexcept
+    {
+        return generation != 0 && _frameLatencyGeneration == generation;
+    }
+
+    void ConsumeFrameLatency() noexcept
+    {
+        _frameLatencyGeneration = 0;
+    }
+
+    [[nodiscard]] std::chrono::nanoseconds Remaining(Clock::time_point now) const noexcept
+    {
+        return now < _deadline ? std::chrono::duration_cast<std::chrono::nanoseconds>(_deadline - now)
+                               : std::chrono::nanoseconds::zero();
+    }
+
+  private:
+    Clock::time_point _deadline{};
+    uint64_t _frameLatencyGeneration = 0;
+};
+static_assert(sizeof(ContinuousFramePacer) == 16);

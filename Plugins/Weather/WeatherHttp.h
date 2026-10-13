@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -47,3 +48,28 @@ using WeatherHttpTestResponseFn = HRESULT(__stdcall*)(const char* url, uint32_t 
                                                       uint32_t* bodyBytes) noexcept;
 // Offline harness hook; set/clear only while no network callback is active.
 void WeatherHttpSetTestResponse(WeatherHttpTestResponseFn response) noexcept;
+
+// Borrowed offline transport result, consumed before the callback's fixture changes. It exercises production
+// lookup/revalidation/store logic; the legacy response hook above intentionally continues to bypass that cache.
+struct WeatherHttpTestTransportResponse final
+{
+    uint32_t sizeBytes;
+    uint32_t status;
+    const char* body;
+    uint32_t bodyBytes;
+    uint32_t headersBytes;
+    const char* headers;
+};
+static_assert(sizeof(WeatherHttpTestTransportResponse) == 32);
+static_assert(offsetof(WeatherHttpTestTransportResponse, body) == 8);
+static_assert(offsetof(WeatherHttpTestTransportResponse, headers) == 24);
+using WeatherHttpTestTransportFn = HRESULT(__stdcall*)(const char* url, uint32_t urlBytes, const char* etag,
+                                                       const char* lastModified, HANDLE cancelEvent,
+                                                       WeatherHttpTestTransportResponse* response) noexcept;
+// Test controls change only with no network callback active. Tick zero restores the real monotonic clock.
+void WeatherHttpSetTestTransport(WeatherHttpTestTransportFn transport) noexcept;
+void WeatherHttpSetTestCacheTick(uint64_t tick) noexcept;
+void WeatherHttpCacheMetrics(uint32_t& clients, uint32_t& entries, uint32_t& bodyCapacityBytes) noexcept;
+void WeatherHttpAcquireCacheClient() noexcept;
+void WeatherHttpReleaseCacheClient() noexcept;
+void WeatherHttpFailNextCacheAllocationForTest(bool fail) noexcept;

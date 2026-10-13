@@ -168,7 +168,8 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     HRESULT STDMETHODCALLTYPE Execute(const RedXeActionRequest* request) noexcept override;
 
     // Monitor and test surface; any thread.
-    void CopyMonitorSnapshot(MonitorSnapshot& snapshot) const noexcept;
+    // Optional visible stamp is copied with the snapshot under the same publication lock.
+    void CopyMonitorSnapshot(MonitorSnapshot& snapshot, uint64_t* visibleStamp = nullptr) const noexcept;
     // Copies the 434×434 composed grid when its generation differs from `generation`; updates generation.
     [[nodiscard]] bool CopyFaceSurface(uint32_t* bgra, uint32_t capacityPixels, uint32_t& generation) const noexcept;
     [[nodiscard]] HRESULT InjectControl(uint32_t kind, uint32_t index, bool down) noexcept;

@@ -6,6 +6,8 @@
 #include "../../RedXe/CommandLine.h"
 #include "../../RedXe/DockOptions.h"
 #include "../../RedXe/SettingsWatcher.h"
+#include "Settings.Tests.FrameRate.h"
+#include "Settings.Tests.JsonStorage.h"
 #include "Settings.Tests.ReleasedTemplates.h"
 
 #include <array>
@@ -465,6 +467,11 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"Deployed templates must author trayIcon: false in Debug and true in Release.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
+    if (debug.continuousFrameRate != ContinuousFrameRate::Display ||
+        release.continuousFrameRate != ContinuousFrameRate::Display ||
+        debug.sourceDocument.find("\"continuousFrameRate\": \"display\"") == std::string::npos ||
+        release.sourceDocument.find("\"continuousFrameRate\": \"display\"") == std::string::npos)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     const WidgetInstanceSettings& gpu = release.dashboard.pages[2].widgets[7];
     const WidgetInstanceSettings& thermal = release.dashboard.pages[2].widgets[8];
     const WidgetInstanceSettings& power = release.dashboard.pages[2].widgets[9];
@@ -522,6 +529,16 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     yyjson_val* defs = yyjson_obj_get(root, "$defs");
+    yyjson_val* frameRate = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "continuousFrameRate") : nullptr;
+    yyjson_val* rates = yyjson_is_obj(frameRate) ? yyjson_obj_get(frameRate, "oneOf") : nullptr;
+    yyjson_val* displayRate = yyjson_is_arr(rates) ? yyjson_obj_get(yyjson_arr_get(rates, 0), "const") : nullptr;
+    yyjson_val* limitedRate = yyjson_is_arr(rates) ? yyjson_obj_get(yyjson_arr_get(rates, 1), "const") : nullptr;
+    yyjson_val* rateDefault = yyjson_is_obj(frameRate) ? yyjson_obj_get(frameRate, "default") : nullptr;
+    if (!yyjson_is_arr(rates) || yyjson_arr_size(rates) != 2 || !yyjson_is_str(displayRate) ||
+        std::string_view(yyjson_get_str(displayRate)) != "display" || !yyjson_is_uint(limitedRate) ||
+        yyjson_get_uint(limitedRate) != 30 || !yyjson_is_str(rateDefault) ||
+        std::string_view(yyjson_get_str(rateDefault)) != "display")
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     // The `dock` definition carries the same ranges and defaults as DockPlacement.h.
     {
         yyjson_val* rootDock = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "dock") : nullptr;
@@ -1248,10 +1265,12 @@ constexpr std::string_view kRepresentative = R"json(
         }
     }
 
-    constexpr std::string_view newerMinor =
-        R"json({"version":{"major":5,"minor":4},"futureRoot":true,"pages":[{"futurePage":1}]})json";
+    const std::string newerMinor =
+        "{\"version\":{\"major\":5,\"minor\":" + std::to_string(kRedXeSettingsVersionMinor + 1U) +
+        "},\"futureRoot\":true,\"pages\":[{\"futurePage\":1}]}";
     if (FAILED(ParseAppSettingsJson(newerMinor, parsed)) || parsed.dashboard.pageCount != 1 ||
-        parsed.versionMinor != 4 || parsed.sourceDocument.find("futureRoot") == std::string::npos)
+        parsed.versionMinor != kRedXeSettingsVersionMinor + 1U ||
+        parsed.sourceDocument.find("futureRoot") == std::string::npos)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -1727,7 +1746,8 @@ constexpr std::string_view kRepresentative = R"json(
                 result = ReadFile(path, original);
             if (FAILED(result))
                 return result;
-            constexpr std::string_view versionMember = "\"version\": { \"major\": 5, \"minor\": 3 },";
+            const std::string versionMember =
+                "\"version\": { \"major\": 5, \"minor\": " + std::to_string(kRedXeSettingsVersionMinor) + " },";
             const size_t versionAt = original.find(versionMember);
             AppSettings dragged{};
             if (versionAt == std::string::npos || FAILED(ParseAppSettingsJson(original, dragged)) ||
@@ -1960,6 +1980,8 @@ constexpr std::string_view kRepresentative = R"json(
             {L"backgroundRgb", [](AppSettings& settings) noexcept { settings.backgroundRgb ^= 0x010203U; }, true},
             {L"dock", [](AppSettings& settings) noexcept { ++settings.dock.animationMilliseconds; }, true},
             {L"trayIcon", [](AppSettings& settings) noexcept { settings.trayIcon = !settings.trayIcon; }, true},
+            {L"continuousFrameRate",
+             [](AppSettings& settings) noexcept { settings.continuousFrameRate = ContinuousFrameRate::Thirty; }, true},
             {L"plugins",
              [](AppSettings& settings) noexcept { settings.plugins[0].enabled = !settings.plugins[0].enabled; }, true},
             {L"pluginCount", [](AppSettings& settings) noexcept { ++settings.pluginCount; }, true},
@@ -1999,6 +2021,30 @@ constexpr std::string_view kRepresentative = R"json(
     try
     {
         const std::wstring help = RedXeFormatCommandLineHelp();
+        auto probeArguments = [](std::initializer_list<const wchar_t*> tokens, bool expected, uint32_t seconds)
+        {
+            std::vector<wchar_t*> arguments;
+            for (const auto* token : tokens)
+                arguments.push_back(const_cast<wchar_t*>(token));
+            uint32_t parsed = 0;
+            return RedXeParseProbeArguments(arguments.data(), static_cast<int>(arguments.size()), parsed) == expected &&
+                   (!expected || parsed == seconds);
+        };
+        if (!probeArguments({L"RedXe.exe"}, true, 0) || !probeArguments({L"RedXe.exe", L"--probe"}, true, 5) ||
+            !probeArguments({L"RedXe.exe", L"--probe=1"}, true, 1) ||
+            !probeArguments({L"RedXe.exe", L"--probe=3600"}, true, 3600) ||
+            !probeArguments({L"RedXe.exe", L"--probe="}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=0"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=3601"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=-1"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=+1"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe= 1"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=1.5"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe=9999999999999"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--probe", L"--probe=1"}, false, 0) ||
+            !probeArguments({L"RedXe.exe", L"--settings", L"--probe"}, true, 0) || !RedXeFindSwitch(L"--probe") ||
+            !RedXeFindSwitch(L"--probe=5") || !RedXeFindSwitch(L"--probe="))
+            return E_FAIL;
         for (size_t index = 0; index < kRedXeCommandLineSwitches.size(); ++index)
         {
             const RedXeCommandLineSwitch& entry = kRedXeCommandLineSwitches[index];
@@ -2193,15 +2239,18 @@ constexpr std::string_view kRepresentative = R"json(
                                                       R"json({"use":"Launch","shortcuts":[]})json"};
         for (const auto widget : widgets)
         {
+            const std::string futureMinor = std::to_string(kRedXeSettingsVersionMinor + 1U);
             const std::string source =
-                R"json({"version":{"major":5,"minor":4},"futureRoot":{"label":"keep\nthis","quoted":"\"{}[],:\\","list":[[],{},true,false,null,1.25e-4,-2]},"declare":{"Launch":{"plugin":"builtin.launcher"}},"pages":[{"widgets":[)json" +
+                R"json({"version":{"major":5,"minor":)json" + futureMinor +
+                R"json(},"futureRoot":{"label":"keep\nthis","quoted":"\"{}[],:\\","list":[[],{},true,false,null,1.25e-4,-2]},"declare":{"Launch":{"plugin":"builtin.launcher"}},"pages":[{"widgets":[)json" +
                 std::string(widget) + R"json(]}]})json";
             auto settings = std::make_unique<AppSettings>();
             if (FAILED(ParseAppSettingsJson(source, *settings)))
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             const auto id = settings->dashboard.pages[0].widgets[0].id;
             if (FAILED(PatchWidgetInstanceSettings(*settings, id.View(), patch)) ||
-                settings->sourceDocument.find("\n  \"version\": { \"major\": 5, \"minor\": 4 }") == std::string::npos ||
+                settings->sourceDocument.find("\n  \"version\": { \"major\": 5, \"minor\": " + futureMinor + " }") ==
+                    std::string::npos ||
                 settings->sourceDocument.find("\"Launch\": { \"plugin\": \"builtin.launcher\" }") ==
                     std::string::npos ||
                 settings->sourceDocument.find("\"layout\"") != std::string::npos ||
@@ -2298,8 +2347,9 @@ constexpr std::string_view kRepresentative = R"json(
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 
         // A compact accepted document must not be written as an oversized, subsequently unreadable pretty document.
-        std::string large =
-            R"json({"version":{"major":5,"minor":4},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}],"futurePadding":")json";
+        std::string large = R"json({"version":{"major":5,"minor":)json" +
+                            std::to_string(kRedXeSettingsVersionMinor + 1U) +
+                            R"json(},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}],"futurePadding":")json";
         large.append(1024U * 1024U - large.size() - 2, 'x');
         large += "\"}";
         auto settings = std::make_unique<AppSettings>();
@@ -2825,7 +2875,8 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             std::string kept = original;
             const size_t removedAt = kept.rfind('\n', introductionAt) + 1;
             kept.erase(removedAt, kept.find('\n', exampleAt) + 1 - removedAt);
-            constexpr std::string_view versionMember = "\"version\": { \"major\": 5, \"minor\": 3 },";
+            const std::string versionMember =
+                "\"version\": { \"major\": 5, \"minor\": " + std::to_string(kRedXeSettingsVersionMinor) + " },";
             const size_t versionAt = kept.find(versionMember);
             if (versionAt == std::string::npos || patched.size() <= kept.size())
             {
@@ -4215,6 +4266,8 @@ int wmain()
                        {L"dock", ValidateDockSettings},
                        {L"dock thickness layout", ValidateDockThicknessLayout},
                        {L"tray icon", ValidateTrayIconSettings},
+                       {L"continuous frame rate", TestContinuousFrameRateSettings},
+                       {L"immutable JSON storage", TestJsonObjectSettingsStorage},
                        {L"runtime settings", ValidateRuntimeSettingsEqual},
                        {L"command line", ValidateCommandLineCatalog},
                        {L"AV profile configuration", ValidateAvControlSettings},

@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-09-18
+Last reviewed: 2026-10-13
 
 ## Purpose and scope
 
@@ -188,11 +188,23 @@ that a plugin author reading only `Common/PlugInterfaces/` can implement a corre
   The host never calls these exports. The current surface is: `RedXeMatrixRainGetTestDiagnostics`, `RedXeShadersGetTestDiagnostics`,
   `RedXeProcessViewerGetTestDiagnostics`, `RedXeStudioClockGetTestDiagnostics`, `RedXeStudioClockSetTestTime`,
   `RedXeDeskClockGetTestDiagnostics`, `RedXeDeskClockSetTestTime`, `RedXeWeatherGetTestDiagnostics`, and
+  the cold initialization faults `RedXeProcessViewerFailNextAtlasInitialization` and
+  `RedXeWeatherFailNextAtlasInitialization` (one failure after CPU atlas construction, consumed by the next actual
+  resource initialization rather than a shared-resource acquisition),
+  `RedXeProcessViewerFailNextGlyphPreparation` (one failure after acquiring temporary fonts for the next missing glyph),
+  `RedXeWeatherFailNextGlyphPreparation` (one failure after acquiring temporary fonts for the next missing glyph),
   `RedXeWeatherProbeHttpGetOnSmallStack`, `RedXeWeatherBuildTestLocationSearchUrl`,
   `RedXeAVControlUseSyntheticBackend` and `RedXeAVControlTestSnapshot`, and the Logicon surface
   `RedXeLogiconGetTestDiagnostics`, `RedXeLogiconUseSyntheticDevice`, `RedXeLogiconUseSyntheticDialpad`,
   `RedXeLogiconInjectControl`, `RedXeLogiconInjectSyntheticReport`, `RedXeLogiconSetFaceOverride`, and
-  `RedXeLogiconSetBrightness`. AV synthetic mode is accepted only before providers exist and is never exposed as a
+  `RedXeLogiconSetBrightness`, `RedXeLogiconGetMonitorTestDiagnostics`, and
+  `RedXeLogiconFailNextMonitorGlyphPreparation`, and `RedXeLogiconFailNextMonitorFacePreparation`.
+  The monitor exports are UI-thread Debug accounting/fault hooks;
+  Release returns a zero-resource `E_NOTIMPL` diagnostic and the fault is a no-op. The monitor fault occurs after
+  acquiring the real temporary font owners, so cleanup on failure is validated. The face fault consumes one actual
+  lazy face-copy allocation attempt and allocates nothing; hidden/clean preparations do not consume it.
+  Private monitor diagnostics are 40 bytes and include live face-copy bytes and successful allocation count;
+  the existing service diagnostic and production probe are unchanged. AV synthetic mode is accepted only before providers exist and is never exposed as a
   user setting or environment toggle; the Logicon synthetic keypad is selected only through its exports or the Debug
   monitor tile, and the synthetic dialpad only through its export, never by a setting.
 - Every factory call names one non-empty plugin ID. Null and empty IDs are invalid, including in single-plugin DLLs.
@@ -223,6 +235,10 @@ plugin factory behavior.
   compile in its own; a widget that paints nothing behind its content needs nothing, because the host canvas already
   carries it. The host builds one provider per distinct (plugin, configuration, background) per staging pass. No
   plugin settings contract, defaults object, or factory configuration envelope contains `backgroundColor`.
+  Provider keys use at most 32 bytes each: a 64-bit serialized-envelope filter, byte count, background, canonical
+  plugin identity and original widget index. Hash equality MUST NOT establish identity: the original instance
+  configuration bytes are also compared within the same staging pass, whose canonical plugin settings are shared.
+  Equal configuration still shares a provider; hash collisions and background differences remain distinct.
 - A null configuration pointer with zero bytes selects plugin defaults. Every other null/length mismatch returns
   `E_INVALIDARG`. Plugins that consume configuration JSON MUST parse and copy it before `RedXeCreate` returns;
   no plugin retains the borrowed pointer.
@@ -246,6 +262,8 @@ object it was supplied to.
   `RedXeWidgetFlagContinuousAnimation` is a property of the widget *type* and cannot describe an instance whose motion
   starts and stops. A widget MUST use `RequestFrame` rather than declaring continuous animation for intermittent
   motion, and rather than returning a short `IRedXeScheduledWidget` delay purely to be polled.
+  A bounded animation MAY instead schedule its next required visual frame; a settled sample-driven widget MUST
+  return `S_FALSE` when delivery already invalidates the host. A dataset interval is not a reason to redraw it.
 - `RequestFrame` is the only host service a sink may call from inside `OnDataSnapshot` besides `Log`. `RunNetworkWork`
   MAY call `RequestFrame` and `Log` and MUST NOT call `PersistWidgetSettings`.
 - The **network lane** is host-owned scheduling for plugin-owned HTTP. There is no host HTTP ABI: the HTTP client,
@@ -270,6 +288,25 @@ object it was supplied to.
   a frame or queue another unit. Shutdown signals cancellation, drains the worker, suppresses completions and
   releases retained references on the UI thread before module shutdown. Self-tests reject device work explicitly.
   Committed input may enqueue mutations. Preparation and visibility changes may enqueue observation/cleanup only.
+- `QueueConstructionWork` accepts immutable CPU construction on one lazy process-wide STA, separate from MTA device
+  commands. At most 16 `IRedXeConstructionWork` objects are retained; identical pending objects coalesce without a
+  rerun (`S_FALSE`) and saturation returns `ERROR_BUSY`. Factory creation, visibility, `Prepare`, committed input
+  and completion may enqueue bounded observation, never `Render`, paint or device/size callbacks. Submission is
+  subject to host activation policy: `E_ACCESSDENIED` preserves synchronous construction on
+  initial/ordinary activation and touch pans. Offscreen discrete-navigation visibility and preparation enable it.
+  A widget may hold one copied admission request after `ERROR_BUSY` and retry on existing preparation opportunities;
+  it must never introduce a polling timer or retain a third page for that request. `Run` receives
+  the borrowed stop event and the remaining three-second enqueue-to-result budget; it owns all inputs/results and
+  creates/releases Shell COM objects on that STA. It borrows no widget/UI state and performs no D3D, persistence or
+  action execution. It checks cancellation/budget between indivisible calls. Expired queued work never starts;
+  success returned after the budget expires becomes `ERROR_TIMEOUT`. Completion is posted through the existing
+  coalesced UI notification and runs outside the submitting callback. The job validates its owner's lifetime and
+  generation before publishing, and may request a frame or enqueue replacement work. Every final host reference
+  is released on the UI thread. Shutdown discards queued jobs and suppresses completion; it waits at most 1000 ms
+  once for an indivisible native call, retaining runtime/work/modules if the call is still running. Repeated stop
+  checks without waiting again, except a zero wait that found no running work leaves a later stop its bound. Session
+  end shares its single deadline with service/launch drains and log flush. A private owner's destructor joins before
+  module/storage release. An idle STA blocks in a message-aware event wait and owns no periodic timer or wake.
 - `RequestAction`, `ExecuteAction`, and `ValidateAction` are the named-action services
   ([`Plugins_Actions.md`](Plugins_Actions.md)): `RequestAction` is safe from any thread including a service's device
   lane, allocation-free, never blocking (16-slot ring, identical pending request coalesced to `S_FALSE`, full ring
@@ -291,6 +328,11 @@ object it was supplied to.
   only a change coalesces a frame. A malformed record, an unknown status value, or an invalid instance ID returns
   `E_INVALIDARG`. Reporting `Unavailable` makes the host own that tile and draw its placeholder; `Degraded` and
   `Initializing` are recorded but leave the widget drawing its own content.
+  The host pins one bounded atomic status slot while the instance is constructed, drawn and torn down. Frame-time
+  placeholder decisions take no status lock and perform no ID scan. A staged same-ID replacement shares that pin:
+  retiring the old widget MUST NOT erase a still-live replacement's latest report or queued settings. All interface
+  references and subscription/network callbacks finish before the final pin is released. Freed slots invalidate old
+  generations; the status and reason storage are reclaimed within the fixed 64-slot table, without allocation.
 - `PersistWidgetSettings` asks the host to persist this instance's plugin settings object, not the factory envelope.
   The widget MAY send the complete object or a subset of members. The host always merges supplied members into the
   stored instance object, validates the complete result against the 4096-byte compact cap and the plugin schema, and
@@ -317,6 +359,9 @@ object it was supplied to.
   copies bounded fields into a 32-slot 1024-byte ring, and never blocks on disk. The host writer is event-blocked and
   writes UTC-dated files (`RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`), opening a new file when the UTC
   day changes and deleting dated files at least `logRetentionDays` old (default 15, range 1–365). Interactive RedXe
+  sweeps retention on file open, UTC date change, or retention-value change; ordinary lines and an unchanged
+  retention value cause no directory enumeration. A policy change wakes the idle writer, and `FlushLog` waits for
+  that cleanup as well as the queued records. Interactive RedXe
   stores those files under the settings sibling `Logs` directory (`%LocalAppData%\RedXe\Logs` by default). `--self-test`
   MUST NOT open that directory; it MUST instead copy each Warning and Error record, as its JSONL line, to stderr
   (`PluginHost::SetStandardErrorLog`), so the log of a failed check also names what explains it, such as the plugin
@@ -326,8 +371,12 @@ object it was supplied to.
   only this test mode, whose reader drains the pipe, makes it. Release drops `RedXeLogLevelDebug`. A null record, a
   mismatched `sizeBytes`, a missing event id or message, or an unknown level returns `E_POINTER` / `E_INVALIDARG`.
   Plugins MUST NOT call `Log` from `Render` or GDI paint and MUST NOT emit per-frame success. Factory create, module
-  map, placeholder construction, native attach, GPU device-create, GPU render failure (once per instance and HRESULT),
+  map, placeholder construction, native attach, GPU device-create, GPU render failure (once per instance/HRESULT
+  failure transition),
   and weather forecast outcomes are the required coverage.
+  Repeating the same failed render result MUST emit neither another debug string nor another JSONL record. A
+  changed HRESULT, full drawn-frame recovery followed by failure, or a new primary page instance permits a new
+  report. A successful raised draw does not recover a failing tile; healthy siblings keep drawing.
   Escaping and truncation MUST preserve complete JSON syntax, the optional HRESULT, one trailing newline, and valid
   UTF-8. Each identity has a bounded escaped-output budget, and message truncation reserves room for the record
   suffix. A partial final UTF-8 sequence is omitted; malformed input bytes are replaced with ASCII `?`.
@@ -354,7 +403,14 @@ requested plugin ID. The record and its UTF-8 strings remain valid while the mod
   `^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*){1,3}$` (validated with `RedXeIsActionNameSyntax`); and `"boolean"`.
   `$ref`, composition keywords, and any other `pattern` are rejected rather than silently accepted, so a plugin cannot
   publish a constraint the host does not enforce. A plugin schema MUST stay inside this subset.
-- The host parses each referenced plugin's schema once per staging pass, not once per widget appearance.
+- A cold validation parses each referenced plugin's schema once for that document, not once per widget appearance.
+  A page manager MAY retain an immutable, bounded witness of successful typed and published-schema validation and
+  share it with an adjacent page manager in the same live process runtime. Reuse MUST compare every logical typed
+  settings fact exactly, including inactive pages, services, private JSON, identifiers, counts and layout. A hash,
+  mutable document pointer or retained source-text identity alone is insufficient. Source comments and a valid active
+  page selector do not alter these facts. Counts, extents and terminators MUST be checked before views or indexing.
+  A miss performs complete document validation. Missing referenced modules, terminal runtime shutdown, an oversized
+  witness or witness allocation failure MUST retain the cold validation path. No caller may manufacture trusted proof.
 - One settings-visible plugin ID selects one widget kind. A DLL may publish several IDs, each with its own contract.
 - The host copies or parses borrowed strings synchronously and never frees them.
 - Rotating Triangle and GDI Orbit publish closed empty-object schemas and `{}` defaults. Matrix Rain publishes its
@@ -492,6 +548,20 @@ returns a host provider facade. Insert of a new provider re-checks identity unde
 two overlapping creates cannot both insert. `SetActive` MUST NOT wake the worker when the requested state already
 matches; deactivation still honors the drain guarantee. All local sources share one acquisition worker and at most
 32 subscriptions in total.
+Scheduling records are count-sized: a source owns exactly one record per validated descriptor, at most 256,
+and a cold or retired source owns none. Full descriptor/column/duplicate validation precedes the single nothrow
+allocation; allocation failure MUST publish no source, metadata, facade or scheduling plan. Failed rehydration
+preserves the existing facade identity and empty retired state. Records reuse their storage during acquisition
+and release outside the registry lock at the same quiescent boundary as their source. No descriptor or snapshot
+borrow may outlive that boundary, and no steady collection/frame allocation is added.
+External provider references and allocated subscriptions retain the source, including inactive subscriptions and
+removing slots whose reserved callbacks have not drained. After the last lease leaves, the existing worker releases
+the source only after its collection/delivery pass and borrowed storage use finish, outside the subscription lock.
+Before the worker exists, last-provider release may reclaim synchronously. No periodic or per-frame sweep is added.
+The facade and canonical provider ID remain until shutdown; a revisit recreates and validates source descriptors and
+plans atomically behind that same controlling identity. Rate history starts fresh on that cold revisit. Shutdown
+prevents rehydration, joins the worker before source destruction, clears outputs on later metadata/subscription calls,
+and permits late releases while the host remains alive.
 Active subscriptions for the same provider and dataset share one collection at the shortest requested interval,
 clamped to the source recommendation. When multiple datasets on one source are due in the same worker pass, the host
 gathers those unique IDs, orders them deterministically with `source.status` last, and issues one `CollectSnapshots`
@@ -580,7 +650,8 @@ GPU vtables.
   The host MUST deactivate and drain current and staged widget work before device teardown, stage new pages hidden
   until setup completes, and restore prior visibility only after successful resource creation. GPU state accessed by
   snapshot or network workers MUST synchronize its lifetime check and resource access with device teardown. The
-  Process Viewer and Weather resource hubs use an atomic instance-ownership flag and the shared GPU lock for this.
+  Process Viewer and Weather workers access only CPU snapshot storage; their shared atlas and device-user
+  lifetime remain on the UI thread, with the hub's cold shared-resource acquisition/release lock.
   During recovery, both current and staged pages receive device creation before the new render target exists;
   viewport calculation and initial size notifications MUST wait until that target has physical dimensions.
 - `IRedXePreparedGpuWidget` is an optional sibling of the GPU interface. `Renderer::PrepareWidgets` runs before frame
@@ -593,6 +664,15 @@ GPU vtables.
   not introduce a timer or idle polling. A widget MUST preserve requests raised during preparation for a later frame.
   A failed preparation suppresses stale input/composition and MUST NOT retry until a new request or geometry change.
   Device-loss results enter the normal host recovery path; other failures remain local to that widget.
+- `IRedXeConstructionStateWidget` is an optional sibling of a prepared GPU widget, cached at instance creation.
+  `GetConstructionState` is UI-thread, bounded and allocation-free. Pending CPU work may admit its copied job from
+  Prepare but MUST NOT consume the first GPU preparation trace. NeedsPreparation remains unready until its full
+  GPU upload completes. Ready and a local Unavailable tile finish the readiness barrier; a failed getter cannot.
+  Discrete navigation keeps the animated current page at its full canvas until every incoming widget crosses the
+  barrier. It cancels an unfinished wait after three seconds. An immutable construction Run may rasterize CPU
+  icons/glyphs on its STA, owns every Shell COM object there and releases it before returning. Completion only
+  publishes CPU results; any UI-only validation correction is rasterized in Prepare before upload. Render remains
+  allocation-free. Retirement/hide/replacement withdraws the lifetime/generation token before releasing widgets.
 - `RedXeGpuFrameContext::viewId` identifies the tile (0) or separately prepared raised view (1). Their final layouts
   remain independent during raise animation; position-only changes do not rerasterize. All source-coordinated
   plugins MUST rebuild against the current 56-byte frame record; old record sizes are not accepted.
@@ -615,6 +695,10 @@ GPU vtables.
 - The host does not reset state between widgets: that cost is not justified for the shipped widget set, and the
   requirement above is what keeps widgets independent. Debug builds of the host instead verify a bounded subset of the
   contract after each successful widget, currently that no widget leaves `ScissorEnable` set.
+- At a page-resource retirement boundary, the host clears immediate-context bindings after the retiring pages are
+  quiescent and before `OnDeviceLost`. A successful promotion keeps the device, swap chain and incoming widget
+  resources; cancellation/replacement keeps the primary resources. No flush or per-frame state reset is added.
+  Failed promotion retains the existing page lifetimes. The surviving widgets bind their own states on the next draw.
 - A widget must not retain the immediate context or frame records, present, resize the swap chain, or access the
   top-level HWND. It never receives the swap chain or back buffer.
 - Isolation, deferred command lists, and offscreen composition are outside the current contract.
@@ -753,8 +837,9 @@ already fills the client MUST NOT raise.
   later catalog rows with the same name share exports after metadata validation for their own plugin ID. Mapped
   modules remain loaded until process teardown.
 - Because the runtime is process scoped, staging an adjacent dashboard page reuses the already-mapped modules, the
-  already-created data sources, and the already-running acquisition worker. Staging MUST NOT map a module a second
+  data sources still leased by the current page, and the already-running acquisition worker. Staging MUST NOT map a module a second
   time, create a second `IRedXeDataSource` for a provider ID, or start a second acquisition thread.
+  Unleased sources are reclaimed as described above; mapped images and facade identities remain process scoped.
 - Optional `RedXePluginShutdown` runs exactly once per module, at process teardown, after every widget, provider,
   source, and subscription has been released. It never runs after a fatal exception
   (`Specs/Core/Core_CrashHandling.md`), and a session end can end the process before it, once `WM_ENDSESSION`
@@ -954,6 +1039,7 @@ flip V. The image entry clamps to the displayable range before the fade; a feedb
 `Plugins/SystemData` exposes `builtin.system-data` and only factory-created `IRedXeDataSource`. It currently publishes
 `source.status` (at most 32 rows, 5 s), `system.summary` (1 row, 1 s, not local-sensitive), `cpu.summary` (1 row, 1 s),
 `cpu.logical` (1,024 rows, 1 s), `memory.summary` (1 row, 1 s), `process.list` (2,048 rows, 2 s, local-sensitive),
+`process.activity` (2,048 rows, 2 s, local-sensitive),
 `thread.list` (8,192 rows, 2 s, local-sensitive), `network.interface` (256 rows, 1 s, local-sensitive),
 `network.protocol` (16 rows, 1 s), `storage.disk` (128 rows, 1 s, local-sensitive), `storage.volume` (256 rows, 5 s,
 local-sensitive), `gpu.adapter` (32 rows, 1 s), `gpu.engine` (512 rows, 1 s), `gpu.process` (2,048 rows, 2 s,
@@ -1008,9 +1094,34 @@ those proofs, `process.list` and `thread.list` take create, user, kernel, and cy
 private working set, pagefile use, parent process ID, and the six I/O counters directly from the single
 `SystemProcessInformation` walk. The second bulk parent-ID query is gone, no process handle is opened for those values,
 and they are therefore published for every walked row rather than only for processes the caller can open. A transient
-`PROCESS_QUERY_LIMITED_INFORMATION` handle remains only for affinity, architecture, critical-process state, and
-efficiency mode.
-CPU deltas use fixed prior-sample tables; collection allocates no plugin heap storage after source creation and creates
+`PROCESS_QUERY_LIMITED_INFORMATION` handle remains in the legacy 39-column `process.list` only for affinity,
+architecture, critical-process state, and efficiency mode.
+`process.activity` publishes exactly the leading eight columns: process ID, image name, CPU percent, working-set
+bytes, private bytes, thread count, handle count, and parent process ID. Its native path MUST take all eight from
+the shared walk/history and open no per-process handle. A batch decides whether legacy detail is required before
+population, collects process rows and replaces history once regardless of request order, and lets activity rows
+borrow the same leading values when both datasets are requested. Activity-only population uses an eight-value stride
+in the reusable value table; it MUST NOT populate the other 31 fields. CPU, I/O and fault history retains PID/creation
+identity across activity/detail changes; an aborted batch reinitializes rates under the normal rollback rule.
+The existing Toolhelp fallback retains the per-process queries needed for leading-field quality, including the
+I/O history needed by a later detail subscriber, and skips optional detail queries when only activity is requested.
+The process/thread walk queries its already-owned four-MiB buffer at full capacity once per shared walk. It MUST NOT
+restart at a smaller size or allocate on a length mismatch. A failed query, zero `ReturnLength` or a successful
+query reporting beyond that capacity exposes no readable bytes and retains the existing Toolhelp fallback. Record,
+thread and image parsing remains bounded by the successful measured `ReturnLength`; all published columns and caps
+are unchanged.
+The source control object and all storage share one 16-MiB virtual reservation. Page-aligned acquisition families
+and each output table commit on first use, with C++ construction only after successful commitment. Shared GPU,
+network/storage and power acquisition state retains its existing bounded internal caches. The control object stays
+in the first pages; the maximum used layout and fully-used commitment are below 16 MiB. Native process walks borrow
+the committed four-MiB query buffer and copy normalized thread rows only when requested, while always validating
+their complete ranges. Activity commits the eight-value prefix; legacy detail extends that same region without
+moving it. The additional activity row views commit only for a combined request.
+Every requested family's commitment is preflighted before sampling/history mutation. Failed reserve/commit clears
+outputs, publishes no sequence and retains pending normalized test samples/rate history. Partial successful
+commitments remain reusable. Final COM release destroys only constructed families, including their nontrivial
+owners, before returning the entire reservation through its WIL owner. Uncommitted histories are never accessed.
+CPU deltas use bounded prior-sample tables; steady collection commits no pages, allocates no plugin heap storage and creates
 no worker, timer, outbound network request, or persistent process handle. The source may retain one IP Helper
 `NotifyIpInterfaceChange` registration (callback sets a dirty flag only) and bounded read-only disk and battery handles,
 both released when the source is destroyed. Only `PluginHost` calls `CollectSnapshots`. Consumers obtain the
@@ -1019,10 +1130,18 @@ adapter, battery, or thermal sensor is a valid empty or `Unavailable` snapshot; 
 host-specific churn rather than a second catalog shape. ARM64 shares the x64 64-bit native record layouts; a live ARM64
 host is not required for the shipped catalog.
 
-`SystemData.Tests.Contract.h` declares a test-only sibling interface that reports fixed source bounds and drives the same
-per-process row-population path with a requested synthetic row count. It is not a published plugin ABI, dataset,
-host dependency, or production acquisition mode. Its controlling `IUnknown`, exact record size, excessive-row
+`SystemData.Tests.Contract.h` declares a test-only sibling interface with a pinned 104-byte diagnostic record that
+reports source bounds, process population passes, handle-open attempts, history replacements, value stride/backend,
+reservation/commitment, base, control size and commitment attempts. Private module controls expose a 40-byte
+ownership record and deterministic reserve/control failures, plus the production native decoder. Per-source
+first-use failure injection leaves steady reused families alone. These counters run only on cold construction,
+commitment and teardown; the six module atomics occupy 28 bytes before linker alignment.
+It drives the same legacy row path with a requested synthetic count and can copy one bounded normalized walk/system-time
+epoch for the next process/thread batch, including invalid-walk fallback. No caller pointer is retained. It is not
+a published plugin ABI, dataset, host dependency, or production acquisition mode. Its controlling `IUnknown`, exact record size, excessive-row
 rejection, and 2,048-row Release resource measurement are validated by `SystemDataTests`.
+These private test methods are serialized on the test caller's collection lane; diagnostics are read only while
+collection is quiescent. They do not promise concurrent observation of mutable counters.
 
 `Plugins/ProcessViewer` remains `ProcessViewer.dll` and publishes ten settings-visible plugin IDs, each mapped to one
 widget type. Every widget exposes sibling `IRedXeGpuWidget` and `IRedXeScheduledWidget` interfaces on one controlling
@@ -1032,22 +1151,22 @@ ask for 1/4, 1/3, 1/2, or 1/1 before raising a tile that is not already full-cli
 
 | Plugin ID | Type ID | Settings | Datasets |
 | --- | --- | --- | --- |
-| `builtin.process-viewer` | `process-viewer` | `topN` 1–32, default 10; `hideIdle`, default `true` | `process.list` (2 s) |
+| `builtin.process-viewer` | `process-viewer` | `topN` 1–32, default 10; `hideIdle`, default `true` | `process.activity` (2 s) |
 | `builtin.system-pulse` | `system-pulse` | `{}` | `system.summary` (1 s) |
 | `builtin.cpu-meter` | `cpu-meter` | `{}` | `cpu.summary` + `cpu.logical` (1 s) |
 | `builtin.memory-meter` | `memory-meter` | `{}` | `memory.summary` (1 s) |
 | `builtin.network-meter` | `network-meter` | `topN` 1–16, default 8 | `network.interface` + `network.protocol` (1 s) |
 | `builtin.storage-meter` | `storage-meter` | `{}` | `storage.volume` (5 s) + `storage.disk` (1 s) |
 | `builtin.gpu-meter` | `gpu-meter` | `{}` | `gpu.adapter` (1 s) |
-| `builtin.gpu-processes` | `gpu-processes` | `topN` 1–16, default 8 | `gpu.process` + `process.list` (2 s) |
+| `builtin.gpu-processes` | `gpu-processes` | `topN` 1–16, default 8 | `gpu.process` + `process.activity` (2 s) |
 | `builtin.power-meter` | `power-meter` | `{}` | `power.summary` + `battery.list` (5 s) |
 | `builtin.thermal-meter` | `thermal-meter` | `{}` | `thermal.sensor` + `fan.sensor` (10 s) |
 
 Do not ship dashboard viewers for `source.status`, `thread.list`, or `gpu.engine`. Each widget asks the host for
 `builtin.system-data` and subscribes only while visible. Unique datasets on a fully visible System page stay at 15,
 under the host cap of 32. Widgets MAY share one host provider; identical datasets coalesce. GPU Processes also
-subscribes to `process.list` so image names can join on PID; that subscription coalesces with Process Viewer and does
-not raise the unique-dataset count. Process Viewer keeps the leading `process.list` columns, ranks available CPU
+subscribes to `process.activity` so image names can join on PID; that subscription coalesces with Process Viewer and does
+not raise the unique-dataset count. Process Viewer keeps the leading activity columns, ranks available CPU
 percentage descending with working-set and PID tie-breakers, and caches at most `topN` rows with bounded process-name
 storage. PID 0 (the System Idle Process) is left out while `hideIdle` is `true` (the default); when listed, its CPU
 percent and bar read in the OK colour whatever the value, never the warning or high band, because that figure is the
@@ -1108,15 +1227,39 @@ utilization or capacity KPI remains at or above 85% stay sample-driven. Decorati
 are not used; history recency fade and a live-edge highlight are sample-driven. Empty and `Unavailable` values
 render as muted em dashes; an AC-only desktop renders compact `AC` status, never invented zeros. Widget-local
 sparkline history is at most 60 samples in fixed storage and MUST NOT move into System Data. Eases use a 320 ms
-ease-out; animation is sample-driven: `GetNextFrameDelayMilliseconds` returns the dataset interval, and while an ease
-or pulse is in flight the widget calls `IRedXeHost::RequestFrame` after each presented frame. DirectWrite fills new
-atlas glyphs when a snapshot arrives or at device creation, never inside `Render`. A settled System page MUST NOT
+ease-out. Animation is sample-driven: delivery coalesces the initial host invalidation. Settled viewers return
+`S_FALSE` (zero delay); only a live ease or 420 ms warning pulse returns a 33 ms visual deadline. They do not request
+another immediate frame from `Render`. A continuous sibling or host motion may draw them sooner without another
+timer. Unchanged targets, auxiliary label/count observations, and changes below one physical pixel of conservative
+largest-viewport bar/rank displacement snap to the exact new values in that one delivery frame. Celsius numeral
+changes of at least one degree still ease when their level track is saturated. CPU heat changes
+below one 8-bit luminance step also snap, except intent-band crossings. Labels, quality, ranks, paging, counters and
+60-sample history are never discarded by this animation decision. A changed interpolated target starts from the
+current displayed pose and completes in 320 ms independent of frame rate; an unchanged target does not restart it.
+Tile and raised draws at the same host timestamp advance motion once. A high-band observation still triggers its
+bounded pulse while unchanged; leaving the high band ends it. PID 0 CPU alone never triggers a warning pulse.
+Hide/device loss snaps interrupted motion; the first recovery frame does not replay it. The acquisition worker
+updates a bounded pending sample without font or GPU work. `IRedXePreparedGpuWidget::Prepare` freezes the paint
+sample and fills/uploads new atlas glyphs before either tile or raised drawing; a delivery during or after that
+preparation remains pending for the next frame. `Render` MUST NOT rasterize or upload the atlas. A settled System page MUST NOT
 request continuous frames.
 
 Shared GPU resources live once per Process Viewer device, not once per widget instance: build-time Shader Model 5.0
 blobs, one instanced panel/bar/heatmap/glyph pipeline, one 1024×1024 `R8` atlas, and one dynamic instance buffer.
-DirectWrite and system fonts load only while filling new atlas glyphs, then release. Visible process, adapter, and
-interface names rasterize only when the displayed string set changes. Each visible widget frame maps its instance
+The reusable CPU atlas is one lazy one-MiB allocation shared by all GPU users of the DLL; cold widgets own none,
+and the last user's device release and failed initial construction free it. Recreating it MUST preserve glyph
+pixels and a surviving user's atlas. DirectWrite and system fonts load only while filling new atlas glyphs, then
+release. Each changed preparation reuses one temporary factory/font session across its strings and releases it
+before drawing, including failure. No font session persists between preparations. Visible process, adapter and
+interface names rasterize only when the displayed string set changes. Changed
+48×48 single-channel cells upload individually (2,304 bytes each) during preparation; clean preparation returns
+`S_FALSE` without font work, upload or allocation. Failed preparation suppresses drawing and input until a new
+sample or changed extent can be prepared; unchanged failed preparation MUST NOT retry automatically. Each
+widget retains one additional bounded pending sample (11,160 bytes) to freeze paint while delivery continues;
+the default ten-viewer System page adds 111,600 bytes plus interface/phase bookkeeping. This bounded cost is
+accepted for complete labels/history and coherent tile/raised frames, with no additional timer, thread or render
+allocation. Each
+visible widget frame maps its instance
 buffer and issues one `DrawInstanced`. The generic widget root MUST NOT grow plugin drawing records. Snapshot delivery
 updates fixed storage on the acquisition worker and MUST NOT render; the host coalesced UI invalidation starts the
 ease. Hidden, minimized, display-off, occluded, and detached widgets stop eases, drain subscriptions, and do not
@@ -1260,13 +1403,15 @@ final target has no retained moving face. A date change cross-fades the date onc
 device recovery, or first visible frame snaps to current local time and never replays missed ticks.
 
 The provider owns four embedded stripped Shader Model 5.0 blobs, one 1024×1024 `R8_UNORM` atlas, one 400-byte
-dynamic visual constant buffer, three 16-byte immutable instance-offset buffers, and immutable sampler, blend,
+dynamic visual constant buffer, and immutable sampler, blend,
 rasterizer, and depth states. It creates the set transactionally per provider/device and releases it idempotently.
-Geometry comes from `SV_VertexID`; there are no vertex, index, per-tile, off-screen, depth-texture, or post-process
-resources. A static frame submits one constant upload only when cached visual state changed, one background draw, one
-12-instance card draw, and one 28-instance glyph/separator/date draw. An active flip adds one six-instance moving-face
-draw. Thus a frame is bounded to 40 submitted instances and three draws while static or 46 submitted instances and
-four draws while animating; logical instance indices remain within 0 through 59.
+Geometry comes from `SV_VertexID`; there are no vertex, index, instance-offset, per-tile, off-screen, depth-texture, or post-process
+resources. A static frame submits one constant upload only when cached visual state changed, one background draw,
+and one 40-instance draw containing the twelve card halves and twenty-eight glyph/separator/date instances. An
+active flip includes its six moving faces in that same draw, after the cards and before the glyphs. The vertex shader
+maps compact instance IDs into the original logical ranges without changing primitive order or visual arithmetic.
+Thus a frame uses two draws with 40 submitted instances while static or 46 while animating; logical instance indices
+remain within 0 through 59. No per-frame offset-buffer binding or additional constant upload is required.
 
 The first frame samples local time and requests one immediate bootstrap frame when necessary. A static clock requests
 the remaining 1–1000 milliseconds to the next local second. A detected changed sample and every active flip frame
@@ -1284,10 +1429,13 @@ empty/overlong input; live geocoding is not a test dependency.
 Weather location selection, disposable Windows helper, saved city, precipitation notices, glyph fitting and responsive
 hourly/daily composition are owned by [`Plugins_Weather.md`](Plugins_Weather.md). A configured city takes precedence;
 automatic discovery must never use a country centroid as the computer's city.
-
-Weather location selection, disposable Windows helper, saved city, precipitation notices, glyph fitting and responsive
-hourly/daily composition are owned by [`Plugins_Weather.md`](Plugins_Weather.md). A configured city takes precedence;
-automatic discovery must never use a country centroid as the computer's city.
+Weather exposes `IRedXePreparedGpuWidget` as a sibling on the same controlling identity. Network delivery has no
+font/GPU work. Preparation freezes complete paint data, rasterizes/uploads changed 48 px cells at their stored
+coordinates and releases one temporary batch font session before drawing, including failure. Reserved 96 px
+icon/hero twins retain their layout and pixels. Render reads the prepared model without a snapshot copy/lock or
+atlas upload. Its additional bounded paint snapshot is 9,904 bytes per widget plus revision/phase bookkeeping;
+this is accepted for tile/raised coherence. Clean and failed preparation follow the generic no-work/no-retry
+contract; a new snapshot, extent change or device recreation permits recovery.
 
 `Plugins/Launcher` exposes settings-visible plugin ID `builtin.launcher`, internally maps it to type ID `launcher`,
 and exposes sibling `IRedXeGpuWidget`, `IRedXeInteractiveWidget`, and `IRedXeRaisedWidget` interfaces on one
@@ -1320,6 +1468,17 @@ import remains dirty for collect fallback if the queue is unavailable, full, or 
 MUST NOT be reimported or repeatedly queued on later visibility changes. Later drops append to the imported list;
 a failed drop save restores both the earlier shortcuts and their dirty state. Saved shortcuts are user-editable
 and authoritative on subsequent creation. An empty/unavailable folder causes no save.
+For an offscreen page reached by an edge click, wheel or named page action, Launcher may enumerate/import and
+extract the full native 256-pixel icons on the host STA. Initial activation, touch pans and committed drops retain
+the ordinary synchronous path. Each job copies at most 32 identities and owns its pixels; it retains no widget,
+provider, device or immediate context. The current page stays animated until the incoming page's complete GPU
+uploads are ready. A generation token rejects completed work after hide, replacement, drop/rollback or retirement.
+Imported actions are validated on the UI thread before publication; rejected entries receive the ordinary Warning
+glyph in Prepare. Import JSON is capped before extraction and queued only after successful UI publication.
+The existing eight-entry/2-MiB pixel cache is shared by UI and STA extraction with a short SRW lock over bookkeeping
+and bounded copies, never over Shell calls or file probes. No second cache or retained folder/handler is introduced.
+One bounded `launcher-construction` log record per accepted result reports queue delay, worker wall/CPU, icon count,
+result and ordinary parent/bind/shield/location/extract/decode costs; it contains no target path or per-frame work.
 `--self-test`, HostPluginTests, and other automated hosts set
 `REDXE_AUTOMATED_HOST=1` and MUST NOT read the live taskbar; tests inject a pin directory through
 `RedXeLauncherSetTestPinDirectory`. `nullptr` restores live enumeration; an empty string means no pins.
@@ -1334,15 +1493,103 @@ binding draws the `Warning` glyph, `png:` via WIC (PNG container only, long edge
 else `IExtractIconW` 256, else `IShellItemImageFactory::GetImage` 256 with `SIIGBF_BIGGERSIZEOK`, else
 `SHGFI_SYSICONINDEX` plus `IImageList::GetIcon` from `SHIL_JUMBO` then XL/LARGE/SMALL. Never `SHGFI_ICON`. Jumbo
 padding is trimmed. Device loss keeps CPU BGRA and re-uploads without a second shell extract.
+The `IExtractIconW` call requests only its consumed large 256-pixel output: `phiconSmall` is null and the high word
+of `nIconSize` is zero. The large handle enters WIL ownership before checking the extraction result, including a
+handler that supplies a handle with `S_FALSE` or failure. An unsuccessful or null result continues through the
+existing image-factory/image-list fallback. Do not request a second jumbo image that drawing never consumes.
+The optional automated-host-only `RedXeLauncherTestShellHandler` borrows an extractor for one UI-thread call through
+that production handler/decoder and returns its pixel checksum and source edge. It retains no override or COM
+reference; refused/failed calls zero their outputs.
+`RedXeLauncherTestCanceledShellHandler` adds a call-local cancellation event and deadline to that same path for
+automated tests. It verifies refusal before work and cancellation between native phases, retains no token or
+extractor after returning, and clears refused outputs. Production callers never select a diagnostic override.
+For drive-qualified absolute filesystem targets, each refresh shares at most one parent `IShellFolder` and binds
+children through `ParseDisplayName` and `GetUIObjectOf(IExtractIconW)`, the handler route underlying `BHID_SFUIObject`. The parent key
+compares exact path spelling, including case; changing parents replaces its owner. UNC/device paths and shell
+namespaces retain the original full-path route. Unsupported targets or a refused relative parse/bind retain
+full-path shell-item extraction and its fallback order. A handler that already refused
+extraction proceeds to the original image-factory/image-list fallback without a duplicate handler call. Folder
+ownership is temporary to the refresh, with child PIDLs and icon owners released on every exit. Every later refresh
+reads shortcut targets and icon locations anew, including retargeted links.
+An automated diagnostic variant MAY pass fresh `WIN32_FIND_DATAW` through a temporary `IFileSystemBindData` registered
+as `STR_FILE_SYS_BIND_DATA` in a call-local `IBindCtx`. The API remains `SHCreateItemFromParsingName`, and
+native parent/child binding, shield evaluation and image selection remain unchanged. Ordinary production
+refreshes MUST NOT select this variant: both matched 2026-10-12 hardware visibility comparisons regress.
+Only a literal ordinary directory qualifies: roots, wildcard/dot-segment parents, reparse points,
+non-directories and failed probes
+use ordinary parsing. Metadata MUST NOT be fabricated, reused between refreshes or used to normalize the
+exact parent key. Allocation, context/registration and assisted-creation failure MUST release all partial
+owners before an ordinary retry. The metadata object is bounded below one KiB; the system context and file
+search owner release within parent creation. No metadata/context owner is retained by the widget or cache.
+One process-scoped UI-thread cache MAY reuse at most eight decoded 256×256 BGRA images from cacheable
+handlers, with no retained COM/GDI/GPU owner. Eligibility follows the
+[Shell cache contract](https://learn.microsoft.com/en-us/windows/win32/shell/how-to-create-icon-handlers):
+`GIL_DONTCACHE`, overlays, shield/unknown flags and unsupported files bypass reuse.
+`GIL_NOTFILENAME` means the token/identifier cannot be passed to generic file-icon extraction; it does not forbid
+caching the handler's pixels. Such a token is eligible only when its expanded spelling also names a verified
+ordinary file. The original token and signed identifier MUST remain opaque identity, compared exactly; neither
+is interpreted as a filename/resource-index pair or substituted for the native handler's extraction.
+Every refresh binds a fresh handler. The production batch calls
+`GetIconLocation(GIL_FORSHELL | GIL_CHECKSHIELD)` once to obtain both location and shield state. Its successful,
+terminated location/index/flags are authoritative, including a different opaque token or signed identifier.
+Reuse still requires a fresh `GIL_FORCENOSHIELD` result; checking shield state MUST NOT be skipped on a hit.
+`S_FALSE`, a failed/pending request or an unterminated result clears every partial path/index/flag output before
+the ordinary `GIL_FORSHELL` fallback. That fallback uses native extraction and MUST NOT read or populate the cache
+for the refresh. A valid shield-aware no-cache, shield or unknown-state response also uses native extraction.
+An unterminated ordinary location returns `E_UNEXPECTED` before extraction. The single-target pixel reference
+continues to use the original ordinary location query without cache work.
+The exact-spelling target, unmodified location token, expanded file spelling, signed icon identifier and flags,
+and both files' volume/file identity, creation/write/change times, size and attributes form the key.
+Last-access time is excluded because reads
+may change it. Directories, UNC/device/namespace targets and failed metadata probes use ordinary extraction.
+File state is rechecked after cloning a hit and after decoding a miss; changed state or refusal withdraws eligibility.
+Each returned record owns its own BGRA buffer. Cache allocation failure is best effort and MUST NOT discard valid
+ordinary pixels. Invalidated buffers remain bounded/reusable; process shutdown releases all cached bytes. No failed,
+partial, fallback, glyph or PNG image is cached. Token-only opaque locations, directories, namespaces and failed
+file probes retain ordinary extraction. The original 256-pixel handler/decode and fallback paths remain
+the quality reference, and only validated decoded hits skip HICON extraction and WIC work.
+The optional automated-host-only `RedXeLauncherTestShellIcon` and `RedXeLauncherTestShellBatch` use this production
+path on the UI thread in an STA. The single-target form retains full-path binding as a pixel reference; the batch
+form borrows 1..32 targets through one refresh-local folder owner. Their fixed, exact-size caller-owned records
+distinguish completed wall-clock phases from unavailable work and preserve completed failure phases. Invalid record
+sizes leave outputs untouched; otherwise outputs clear before authorization/target validation. No target in a batch
+is processed until all targets validate. Failed pixels stay zero, hashing is outside the extraction interval, and
+the batch releases shared ownership before returning the first failure. These exports retain no override, owner
+or timing state and are never called by the host. The batch may populate/use the same bounded production pixel
+cache; the single-target reference and borrowed-handler decoder bypass it. The exact 312-byte private record has
+seventeen disjoint phases: diagnostic-only fresh parent metadata/context setup, ordinary parent-item creation,
+parent-folder binding and relative child parsing, extractor binding, combined shield/location checks,
+ordinary fallback/reference location, extraction/decoding/fallbacks,
+file validation, cloning and stores. Unavailable phases retain clear completion bits. Retried item calls accumulate
+ticks/calls and retain the last result. Normal batches leave the two diagnostic completion bits clear, with no
+metadata/context work. `RedXeLauncherTestShellParent` exercises one diagnostic metadata-assisted refresh with a
+call-local parent metadata/allocation/context/registration/partial-item/null-item refusal or unsupported metadata;
+it follows the single-target output/authorization rules and retains no fault state. The host never calls it;
+normal batches MUST remain on ordinary parsing. Automated-only `RedXeLauncherTestCachedShellHandler` and
+`RedXeLauncherTestIconCache` exercise eligibility, failures, capacity and cleanup without retaining an extractor
+or changing the production host ABI. Ordinary extraction queries no attribution clocks.
+A refresh batch shares one
+lazy isolated DirectWrite factory and font face across glyph/warning icons, retaining the same family fallback,
+metrics, hinting, centering and premultiplied pixels. Its clipped coverage buffer grows only to the largest used glyph
+and survives allocation failure unchanged; old/new overlap is bounded at twice the maximum clipped coverage. Font initialization is attempted once per batch; all temporary owners
+release when extraction returns. Single-glyph consumers keep a per-call wrapper; there is no process font cache.
 
 Shared device resources live once per provider: embedded Shader Model 5.0 blobs, textured-quad pipeline, sampler, and
-immutable blend/rasterizer/depth state. Each instance owns a 32-slice 256×256 `Texture2DArray` (8 MiB BGRA) for jumbo
-icons, one 96-byte dynamic constant buffer (viewport, hint, `iconCount`, page count and selection, and the page-dot
+immutable blend/rasterizer/depth state. Each instance owns a 256×256 `Texture2DArray` with one BGRA slice per displayed
+shortcut (zero entries need no texture; eight use 2 MiB; at most 32 use 8 MiB), one 96-byte dynamic constant buffer
+(viewport, hint, `iconCount`, page count and selection, and the page-dot
 pixel layout), and one 32-slot
 dynamic structured buffer of instance rects and motion (32 bytes each). `Render` is allocation-free: it maps those
 existing buffers with `WRITE_DISCARD` and issues at most two draws (background plus instanced icons). Instance rects
 MUST NOT live in the constant buffer. Device loss keeps CPU BGRA and re-uploads the texture array without a second
-shell extract. Grid geometry uses two bounded cache entries keyed by actual width, height, DPI, shortcut count, `iconSize`, and
+shell extract. Visibility/drop may decode icons and mark their content dirty, but may not create/upload GPU storage.
+The optional preparation interface creates count-sized replacements and uploads only used slices before composition.
+A clean preparation returns `S_FALSE` with no upload/allocation; unchanged preparation failure is suppressed until
+another content/visibility change or target extent notification. Pending content cannot be rendered. Texture and
+view creation are transactional: failure preserves preceding owners; old/new payload is at most 16 MiB, excluding
+driver/context references. Empty rendering binds a null icon view and keeps its hint/background draw. A failed used
+icon decodes as transparent through one bounded temporary 256-KiB preparation buffer; there is no unused-slice clear.
+Grid geometry uses two bounded cache entries keyed by actual width, height, DPI, shortcut count, `iconSize`, and
 launcher page. The tile and overlay therefore reuse distinct layouts, and pointer hit testing uses the most recently
 drawn layout (the overlay draw is last while raised). A largest-target notification MUST NOT displace or clip icons in
 the original tile.
@@ -1419,7 +1666,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
    CPU submission time, D3D timestamp time, private bytes, working set, and steady heap block/byte deltas.
 10. Run Release `HostPluginTests.exe --matrix-soak` for five minutes. The production host stack MUST render throughout,
     retain exactly one provider, widget, and device-resource set, report its memory deltas, and release the device set
-    on shutdown.
+    on shutdown. The automated `HostPlugin` scope additionally runs the 60-second variant after a 1,024-frame
+    warm-up, with five-second/end samples enforcing peak private/working-set growth of at most 4/8 MiB in
+    uninstrumented builds. ASan keeps its normal quarantine, reports process bytes diagnostically, and asserts
+    the same resource, scheduling and teardown requirements.
 11. Verify through `HostPluginTests` that Release statically discovers every gallery plugin but creates only the
     first-page Matrix runtime, gives it the full design canvas, survives suspend/restore and transactional
     reconfiguration, preserves the active widget after a rejected dashboard, and leaves no Matrix objects after host
@@ -1502,7 +1752,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     measurement MUST time each dataset and one full-catalog batch and fail only on collect failure or a hang exceeding
     five seconds per collection.
 16. Verify `IRedXeHost::GetDataProvider` output validation, unknown and non-data plugin rejection, stable provider
-    identity, dataset discovery, and shared module loading. Verify two Process Viewer instances share one widget
+    identity, dataset discovery, and shared module loading. Verify last-consumer source reclamation, inactive/staged
+    leases, blocked collection, running/reserved callbacks, cold revisit with unchanged facade identity, and shutdown
+    with external facade/subscription references. Source cleanup must follow borrowed storage use and happen once;
+    late releases must not resurrect work. Verify two Process Viewer instances share one widget
       provider and host data provider while retaining distinct inactive-until-visible subscriptions, then receive
     bounded live process delivery as GPU scheduled widgets, request zero continuous frames, drain on hide, and fully
     tear down through settings and host integration tests. The hidden interval MUST exceed the two-second dataset
@@ -1511,6 +1764,11 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
       Verify the ten System Data viewer IDs enumerate from `ProcessViewer.dll`,
     reject factory creation without a host, and that a ten-widget System page attaches as GPU+scheduled widgets,
     renders on hidden WARP, rebuilds after device loss, stays non-continuous, and drains every subscription when hidden.
+    Deterministic production-DLL observations MUST prove no idle deadline for all ten viewers, unchanged and
+    sub-pixel targets, changed labels/quality/history, rank changes, independent auxiliary deliveries and snapshot
+    bursts, frame-rate-independent 320 ms endpoints, identical-time tile/raised pixels, 420 ms repeated high-band
+    pulses, hide/reentry and device recovery, and allocation-free steady/animated Render and scheduling. A scheduled
+    production-host soak MUST exercise coalesced delivery and parked/33 ms deadlines without continuous frames.
     On that page a Process Viewer with `topN` 32 MUST report more than one overflow page and a drawn page-control
     layout through its test diagnostics, and a Down/Up on its second dot MUST page it forward (`S_FALSE` on Down,
     `S_OK` on Up) and a tap on the first dot back, each visible in the next frame's diagnostics; that viewer MUST
@@ -1533,7 +1791,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     falloff, `secondsColor`, and 0.55 date weight, and no light on any border pixel of height-limited dated tiles),
     device recreation, zero steady render allocations with glow, one-upload/two-draw and 402-dot/804-instance bounds,
     resource sharing, five-minute scheduled host soak, and complete teardown through `StudioClockTests` and
-    `HostPluginTests`. `StudioClockTests` MUST prove the DLL publishes exactly the defaults and schema of
+    `HostPluginTests`. Its automated 60-second soak warms for 20 scheduled seconds, samples every five seconds
+    and at the end, and enforces peak private/working-set growth of at most 4/8 MiB above that warmed baseline
+    in uninstrumented builds; ASan reports process bytes diagnostically while enforcing functional resource bounds.
+    `StudioClockTests` MUST prove the DLL publishes exactly the defaults and schema of
     `StudioClockSettings.h`; `SettingsTests` MUST prove that the Specs `studioClockSettings` definition (members,
     defaults, date formats, `glowPercent` range), its widget variant, and the published schema match that catalog,
     that the host merges its defaults, and that both host validators accept its date formats and `glowPercent`
@@ -1545,14 +1806,35 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     reference-aligned slim-card, crisp native-font glyph, common-baseline, and compact real-advance date bounds
     including an unpadded single-digit day, unchanged-tile visibility and pixel stability throughout every flip phase,
     isolated DirectWrite initialization with no inactive or steady font work, device recreation, zero steady render
-    allocations, the one-upload/four-draw and 46-instance bounds, absence of persistent DirectWrite, the runtime shader
+    allocations, the one-upload/two-draw and 46-instance bounds, independent GPU queries for 243/279 vertices and
+    81/93 primitives, and exact frames against frozen original vertex and pixel shaders
+    and draw order at both atlas tiers, contrasting target clears for opaque overwrite, equal/unequal-length
+    date-only fades, absence of persistent DirectWrite, the runtime shader
     compiler, WIC, and loose font/image assets, five-minute scheduled production-host soak, and complete teardown
     through `DeskClockTests`,
-    `SettingsTests`, and `HostPluginTests`.
+    `SettingsTests`, and `HostPluginTests`. Its automated 60-second soak uses the same 20-second scheduled warm-up
+    and uninstrumented 4/8 MiB peak private/working-set guards as Studio Clock. These whole-process WARP guards include runtime
+    caches and do not replace the longer resource/visual qualification.
 19. Verify Launcher factory/settings rejection (unknown members, 33 items, empty launch target, `iconPng`, a
     non-launch item without `icon`, overlong string), the warning tile for a relative or schemeless launch target,
     a glyph-icon non-launch item dispatched through `ExecuteAction`, injected pin-directory fallback, automated empty list without live taskbar reads,
-    jumbo-or-PNG extraction, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
+    jumbo-or-PNG extraction, one optional large output at 256 pixels with no small output, exact BGRA conversion,
+    null/failed/location-refused results and partial-handle cleanup, automated-only test access and borrowed-extractor
+    lifetime, completed/unavailable shell phase accounting, exact-size and atomic batch refusal, refresh-local
+    parent reuse, exact-case parent keys, mixed parents with identical child names, drive-root children,
+    bounded parent parsing and full-path routing of UNC roots/device paths/shell namespaces,
+    missing-parent/child and URI fallback pixels, retargeted link/icon locations, the 32-entry bound and native
+    resource cleanup, fresh Unicode/literal directory metadata, recreated parents, real junction and root/pattern/dot
+    fallbacks, metadata/allocation/context/registration/partial/null-item refusals, call-local fault isolation and
+    handle/GDI/USER stability, disjoint metadata/context/parent/item/folder/child attribution,
+    one combined fresh shield/location query,
+    authoritative changed shield tokens/identifiers, reset partial outputs on failed/pending/refused/truncated
+    shield requests, ordinary fallback without cache reuse and malformed ordinary rejection,
+    filename and verified-file opaque cache cold/hit pixels and fresh shield checks,
+    distinct literal tokens expanding to the same file, signed opaque identifiers, no-cache/token-only/shield/overlay/unknown
+    refusal, changed identifiers/resources/instances, target/resource changes with restored write time, file
+    replacement, eight-entry eviction and 32-target pressure, best-effort clone/store allocation failure,
+    partial/null/failing outputs and shutdown release, WARP two-draw icon grid, device-loss re-upload without a second extract, launch counting
     with zero `ShellExecuteExW`, imported-pin persistence/recreation, queue/commit failure and collect fallback,
     drop append/cap/rollback, overflow paging with a bottom page-dot strip, named `iconSize` spread-grid layout
     (uniform half-extents, even gutters of at least 8 DIP between icon edges and 8 DIP edge inset, no mid-tile cluster
@@ -1563,6 +1845,11 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     before a newer interactive save, through
     `LauncherTests`, `SettingsTests`, and `HostPluginTests`. WARP pixel and hit-target tests MUST alternate tile and
     overlay sizes after one largest-size notification and verify zero allocations on those cached draws.
+    Matched shell quality checks MUST retain checksums and inspect any raw mismatch numerically, including fallback
+    icons in a scene that actually displays them. Record source resolution, alpha/geometry and maximum RGB delta;
+    do not relabel a failed exact comparison as passed. The 2026-10-12 unchanged WIC pipeline has an observed
+    one-unit RGB difference on image-factory/stock fallbacks, with exact alpha and at most one-unit rendered RGB
+    difference. Its numerical receipt is separate from the exact pin/glyph/reference checks.
 
 20. Verify the service contract and the device lane through `LogiconTests` (no hardware) and `HostPluginTests`:
     service creation with a valid and an invalid envelope, `Start` with device access disabled opens no device, the
@@ -1587,6 +1874,16 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     DLL through `ZoomTests` as [`Plugins_Actions.md`](Plugins_Actions.md) and [`Plugins_Zoom.md`](Plugins_Zoom.md)
     require; `HostPluginTests` MUST map every catalogued module and prove no action namespace collides.
 
+22. Verify the construction lane's lazy STA apartment, 16-slot refusal, duplicate coalescing without reruns,
+    ordinary-activation refusal without a worker, production readiness of 32 queued/admission-waiting Launchers,
+    continuing current GPU frames, first-preparation trace retention, exact synchronous/STA glyph/native/warning
+    pixels, device-loss recovery, stale generation/hide/retirement, drop/rollback, queued import and cancellation,
+    owner responsiveness while native work is blocked, three-second queue-age expiry/late-success refusal, posted
+    UI completion, UI final-reference release and idle event blocking. Cooperative cancellation joins without
+    completion; an indivisible call consumes the bounded stop once, drops queued work, refuses new submissions
+    and retains work/runtime/module storage until it exits. Repeated shutdown joins the exited thread before
+    module release, and a completion that stops the queue must not deliver later detached results to stale UI.
+
 The automated Debug host composition must contain the GPU launcher, one rotating-triangle GPU fixture, the GDI
 fixture, and Matrix Rain. The automated
 Release first-page composition must contain one full-canvas Matrix widget. The Debug template's second page is
@@ -1603,6 +1900,10 @@ that a drag and a click in `single` mode change nothing, the shared provider res
 an allocation-free steady-state `Render`, and that lookup tables are drawn once at device creation (again after device
 recreation) only for a configuration that can show their entry, never by a sibling or a size notification, and that
 Sky Atmosphere after a failed first size notification renders exactly what a successfully sized widget renders.
+Heartfelt's full 512×512 background and all ten mip levels MUST match the original pixel-major reference byte for
+byte. Tests also cover the call-local setup diagnostic's record/context refusal, bounded output with untouched
+sentinels, phase/result accounting and retirement of its temporary owners. These diagnostic exports are test seams;
+the host does not call them and production retains no timing records.
 The `System` page of each shipped template MUST place one instance of every Process Viewer family widget. Both
 templates configure every catalogued service under `services`.
 Scheduler tests must prove

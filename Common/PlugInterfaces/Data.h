@@ -206,6 +206,9 @@ interface __declspec(uuid("B8912B7D-89AD-4830-9CFB-73F4E72027FB")) __declspec(no
 // Shared host-managed access to one data source. Repeated lookup of the same provider ID returns the same
 // controlling identity, and multiple widgets may hold it and subscribe independently. Subscriptions for the same
 // dataset share one collection at the shortest requested interval, clamped to the source recommendation.
+// External provider references and allocated subscriptions (including inactive subscriptions) retain the source.
+// After the last lease leaves, the host may release source storage only after collection and all reserved sink
+// callbacks finish. A later lookup recreates the source behind the same facade identity; module metadata stays valid.
 interface __declspec(uuid("9EAE20F1-36A8-48A8-B451-F60401A898CD")) __declspec(novtable) IRedXeDataProvider : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors,

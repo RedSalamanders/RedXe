@@ -1,18 +1,21 @@
 #pragma once
 
 #include "BundledPlugins.h"
+#include "ConstructionWorkQueue.h"
 #include "ControlWorkQueue.h"
 #include "LaunchWorker.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Service.h"
 #include "PlugInterfaces/Widget.h"
+#include "RuntimeProbe.h"
 #include "Settings.h"
 
 #include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -50,6 +53,11 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
 
     // Idempotent teardown of this runtime's worker, providers, sources, and module bindings.
     void Shutdown() noexcept;
+    // UI-thread validation evidence must not outlive terminal module shutdown.
+    [[nodiscard]] bool IsShutdown() const noexcept
+    {
+        return _shutdown;
+    }
 
     PluginHost(const PluginHost&) = delete;
     PluginHost& operator=(const PluginHost&) = delete;
@@ -70,6 +78,13 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     static constexpr UINT kServiceLaneMessage = WM_APP + 9;
 
     [[nodiscard]] IRedXeHost* Interface() noexcept;
+    // UI-thread diagnostics use the existing 32x1024 logger ring. AV queries never map an absent module.
+    [[nodiscard]] HRESULT LogRuntimeProbe(const RuntimeProbeSample& sample) noexcept;
+    [[nodiscard]] HRESULT LogRuntimePageStage(const RuntimePageStageSample& sample) noexcept;
+    [[nodiscard]] HRESULT LogRuntimePageCallback(const RuntimePageCallbackSample& sample) noexcept;
+    [[nodiscard]] HRESULT LogRuntimePageCallbacks(const RuntimePageCallbackSample* samples, uint32_t count) noexcept;
+    [[nodiscard]] HRESULT LogRuntimePagePreparation(const RuntimePagePreparationSample& sample) noexcept;
+    [[nodiscard]] HRESULT QueryAvProbeStatistics(AVControl::ProbeStatistics& statistics) noexcept;
     [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
                                           ModuleView* module) noexcept;
     void SetUiInvalidateTarget(HWND window) noexcept;
@@ -114,6 +129,13 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // what is left of its deadline, never more than that bound, because Windows may end the process before Shutdown
     // runs.
     void StopLaunches(uint32_t timeoutMilliseconds = LaunchWorker::kStopMilliseconds) noexcept;
+    // Drops construction jobs and suppresses completion; retains runtime/module storage for a late native Shell
+    // call. Session end shares its one deadline with the other lanes and log flush.
+    void StopConstruction(uint32_t timeoutMilliseconds = ConstructionWorkQueue::StopMilliseconds) noexcept;
+    [[nodiscard]] bool ConstructionWorkerRunning() const noexcept
+    {
+        return _constructionWork.Running();
+    }
     // One blocking stage of a teardown bounded by one deadline (Application::OnEndSession): the smaller of the stage's
     // own bound and the time left at nowTick before deadlineTick less reserveMilliseconds, which the stages after it
     // keep; 0 once that point has passed. Ticks are GetTickCount64 values.
@@ -183,6 +205,15 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
                                                     uint32_t settingsBytes) noexcept override;
     HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override;
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept override;
+    HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork* work) noexcept override;
+    void SetConstructionAccessEnabled(bool enabled) noexcept
+    {
+        _constructionAccessEnabled = enabled;
+    }
+    [[nodiscard]] bool ConstructionAccessEnabled() const noexcept
+    {
+        return _constructionAccessEnabled;
+    }
     HRESULT STDMETHODCALLTYPE RequestAction(const RedXeActionRequest* request) noexcept override;
     HRESULT STDMETHODCALLTYPE ExecuteAction(const RedXeActionRequest* request) noexcept override;
     HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request,
@@ -210,6 +241,27 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // (RedXeFailureReports::WriteUtf8ToStandardError); it allocates nothing.
     void SetStandardErrorLog(bool enabled) noexcept;
 
+    // UI-thread cold-path registration pins a slot across construction/drawing/teardown. The host outlives the binding.
+    class WidgetStatusBinding final
+    {
+      public:
+        WidgetStatusBinding() noexcept = default;
+        ~WidgetStatusBinding() noexcept;
+        WidgetStatusBinding(WidgetStatusBinding&& other) noexcept;
+        WidgetStatusBinding& operator=(WidgetStatusBinding&& other) noexcept;
+        WidgetStatusBinding(const WidgetStatusBinding&) = delete;
+        WidgetStatusBinding& operator=(const WidgetStatusBinding&) = delete;
+        [[nodiscard]] uint32_t Status() const noexcept;
+        void Reset() noexcept;
+
+      private:
+        friend class PluginHost;
+        PluginHost* _host = nullptr;
+        uint64_t _key = 0;
+    };
+    static_assert(sizeof(WidgetStatusBinding) == 16);
+    [[nodiscard]] HRESULT BindWidgetStatus(const char* instanceId, WidgetStatusBinding& binding) noexcept;
+
     // Latest status reported by one widget instance. Unknown instances read back as RedXeWidgetStatusOk so a widget
     // that never reports is never drawn as a placeholder.
     [[nodiscard]] uint32_t WidgetStatus(const char* instanceId) const noexcept;
@@ -220,8 +272,14 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
   private:
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct PluginHostTestAccess;
+    friend struct PluginHostDataSourceTestAccess;
+    friend struct PluginHostConstructionTestAccess;
+    std::atomic<bool> _failDataSetAllocationForTesting{false};
 #endif
     ControlWorkQueue _controlWork;
+    ConstructionWorkQueue _constructionWork;
+    bool _constructionStopReported = false;
+    bool _constructionAccessEnabled = false;
     bool _controlAccessEnabled = true;
     static constexpr size_t kMaximumDataSetsPerProvider = 256;
     static constexpr size_t kMaximumSubscriptions = 32;
@@ -290,6 +348,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         uint32_t activeIntervalMilliseconds = kMaximumSubscriptionIntervalMilliseconds;
         bool active = false;
     };
+    static_assert(sizeof(DataSetRuntime) == 24);
 
     struct ProviderRuntime final
     {
@@ -298,16 +357,24 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         wil::com_ptr_nothrow<IRedXeDataProvider> provider;
         const RedXeDataSetDescriptor* descriptors = nullptr;
         uint32_t descriptorCount = 0;
-        std::array<DataSetRuntime, kMaximumDataSetsPerProvider> dataSets{};
+        // Cold publication allocates exactly descriptorCount records. The acquisition worker reuses them until
+        // the source's external/subscription leases and borrowed collection/callback storage are quiescent.
+        std::unique_ptr<DataSetRuntime[]> dataSets;
     };
+    static_assert(sizeof(ProviderRuntime) == 48);
 
     struct WidgetStatusSlot final
     {
         std::array<char, kMaximumWidgetStatusIdBytes> instanceId{};
         std::array<wchar_t, kMaximumWidgetStatusReasonCharacters> reason{};
-        uint32_t status = RedXeWidgetStatusOk;
+        std::atomic<uint64_t> statusAndGeneration{RedXeWidgetStatusOk};
+        uint32_t bindings = 0;
         bool used = false;
     };
+    static_assert(sizeof(WidgetStatusSlot) <= 336);
+    [[nodiscard]] uint32_t BoundWidgetStatus(uint64_t key) const noexcept;
+    void ReleaseWidgetStatusBinding(uint64_t key) noexcept;
+    static void ResetWidgetStatusSlot(WidgetStatusSlot& slot) noexcept;
 
     struct SubscriptionSlot final
     {
@@ -371,7 +438,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT BindModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;
     [[nodiscard]] HRESULT AttachSharedModule(const ModuleSlot& owner, const char* pluginId, ModuleSlot& slot) noexcept;
     void RequestUiInvalidate() noexcept;
-    [[nodiscard]] HRESULT EnsureProvider(const char* providerId, size_t& providerIndex) noexcept;
+    [[nodiscard]] HRESULT EnsureProvider(const char* providerId, IRedXeDataProvider** provider) noexcept;
     [[nodiscard]] HRESULT ValidateDataSets(ProviderRuntime& runtime) noexcept;
     [[nodiscard]] HRESULT EnsureWorker() noexcept;
     [[nodiscard]] HRESULT GetDataSets(size_t providerIndex, const RedXeDataSetDescriptor** descriptors,
@@ -380,6 +447,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
                                     IRedXeDataSink* sink, IRedXeDataSubscription** subscription) noexcept;
     [[nodiscard]] HRESULT SetSubscriptionActive(size_t index, uint64_t token, bool active) noexcept;
     void RemoveSubscription(size_t index, uint64_t token) noexcept;
+    void RequestDataSourceTrim() noexcept;
+    void TrimIdleDataSources(bool onAcquisitionWorker = false) noexcept;
     void Deliver(size_t providerIndex, size_t dataSetIndex, const RedXeDataSnapshot* snapshot) noexcept;
     void Worker() noexcept;
     void StopDataService() noexcept;
@@ -392,8 +461,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void LogWorker() noexcept;
     void StopLogService() noexcept;
     [[nodiscard]] HRESULT EnsureCurrentLogFile() noexcept;
-    void PurgeExpiredLogs() noexcept;
-    [[nodiscard]] HRESULT EnqueueLogLine(const char* line, uint32_t bytes) noexcept;
+    [[nodiscard]] HRESULT EnsureLogFileForDate(const SYSTEMTIME& utc) noexcept;
+    void PurgeExpiredLogs(const SYSTEMTIME& today, uint32_t retention) noexcept;
+    [[nodiscard]] HRESULT EnqueueLogLine(const char* line, uint32_t bytes, bool reportLoss = false) noexcept;
     void RequestHostActionDrain() noexcept;
     // The launch worker's completion callback (any thread): posts the coalesced host-action message.
     static void NotifyLaunchFinished(void* context) noexcept;
@@ -432,6 +502,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     std::array<ModuleSlot, kRedXeBundledPlugins.size()> _modules;
     std::array<ProviderRuntime, kRedXeBundledPlugins.size()> _providers;
     size_t _providerCount = 0;
+    // Subscription lock protected. Facade indices/identities survive source reclamation until shutdown.
+    bool _dataSourcesNeedTrim = false;
+    bool _dataServiceStopping = false;
     std::array<SubscriptionSlot, kMaximumSubscriptions> _subscriptions;
     SRWLOCK _subscriptionLock = SRWLOCK_INIT;
     CONDITION_VARIABLE _subscriptionDrained = CONDITION_VARIABLE_INIT;
@@ -467,6 +540,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     SRWLOCK _logLock = SRWLOCK_INIT;
     std::atomic<uint32_t> _logQueued{0};
     std::atomic<uint32_t> _logRetentionDays{kRedXeDefaultLogRetentionDays};
+    // Writer-owned cache: ordinary lines neither allocate a path nor enumerate the directory.
+    SYSTEMTIME _logFileUtcDate{};
+    uint32_t _logPurgedRetentionDays = 0;
     // kShutdownLogFlushMilliseconds; tests raise it so a loaded runner cannot miss the bound.
     uint32_t _shutdownLogFlushMilliseconds = kShutdownLogFlushMilliseconds;
     // SetStandardErrorLog; the lock keeps the lines of concurrent callers whole.

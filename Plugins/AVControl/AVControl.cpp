@@ -1,5 +1,6 @@
 #define REDXE_PLUGIN_EXPORTS
 #include "AVControl.Tests.Contract.h"
+#include "AVControlDiagnostics.h"
 #include "AVControlSettings.h"
 #include "AccessibilityValidation.h"
 #include "Coordinator.h"
@@ -33,7 +34,21 @@ constexpr RedXeWidgetTypeDescriptor WidgetType{sizeof(RedXeWidgetTypeDescriptor)
 wil::com_ptr_nothrow<Coordinator> coordinator;
 std::weak_ptr<DxUi::GraphicsDevice> graphics;
 bool syntheticBackend = false;
+bool failNextProviderAllocation = false;
 uint32_t providerCount = 0;
+class Widget;
+Widget* probeWidgets = nullptr;
+
+void ReleaseUnusedCoordinator() noexcept
+{
+    if (!providerCount)
+    {
+        // Widgets retain their provider. Host-owned control work may retain the retiring coordinator until its
+        // synchronized completion drains; a revisit must not reuse that coordinator or its borrowed host.
+        coordinator.reset();
+        graphics.reset();
+    }
+}
 
 HRESULT KeepAccessibilityCodeMapped() noexcept
 {
@@ -124,9 +139,16 @@ class Widget final
     {
         _tile.SetBackground(backgroundRgb);
         _overlay.SetBackground(backgroundRgb);
+        _probeNext = probeWidgets;
+        probeWidgets = this;
     }
     ~Widget()
     {
+        auto** previous = &probeWidgets;
+        while (*previous && *previous != this)
+            previous = &(*previous)->_probeNext;
+        if (*previous)
+            *previous = _probeNext;
         (void)SetVisible(FALSE);
         _runtime->UnregisterConfiguration(&_configuration);
         OnDeviceLost();
@@ -134,6 +156,29 @@ class Widget final
     HRESULT Initialize() noexcept
     {
         return _runtime->RegisterConfiguration(&_configuration);
+    }
+    static HRESULT QueryProbeStatistics(ProbeStatistics& statistics) noexcept
+    {
+        ProbeStatistics sum;
+        for (auto* widget = probeWidgets; widget; widget = widget->_probeNext)
+        {
+            if (GetCurrentThreadId() != widget->_thread)
+                return RPC_E_WRONG_THREAD;
+            if (++sum.widgets > 64)
+                return HRESULT_FROM_WIN32(ERROR_BUFFER_OVERFLOW);
+            for (const auto& view : {widget->_tile.Statistics(), widget->_overlay.Statistics()})
+            {
+                sum.preparations += view.preparations;
+                sum.composites += view.composites;
+                sum.surfaceBytes += view.surfaceBytes;
+                sum.replacementPeakBytes += view.replacementPeakBytes;
+                sum.surfaceAllocations += view.surfaceAllocations;
+                sum.cachedBrushes += view.cachedBrushes;
+                sum.cachedTextFormats += view.cachedTextFormats;
+            }
+        }
+        statistics = sum;
+        return S_OK;
     }
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
     {
@@ -474,6 +519,7 @@ class Widget final
 
   private:
     DWORD _thread = GetCurrentThreadId();
+    Widget* _probeNext = nullptr;
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _provider;
     wil::com_ptr_nothrow<Coordinator> _runtime;
     Configuration _configuration;
@@ -575,6 +621,7 @@ class Provider final : public RedXeComObject<Provider, IRedXeWidgetProvider>
     ~Provider()
     {
         --providerCount;
+        ReleaseUnusedCoordinator();
     }
     HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
                                              uint32_t* count) noexcept override
@@ -627,9 +674,14 @@ HRESULT CreateProvider(REFIID iid, const RedXeFactoryOptions* options, IRedXeHos
     RETURN_IF_FAILED(ReadConfiguration(options, configuration));
     wil::com_ptr_nothrow<Coordinator> runtime;
     RETURN_IF_FAILED(GetCoordinator(host, runtime));
-    auto* provider = new (std::nothrow) Provider(std::move(runtime), configuration, RedXeBackgroundRgb(options));
+    Provider* provider = nullptr;
+    if (!std::exchange(failNextProviderAllocation, false))
+        provider = new (std::nothrow) Provider(std::move(runtime), configuration, RedXeBackgroundRgb(options));
     if (!provider)
+    {
+        ReleaseUnusedCoordinator();
         return E_OUTOFMEMORY;
+    }
     *result = static_cast<IRedXeWidgetProvider*>(provider);
     return S_OK;
 }
@@ -654,12 +706,29 @@ extern "C" void __stdcall RedXePluginShutdown() noexcept
 {
     AVControl::coordinator.reset();
     AVControl::graphics.reset();
+    AVControl::failNextProviderAllocation = false;
+}
+extern "C" HRESULT __stdcall RedXeAVControlQueryProbeStatistics(AVControl::ProbeStatistics* statistics) noexcept
+{
+    if (!statistics)
+        return E_POINTER;
+    if (statistics->sizeBytes != sizeof(*statistics))
+        return E_INVALIDARG;
+    return AVControl::Widget::QueryProbeStatistics(*statistics);
 }
 extern "C" HRESULT __stdcall RedXeAVControlUseSyntheticBackend(BOOL enabled) noexcept
 {
     if (AVControl::providerCount || AVControl::coordinator)
         return HRESULT_FROM_WIN32(ERROR_BUSY);
     AVControl::syntheticBackend = enabled != FALSE;
+    AVControl::failNextProviderAllocation = false;
+    return S_OK;
+}
+extern "C" HRESULT __stdcall RedXeAVControlFailNextProviderAllocation() noexcept
+{
+    if (!AVControl::syntheticBackend)
+        return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+    AVControl::failNextProviderAllocation = true;
     return S_OK;
 }
 extern "C" HRESULT __stdcall RedXeAVControlTestSnapshot(AVControl::Inventory* inventory, uint32_t bytes) noexcept

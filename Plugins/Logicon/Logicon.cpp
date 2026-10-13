@@ -7,6 +7,10 @@
 #include "LogiconMonitor.h"
 #include "PlugInterfaces/Widget.h"
 
+#if defined(_DEBUG)
+#include "../ProcessViewer/ViewerGpu.h"
+#endif
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -156,6 +160,43 @@ extern "C" HRESULT __stdcall RedXeGetActionContract(const char* pluginId, const 
     }
     *contract = &kLogiconActionContract;
     return S_OK;
+}
+
+extern "C" HRESULT __stdcall RedXeLogiconGetMonitorTestDiagnostics(
+    RedXeLogiconMonitorTestDiagnostics* diagnostics) noexcept
+{
+    if (!diagnostics)
+        return E_POINTER;
+    if (diagnostics->sizeBytes != sizeof(RedXeLogiconMonitorTestDiagnostics))
+        return E_INVALIDARG;
+    *diagnostics = RedXeLogiconMonitorTestDiagnostics{sizeof(RedXeLogiconMonitorTestDiagnostics)};
+#if defined(_DEBUG)
+    diagnostics->fontSessions = ViewerGpuFontSessionCount();
+    diagnostics->livePreparationFonts = ViewerGpuLivePreparationFonts();
+    diagnostics->glyphUploadCells = ViewerGpuUploadCellCount();
+    diagnostics->glyphUploadBytes = ViewerGpuUploadBytes();
+    diagnostics->cpuAtlasBytes = ViewerGpuCpuAtlasBytes();
+    diagnostics->resourceSets = ViewerGpuResourceSetCount();
+    diagnostics->faceCopyBytes = Logicon::MonitorCpuFaceCopyBytesForTest();
+    diagnostics->faceAllocations = Logicon::MonitorFaceAllocationCountForTest();
+    return S_OK;
+#else
+    return E_NOTIMPL;
+#endif
+}
+
+extern "C" void __stdcall RedXeLogiconFailNextMonitorGlyphPreparation() noexcept
+{
+#if defined(_DEBUG)
+    ViewerGpuFailNextGlyphPreparationForTest();
+#endif
+}
+
+extern "C" void __stdcall RedXeLogiconFailNextMonitorFacePreparation() noexcept
+{
+#if defined(_DEBUG)
+    Logicon::FailNextMonitorFacePreparationForTest();
+#endif
 }
 
 extern "C" HRESULT __stdcall RedXeLogiconGetTestDiagnostics(RedXeLogiconTestDiagnostics* diagnostics) noexcept

@@ -4,6 +4,7 @@
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
 #include "PluginContract.Tests.AddressSanitizerProbe.h"
+#include "PluginContract.Tests.ShadersBackground.h"
 #include "Shaders.Tests.Contract.h"
 #include "ShadersSettings.h"
 
@@ -18,7 +19,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <cwchar>
+#include <iterator>
 #include <limits>
+#include <memory>
 #include <new>
 #include <psapi.h>
 #include <string>
@@ -1437,6 +1440,143 @@ constexpr std::string_view kDefaultShadersConfiguration =
     return getDiagnostics(&diagnostics);
 }
 
+[[nodiscard]] HRESULT ValidateShadersSetupAttribution(HMODULE module) noexcept
+{
+    const auto measure = ResolveFunction<ShadersMeasureTestSetupFn>(module, kShadersMeasureTestSetupExport);
+    const auto copy = ResolveFunction<ShadersCopyTestBackgroundFn>(module, kShadersCopyTestBackgroundExport);
+    if (!measure || !copy)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    ShadersSetupTimings timings{};
+    timings.sizeBytes = sizeof(timings);
+    ShadersSetupTimings shortRecord{};
+    shortRecord.sizeBytes = sizeof(uint32_t);
+    if (measure(nullptr, nullptr) != E_POINTER || measure(nullptr, &shortRecord) != E_INVALIDARG ||
+        measure(nullptr, &timings) != E_POINTER || timings.phaseCount != kShadersSetupPhaseCount ||
+        std::any_of(std::begin(timings.phaseCalls), std::end(timings.phaseCalls),
+                    [](uint32_t calls) { return calls != 0; }))
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    const uint32_t capacity = kShadersBackgroundTexelCount + 2;
+    std::unique_ptr<uint32_t[]> pixels(new (std::nothrow) uint32_t[capacity]);
+    if (!pixels)
+        return E_OUTOFMEMORY;
+    constexpr uint32_t sentinel = 0x13579BDF;
+    std::fill_n(pixels.get(), capacity, sentinel);
+    if (copy(nullptr, kShadersBackgroundTexelCount) != E_POINTER ||
+        copy(pixels.get() + 1, kShadersBackgroundTexelCount - 1) != HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) ||
+        !std::all_of(pixels.get(), pixels.get() + capacity, [](uint32_t value) { return value == sentinel; }))
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    HRESULT result = copy(pixels.get() + 1, kShadersBackgroundTexelCount + 1);
+    if (FAILED(result) || pixels[0] != sentinel || pixels[capacity - 1] != sentinel ||
+        !std::all_of(pixels.get() + 1, pixels.get() + capacity - 1,
+                     [](uint32_t value) { return (value & 0xFF000000U) == 0xFF000000U; }))
+        return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    result = ValidateShadersBackgroundReference(pixels.get() + 1, kShadersBackgroundTexelCount);
+    if (FAILED(result))
+        return result;
+    MatrixRenderTarget target;
+    result = CreateMatrixRenderTarget(160, 90, target);
+    if (FAILED(result))
+        return result;
+    const RedXeGpuDeviceContext context{sizeof(RedXeGpuDeviceContext), target.device.get(), DXGI_FORMAT_R8G8B8A8_UNORM,
+                                        target.featureLevel};
+    ShadersTestDiagnostics before{}, after{};
+    result = ReadShadersDiagnostics(module, before);
+    if (SUCCEEDED(result))
+        result = measure(&context, &timings);
+    if (FAILED(result))
+        return result;
+    if (timings.frequency == 0 || timings.totalTicks == 0)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    uint64_t total = 0;
+    for (uint32_t index = 0; index < kShadersSetupPhaseCount; ++index)
+    {
+        if (timings.phaseCalls[index] != 1 || timings.phaseResults[index] != S_OK)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        total += timings.phaseTicks[index];
+    }
+    target.context->ClearState();
+    result = ReadShadersDiagnostics(module, after);
+    if (FAILED(result) || total > timings.totalTicks || before.liveProviderCount != after.liveProviderCount ||
+        before.liveWidgetCount != after.liveWidgetCount ||
+        before.liveSharedResourceSetCount != after.liveSharedResourceSetCount)
+        return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    std::wprintf(L"5H4D3R5 setup attribution: refusal, pixel bounds, six phases and owner retirement pass.\n");
+    return S_OK;
+}
+
+[[nodiscard]] HRESULT RunShadersSetupAttribution(bool hardware, const wchar_t* pixelsPath) noexcept
+{
+    std::array<wchar_t, 1024> path{};
+    HRESULT result = BuildPluginPath(L"5H4D3R5.dll", path);
+    if (FAILED(result))
+        return result;
+    wil::unique_hmodule module{
+        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (!module)
+        return HRESULT_FROM_WIN32(GetLastError());
+    const auto measure = ResolveFunction<ShadersMeasureTestSetupFn>(module.get(), kShadersMeasureTestSetupExport);
+    const auto copy = ResolveFunction<ShadersCopyTestBackgroundFn>(module.get(), kShadersCopyTestBackgroundExport);
+    if (!measure || !copy)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    if (pixelsPath)
+    {
+        std::unique_ptr<uint32_t[]> pixels(new (std::nothrow) uint32_t[kShadersBackgroundTexelCount]);
+        if (!pixels)
+            return E_OUTOFMEMORY;
+        result = copy(pixels.get(), kShadersBackgroundTexelCount);
+        if (FAILED(result))
+            return result;
+        wil::unique_handle file{
+            CreateFileW(pixelsPath, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if (!file)
+            return HRESULT_FROM_WIN32(GetLastError());
+        constexpr DWORD bytes = kShadersBackgroundTexelCount * sizeof(uint32_t);
+        DWORD written = 0;
+        if (!WriteFile(file.get(), pixels.get(), bytes, &written, nullptr))
+            return HRESULT_FROM_WIN32(GetLastError());
+        if (written != bytes)
+            return HRESULT_FROM_WIN32(ERROR_WRITE_FAULT);
+    }
+    MatrixRenderTarget target;
+    result = CreateMatrixRenderTarget(160, 90, target, hardware ? D3D_DRIVER_TYPE_HARDWARE : D3D_DRIVER_TYPE_WARP);
+    if (FAILED(result))
+        return result;
+    wil::com_ptr_nothrow<IDXGIDevice> dxgiDevice;
+    wil::com_ptr_nothrow<IDXGIAdapter> adapter;
+    DXGI_ADAPTER_DESC adapterDescription{};
+    result = target.device.query_to(dxgiDevice.put());
+    if (SUCCEEDED(result))
+        result = dxgiDevice->GetAdapter(adapter.put());
+    if (SUCCEEDED(result))
+        result = adapter->GetDesc(&adapterDescription);
+    if (FAILED(result))
+        return result;
+    std::wprintf(L"shader_setup_device backend=%ls vendor=%u luid=%08X:%08X description=%ls\n",
+                 hardware ? L"hardware-default" : L"warp", adapterDescription.VendorId,
+                 static_cast<unsigned>(adapterDescription.AdapterLuid.HighPart),
+                 static_cast<unsigned>(adapterDescription.AdapterLuid.LowPart), adapterDescription.Description);
+    const RedXeGpuDeviceContext context{sizeof(RedXeGpuDeviceContext), target.device.get(), DXGI_FORMAT_R8G8B8A8_UNORM,
+                                        target.featureLevel};
+    for (uint32_t sample = 0; sample < 32; ++sample)
+    {
+        ShadersSetupTimings timings{};
+        timings.sizeBytes = sizeof(timings);
+        result = measure(&context, &timings);
+        if (FAILED(result) || timings.frequency == 0)
+            return FAILED(result) ? result : E_UNEXPECTED;
+        std::wprintf(L"shader_setup sample=%u backend=%ls frequency=%llu total_ticks=%llu", sample,
+                     hardware ? L"hardware" : L"warp", static_cast<unsigned long long>(timings.frequency),
+                     static_cast<unsigned long long>(timings.totalTicks));
+        for (uint32_t index = 0; index < kShadersSetupPhaseCount; ++index)
+            std::wprintf(L" phase%u_ticks=%llu phase%u_calls=%u phase%u_result=%u", index,
+                         static_cast<unsigned long long>(timings.phaseTicks[index]), index, timings.phaseCalls[index],
+                         index, static_cast<unsigned>(timings.phaseResults[index]));
+        std::wprintf(L"\n");
+        target.context->ClearState();
+    }
+    return S_OK;
+}
+
 [[nodiscard]] HRESULT ValidateShadersConfigurationRejections(RedXeCreateFn create) noexcept
 {
     constexpr std::array rejected{
@@ -2197,6 +2337,9 @@ constexpr std::string_view kDefaultShadersConfiguration =
     {
         return result;
     }
+    result = ValidateShadersSetupAttribution(module.get());
+    if (FAILED(result))
+        return result;
     result = ValidateShadersRendering(module.get(), create);
     if (FAILED(result))
     {
@@ -2840,6 +2983,13 @@ int wmain(int argumentCount, wchar_t** arguments)
         const bool soak = mode == L"--soak" || disabledSoak;
         const HRESULT benchmarkResult = RunMatrixRainBenchmark(soak, disabledSoak);
         return FAILED(benchmarkResult) ? ReportSuiteFailure(L"Matrix Rain benchmark", benchmarkResult) : 0;
+    }
+    if (argumentCount >= 2 && std::wstring_view(arguments[1]) == L"--shader-setup-attribution")
+    {
+        const bool hardware = argumentCount >= 3 && std::wstring_view(arguments[2]) == L"--hardware";
+        const wchar_t* pixelsPath = argumentCount >= 4 ? arguments[3] : nullptr;
+        const HRESULT measured = RunShadersSetupAttribution(hardware, pixelsPath);
+        return FAILED(measured) ? ReportSuiteFailure(L"5H4D3R5 setup attribution", measured) : 0;
     }
     const HRESULT result = RunContractTests();
     if (FAILED(result))

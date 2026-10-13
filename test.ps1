@@ -428,6 +428,24 @@ if ($hostPluginFailure -or $hostPluginExit -ne 0) {
 }
 Write-Host "Host integration log: $hostPluginLog" -ForegroundColor DarkGray
 
+foreach ($soak in @('matrix','studio-clock','desk-clock')) {
+    $soakLog = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.$soak-soak.log"
+    Write-Host "Running the 60-second $soak production-host resource guard..." -ForegroundColor Cyan
+    try {
+        $soakExit = Invoke-RedXeStreamingProcess -FilePath $hostPluginTests -Arguments @("--$soak-soak", '--seconds=60') `
+            -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath $soakLog `
+            -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
+    } catch {
+        Get-Content -LiteralPath $soakLog -Tail 40
+        throw
+    }
+    if ($soakExit -ne 0) {
+        Get-Content -LiteralPath $soakLog -Tail 40
+        throw "$soak host soak failed with exit code $soakExit. Log: $soakLog"
+    }
+    Write-Host "Resource guard log: $soakLog" -ForegroundColor DarkGray
+}
+
 
 }
 
@@ -564,7 +582,7 @@ function Invoke-RedXeCaptureRun([string] $Name, [string[]] $Extra) {
     $png = Join-Path $runRoot 'capture.png'
     $log = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.screenshot-$Name.log"
     $arguments = @('--warp', '--settings', $settingsPath, '--dock', 'bottom@primary', '--dock-mode', 'fixed',
-        '--dock-reserve', 'off', '--dock-thickness', '32', '--screenshot', $png, '--after', '200') + $Extra
+        '--dock-reserve', 'off', '--dock-thickness', '32', '--screenshot', $png, '--after', '1250', '--probe=1') + $Extra
     $exit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments $arguments -WorkingDirectory $repoRoot `
         -TimeoutSeconds 120 -LogPath $log -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
     $jsonl = (@(Get-ChildItem -LiteralPath $runRoot -Recurse -Filter '*.jsonl' -File) |
@@ -573,6 +591,13 @@ function Invoke-RedXeCaptureRun([string] $Name, [string[]] $Extra) {
 }
 try {
     $capture = Invoke-RedXeCaptureRun 'whole' @()
+    $probes = @($capture.Jsonl -split '\r?\n' | Where-Object { $_.Contains('"event":"probe"') } |
+        ForEach-Object { $_ | ConvertFrom-Json })
+    if ($probes.Count -lt 1 -or $probes[0].v -ne 1 -or $probes[0].process.Count -ne 11 -or
+        $probes[0].present.Count -ne 11 -or $probes[0].process[1] -le 0 -or
+        $capture.Jsonl.Contains('"event":"probe-failed"')) {
+        throw "The production --probe must write complete numeric JSON through the logger during an ordinary frame loop: $($capture.Jsonl)"
+    }
     $retiredReports = @([regex]::Matches($capture.Jsonl,
             '"level":"warning","plugin":"builtin\.zoom","event":"service-retired-settings-ignored"')).Count
     if ($retiredReports -ne 1 -or $capture.Jsonl.Contains('"event":"settings-fallback-notice"')) {
@@ -624,7 +649,7 @@ if (-not $helpTitle.Contains([string] [char] 0x2014)) {
     throw "RedXe.exe --help did not reach its log as the UTF-8 it writes: its title line lost U+2014: $helpLog"
 }
 foreach ($switch in @('--help', '--settings', '--warp', '--dock', '--dock-mode', '--dock-thickness', '--dock-reserve',
-        '--dock-peek', '--screenshot', '--page', '--widget', '--after', '--self-test', '--crash-test',
+        '--dock-peek', '--screenshot', '--page', '--widget', '--after', '--probe', '--self-test', '--crash-test',
         '--crash-test-stack-overflow', '--crash-test-directory', 'Exit codes:')) {
     if ($helpText -notmatch [regex]::Escape($switch)) {
         throw "RedXe.exe --help does not mention $switch."
@@ -643,6 +668,10 @@ Write-Host 'Running unattended command-line error check...' -ForegroundColor Cya
 $unattendedLog = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.unattended-error.log"
 $unattendedPng = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.unattended-error.png"
 foreach ($case in @(
+        @{ Arguments = @('--self-test', '--probe='); Usage = 'Use --probe or --probe=<seconds>, once, with 1 through 3600 whole seconds.' },
+        @{ Arguments = @('--self-test', '--probe=0'); Usage = 'Use --probe or --probe=<seconds>, once, with 1 through 3600 whole seconds.' },
+        @{ Arguments = @('--self-test', '--probe=3601'); Usage = 'Use --probe or --probe=<seconds>, once, with 1 through 3600 whole seconds.' },
+        @{ Arguments = @('--self-test', '--probe', '--probe=5'); Usage = 'Use --probe or --probe=<seconds>, once, with 1 through 3600 whole seconds.' },
         @{ Arguments = @('--self-test', '--warp', '--settings'); Usage = 'Use --settings followed by exactly one settings file path.' },
         @{ Arguments = @('--screenshot', $unattendedPng, '--after', '0'); Usage = '--after takes a delay of 1 through 120000 milliseconds.' },
         @{ Arguments = @('--self-test', '--warp', '--dock', 'top@second'); Usage = '--dock takes none, top, bottom, left, or right, optionally followed by @primary, @secondary, @xeneon, @<n>, or @name:<substring>.' })) {

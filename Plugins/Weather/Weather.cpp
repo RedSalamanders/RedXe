@@ -80,6 +80,8 @@ enum class WeatherDensity : uint32_t
 std::atomic<uint32_t> gLiveProviderCount{0};
 std::atomic<uint32_t> gLiveWidgetCount{0};
 std::atomic<uint32_t> gPaintCount{0};
+std::atomic<uint32_t> gPreparationCount{0};
+std::atomic<uint32_t> gPreparationFailureCount{0};
 std::atomic<uint32_t> gDeviceCallbacksWhileVisible{0};
 std::atomic<uint32_t> gNetworkWorkCount{0};
 std::atomic<uint32_t> gLastDelay{0};
@@ -398,8 +400,9 @@ void LogWeather(IRedXeHost* host, uint32_t level, const char* instanceId, const 
     (void)RedXeHostLog(host, level, kPluginId, instanceId, eventId, message, code);
 }
 
-class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget,
-                                                  IRedXeRaisedWidget, IRedXeNetworkWidget, IRedXeInteractiveWidget>
+class WeatherWidget final
+    : public RedXeComObject<WeatherWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget,
+                            IRedXeNetworkWidget, IRedXeInteractiveWidget, IRedXePreparedGpuWidget>
 {
   public:
     WeatherWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, const WeatherConfiguration& configuration,
@@ -408,6 +411,7 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
     {
         WeatherCopyNarrow(instanceId ? instanceId : "", _instanceId.data(), _instanceId.size());
         gLiveWidgetCount.fetch_add(1, std::memory_order_relaxed);
+        WeatherHttpAcquireCacheClient();
         LogWeather(_host, RedXeLogLevelInfo, _instanceId.data(), "widget-created", "weather widget constructed.");
         ReportStatus(_host, _instanceId.data(), RedXeWidgetStatusInitializing, L"Waiting for weather.");
     }
@@ -419,6 +423,7 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             WeatherGpuRelease();
         }
         gLiveWidgetCount.fetch_sub(1, std::memory_order_relaxed);
+        WeatherHttpReleaseCacheClient();
     }
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
@@ -476,6 +481,8 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             _pagePan = false;
             return S_FALSE;
         }
+        if (!_paintReady)
+            return S_FALSE;
         if (event->phase == RedXePointerPhaseWheel)
         {
             // Wheel down pages the overflow forward, one page per whole detent. A widget that shows a page control
@@ -606,7 +613,8 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         if (SUCCEEDED(result))
         {
             _gpuHeld.store(true, std::memory_order_release);
-            RasterizeGlyphs();
+            _paintReady = false;
+            _preparationFailed = false;
             LogWeather(_host, RedXeLogLevelInfo, _instanceId.data(), "gpu-ready", "weather GPU resources acquired.");
         }
         else
@@ -619,6 +627,8 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
 
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
     {
+        _paintReady = false;
+        _preparationFailed = false;
         if (_visible.load(std::memory_order_acquire))
             gDeviceCallbacksWhileVisible.fetch_add(1, std::memory_order_relaxed);
         if (_gpuHeld.exchange(false, std::memory_order_acq_rel))
@@ -633,7 +643,52 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         {
             return E_INVALIDARG;
         }
-        RasterizeGlyphs();
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE Prepare(const RedXeGpuPreparationContext* context) noexcept override
+    {
+        if (!context || context->sizeBytes != sizeof(RedXeGpuPreparationContext))
+            return E_INVALIDARG;
+        if (!_visible.load(std::memory_order_acquire))
+            return S_FALSE;
+        if (!_gpuHeld.load(std::memory_order_acquire))
+            return E_UNEXPECTED;
+        WeatherGpuResources* resources = WeatherGpuGet();
+        if (!resources)
+            return E_UNEXPECTED;
+        const std::array<uint32_t, 5> extents{context->dpi, context->tileWidthPixels, context->tileHeightPixels,
+                                              context->raisedWidthPixels, context->raisedHeightPixels};
+        AcquireSRWLockShared(&_lock);
+        const uint64_t revision = _snapshotRevision;
+        if ((_paintReady && _paintRevision == revision) ||
+            (_preparationFailed && _failedRevision == revision && _failedPreparationExtents == extents))
+        {
+            ReleaseSRWLockShared(&_lock);
+            return S_FALSE;
+        }
+        const WeatherSnapshot snapshot = _snapshot;
+        const bool hasSnapshot = _hasSnapshot;
+        ReleaseSRWLockShared(&_lock);
+        _paintReady = false;
+        const auto releaseFonts = wil::scope_exit([resources]() noexcept { resources->ReleasePreparationFonts(); });
+        const HRESULT result = EnsureSnapshotGlyphs(*resources, snapshot);
+        if (FAILED(result))
+        {
+            _preparationFailed = true;
+            _failedRevision = revision;
+            _failedPreparationExtents = extents;
+            gPreparationFailureCount.fetch_add(1, std::memory_order_relaxed);
+            return result;
+        }
+        resources->UploadDirtyGlyphs();
+        // Only UI callbacks read/write paint storage. A worker's newer revision stays pending for the next frame.
+        _paintSnapshot = snapshot;
+        _paintHasSnapshot = hasSnapshot;
+        _paintRevision = revision;
+        _paintReady = true;
+        _preparationFailed = false;
+        gPreparationCount.fetch_add(1, std::memory_order_relaxed);
         return S_OK;
     }
 
@@ -649,21 +704,18 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         {
             return S_OK;
         }
+        if (!_paintReady)
+            return S_FALSE;
         WeatherGpuResources* resources = WeatherGpuGet();
         if (!resources)
         {
             return E_UNEXPECTED;
         }
 
-        AcquireSRWLockShared(&_lock);
-        const WeatherSnapshot snapshot = _snapshot;
-        const bool hasSnapshot = _hasSnapshot;
-        ReleaseSRWLockShared(&_lock);
-
         WeatherDrawList list;
-        WeatherGpuLock();
-        HRESULT result = BuildScene(*resources, list, snapshot, hasSnapshot, static_cast<float>(frame.widthPixels),
-                                    static_cast<float>(frame.heightPixels), frame.dpi);
+        HRESULT result =
+            BuildScene(*resources, list, _paintSnapshot, _paintHasSnapshot, static_cast<float>(frame.widthPixels),
+                       static_cast<float>(frame.heightPixels), frame.dpi);
         if (SUCCEEDED(result))
         {
             uint32_t overflow = 0;
@@ -678,7 +730,6 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
             result = resources->Render(context->deviceContext, static_cast<float>(frame.widthPixels),
                                        static_cast<float>(frame.heightPixels), list);
         }
-        WeatherGpuUnlock();
         if (SUCCEEDED(result))
         {
             gPaintCount.fetch_add(1, std::memory_order_relaxed);
@@ -922,6 +973,7 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         AcquireSRWLockExclusive(&_lock);
         _snapshot = snapshot;
         _hasSnapshot = true;
+        ++_snapshotRevision;
         ReleaseSRWLockExclusive(&_lock);
         gLastTemperature.store(snapshot.temperatureCelsius, std::memory_order_relaxed);
         gLastDailyCount.store(snapshot.dailyCount, std::memory_order_relaxed);
@@ -929,7 +981,6 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         AcquireSRWLockExclusive(&gLastLocationLock);
         WeatherCopyWide(snapshot.locationName.data(), gLastLocation.data(), gLastLocation.size());
         ReleaseSRWLockExclusive(&gLastLocationLock);
-        RasterizeGlyphs();
         const uint32_t status = degraded || snapshot.stale ? RedXeWidgetStatusDegraded : RedXeWidgetStatusOk;
         ReportStatus(_host, _instanceId.data(), status, reason && reason[0] != L'\0' ? reason : nullptr);
         return S_OK;
@@ -942,38 +993,32 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
         AcquireSRWLockExclusive(&_lock);
         const bool cached = _hasSnapshot;
         _snapshot.stale = cached;
+        ++_snapshotRevision;
         ReleaseSRWLockExclusive(&_lock);
         ReportStatus(_host, _instanceId.data(), cached ? RedXeWidgetStatusDegraded : RedXeWidgetStatusUnavailable,
                      reason);
     }
 
-    void RasterizeGlyphs() noexcept
+    [[nodiscard]] HRESULT EnsureSnapshotGlyphs(WeatherGpuResources& resources, const WeatherSnapshot& snapshot) noexcept
     {
-        WeatherGpuLock();
-        const auto unlock = wil::scope_exit([]() noexcept { WeatherGpuUnlock(); });
-        if (!_gpuHeld.load(std::memory_order_acquire))
-        {
-            return;
-        }
-        WeatherGpuResources* resources = WeatherGpuGet();
-        if (!resources)
-        {
-            return;
-        }
-        AcquireSRWLockShared(&_lock);
-        const WeatherSnapshot snapshot = _snapshot;
-        ReleaseSRWLockShared(&_lock);
-        (void)resources->EnsureGlyphs(snapshot.locationName.data(),
-                                      static_cast<uint32_t>(wcslen(snapshot.locationName.data())));
-        (void)resources->EnsureGlyphs(
-            L"TodayTomorrowSundayMondayTuesdayWednesdayThursdayFridaySaturdayMET Norway",
-            static_cast<uint32_t>(
-                wcslen(L"TodayTomorrowSundayMondayTuesdayWednesdayThursdayFridaySaturdayMET Norway")));
+        HRESULT result = resources.EnsureGlyphs(snapshot.locationName.data(),
+                                                static_cast<uint32_t>(wcslen(snapshot.locationName.data())));
+        if (FAILED(result))
+            return result;
+        result =
+            resources.EnsureGlyphs(L"TodayTomorrowSundayMondayTuesdayWednesdayThursdayFridaySaturdayMET Norway",
+                                   static_cast<uint32_t>(wcslen(
+                                       L"TodayTomorrowSundayMondayTuesdayWednesdayThursdayFridaySaturdayMET Norway")));
+        if (FAILED(result))
+            return result;
         for (uint32_t index = 0; index < snapshot.alertCount; ++index)
         {
-            (void)resources->EnsureGlyphs(snapshot.alerts[index].title.data(),
-                                          static_cast<uint32_t>(wcslen(snapshot.alerts[index].title.data())));
+            result = resources.EnsureGlyphs(snapshot.alerts[index].title.data(),
+                                            static_cast<uint32_t>(wcslen(snapshot.alerts[index].title.data())));
+            if (FAILED(result))
+                return result;
         }
+        return S_OK;
     }
 
     [[nodiscard]] HRESULT BuildScene(WeatherGpuResources& resources, WeatherDrawList& list,
@@ -1392,6 +1437,14 @@ class WeatherWidget final : public RedXeComObject<WeatherWidget, IRedXeWidget, I
     IRedXeHost* _host = nullptr;
     std::array<char, 128> _instanceId{};
     WeatherSnapshot _snapshot{};
+    WeatherSnapshot _paintSnapshot{};
+    uint64_t _snapshotRevision = 0; // Protected by _lock with the latest network snapshot.
+    uint64_t _paintRevision = 0;
+    uint64_t _failedRevision = 0;
+    std::array<uint32_t, 5> _failedPreparationExtents{};
+    bool _paintHasSnapshot = false;
+    bool _paintReady = false;
+    bool _preparationFailed = false;
     SRWLOCK _lock = SRWLOCK_INIT;
     std::atomic<bool> _visible{false};
     std::atomic<bool> _raised{false};
@@ -1552,6 +1605,79 @@ extern "C" void __stdcall RedXePluginShutdown() noexcept
     WeatherHttpShutdown();
 }
 
+extern "C" void __stdcall RedXeWeatherFailNextAtlasInitialization() noexcept
+{
+    WeatherGpuFailNextInitializationForTest();
+}
+
+extern "C" HRESULT __stdcall RedXeWeatherGetTestCacheDiagnostics(WeatherHttpCacheTestDiagnostics* diagnostics) noexcept
+{
+    if (!diagnostics)
+        return E_POINTER;
+    if (diagnostics->sizeBytes != sizeof(*diagnostics))
+        return E_INVALIDARG;
+    WeatherHttpCacheMetrics(diagnostics->liveClients, diagnostics->entries, diagnostics->bodyCapacityBytes);
+    return S_OK;
+}
+
+namespace
+{
+[[nodiscard]] bool AutomatedCacheHost() noexcept
+{
+    wchar_t value[2]{};
+    return GetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", value, 2) == 1 && value[0] == L'1';
+}
+} // namespace
+
+extern "C" HRESULT __stdcall RedXeWeatherSetTestCacheTransport(WeatherHttpTestTransportFn transport,
+                                                               uint64_t tick) noexcept
+{
+    if (!AutomatedCacheHost())
+        return E_ACCESSDENIED;
+    WeatherHttpSetTestCacheTick(tick);
+    WeatherHttpSetTestTransport(transport);
+    return S_OK;
+}
+
+extern "C" HRESULT __stdcall RedXeWeatherFailTestCacheAllocation(BOOL fail) noexcept
+{
+    if (!AutomatedCacheHost())
+        return E_ACCESSDENIED;
+    WeatherHttpFailNextCacheAllocationForTest(fail != FALSE);
+    return S_OK;
+}
+
+extern "C" HRESULT __stdcall RedXeWeatherTestCachedHttpGet(const char* url, uint32_t urlBytes, HANDLE cancelEvent,
+                                                           char* body, uint32_t bodyCapacity,
+                                                           WeatherHttpTestGetResult* result) noexcept
+{
+    if (!AutomatedCacheHost())
+        return E_ACCESSDENIED;
+    if (!url || !body || !result)
+        return E_POINTER;
+    if (result->sizeBytes != sizeof(*result) || bodyCapacity == 0)
+        return E_INVALIDARG;
+    *result = {sizeof(*result)};
+    body[0] = '\0';
+    WeatherHttpResponse response;
+    const HRESULT fetched = WeatherHttpGet(std::string_view(url, urlBytes), cancelEvent, response);
+    result->status = response.status;
+    result->bodyBytes = response.bytes;
+    result->expiresDelayMilliseconds = response.expiresDelayMilliseconds;
+    result->notModified = response.notModified ? TRUE : FALSE;
+    if (FAILED(fetched))
+        return fetched;
+    if (response.bytes >= bodyCapacity)
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    std::memcpy(body, response.body.get(), static_cast<size_t>(response.bytes) + 1);
+    return S_OK;
+}
+
+extern "C" void __stdcall RedXeWeatherFailNextGlyphPreparation() noexcept
+{
+    WeatherGpuFailNextGlyphPreparationForTest();
+}
+
 extern "C" HRESULT __stdcall RedXeWeatherGetTestDiagnostics(WeatherTestDiagnostics* diagnostics) noexcept
 {
     if (!diagnostics)
@@ -1590,6 +1716,15 @@ extern "C" HRESULT __stdcall RedXeWeatherGetTestDiagnostics(WeatherTestDiagnosti
     diagnostics->pageDotFirstX = gLastPageDotFirstX.load(std::memory_order_relaxed);
     diagnostics->pageDotY = gLastPageDotY.load(std::memory_order_relaxed);
     diagnostics->pageDotGap = gLastPageDotGap.load(std::memory_order_relaxed);
+    diagnostics->cpuAtlasBytes = WeatherGpuCpuAtlasBytes();
+    diagnostics->liveGpuResourceSets = WeatherGpuResourceSetCount();
+    diagnostics->glyphUploadCells = WeatherGpuUploadCellCount();
+    diagnostics->glyphUploadBytes = WeatherGpuUploadBytes();
+    diagnostics->fontSessions = WeatherGpuFontSessionCount();
+    diagnostics->livePreparationFonts = WeatherGpuLivePreparationFonts();
+    diagnostics->preparations = gPreparationCount.load(std::memory_order_relaxed);
+    diagnostics->preparationFailures = gPreparationFailureCount.load(std::memory_order_relaxed);
+    diagnostics->paintSnapshotBytes = sizeof(WeatherSnapshot);
     return S_OK;
 }
 

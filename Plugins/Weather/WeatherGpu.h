@@ -1,12 +1,15 @@
 #pragma once
 
 #include <array>
+#include <bitset>
 #include <cstdint>
 #include <d3d11.h>
+#include <dwrite.h>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
 #include <wil/com.h>
+#include <wil/resource.h>
 #pragma warning(pop)
 
 inline constexpr uint32_t kWeatherMaximumQuads = 1024;
@@ -135,7 +138,13 @@ class WeatherGpuResources final
 
     [[nodiscard]] HRESULT Initialize(ID3D11Device* device) noexcept;
     void Reset() noexcept;
+    [[nodiscard]] uint32_t CpuAtlasBytes() const noexcept
+    {
+        return _atlasPixels ? kWeatherAtlasSize * kWeatherAtlasSize : 0;
+    }
     [[nodiscard]] HRESULT EnsureGlyphs(const wchar_t* text, uint32_t characters) noexcept;
+    void UploadDirtyGlyphs() noexcept;
+    void ReleasePreparationFonts() noexcept;
     [[nodiscard]] float MeasureText(const wchar_t* text, uint32_t characters, float height) const noexcept;
     [[nodiscard]] HRESULT AppendText(WeatherDrawList& list, float x, float y, float height, float red, float green,
                                      float blue, float alpha, const wchar_t* text, uint32_t characters) noexcept;
@@ -153,10 +162,10 @@ class WeatherGpuResources final
     };
 
     [[nodiscard]] HRESULT BuildStaticAtlas() noexcept;
+    void ResetGpuResources() noexcept;
     [[nodiscard]] uint32_t FindGlyph(wchar_t character) const noexcept;
     // Returns the 96 px twin of a glyph slot when the drawn extent exceeds ~1.1x its 48 px cell, else the slot.
     [[nodiscard]] uint32_t ResolveLargeSlot(uint32_t slot, float extent) const noexcept;
-    void UploadAtlas() noexcept;
 
     ID3D11Device* _deviceIdentity = nullptr;
     wil::com_ptr_nothrow<ID3D11VertexShader> _vertexShader;
@@ -170,7 +179,11 @@ class WeatherGpuResources final
     wil::com_ptr_nothrow<ID3D11RasterizerState> _rasterizer;
     wil::com_ptr_nothrow<ID3D11DepthStencilState> _depthState;
     wil::com_ptr_nothrow<ID3D11BlendState> _blendState;
-    std::array<uint8_t, kWeatherAtlasSize * kWeatherAtlasSize> _atlasPixels{};
+    wil::unique_virtualalloc_ptr<uint8_t> _atlasPixels;
+    wil::unique_hmodule _preparationFontModule;
+    wil::com_ptr_nothrow<IDWriteFactory> _preparationFontFactory;
+    wil::com_ptr_nothrow<IDWriteFontFace> _preparationFontFace;
+    wil::com_ptr_nothrow<IDWriteFontFace> _preparationIconFace;
     std::array<wchar_t, kWeatherGlyphCapacity> _glyphCharacters{};
     std::array<float, kWeatherGlyphCapacity> _glyphAdvances{};
     std::array<WeatherGlyphInk, kWeatherGlyphCapacity> _glyphInk{};
@@ -181,16 +194,25 @@ class WeatherGpuResources final
     uint32_t _glyphCount = 0;
     uint32_t _staticGlyphCount = 0;
     uint32_t _dynamicCursor = 0;
-    bool _atlasDirty = false;
+    std::bitset<kWeatherGlyphCapacity> _dirtyGlyphs{};
 };
 
 [[nodiscard]] HRESULT WeatherGpuAcquire(ID3D11Device* device) noexcept;
 void WeatherGpuRelease() noexcept;
+// Private test accounting includes the reusable CPU atlas, independently of context-held GPU bindings.
+[[nodiscard]] uint32_t WeatherGpuCpuAtlasBytes() noexcept;
+[[nodiscard]] uint32_t WeatherGpuResourceSetCount() noexcept;
+void WeatherGpuFailNextInitializationForTest() noexcept;
+void WeatherGpuFailNextGlyphPreparationForTest() noexcept;
+[[nodiscard]] uint32_t WeatherGpuUploadCellCount() noexcept;
+[[nodiscard]] uint64_t WeatherGpuUploadBytes() noexcept;
+[[nodiscard]] uint32_t WeatherGpuFontSessionCount() noexcept;
+[[nodiscard]] uint32_t WeatherGpuLivePreparationFonts() noexcept;
 // Hero glyphs whose kWeatherIconCell twin linked in the shared atlas; test diagnostics only.
 [[nodiscard]] uint32_t WeatherGpuHeroTwinCount() noexcept;
 // kWeatherIconGlyphs entries that own both a 48 px cell and a 96 px twin in the shared atlas; test diagnostics only.
 [[nodiscard]] uint32_t WeatherGpuIconCellCount() noexcept;
-// Worker callers hold WeatherGpuLock across the instance ownership check, this lookup, and resource use.
+// UI-thread borrow while this widget holds a GPU user. Workers never use the atlas.
 [[nodiscard]] WeatherGpuResources* WeatherGpuGet() noexcept;
 void WeatherGpuLock() noexcept;
 void WeatherGpuUnlock() noexcept;

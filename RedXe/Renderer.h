@@ -3,12 +3,14 @@
 #include "AdapterSelection.h"
 #include "HostChrome.h"
 #include "PlugInterfaces/Widget.h"
+#include "RuntimeProbe.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <d3d11_1.h>
 #include <dxgi1_3.h>
+#include <memory>
 #include <windows.h>
 
 #pragma warning(push)
@@ -54,7 +56,8 @@ class Renderer final
     HRESULT SetDpi(UINT dpi) noexcept;
     HRESULT Resize(UINT width, UINT height) noexcept;
     HRESULT RefreshLayout() noexcept;
-    HRESULT SetTransitionDashboard(DashboardHost* dashboardHost) noexcept;
+    HRESULT SetTransitionDashboard(DashboardHost* dashboardHost, RuntimePageCallbackContext* callbacks = nullptr,
+                                   HRESULT* preparationTraceResult = nullptr) noexcept;
     HRESULT AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept;
     HRESULT SetRaisedOverlay(size_t widgetIndex, const RECT& content, SIZE targetPixels = {}) noexcept;
     void ClearRaisedOverlay() noexcept;
@@ -78,11 +81,17 @@ class Renderer final
     // device already sits on that adapter (or the window is off every monitor, or WARP is forced), failure otherwise.
     HRESULT EnsureDeviceForWindowMonitor() noexcept;
     [[nodiscard]] DeviceIdentity DeviceInfo() const noexcept;
+    // Diagnostic-only read: no Present, flush, device/resource creation or frame invalidation.
+    [[nodiscard]] RuntimeProbeGraphics QueryProbeGraphics() const noexcept;
     // Size and scaling of the live swap chain, which tests read to prove the dock presentation.
     [[nodiscard]] HRESULT GetSwapChainDescription(DXGI_SWAP_CHAIN_DESC1& description) const noexcept;
     // Frame-latency waitable object of the swap chain (maximum latency one). The UI thread waits on it before
     // building a frame so Present never blocks; null before device creation.
     [[nodiscard]] HANDLE FrameLatencyWaitableObject() const noexcept;
+    [[nodiscard]] uint64_t FrameLatencyGeneration() const noexcept
+    {
+        return _frameLatencyWaitable ? _frameLatencyGeneration : 0;
+    }
     [[nodiscard]] bool IsSuspended() const noexcept;
     [[nodiscard]] bool IsOccluded() const noexcept;
     [[nodiscard]] size_t LastFrameWidgetCount() const noexcept;
@@ -92,7 +101,12 @@ class Renderer final
     [[nodiscard]] RECT RaisedContentRect() const noexcept;
 
   private:
+#if defined(REDXE_HOST_PLUGIN_TESTS)
+    friend struct RendererResourceTestAccess;
+    friend struct RendererConstructionTestAccess;
+#endif
     static constexpr size_t kMaximumWidgetViewports = 32;
+    static_assert(kMaximumWidgetViewports <= 32); // One bounded bit per instance in the failure-frame mask.
     static constexpr DXGI_FORMAT kTargetFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
     struct ReportedTarget final
@@ -110,10 +124,12 @@ class Renderer final
     void RecordDeviceIdentity(bool warp, bool adapterOwnsWindowMonitor) noexcept;
     HRESULT CreateSwapChain() noexcept;
     HRESULT CreateRenderTarget(UINT width, UINT height) noexcept;
-    HRESULT UpdateCachedViewports() noexcept;
+    HRESULT UpdateCachedViewports(RuntimePageCallbackContext* callbacks = nullptr) noexcept;
+    // Cold retirement must clear the borrowed page even if its visibility callback fails.
+    HRESULT DropTransitionDashboard() noexcept;
     // Notifies widgets whose largest drawn viewport changed. Called from UpdateCachedViewports, which already runs
     // exactly on the events that can change a viewport, so this never fires per frame or for a position-only change.
-    void NotifyTargetSizes() noexcept;
+    void NotifyTargetSizes(RuntimePageCallbackContext* callbacks = nullptr) noexcept;
     void ResetTargetSizes() noexcept;
     // Fills one tile with the host placeholder wash. Used when a widget instance failed to construct or reported
     // itself unavailable, so a failed tile reads as failed instead of stale or blank.
@@ -135,6 +151,7 @@ class Renderer final
     HWND _window = nullptr;
     DashboardHost* _dashboardHost = nullptr;
     DashboardHost* _transitionDashboardHost = nullptr;
+    std::unique_ptr<RuntimePagePreparationProbe> _pagePreparationProbe;
     bool _forceWarp = false;
     bool _dockPresentation = false;
     UINT _dockWidth = 0;
@@ -166,6 +183,7 @@ class Renderer final
     std::array<ReportedTarget, kMaximumWidgetViewports> _widgetTargetSizes{};
     std::array<ReportedTarget, kMaximumWidgetViewports> _transitionTargetSizes{};
     std::array<HRESULT, kMaximumWidgetViewports> _lastLoggedRenderFailure{};
+    uint32_t _failedWidgetMask = 0;
 
     wil::com_ptr_nothrow<ID3D11Device> _device;
     wil::com_ptr_nothrow<ID3D11DeviceContext> _context;
@@ -175,6 +193,8 @@ class Renderer final
     wil::com_ptr_nothrow<ID3D11RenderTargetView> _renderTarget;
     wil::unique_handle _frameLatencyWaitable;
     DeviceIdentity _deviceInfo{};
+    uint64_t _swapChainGeneration = 0;
+    uint64_t _frameLatencyGeneration = 0;
     // Monitor the device was matched against; null on the default-adapter fallback.
     HMONITOR _deviceMonitor = nullptr;
     DWORD _occlusionStatusCookie = 0;

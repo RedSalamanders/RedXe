@@ -11,6 +11,34 @@ The default uses local merge-base changes plus staged, unstaged and untracked wo
 
 Native test files use `Scope.Tests.Something.h/.cpp`; register new active files in `native-test-files.json`. Outside `Tests/`, a `Test`, `Mock` or `Fake` name component (`FakeClock.h`) or a `.Tests.` segment marks a test source; `Attestation.h` or `LatestRelease.cpp` does not. `test-scopes.json` owns standalone scope/PR metadata and the suite names `test.ps1` runs; `ScopedTesting.Tests.ps1` fails when a rule misses a suite that builds its paths or matches nothing. Shared-library or runtime byte changes conservatively invalidate local standalone reuse. No consumer dependency pin changes are part of this workflow.
 
+The `HostPlugin` scope includes isolated 60-second Matrix, Studio Clock and Desk Clock WARP resource guards.
+Matrix warms for 1,024 frames; clocks warm for 20 seconds at their scheduled cadence. Five-second and final
+samples in uninstrumented builds enforce peak growth of at most 4 MiB private bytes and 8 MiB working set above the warmed baseline,
+alongside fixed object/resource counts, scheduling/draw bounds and device teardown. Per-soak logs are saved in
+`.build/<Platform>/<Configuration>/HostPluginTests.<name>-soak.log`. The separate five-minute plugin qualification
+still uses `HostPluginTests.exe --matrix-soak`, `--studio-clock-soak` or `--desk-clock-soak` with `--seconds=300`.
+ASan retains its default quarantine and lifetime checks; it reports process bytes diagnostically and checks the
+same object/resource counts, scheduling and teardown, without applying the uninstrumented byte-growth bar.
+
+Desk Clock uses two draws in static and moving states, preserving the 40/46 instance and 400-byte changed-only
+upload bounds. Independent pipeline queries verify 243/279 total vertices and unchanged 81/93 triangles.
+`DeskClockTests` compares at least 40 complete frames to frozen original vertex/pixel shaders and the offset-buffer
+draw sequence. It covers static/flip/date phases and landscape/portrait/minimum/DPI extents at both initialized
+atlas tiers, including unequal/equal-length date-only fades. Contrasting target clears verify complete opaque
+background overwrite; its temporary reference and query resources exist only in the test. Scheduled memory guards
+retain their existing 4/8-MiB limits and DXGI pacing.
+Release-only `DeskClockTests.exe --submission-probe [--hardware]` runs the same offscreen fixture against either
+clock DLL, reports its draw counts without enforcing the candidate's two-draw contract, and performs no oracle
+draws before timing. The optional hardware flag chooses the default adapter, not the XENEON adapter; live XENEON
+cadence still needs the production probe. Keep identical probe executable, runtime and backend identities in pairs.
+
+`PluginContractTests.exe --shader-setup-attribution --warp <new-raw-path>` records six call-local Shaders setup phases
+and saves every production background mip texel. `--hardware` selects the default hardware adapter and prints its
+identity; it does not select the XENEON adapter or show a window. The regular `PluginContract` scope compares all
+349,525 texels to the independent original pixel-major oracle and checks diagnostic refusal, output bounds and
+temporary-owner retirement. Native setup times include driver/API work and retirement, not GPU completion or
+displayed/input latency. Keep old/new runtime and raw-payload hashes with any comparison.
+
 For independent resource investigations, force fresh execution and retain paired fixture/build provenance. Timing, native ARM64, real devices, IME/assistive technology and foreground input remain separate qualification requirements. These commands do not manufacture those claims.
 ```powershell
 ./Test-Changes.ps1 -Scopes <name> -SkipBuild

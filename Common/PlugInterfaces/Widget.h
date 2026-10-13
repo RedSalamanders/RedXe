@@ -252,6 +252,40 @@ interface __declspec(uuid("B44CFD33-5DE8-4A37-92B1-D5663AFA2181")) __declspec(no
     virtual void STDMETHODCALLTYPE Complete(HRESULT result) noexcept = 0;
 };
 
+// Immutable CPU construction inputs and owned results. The host retains this object until its UI-thread Complete
+// returns or shutdown discards it; its final host reference is released on the UI thread. Run executes on one lazy
+// message-aware STA, never on the UI thread. It must check cancelEvent and the remaining three-second budget between
+// indivisible calls and must not borrow widget/UI state, create GPU resources, persist settings or execute actions.
+// Native Shell COM objects are created and released within Run on that STA. No result is published after the budget
+// expires. An uninterruptible Shell call may outlast cancellation: shutdown waits at most one second once, retaining
+// the runtime, work and module mapping until it returns or the process exits. Complete must validate its owner's
+// lifetime and generation before publishing CPU state; it may request a frame or queue a replacement job.
+interface __declspec(uuid("ECFB4B75-6510-445C-AEF0-51986F20826E")) __declspec(novtable) IRedXeConstructionWork
+    : IUnknown
+{
+    virtual HRESULT STDMETHODCALLTYPE Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexcept = 0;
+    virtual void STDMETHODCALLTYPE Complete(HRESULT result) noexcept = 0;
+};
+
+enum RedXeConstructionState : uint32_t
+{
+    RedXeConstructionStateReady = 0,
+    RedXeConstructionStatePending,
+    RedXeConstructionStateNeedsPreparation,
+    RedXeConstructionStateUnavailable,
+};
+
+// Optional sibling of a prepared GPU widget. UI-thread, bounded, allocation-free observation. Pending CPU work
+// must not consume the first GPU preparation sample. A discrete navigation keeps the current page fully visible
+// and animated until every incoming widget is Ready (or a locally failed tile is Unavailable). Construction must
+// not defer a touch pan's follow-finger pixels. The host cancels a discrete wait after three seconds and retires
+// the incoming page; a late job must reject that retired owner's result.
+interface __declspec(uuid("E8D8B382-A2A4-4B59-85FA-2256903A1C99")) __declspec(novtable) IRedXeConstructionStateWidget
+    : IUnknown
+{
+    virtual HRESULT STDMETHODCALLTYPE GetConstructionState(RedXeConstructionState * state) noexcept = 0;
+};
+
 // Fraction of the client rectangle a widget requests when the host raises it.
 enum RedXeRaisedExtent : uint32_t
 {
@@ -332,6 +366,8 @@ interface __declspec(uuid("231AC0E8-1204-4BFF-BCEA-7CACF11F439D")) __declspec(no
 // OMSetRenderTargets, and this widget's viewport through RSSetViewports. Nothing else is reset between widgets.
 // Blend, depth-stencil, rasterizer state, the scissor rectangle and ScissorEnable, input layout, primitive topology,
 // shaders, shader resource views, samplers, and constant buffers all carry over from whichever widget drew last.
+// Page retirement clears context bindings before OnDeviceLost, after retiring work is quiescent; surviving widgets
+// keep their resources and rebind their required state on the next draw. There is no reset between widget draws.
 //
 // Therefore a widget MUST bind every state it depends on, including scissor state, and MUST NOT rely on any state it
 // did not set itself. Leaving unusual state behind is legal but hostile: it will surface as a rendering defect in a

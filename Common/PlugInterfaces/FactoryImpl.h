@@ -67,6 +67,13 @@ template <typename Derived, typename First, typename... Rest> class RedXeComObje
   protected:
     ~RedXeComObject() = default;
 
+    // For owners with an independently synchronized lease registry. The owner must hold its reference and prevent
+    // new external leases while checking; this is not a general lifetime test for unsynchronized callers.
+    [[nodiscard]] bool HasSingleReference() const noexcept
+    {
+        return _references.load(std::memory_order_acquire) == 1;
+    }
+
   private:
     template <typename... Candidates> [[nodiscard]] bool TrySelect(REFIID interfaceId, void** result) noexcept
     {

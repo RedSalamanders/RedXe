@@ -4,6 +4,7 @@
 #include <dwrite.h>
 #include <memory>
 #include <new>
+#include <utility>
 
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027 28182)
@@ -47,32 +48,42 @@ namespace
 }
 } // namespace
 
-HRESULT RasterizeFluentGlyph(wchar_t glyph, uint32_t edge, uint32_t* bgra) noexcept
+HRESULT FluentGlyphRasterizer::EnsureFace() noexcept
+{
+    if (_fontAttempted)
+        return _fontResult;
+    _fontAttempted = true;
+    HRESULT result = DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory),
+                                         reinterpret_cast<IUnknown**>(_factory.put()));
+    if (FAILED(result))
+    {
+        _factory.reset();
+        return _fontResult = result;
+    }
+    result = CreateFace(_factory.get(), L"Segoe Fluent Icons", _face.put());
+    if (FAILED(result))
+    {
+        result = CreateFace(_factory.get(), L"Segoe MDL2 Assets", _face.put());
+    }
+    if (FAILED(result))
+    {
+        _face.reset();
+        _factory.reset();
+        return _fontResult = result;
+    }
+    return _fontResult = S_OK;
+}
+
+HRESULT FluentGlyphRasterizer::Rasterize(wchar_t glyph, uint32_t edge, uint32_t* bgra) noexcept
 {
     if (glyph == 0 || edge == 0 || edge > 512 || !bgra)
-    {
         return E_INVALIDARG;
-    }
-    wil::com_ptr_nothrow<IDWriteFactory> factory;
-    HRESULT result = DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory),
-                                         reinterpret_cast<IUnknown**>(factory.put()));
+    HRESULT result = EnsureFace();
     if (FAILED(result))
-    {
         return result;
-    }
-    wil::com_ptr_nothrow<IDWriteFontFace> face;
-    result = CreateFace(factory.get(), L"Segoe Fluent Icons", face.put());
-    if (FAILED(result))
-    {
-        result = CreateFace(factory.get(), L"Segoe MDL2 Assets", face.put());
-    }
-    if (FAILED(result))
-    {
-        return result;
-    }
     const UINT32 codePoint = glyph;
     UINT16 glyphIndex = 0;
-    result = face->GetGlyphIndicesW(&codePoint, 1, &glyphIndex);
+    result = _face->GetGlyphIndicesW(&codePoint, 1, &glyphIndex);
     if (FAILED(result))
     {
         return result;
@@ -85,10 +96,10 @@ HRESULT RasterizeFluentGlyph(wchar_t glyph, uint32_t edge, uint32_t* bgra) noexc
     // on the ink.
     const float emSize = static_cast<float>(edge) * 0.7f;
     DWRITE_FONT_METRICS metrics{};
-    face->GetMetrics(&metrics);
+    _face->GetMetrics(&metrics);
     const float scale = emSize / static_cast<float>(metrics.designUnitsPerEm);
     DWRITE_GLYPH_METRICS glyphMetrics{};
-    result = face->GetDesignGlyphMetrics(&glyphIndex, 1, &glyphMetrics, FALSE);
+    result = _face->GetDesignGlyphMetrics(&glyphIndex, 1, &glyphMetrics, FALSE);
     if (FAILED(result))
     {
         return result;
@@ -101,14 +112,14 @@ HRESULT RasterizeFluentGlyph(wchar_t glyph, uint32_t edge, uint32_t* bgra) noexc
     const float originX = (static_cast<float>(edge) - advance) * 0.5f;
     const float baselineY = (static_cast<float>(edge) - inkHeight) * 0.5f + inkTop;
     DWRITE_GLYPH_RUN run{};
-    run.fontFace = face.get();
+    run.fontFace = _face.get();
     run.fontEmSize = emSize;
     run.glyphCount = 1;
     run.glyphIndices = &glyphIndex;
     run.glyphAdvances = &advance;
     wil::com_ptr_nothrow<IDWriteGlyphRunAnalysis> analysis;
-    result = factory->CreateGlyphRunAnalysis(&run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
-                                             DWRITE_MEASURING_MODE_NATURAL, originX, baselineY, analysis.put());
+    result = _factory->CreateGlyphRunAnalysis(&run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
+                                              DWRITE_MEASURING_MODE_NATURAL, originX, baselineY, analysis.put());
     if (FAILED(result))
     {
         return result;
@@ -131,12 +142,15 @@ HRESULT RasterizeFluentGlyph(wchar_t glyph, uint32_t edge, uint32_t* bgra) noexc
     const uint32_t width = static_cast<uint32_t>(bounds.right - bounds.left);
     const uint32_t height = static_cast<uint32_t>(bounds.bottom - bounds.top);
     const size_t required = static_cast<size_t>(width) * height * 3U;
-    std::unique_ptr<uint8_t[]> coverage(new (std::nothrow) uint8_t[required]);
-    if (!coverage)
+    if (required > _coverageCapacity)
     {
-        return E_OUTOFMEMORY;
+        std::unique_ptr<uint8_t[]> replacement(new (std::nothrow) uint8_t[required]);
+        if (!replacement)
+            return E_OUTOFMEMORY;
+        _coverage = std::move(replacement);
+        _coverageCapacity = required;
     }
-    result = analysis->CreateAlphaTexture(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds, coverage.get(),
+    result = analysis->CreateAlphaTexture(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds, _coverage.get(),
                                           static_cast<UINT32>(required));
     if (FAILED(result))
     {
@@ -148,7 +162,7 @@ HRESULT RasterizeFluentGlyph(wchar_t glyph, uint32_t edge, uint32_t* bgra) noexc
         {
             const size_t source = (static_cast<size_t>(y) * width + x) * 3U;
             const uint32_t alpha =
-                (static_cast<uint32_t>(coverage[source]) + coverage[source + 1U] + coverage[source + 2U] + 1U) / 3U;
+                (static_cast<uint32_t>(_coverage[source]) + _coverage[source + 1U] + _coverage[source + 2U] + 1U) / 3U;
             const size_t destination =
                 (static_cast<size_t>(bounds.top) + y) * edge + static_cast<size_t>(bounds.left) + x;
             // Premultiplied white ink.
@@ -156,5 +170,11 @@ HRESULT RasterizeFluentGlyph(wchar_t glyph, uint32_t edge, uint32_t* bgra) noexc
         }
     }
     return S_OK;
+}
+
+HRESULT RasterizeFluentGlyph(wchar_t glyph, uint32_t edge, uint32_t* bgra) noexcept
+{
+    FluentGlyphRasterizer rasterizer;
+    return rasterizer.Rasterize(glyph, edge, bgra);
 }
 } // namespace RedXeActions

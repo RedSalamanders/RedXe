@@ -16,6 +16,10 @@ An empty `shortcuts` list imports up to 32 current-user **taskbar pins** the fir
 
 Clicking padding (not an icon) can still raise the widget. Icon clicks launch and do not raise. Double-click or double-tap empty space raises it to half the window.
 
+When a dashboard page change needs fresh Launcher icons, the current page keeps animating while they load. The new
+page slides in with its full icon grid ready. If preparation cannot finish within three seconds, the page change is
+canceled. Touch swipes continue following your fingers.
+
 ## Parameters
 
 Default is `{ "shortcuts": [], "iconSize": "automatic" }`. Unknown keys, an empty `target` for a launch, an unknown `action`, a non-launch action without an `icon`, duplicate shortcuts, unknown `iconSize` values, or more than 32 items reject the document. A launch `target` that is not an absolute path or a URI is accepted but shows a warning tile and does nothing when clicked.
