@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 # The DxUi API revision this product is adapted to. The pinned source names its own revision in capabilities.json and
 # Tools/validate_consumer.ps1 rejects a lock that names another, so moving to a new revision is one reviewed change: this number,
 # the lock's apiRevision and the adapters it needs.
-$script:SupportedApiRevision = 3
+$script:SupportedApiRevision = 4
 $script:CanonicalRepository = 'https://github.com/RedSalamanders/DxUi'
 
 # What a restore leaves out of the working tree: the measurement archives, the published gallery images and the specifications are

@@ -6,6 +6,11 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $repoRoot 'Build/DxUiRestore.psm1') -Force
 $msbuildPath = Find-RedXeMSBuild
+# Independent tooling runs before a product restore writes platform-specific resolved props.
+# Supply the exact pinned source for project evaluation without building DxUi or its dependencies.
+$pin = Read-RedXeDxUiLock -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json')
+$null = Restore-RedXeDxUiPin -RepoRoot $repoRoot
+$dxUiSource = Get-RedXeDxUiSourcePath -RepoRoot $repoRoot -Commit $pin.commit
 $testParent = [IO.Path]::GetFullPath((Join-Path $repoRoot '.build/BuildProcessTests'))
 $testRoot = Join-Path $testParent ([guid]::NewGuid().ToString('N'))
 $expectedPrefix = $testParent.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
@@ -37,7 +42,7 @@ try {
         $configurations = if ($project -eq 'RedXe/RedXe.vcxproj') { @('Debug', 'Release', 'ASan Debug') } else { @('Release') }
         foreach ($configuration in $configurations) {
             foreach ($platform in @('x64', 'ARM64')) {
-                $result = @(& $msbuildPath $projectPath /nologo /v:minimal /t:ReadLinkConfiguration "/p:Configuration=$configuration" "/p:Platform=$platform" 2>&1)
+                $result = @(& $msbuildPath $projectPath /nologo /v:minimal /t:ReadLinkConfiguration "/p:Configuration=$configuration" "/p:Platform=$platform" "/p:DxUiRoot=$dxUiSource" 2>&1)
                 if ($LASTEXITCODE -ne 0) {
                     throw "Could not evaluate $project ($platform $configuration): $($result -join "`n")"
                 }
