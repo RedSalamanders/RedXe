@@ -72,6 +72,15 @@
       <VariableName>g_DeskClockReferenceVertexShader</VariableName>
       <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
+    <FxCompile Include="DeskClock.Tests.ReferencePixel.hlsl">
+      <ShaderType>Pixel</ShaderType><ShaderModel>5.0</ShaderModel><EntryPointName>PixelMain</EntryPointName>
+      <TreatWarningAsError>true</TreatWarningAsError><DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <HeaderFileOutput>$(IntDir)DeskClockReferencePixelShader.h</HeaderFileOutput>
+      <ObjectFileOutput>$(IntDir)DeskClockReferencePixelShader.cso</ObjectFileOutput>
+      <VariableName>g_DeskClockReferencePixelShader</VariableName>
+      <AdditionalOptions>/Ges /O3 /Qstrip_debug /Qstrip_reflect /Qstrip_priv %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Common\PlugInterfaces\Factory.h" />

@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`
 Created: 2026-09-07 (rewritten the same day after a live Release measurement)
-Refreshed: 2026-10-12 against current `codex/runtime-probe` code, including the bounded Launcher construction lane, full-quality incoming-page barrier, accepted clock allocation diagnostic and production-paced clock soak fixtures; one commit per implemented step
+Refreshed: 2026-10-13 against current `codex/runtime-probe` code, including the bounded Launcher construction lane, full-quality incoming-page barrier, seven loss-free clock heap cuts, rejected render experiments and stronger restored-clock tests; one commit per implemented step
 Owner: host renderer, scheduler, plugin runtime, DxUi consumer accounting, and every bundled plugin's retained cost
 
 ## Goal
@@ -53,7 +53,7 @@ Coordinate, do not fork:
   process-scoped. Remaining G2/H3 work stays there.
 
 
-## Current-code checkpoint (2026-10-12)
+## Current-code checkpoint (2026-10-13)
 
 ### Execution ledger
 
@@ -76,7 +76,7 @@ its validation and measurement; failed or unavailable qualification remains expl
 | P4.2 provider records | Complete | Count-sized scheduling ownership removes 140,576 logical bytes with the real System provider live, and adds one cold allocation. Validation precedes publication and records retire outside the lock at source quiescence. Descriptor caps/final delivery, allocation failure/retry, facade identity and lease/drain scenarios pass. Provider-only Debug15/ASan15 and recovered full-LTCG Release16, clean ARM64 compile and skills10 have sealed identities. Matched hardware arms have identical plugin DLLs and 18 complete stages/402 callbacks each. Returned private is 63.30 → 63.60 MiB; no process-memory, CPU or staging-latency saving is established. |
 | P4.2 private JSON | Implemented and measured; screenshot investigation open | 24-byte immutable values replace 4,104-byte inline reserves, with exact payloads and no default ownership. Release shipped logical storage is 209,460 → 56,450 bytes, plus 288 bytes of shared control blocks and unmeasured allocator overhead. Ownership/bounds/two-phase failure/parser/persist/stable concurrent-copy tests pass Debug15, recovered Release16 and ASan15; ARM64 compile and skills10 pass. Matched arms each have 18 stages/402 callbacks and unchanged plugin DLLs. Cold/returned private is 36.59/63.45 → 35.96/62.63 MiB; working set rises, and no causal CPU or latency saving is established. The initial Release screenshot access violation remains unexplained despite subsequent full/isolated/retained passes. |
 | P4.5 | Content-sized bodies and last-widget release complete | Production-path lower offline transport, exact transactional body storage and last-widget leases are implemented. Eight two-byte responses retain 24 bytes versus 2,097,160 before, including the final Release DLL; the new real-DLL storage assertion fails on the preserved old cache. Debug/ASan 15 scopes, ARM64 Release, ten skills and unchanged images pass. Release 16 obligations are accounted across runs, preserving the initial Desk Clock peak failure. Matched Gallery establishes no causal CPU saving; current D is 36.85 → 62.29 MiB private and 25.01 → 32.26 local, hidden/minimized zero. Curl reuse and failure coalescing remain separate measured candidates. |
-| P4.6 | Hardware baseline and owned heap diagnostic captured; clock fixture pacing corrected | Five-minute hardware Desk/Studio runs retain current deadlines, atlas and quality. The replacement allocation ETL is loss-free and identifies fluctuating WARP pool payload; it does not explain the old failed peak. Clock fixtures now acquire DXGI readiness before initial/warm/measured draws. Fresh Release15, Debug15 accounting, ASan15, ARM64 compile and skills10 pass. Four counterbalanced Release guards pass with comparable cadence but mixed CPU/memory; no product saving is established. |
+| P4.6 | Clock pacing/batching implemented; late heap payload attributed; long memory HOLD | Seven loss-free cuts keep direct clock retention at 896 bytes/two blocks; listed heap payload falls. Matched date packing, blended one-draw and strip experiments are rejected; accepted production geometry and quality remain. Frozen original vertex/pixel, opaque-overwrite, date-fade and GPU-query coverage pass final Release/Debug/ASan PrePush accounting of 16 scopes each, with clean ARM64 compilation and skills10. Read-only nine-cut controls do not reproduce the earlier peaks. Private-commit owner, cold target-tier and physical-first-pixel qualification remain open. |
 | P4.3 glyph extraction | Complete | Temporary isolated factory/face/coverage batch, 400 unchanged glyph references and real Debug coverage-OOM recovery pass. Matched eight/32-icon callbacks fall about 7.2->2.4 / 29->6.5 ms. Final Debug15/Release16/ASan15/ARM64/skills10 and all image references pass. Settled fixed-eight CPU/submissions stay zero, adapter18.01 MiB; no physical-input or D-retention claim. runtime-2026-10-11-p43-glyph-*. |
 | P4.3 icon storage | Complete | Count-sized 0/2/8 MiB storage for 0/8/32 entries, 15 identical WARP frames, native rendered pixels, transactional faults, all scope accounting and matched fixed-eight/Gallery observations pass. The initial intermittent Matrix guard failure is retained. Fixed-eight private 73.23 -> 41.21 MiB and local adapter 38.01 -> 18.01 MiB; no CPU saving or D-return claim. runtime-2026-10-11-p43-* and p43-matched-comparison.json. |
 | P3.3 | Plan reconciled; physical latency remains open | Current first-follow-frame/directional-two-page policy retained. Rejected September eager staging, three-live-page reversal and animation suppression conflict with UI_Dashboard. Existing policy/partially-offscreen/native-neighbor/retirement tests pass; P0.2 still owns real input and first-presentation timing. |
@@ -2848,6 +2848,104 @@ another RunAs request; one replacement prompt is requested after this failed-att
 visual quality, cadence, warm-up and private/working-set guards remain unchanged. Late heap attribution and long
 memory qualification remain **HOLD**, with all earlier failed and passing observations preserved.
 
+### P4.6 seven late heap cuts verified; measured render alternatives rejected (2026-10-13)
+
+After checkpoint 0678596, the owner authorizes one replacement heap-only prompt. The approved v3 repeat starts
+the clock unelevated as PID 9696 and captures all seven requested cuts through 325 seconds. The merged ETL and
+each retained raw collector have zero lost events/buffers. Independent checks confirm the exact kernel process
+birth/command, all seven event times within their request windows, 475 immutable native and 145 copied runtime
+inputs, inactive recording, absent unique IFEO key and exited owned processes. The ETL hash is
+45E85B9640A1FB8E8F5DED0AC7A12FC0627AFA114E8416E107818AA614C16FD3. Preserve the complete capture and reports under
+runtime-2026-10-13-p46-clock-snapshots-v3-repeat.
+
+All 1,274 stack IDs match the separately generated stack index. Every listed size, per-stack total and per-cut
+allocation count reconciles across 21,817 records. Xperf's separate final reference counter reports 21,796 and
+warns in two apphelp startup-reallocation stacks; preserve that discrepancy rather than treating the reference
+counter as the allocation dataset. Unknown intermediate frames affect 19,280 bytes at the first cut and 9,130
+bytes at the last; they are quantified separately. This accepts the listed live payload with those limits,
+not complete OS-frame attribution, virtual commitment, cumulative churn or an explanation of earlier peaks.
+
+| Process age (s) | Listed live heap payload (bytes) | Direct clock bytes / blocks | WARP transform-pool bytes / blocks |
+| --- | ---: | ---: | ---: |
+| 25 | 3,363,312 | 896 / 2 | 996,240 / 5 |
+| 50 | 3,328,406 | 896 / 2 | 996,240 / 5 |
+| 85 | 3,304,560 | 896 / 2 | 996,240 / 5 |
+| 150 | 3,181,696 | 896 / 2 | 996,240 / 5 |
+| 240 | 3,178,056 | 896 / 2 | 996,240 / 5 |
+| 300 | 3,178,237 | 896 / 2 | 996,240 / 5 |
+| 325 | 3,172,653 | 896 / 2 | 996,240 / 5 |
+
+WARP remains the largest allocator-origin owner: 2,383,488 bytes at the last cut, including a stable 932,576-byte
+transform block. No growing direct-clock owner appears. The instrumented 350-second fixture passes with
+733,184-byte peak private growth, 827,392-byte working-set growth, 10,058 frames and 20,116 draws, stable owners,
+inactive zero and teardown. It reproduces none of the earlier failing peaks and closes no uninstrumented guard.
+
+Three full-quality render alternatives are measured against the frozen current two-draw clock using identical
+Release host, probe, dependency and scene bytes. Each native comparison has eight observations per arm/backend
+in four ABBA blocks; all raw source, binaries and receipts are retained.
+
+- Date compaction preserves 41 exact frames and reduces actual GPU input work, but WARP API medians rise from
+  0.02725/0.03630 to 0.02795/0.03770 ms for static/active frames. Its small timestamp change does not justify the
+  added mapping complexity. Rejected; retain p46-clock-date-compaction-matched and its source archive.
+- A single blended background/foreground draw preserves pixels and lowers API work, but more than doubles the
+  matched WARP timestamp (mean 1.125925 -> 2.393250 ms). Rejected; preserve the separate opaque background pass.
+- Four-vertex foreground strips preserve all 41 Release and 40 Debug/ASan reference frames and actual triangle
+  counts. A preliminary native comparison lowers WARP API medians, but the final comparison does not repeat it:
+  static/active medians 0.02745/0.03660 -> 0.02865/0.04440 ms; timestamp 1.33765 -> 1.54290 ms. Default RTX active
+  API improves 0.01385 -> 0.01020 ms with a 0.01040-ms timestamp in both arms. This is not an all-backend benefit.
+  Rejected; source and all 720 final witnesses remain under p46-clock-strip-rejected-final-source.
+
+The final XENEON comparison has identical host/settings/probe bytes and only the clock DLL/PDB differs. Forward
+control/candidate observe 1.072/1.268 percent of one CPU core, 25.871/26.608 submissions/s and 34.11/41.50 MiB
+private; reversed control/candidate observe 1.801/1.733 percent, 25.933/25.588 submissions/s and 34.00/34.07 MiB.
+Local usage is 25.51 MiB throughout; all hidden/minimized intervals submit zero and recovery resumes. The CPU
+direction and large private increase do not repeat. No causal whole-process saving or displayed-FPS claim is made.
+
+The retained strip trial passes all 16 Full scopes in Debug and ASan, compiles ARM64 Release without warnings,
+and passes an unchanged Release Full repeat. Its first Release Full fails the 4-MiB private guard at 4,268,032
+bytes while functional scheduling, owners, hidden zero and teardown pass; preserve the failure and exact inputs
+under p46-clock-strip-release-first-failure. The passing repeat's 1,232,896-byte private peak explains no failure.
+These trial gates qualify the retained experiment, not the restored final repository's new tests.
+
+Original production geometry, shader arithmetic, resource owners, cadence and visuals are restored. The durable
+test improvement retains frozen original vertex/pixel shaders, contrasting target clears for opaque overwrite,
+equal/unequal-length date-only fades and nineteen independent GPU-query frames. Current static/active totals remain
+243/279 vertices and 81/93 triangles, with two draws and 40/46 instances. Final restored-source checks pass.
+
+Final qualification uses clean builds and the scoped runner's canonical build stamp 275; the retained matched
+experiments use frozen stamp 282. The final Release, Debug and ASan PrePush runs each account for all sixteen local
+noninteractive scopes, including production-host integration, WARP smoke, own-window screenshot and isolated crash
+checks. Debug/ASan reuse only the identical successful independent BuildProcess receipt; all fifteen native scopes
+run in each final profile. ARM64 Release compiles the host, plugins and tests without warnings; it is compile-only
+on this x64 machine. The original foreground pixel-shader body independently matches the accepted frozen source.
+
+| Final x64 profile | Exact original frames | GPU-query frames | Desk soak peak private / working-set growth (bytes) |
+| --- | ---: | ---: | ---: |
+| Release | 41 | 19 | 2,441,216 / 2,072,576 |
+| Debug | 40 | 19 | 1,683,456 / 1,171,456 |
+| ASan Debug | 40 | 19 | 239,800,320 / 149,729,280 (diagnostic only) |
+
+ASan retains its default quarantine and real instrumentation. Every profile proves stable owners, scheduled flip
+bursts, hidden zero work and full teardown. The passing ordinary guards explain none of the earlier failed peaks.
+Preserve the first final incremental run's AVControl helper-exit failure and the subsequent GPU-query rejection of
+stale strip output (163 vertices instead of 243): restored source timestamps were older than the DLL, so incremental
+MSBuild skipped recompilation. Clean rebuilds replace the stale DLL/shaders before final qualification. Failed
+receipts and all exact inputs remain under p46-clock-heap-restored-av-failure and
+p46-clock-heap-restored-stale-strip-failure. The earlier command-line parameter rejection starts no tests.
+
+A normal-user read-only region observer passes five preparation checks and collects private bytes plus bounded
+VirtualQueryEx metadata without target mutation, focus, input, registry configuration or UAC. The current-clock
+350-second control passes at 1,142,784-byte peak private growth; the retained strip passes at 532,480 bytes.
+Both have all nine cuts and unchanged runtime inputs. From 20 to 345 seconds, process/private-region deltas are
+1,114,112/1,110,016 bytes for control and 532,480/532,480 for the candidate. Executable, image and mapped commitment
+do not grow in either cohort. Control guard-containing allocation commitment falls 73,728 bytes; other private
+allocation commitment grows 1,183,744 bytes. Candidate growth is entirely in other private commitment. These
+passing cohorts reproduce none of the failing peaks and supply no allocation stack or proven heap/driver owner.
+Query windows are not atomic, and executable/guard-page/private-region metadata alone
+cannot supply an allocation stack or driver owner. Keep live payload, region commitment and process private bytes
+distinct. The next optimization must follow a reproduced commitment-growth cohort; no further production change
+is accepted from these alternatives. Long memory qualification remains **HOLD** and the complete plan stays active.
+
 ### Phase 3 — fluid swipe, nothing left behind
 
 The rule: a swipe MAY allocate whatever a smooth slide needs; the settled page MUST end with exactly the resources of a
@@ -2871,7 +2969,7 @@ cold visit to that page, and nothing from the page that was left.
 | P4.3 | **Count-sized icons, glyph batch, single shell output, folder binding, verified-file opaque reuse and combined queries implemented; cold-parent shortcuts rejected.** Empty/8/32 entries use 0/2/8 MiB GPU payload. Eight decoded buffers retain 2 MiB with exact token/identifier and fresh shield/file checks; the prior expansion adds 1.5 MiB. Ordinary parsing remains. P3.4 now constructs incoming discrete Launcher CPU pixels on the host STA, sharing that cache under a short SRW lock. | Current-DLL phase/ownership/normal-route regression, cache/shield/metadata/OOM/capacity/shutdown, import/drop/device-loss, stale jobs, exact STA pixels, matched measurements and profile accounting are recorded above. Initial/touch cold setup, worst whole-page activation, process memory and first-pixel budgets remain open. Historical failed guard/hash receipts remain; no causal D-return saving is claimed. |
 | P4.4 | **Surface lifetime landed and retained at the current pin.** Hidden tile and unraised overlay surfaces are released without detaching control trees. The raised hardware P0.4 run confirms exact tile/overlay bytes, dismissal, hidden zero and restore. Lazy control-tree attachment, hidden-view update skipping, profile-control destruction and inventory diffing remain separate proposals. | Native fixtures and production hardware accounting agree; unchanged-observation copy cost and any new control-tree proposal still require measurements. Real AV release gates remain in the HOLD RFC. |
 | P4.5 | **Content-sized Weather cache and last-widget release implemented.** Cold bodies remain unallocated; each used entry owns payload plus terminator, with equal-size reuse and transactional new/grow/shrink/eviction. Surviving/hidden widgets retain shared data; final strong callback leases release it. Existing validators, 304, cancellation and refresh clamps remain. Curl connection reuse and failure coalescing are separate conditional candidates. | Real-DLL lower offline transport proves 2,097,160 → 24 bytes for eight two-byte responses, capacity/OOM/expiry/validator/failure and last-owner scenarios, with red/green against the old cache. Exact images and profile accounting are recorded above. Matched Gallery observations establish no causal whole-process CPU or memory saving. |
-| P4.6 | **Clock pacing, current short-trace attribution and compatible batching implemented.** Original pixels and both initialized atlas tiers pass; three/four draws become two/two with fewer owned buffers. All three Full profiles, ARM64 compilation, skills and matched Release CPU/submission observations are recorded above. GdiOrbit remains absent from shipped Gallery. | The short loss-free ETL attributes WARP payload in its recording, not the old 5.06/4.14-MiB peaks. Both uninstrumented five-minute guards fail at 5.93/6.46 MiB. The long recorder loses 4,004,747 events and times out; the original snapshot request misses its owned instance and saves no evidence. Both cleanup proofs pass. Corrected requests capture three early instances, but the system/virtual stream loses 102,193 events; the raw heap collector has zero loss, while the missing late cuts and passing instrumented guard explain none of the failures. A heap-only seven-cut helper passes seventeen preparation checks; Windows cancels its approved prompt before recording starts. Independent process/key checks pass, no allocation evidence is produced, and one replacement prompt is requested after the checkpoint. Long memory qualification stays HOLD. Preserve typography, rollover quality, cold target-tier follow-up and unchanged 4/8-MiB guards. Hardware callback/physical-first-pixel and historical failures remain open. |
+| P4.6 | **Clock pacing, current short-trace attribution and compatible batching implemented.** Original pixels and both initialized atlas tiers pass; three/four draws become two/two with fewer owned buffers. All three Full profiles, ARM64 compilation, skills and matched Release CPU/submission observations are recorded above. GdiOrbit remains absent from shipped Gallery. | The short loss-free ETL attributes WARP payload in its recording, not the old 5.06/4.14-MiB peaks. Both uninstrumented five-minute guards fail at 5.93/6.46 MiB. The long recorder loses 4,004,747 events and times out; the original snapshot request misses its owned instance and saves no evidence. Both cleanup proofs pass. Corrected requests capture three early instances, but the system/virtual stream loses 102,193 events; the raw heap collector has zero loss, while the missing late cuts and passing instrumented guard explain none of the failures. The approved replacement captures seven loss-free heap cuts: direct clock bytes/blocks remain 896/2, listed payload falls, and no old peak is reproduced. Preserve the separate reference-counter discrepancy and unknown frames. Three measured render alternatives are rejected, production geometry is restored, and stronger original-shader/opaque/GPU-work tests remain. The strip trial retains a 4.07-MiB first Release failure despite passing unchanged repeat/Debug/ASan Full and ARM64 compilation. The nine-cut region comparison and final restored-test qualification pass; neither passing cohort explains a prior failed peak. Long memory qualification stays HOLD. Preserve typography, rollover quality, cold target-tier follow-up and unchanged 4/8-MiB guards. Hardware callback/physical-first-pixel and historical failures remain open. |
 
 ### Phase 5 — DxUi upstream and spec closeout
 

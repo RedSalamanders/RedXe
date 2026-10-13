@@ -17,5 +17,7 @@ The focused `DeskClockTests` executable validates the static factory contract, s
 cadence, deterministic rollover phases, WARP pixels, device recreation, and steady render allocations. Its Debug
 and Release runs write deterministic BMP review frames beside the test executable; Release additionally writes the
 target-display `DeskClock2560x720.bmp` frame under `.build/x64/Release/`.
-The test also compares 31 complete frames to the frozen original vertex shader and draw sequence, covering static,
-flip/date phases, landscape/portrait/minimum/DPI extents, and both initialized atlas tiers.
+The test also compares at least 40 complete frames to frozen original vertex/pixel shaders and the draw sequence,
+covering static, flip/date phases, landscape/portrait/minimum/DPI extents, and both initialized atlas tiers.
+Contrasting target clears verify opaque overwrite. Nineteen GPU-query frames verify 243/279 vertices and 81/93
+triangles across static, ordinary-flip and equal/unequal-length date-fade states.

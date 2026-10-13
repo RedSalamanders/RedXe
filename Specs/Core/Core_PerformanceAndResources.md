@@ -939,8 +939,11 @@ remain with the AV owner.
   persistent DirectWrite or runtime shader/image dependencies, a five-minute scheduled flip soak with stable resources
   and hidden zero work, and complete device-loss teardown.
   Compatible card, moving-face and glyph work MUST preserve the original primitive order in one instanced draw,
-  with the opaque background drawn separately. Tests compare complete frames to the frozen original vertex shader
+  with the opaque background drawn separately. Independent GPU queries verify 243/279 total vertices and 81/93
+  primitives in static/active frames. Tests compare complete frames to frozen original vertex and pixel shaders
   and draw sequence across static/rollover/date phases, landscape/portrait/minimum/DPI extents and both atlas tiers.
+  Contrasting target clears MUST prove complete opaque background overwrite. Date-only fades cover both equal and
+  unequal glyph-string lengths; every listed pixel and GPU-query cohort must actually run.
   Batching adds no CPU owner, cache, map, instance, wake or allocation, and removes three immutable offset buffers.
   API-submission improvements MUST NOT be reported as displayed cadence or an explanation of an intermittent
   whole-process memory peak without matching evidence.

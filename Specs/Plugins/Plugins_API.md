@@ -1806,8 +1806,10 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     reference-aligned slim-card, crisp native-font glyph, common-baseline, and compact real-advance date bounds
     including an unpadded single-digit day, unchanged-tile visibility and pixel stability throughout every flip phase,
     isolated DirectWrite initialization with no inactive or steady font work, device recreation, zero steady render
-    allocations, the one-upload/two-draw and 46-instance bounds, exact frames against the frozen original vertex shader
-    and draw order at both atlas tiers, absence of persistent DirectWrite, the runtime shader
+    allocations, the one-upload/two-draw and 46-instance bounds, independent GPU queries for 243/279 vertices and
+    81/93 primitives, and exact frames against frozen original vertex and pixel shaders
+    and draw order at both atlas tiers, contrasting target clears for opaque overwrite, equal/unequal-length
+    date-only fades, absence of persistent DirectWrite, the runtime shader
     compiler, WIC, and loose font/image assets, five-minute scheduled production-host soak, and complete teardown
     through `DeskClockTests`,
     `SettingsTests`, and `HostPluginTests`. Its automated 60-second soak uses the same 20-second scheduled warm-up

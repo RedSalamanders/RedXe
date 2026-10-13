@@ -21,10 +21,12 @@ ASan retains its default quarantine and lifetime checks; it reports process byte
 same object/resource counts, scheduling and teardown, without applying the uninstrumented byte-growth bar.
 
 Desk Clock uses two draws in static and moving states, preserving the 40/46 instance and 400-byte changed-only
-upload bounds. `DeskClockTests` compares 31 complete frames to a frozen original vertex shader and offset-buffer
+upload bounds. Independent pipeline queries verify 243/279 total vertices and unchanged 81/93 triangles.
+`DeskClockTests` compares at least 40 complete frames to frozen original vertex/pixel shaders and the offset-buffer
 draw sequence. It covers static/flip/date phases and landscape/portrait/minimum/DPI extents at both initialized
-atlas tiers; its temporary reference resources exist only in the test. Scheduled memory guards retain their
-existing 4/8-MiB limits and DXGI pacing.
+atlas tiers, including unequal/equal-length date-only fades. Contrasting target clears verify complete opaque
+background overwrite; its temporary reference and query resources exist only in the test. Scheduled memory guards
+retain their existing 4/8-MiB limits and DXGI pacing.
 Release-only `DeskClockTests.exe --submission-probe [--hardware]` runs the same offscreen fixture against either
 clock DLL, reports its draw counts without enforcing the candidate's two-draw contract, and performs no oracle
 draws before timing. The optional hardware flag chooses the default adapter, not the XENEON adapter; live XENEON
