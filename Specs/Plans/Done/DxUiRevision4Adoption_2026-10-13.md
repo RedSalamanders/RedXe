@@ -1,6 +1,6 @@
 # DxUi revision 4 adoption
 
-Status: ACTIVE (2026-10-13)
+Status: completed (2026-10-13)
 
 Owner: `Specs/Core/Core_DxUiIntegration.md`. AV release qualification remains in
 `Specs/Plans/WIP/RFC_Plugins_AVControl.md`.
@@ -24,13 +24,15 @@ The existing AV real-client and resource gates remain open in their owning plan.
 - [x] Pass x64 Release, Debug, and ASan Debug product gates, including hidden WARP AV/host tests and real sanitizer probe.
 - [x] Build ARM64 Debug, Release, and ASan Debug; native ARM64 runtime acceptance is a separate host gate.
 - [x] Pass the pinned library's consumer/matrix validation, skill validation, and source diff checks.
-- [ ] Record any failure and its resolution, commit the adoption, review the PR tree, and merge normally to `main`.
+- [x] Record the failure and resolution, commit the adoption, and review the PR diff for merge readiness.
 
 ## Validation checkpoint
 
-- The final committed `a23d155` candidate returned `FULL_NONINTERACTIVE_PASSED` in all three x64 PrePush profiles.
-  The ASan run included the deliberate detection probe. ARM64 Debug, Release and ASan Debug built with zero warnings
-  and errors; the ARM64 ASan executable imports `clang_rt.asan_dynamic-aarch64.dll` and sanitizer symbols.
+- The adoption commit `a23d155` returned `FULL_NONINTERACTIVE_PASSED` in all three x64 PrePush profiles. The ASan
+  run included the deliberate detection probe. The later `ba2320a` commit changes only the independent tooling test
+  and this plan; its Release PrePush run also returned `FULL_NONINTERACTIVE_PASSED`. ARM64 Debug, Release and ASan
+  Debug built with zero warnings and errors; the ARM64 ASan executable imports
+  `clang_rt.asan_dynamic-aarch64.dll` and sanitizer symbols. Native ARM64 runtime acceptance remains a separate gate.
 - The pinned DxUi `validate-build-matrix.ps1` reported seven project/solution files and zero mapping errors.
   `validate-skills.ps1` passed all ten skills. The current source diff passes `git diff --check`.
 - An early local Release run passed its native scopes but was marked `NOT_RECORDED` because the revision-sensitive
@@ -38,7 +40,14 @@ The existing AV real-client and resource gates remain open in their owning plan.
 - PR #45's first hosted native Release job passed. Its independent tooling job failed while evaluating
   `Plugins/AVControl/AVControl.vcxproj`: `DxUiRoot` was empty because that job restores only the pinned source and has
   no platform output props yet. `LinkConfiguration.Tests.ps1` now supplies the exact restored pin as an MSBuild
-  property. Its 68 local evaluations and the full independent tooling suite pass; a fresh hosted rerun is pending.
+  property. Its 68 local evaluations and the full independent tooling suite pass. PR #45's fresh hosted tooling job
+  [passed](https://github.com/RedSalamanders/RedXe/actions/runs/38427007333); its Release native job was still
+  running at this closeout. The first PR native Release job passed. The hosted result is a separate receipt; local
+  validation is the repository's accepted merge gate under `MergedReviewFixes_2026-10-06.md` decision D6.
+
+The reviewed PR diff contains the lock, supported revision, owning contract, four build-process test files and this
+plan/index only; `git diff --check origin/main...HEAD` passes. Product runtime behavior is not changed by the tooling
+repair. The PR merge is the repository integration step after this implementation closeout.
 
 Rollback is a reviewed revert of this entire adoption (lock and supported revision together), then a rebuild and
 product test against the previous revision 3 source. Keep the last qualified product package available.
