@@ -930,6 +930,12 @@ remain with the AV owner.
   upload only on visual change, zero steady render allocations, one shared 1 MiB DirectWrite-rasterized atlas, no
   persistent DirectWrite or runtime shader/image dependencies, a five-minute scheduled flip soak with stable resources
   and hidden zero work, and complete device-loss teardown.
+- Shaders device setup MUST preserve every background/mip texel against the original pixel-major oracle. Its
+  background rasterization uses one reusable 6 KiB stack row and conservative light ranges, preserving each
+  pixel's contribution order. This temporary stack cost replaces repeated full-canvas light scans without new
+  heap storage or retained cache; resolution, lighting, filtering and shader selection remain unchanged.
+  Thread-stack commitment MAY retain high-water pages after the row's lifetime ends. Qualification MUST report
+  the measured setup benefit and any observed returned-private change; lower setup cost is not memory acceptance.
 - The automated `HostPlugin` scope runs separate 60-second Matrix, Studio Clock and Desk Clock WARP soaks.
   Matrix's 1,024-frame warm-up and measurement both wait for DXGI readiness, sleep 16 ms after each draw and use
   one continuous monotonic animation timeline. Each clock warms for 20 seconds with its scheduled deadlines.

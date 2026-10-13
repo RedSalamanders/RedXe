@@ -55,6 +55,41 @@ using Shaders::kShaderCount;
 using Shaders::kShaders;
 using Shaders::Mode;
 
+class SetupPhaseTimer final
+{
+  public:
+    SetupPhaseTimer(ShadersSetupTimings* timings, ShadersSetupPhase phase, const HRESULT* result = nullptr) noexcept
+        : _timings(timings), _phase(static_cast<uint32_t>(phase)), _result(result)
+    {
+        if (_timings)
+            QueryPerformanceCounter(&_started);
+    }
+    ~SetupPhaseTimer()
+    {
+        Finish(_result ? *_result : S_OK);
+    }
+    SetupPhaseTimer(const SetupPhaseTimer&) = delete;
+    SetupPhaseTimer& operator=(const SetupPhaseTimer&) = delete;
+    void Finish(HRESULT result) noexcept
+    {
+        if (!_timings)
+            return;
+        LARGE_INTEGER ended{};
+        QueryPerformanceCounter(&ended);
+        _timings->phaseTicks[_phase] +=
+            static_cast<uint64_t>(std::max<LONGLONG>(0, ended.QuadPart - _started.QuadPart));
+        ++_timings->phaseCalls[_phase];
+        _timings->phaseResults[_phase] = result;
+        _timings = nullptr;
+    }
+
+  private:
+    ShadersSetupTimings* _timings;
+    uint32_t _phase;
+    const HRESULT* _result;
+    LARGE_INTEGER _started{};
+};
+
 constexpr RedXePluginSettingsContract kSettingsContract{
     sizeof(RedXePluginSettingsContract), Shaders::kSchemaJson, sizeof(Shaders::kSchemaJson) - 1, Shaders::kDefaultsJson,
     sizeof(Shaders::kDefaultsJson) - 1,
@@ -198,6 +233,7 @@ static_assert(sizeof(ShadersConstants) == 96);
 constexpr uint32_t kBackgroundTextureSize = 512;
 constexpr uint32_t kBackgroundMipCount = 10;
 static_assert((1U << (kBackgroundMipCount - 1)) == kBackgroundTextureSize);
+static_assert(kShadersBackgroundTexelCount == (kBackgroundTextureSize * kBackgroundTextureSize * 4U - 1U) / 3U);
 
 std::atomic<uint32_t> gLiveProviderCount{0};
 std::atomic<uint32_t> gLiveWidgetCount{0};
@@ -525,24 +561,33 @@ void FillBackgroundBaseLevel(uint32_t* pixels) noexcept
     }
 
     constexpr float scale = 1.0f / static_cast<float>(kBackgroundTextureSize);
+    std::array<std::array<float, 3>, kBackgroundTextureSize> row;
     for (uint32_t y = 0; y < kBackgroundTextureSize; ++y)
     {
         const float v = (static_cast<float>(y) + 0.5f) * scale;
-        for (uint32_t x = 0; x < kBackgroundTextureSize; ++x)
+        // Keep each pixel's original light order. The conservative two-radius rectangle is larger than the
+        // unchanged 1.9-radius circle; integer ranges also retain a pixel on either side of the rectangle.
+        std::array base{0.03f + v * 0.09f, 0.04f + v * 0.08f, 0.09f + v * 0.06f};
+        const float horizon = std::exp(-((v - 0.52f) * (v - 0.52f)) / 0.02f);
+        base[0] += horizon * 0.16f;
+        base[1] += horizon * 0.12f;
+        base[2] += horizon * 0.09f;
+        row.fill(base);
+        for (const BokehLight& light : lights)
         {
-            const float u = (static_cast<float>(x) + 0.5f) * scale;
-            // Sky to wet asphalt with a warm haze along the horizon.
-            float red = 0.03f + v * 0.09f;
-            float green = 0.04f + v * 0.08f;
-            float blue = 0.09f + v * 0.06f;
-            const float horizon = std::exp(-((v - 0.52f) * (v - 0.52f)) / 0.02f);
-            red += horizon * 0.16f;
-            green += horizon * 0.12f;
-            blue += horizon * 0.09f;
-            for (const BokehLight& light : lights)
+            const float dy = v - light.y;
+            const float bound = light.radius * 2.0f;
+            if (std::fabs(dy) > bound)
+                continue;
+            const float horizontalBound = bound / 1.35f;
+            const int first = std::clamp(static_cast<int>((light.x - horizontalBound) * kBackgroundTextureSize) - 1, 0,
+                                         static_cast<int>(kBackgroundTextureSize));
+            const int last = std::clamp(static_cast<int>((light.x + horizontalBound) * kBackgroundTextureSize) + 2, 0,
+                                        static_cast<int>(kBackgroundTextureSize));
+            for (int x = first; x < last; ++x)
             {
+                const float u = (static_cast<float>(x) + 0.5f) * scale;
                 const float dx = (u - light.x) * 1.35f;
-                const float dy = v - light.y;
                 const float distance = std::sqrt(dx * dx + dy * dy);
                 if (distance >= light.radius * 1.9f)
                 {
@@ -551,22 +596,27 @@ void FillBackgroundBaseLevel(uint32_t* pixels) noexcept
                 const float disk = Smoothstep(light.radius, light.radius * 0.55f, distance);
                 const float halo = Smoothstep(light.radius * 1.9f, light.radius, distance) * 0.25f;
                 const float weight = disk + halo;
-                red += light.red * weight;
-                green += light.green * weight;
-                blue += light.blue * weight;
+                auto& color = row[static_cast<size_t>(x)];
+                color[0] += light.red * weight;
+                color[1] += light.green * weight;
+                color[2] += light.blue * weight;
                 // A faint reflection streak below every light on the wet road.
                 if (dy > 0.0f && dy < light.radius * 6.0f && std::fabs(dx) < light.radius * 0.6f)
                 {
                     const float streak = (1.0f - dy / (light.radius * 6.0f)) * 0.12f;
-                    red += light.red * streak;
-                    green += light.green * streak;
-                    blue += light.blue * streak;
+                    color[0] += light.red * streak;
+                    color[1] += light.green * streak;
+                    color[2] += light.blue * streak;
                 }
             }
+        }
+        for (uint32_t x = 0; x < kBackgroundTextureSize; ++x)
+        {
+            const auto& color = row[x];
             const auto channel = [](float value) noexcept
             { return static_cast<uint32_t>(std::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f); };
             pixels[static_cast<size_t>(y) * kBackgroundTextureSize + x] =
-                0xFF000000U | (channel(blue) << 16U) | (channel(green) << 8U) | channel(red);
+                0xFF000000U | (channel(color[2]) << 16U) | (channel(color[1]) << 8U) | channel(color[0]);
         }
     }
 }
@@ -598,8 +648,27 @@ void DownsampleLevel(const uint32_t* source, uint32_t size, uint32_t* destinatio
     }
 }
 
+void BuildBackgroundPixels(uint32_t* texels, ShadersSetupTimings* timings = nullptr) noexcept
+{
+    {
+        SetupPhaseTimer pixels(timings, ShadersSetupPhase::BackgroundPixels);
+        FillBackgroundBaseLevel(texels);
+    }
+    SetupPhaseTimer mips(timings, ShadersSetupPhase::BackgroundMips);
+    size_t offset = 0;
+    uint32_t size = kBackgroundTextureSize;
+    for (uint32_t level = 0; level + 1 < kBackgroundMipCount; ++level)
+    {
+        const size_t nextOffset = offset + static_cast<size_t>(size) * size;
+        DownsampleLevel(texels + offset, size, texels + nextOffset);
+        offset = nextOffset;
+        size /= 2;
+    }
+}
+
 [[nodiscard]] HRESULT CreateBackgroundTexture(ID3D11Device* device,
-                                              wil::com_ptr_nothrow<ID3D11ShaderResourceView>& view) noexcept
+                                              wil::com_ptr_nothrow<ID3D11ShaderResourceView>& view,
+                                              ShadersSetupTimings* timings = nullptr) noexcept
 {
     // Every mip level in one heap block: 512² + 256² + ... + 1² texels.
     constexpr size_t totalTexels =
@@ -613,7 +682,7 @@ void DownsampleLevel(const uint32_t* source, uint32_t size, uint32_t* destinatio
     std::array<D3D11_SUBRESOURCE_DATA, kBackgroundMipCount> levels{};
     size_t offset = 0;
     uint32_t size = kBackgroundTextureSize;
-    FillBackgroundBaseLevel(texels.get());
+    BuildBackgroundPixels(texels.get(), timings);
     for (uint32_t level = 0; level < kBackgroundMipCount; ++level)
     {
         levels[level].pSysMem = texels.get() + offset;
@@ -621,7 +690,6 @@ void DownsampleLevel(const uint32_t* source, uint32_t size, uint32_t* destinatio
         if (level + 1 < kBackgroundMipCount)
         {
             const size_t nextOffset = offset + static_cast<size_t>(size) * size;
-            DownsampleLevel(texels.get() + offset, size, texels.get() + nextOffset);
             offset = nextOffset;
             size /= 2;
         }
@@ -637,16 +705,20 @@ void DownsampleLevel(const uint32_t* source, uint32_t size, uint32_t* destinatio
     description.Usage = D3D11_USAGE_IMMUTABLE;
     description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     wil::com_ptr_nothrow<ID3D11Texture2D> texture;
+    SetupPhaseTimer upload(timings, ShadersSetupPhase::BackgroundUpload);
     HRESULT result = device->CreateTexture2D(&description, levels.data(), texture.put());
     if (FAILED(result))
     {
+        upload.Finish(result);
         return result;
     }
     D3D11_SHADER_RESOURCE_VIEW_DESC viewDescription{};
     viewDescription.Format = description.Format;
     viewDescription.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
     viewDescription.Texture2D.MipLevels = kBackgroundMipCount;
-    return device->CreateShaderResourceView(texture.get(), &viewDescription, view.put());
+    result = device->CreateShaderResourceView(texture.get(), &viewDescription, view.put());
+    upload.Finish(result);
+    return result;
 }
 
 // A texture drawn by one pass and sampled by the next.
@@ -716,7 +788,7 @@ class SharedDeviceResources final
     SharedDeviceResources(const SharedDeviceResources&) = delete;
     SharedDeviceResources& operator=(const SharedDeviceResources&) = delete;
 
-    [[nodiscard]] HRESULT Initialize(ID3D11Device* device) noexcept
+    [[nodiscard]] HRESULT Initialize(ID3D11Device* device, ShadersSetupTimings* timings = nullptr) noexcept
     {
         if (!device)
         {
@@ -727,9 +799,12 @@ class SharedDeviceResources final
             return S_OK;
         }
 
+        HRESULT result = S_OK;
+        SetupPhaseTimer core(timings, ShadersSetupPhase::CoreDeviceResources, &result);
+
         wil::com_ptr_nothrow<ID3D11VertexShader> vertexShader;
-        HRESULT result = device->CreateVertexShader(g_ShadersVertexShader, sizeof(g_ShadersVertexShader), nullptr,
-                                                    vertexShader.put());
+        result = device->CreateVertexShader(g_ShadersVertexShader, sizeof(g_ShadersVertexShader), nullptr,
+                                            vertexShader.put());
         if (FAILED(result))
         {
             return result;
@@ -850,7 +925,8 @@ class SharedDeviceResources final
         }
 
         wil::com_ptr_nothrow<ID3D11ShaderResourceView> background;
-        result = CreateBackgroundTexture(device, background);
+        core.Finish(S_OK);
+        result = CreateBackgroundTexture(device, background, timings);
         if (FAILED(result))
         {
             return result;
@@ -1117,6 +1193,12 @@ class ShadersWidget final
 
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
+        return InitializeDevice(context);
+    }
+
+    [[nodiscard]] HRESULT InitializeDevice(const RedXeGpuDeviceContext* context,
+                                           ShadersSetupTimings* timings = nullptr) noexcept
+    {
         if (!context)
         {
             return E_POINTER;
@@ -1133,7 +1215,7 @@ class ShadersWidget final
         {
             return DXGI_ERROR_UNSUPPORTED;
         }
-        HRESULT result = _shared->Initialize(context->device);
+        HRESULT result = _shared->Initialize(context->device, timings);
         if (FAILED(result))
         {
             return result;
@@ -1145,7 +1227,9 @@ class ShadersWidget final
         constantDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         constantDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         wil::com_ptr_nothrow<ID3D11Buffer> constantBuffer;
+        SetupPhaseTimer constant(timings, ShadersSetupPhase::ConstantBuffer);
         result = context->device->CreateBuffer(&constantDescription, nullptr, constantBuffer.put());
+        constant.Finish(result);
         if (FAILED(result))
         {
             return result;
@@ -1158,7 +1242,9 @@ class ShadersWidget final
         _shaderFrame = 0;
         // The lookup tables depend on neither the target size nor the frame, so they are drawn here, once per device,
         // where a failure fails the device setup instead of leaving them undrawn behind a working tile.
+        SetupPhaseTimer lookup(timings, ShadersSetupPhase::LookupTableBake);
         result = BakeLookupTables();
+        lookup.Finish(result);
         if (FAILED(result))
         {
             _constantBuffer.reset();
@@ -1833,6 +1919,45 @@ extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId
 }
 
 extern "C" void __stdcall RedXePluginShutdown() noexcept {}
+
+extern "C" HRESULT __stdcall RedXeShadersMeasureTestSetup(const RedXeGpuDeviceContext* context,
+                                                          ShadersSetupTimings* timings) noexcept
+{
+    if (!timings)
+        return E_POINTER;
+    if (timings->sizeBytes != sizeof(ShadersSetupTimings))
+        return E_INVALIDARG;
+    *timings = {};
+    timings->sizeBytes = sizeof(ShadersSetupTimings);
+    timings->phaseCount = kShadersSetupPhaseCount;
+    LARGE_INTEGER frequency{};
+    if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
+        return E_UNEXPECTED;
+    timings->frequency = static_cast<uint64_t>(frequency.QuadPart);
+    LARGE_INTEGER started{}, ended{};
+    QueryPerformanceCounter(&started);
+    HRESULT result = S_OK;
+    {
+        SharedDeviceResources shared;
+        Configuration configuration{};
+        configuration.mode = Mode::Slideshow;
+        ShadersWidget widget({}, shared, configuration, {}, 1);
+        result = widget.InitializeDevice(context, timings);
+    }
+    QueryPerformanceCounter(&ended);
+    timings->totalTicks = static_cast<uint64_t>(std::max<LONGLONG>(0, ended.QuadPart - started.QuadPart));
+    return result;
+}
+
+extern "C" HRESULT __stdcall RedXeShadersCopyTestBackground(uint32_t* texels, uint32_t capacityTexels) noexcept
+{
+    if (!texels)
+        return E_POINTER;
+    if (capacityTexels < kShadersBackgroundTexelCount)
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    BuildBackgroundPixels(texels);
+    return S_OK;
+}
 
 extern "C" HRESULT __stdcall RedXeShadersGetTestDiagnostics(ShadersTestDiagnostics* diagnostics) noexcept
 {

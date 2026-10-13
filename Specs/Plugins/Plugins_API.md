@@ -1895,6 +1895,10 @@ that a drag and a click in `single` mode change nothing, the shared provider res
 an allocation-free steady-state `Render`, and that lookup tables are drawn once at device creation (again after device
 recreation) only for a configuration that can show their entry, never by a sibling or a size notification, and that
 Sky Atmosphere after a failed first size notification renders exactly what a successfully sized widget renders.
+Heartfelt's full 512×512 background and all ten mip levels MUST match the original pixel-major reference byte for
+byte. Tests also cover the call-local setup diagnostic's record/context refusal, bounded output with untouched
+sentinels, phase/result accounting and retirement of its temporary owners. These diagnostic exports are test seams;
+the host does not call them and production retains no timing records.
 The `System` page of each shipped template MUST place one instance of every Process Viewer family widget. Both
 templates configure every catalogued service under `services`.
 Scheduler tests must prove

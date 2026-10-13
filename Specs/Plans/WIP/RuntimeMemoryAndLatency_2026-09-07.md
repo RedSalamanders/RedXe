@@ -2210,7 +2210,7 @@ contract and validation updates.
 | --- | --- | --- |
 | P0.1 | **Complete 2026-10-10: production probe, tests and Release A/B/C/D plus inactive receipts.** See the evidence checklist and versioned Core record. Unconditional device logging was already present and is preserved. | Selected P2.7; its matched comparison is recorded above. D retains 85.80 MiB private, supporting P3.6 attribution/source reclamation; P4.1 remains a storage candidate. F/raised-G/presented-H and external attribution stay with P0.2/P0.4. |
 | P0.2 | **External captures per selected optimization:** PresentMon for PresentMode, pacing and input-to-present; WPR/WPA for CPU/thread/image attribution and whole-process GPU LUIDs. Use a quiet desktop, fresh matching sources/artifacts and the scenario's real settings/services. Do not reuse September thread totals. | Current thread/module attribution and hardware frame/input table in `.build/receipts/`. |
-| P0.3 | **Complete 2026-10-10: automated warmed soaks.** The three isolated 60 s variants run in the HostPlugin scope. Twenty scheduled seconds warm the clocks; Matrix keeps its 1,024-frame warm-up. Five-second/end samples guard uninstrumented peak growth at 4 MiB private / 8 MiB working set. ASan retains default quarantine and functional bounds, with diagnostic byte reporting. | Long Desk Clock sampling places most observed growth in the warm-up interval, without heap/driver stack attribution. Current Release/Debug/ASan full gates pass; longer plugin qualification remains separate. |
+| P0.3 | **Automated warmed soaks implemented 2026-10-10; intermittent clock qualification remains open.** The three isolated 60 s variants run in the HostPlugin scope. Twenty scheduled seconds warm the clocks; Matrix keeps its 1,024-frame warm-up. Five-second/end samples guard uninstrumented peak growth at 4 MiB private / 8 MiB working set. ASan retains default quarantine and functional bounds, with diagnostic byte reporting. | The owned diagnostic attributes fluctuating WARP pool payload in its recording. Fresh post-pacing Release Full still fails the Desk guard at 4.14 MiB; an unchanged-closure affected repeat passes. Debug/ASan native Full pass. Neither repeat nor the prior trace explains the failed peak; longer plugin qualification remains separate. |
 | P0.4 | **Current grid, tile, raised Gallery and pinned-library accounting captured.** See the 2026-10-11 accounting checkpoint. | Source-calculated Matrix counts, settled hardware Gallery submissions, exact tile/raised/dismissed/hidden/restored AV bytes and linked-archive identity agree. Presented FPS/input latency remain unqualified. |
 
 ### Phase 1 — render on the GPU that owns the panel; never block on Present
@@ -2406,6 +2406,116 @@ or moving more work. The clock allocation trace addresses the separate intermitt
 a passing repeat nor this callback table closes that guard. `.build/receipts/p34-residual-gpu-attribution.json`
 binds the original summary hashes and retains both orders; no additional build or runtime arm is credited.
 
+### P3.4 Shaders device setup attribution and background rasterization (2026-10-13)
+
+Call-local shipped-DLL seams now exercise the same setup implementation as `OnDeviceCreated`, with six non-overlapping
+QPC phases and no retained timing state. Production passes no timing record. The pixel seam exports exactly 349,525
+RGBA texels across the ten production background mip levels, refuses undersized storage before writing and preserves
+caller sentinels. Native tests cover refused records/context, bounded pixels, phase/result accounting and owner
+retirement, while retaining all catalog rendering and lookup-table tests.
+
+Release control samples run on one isolated device per backend, with one first setup and 31 repeated fresh slideshow
+setups. Each call retires its temporary widget/shared owners; the fixture clears its dedicated context afterward.
+The default hardware device is the RTX 5080 (`00000000:0001ADF4`), not the XENEON's owning AMD adapter. These are
+native setup observations, not a displayed-page or input-latency baseline:
+
+| Phase | WARP repeated median (ms) | RTX 5080 repeated median (ms) |
+| --- | ---: | ---: |
+| Total, including retirement | 23.388 | 18.149 |
+| Core D3D resources | 5.834 | 1.798 |
+| Background pixels | 15.258 | 15.165 |
+| Background mips | 0.278 | 0.276 |
+| Background upload/view | 0.254 | 0.469 |
+| Constant buffer | 0.031 | 0.023 |
+| Lookup-table bake API calls | 1.041 | 0.016 |
+
+Background pixels are the measured target: the original routine tests all 56 lights at each of 512x512 pixels.
+The candidate uses one reusable 6-KiB RGB stack row and conservative two-radius light ranges around the unchanged
+1.9-radius contribution cutoff. It keeps the original per-pixel light order, arithmetic, reflections, conversion
+and mip filters. No lower resolution, changed lighting, new heap allocation or retained cache is selected. The
+temporary row's stack lifetime is bounded; stack commitment can retain its high-water pages. Initial sequential
+Release diagnostics put the background medians at 1.264 / 1.256 ms (WARP / RTX 5080), with total setup including
+retirement at 8.826 / 3.562 ms. These first diagnostics are separate from the counterbalanced hardware comparison.
+
+All 349,525 texels across all ten actual old/new DLL mip levels match byte for byte in Release, Debug and ASan Debug:
+1,398,100 bytes, zero changed bytes, SHA-256 `a137ee14a99ee73faf16f0a715b851cb5e3a4efa492315ba9aa2dbc7beedf88e`.
+The regular PluginContract scope also compares the candidate with an independent frozen pixel-major oracle;
+it does not reuse the production row/range implementation. All original catalog, lookup-table, resource and
+allocation-free rendering checks remain. New files follow the native inventory and `Scope.Tests.Something` naming.
+
+Fresh Debug and ASan Debug native Full runs each pass all fifteen scopes, including WARP, screenshots and crash
+checks. Sanitizer quarantine remains enabled and its process-byte reporting is diagnostic. ARM64 Release compiles
+with zero warnings/errors; native ARM64 execution remains unavailable. All ten skills pass. The original Release
+Full reaches the Desk Clock soak and fails its unchanged 4-MiB private-growth guard at 4,341,760 bytes (4.14 MiB);
+working-set growth is 2,560,000 bytes and object/device/draw/hidden/teardown checks pass. Its explicit remaining
+HostSmoke scope passes. This repeats the intermittent guard class after fixture pacing was corrected, without
+explaining either this peak or the earlier 5.06-MiB peak. The clock DLL and host test executable are byte-identical
+to the frozen control. An unchanged-source/artifact Release HostPlugin repeat passes all host checks and three
+guards: Matrix peak 933,888 / 159,744 bytes private/working set, Studio 2,375,680 / 1,540,096 and Desk
+991,232 / 180,224. Desk renders 1,653 frames, with stable resources, bounded draws, hidden zero work and complete
+teardown. All fifteen Release native scopes are accounted for by the original Full, affected host repeat and
+remaining HostSmoke; the original Full remains a failed run. A passing repeat does not explain the failed peak.
+
+The control keeps the original rasterization, native source and all three runtime/payload profiles in
+`p34-shader-control/`. The sealed Release candidate differs only in `5H4D3R5.dll/.pdb` and
+`PluginContractTests.exe/.pdb`: host, other plugin artifacts, settings, fonts and DxUi identity are identical.
+The native source comparison has seven modified inputs and the two new oracle files, with all clock/host inputs
+unchanged. Receipts are `p34-shader-attribution-control-*`, `p34-shader-candidate-*`,
+`p34-shader-source-pair-identity.json` and `p34-shader-release-clock-guard-failure.log` under `.build/receipts/`.
+GPU API phase times include driver/scheduler cost and do not measure GPU completion.
+
+Two fresh native orders per backend repeat the selected CPU saving. Each arm uses one first setup and 31 repeated
+fresh owners on its own isolated device; all six phases execute once and succeed. Repeated median times are:
+
+| Backend / order | Background control → candidate (ms) | Total control → candidate (ms) |
+| --- | ---: | ---: |
+| WARP / control then candidate | 14.963 → 1.239 | 22.396 → 8.484 |
+| WARP / candidate then control | 14.737 → 1.234 | 22.403 → 7.945 |
+| Default RTX 5080 / control then candidate | 14.683 → 1.238 | 17.367 → 3.398 |
+| Default RTX 5080 / candidate then control | 14.654 → 1.227 | 17.202 → 3.553 |
+
+Background rasterization is 91.6–91.7% lower in these observations. The separate production XENEON comparisons
+run on the owning AMD Radeon Graphics adapter (`00000000-0001C33F`). Both Release orders use identical portable
+scenes, collectors, version 1.0.282, DxUi identity, pinned shortcuts and icon resources, checked before/after.
+Each arm has all 18 stages and 402 successful callbacks; Shaders has three device callbacks per arm:
+
+| Release order | Shaders device median control → candidate (ms) | Shaders device max control → candidate (ms) |
+| --- | ---: | ---: |
+| Control then candidate | 20.664 → 4.568 | 26.749 → 10.380 |
+| Candidate then control | 23.555 → 4.850 | 23.659 → 13.682 |
+
+The measured setup median falls 77.9 / 79.4%. This supports accepting the bounded CPU rasterization change with
+full-resolution, byte-identical content. It does not qualify a four-ms whole-page slice or physical first pixel.
+Settled Matrix observations remain separate from setup cost:
+
+| Order / phase | One-core CPU control → candidate (%) | Submissions/s control → candidate | Private MiB control → candidate |
+| --- | ---: | ---: | ---: |
+| Forward / cold | 2.266 → 2.340 | 60.118 → 60.116 | 36.12 → 35.59 |
+| Forward / returned | 2.697 → 2.500 | 59.978 → 60.071 | 66.27 → 67.36 |
+| Reverse / cold | 1.878 → 2.414 | 60.255 → 59.974 | 35.41 → 34.61 |
+| Reverse / returned | 2.031 → 2.055 | 60.037 → 60.118 | 63.66 → 64.87 |
+
+Both arms keep 42 cold / 44 returned threads, local usage 25.01 cold / 32.26 MiB returned, and zero hidden/minimized
+submissions. CPU is mixed and no causal steady CPU saving is established. Candidate returned private is **1.09 /
+1.21 MiB higher** in the two pairs; this observed cost must remain explicit. Cold differences precede shader
+activation, while live data, font/Shell/driver caches and scheduling remain uncontrolled. The intended 6-KiB row
+cost is justified by the repeated large setup reduction, unchanged heap/resource payloads and exact pixels; it
+does not explain the returned-private difference or establish a memory win. Full return-retention acceptance stays
+in P3.6 and requires further attribution, with the original cold-plus-four-MiB target unmet.
+
+The largest remaining candidate device medians are Desk Clock 11.689 / 12.300 ms, Weather 10.523 / 11.033 ms and
+System Pulse 9.409 / 11.006 ms (six calls each). AV Control medians are 0.894 / 1.040 ms but maxima are
+124.971 / 144.499 ms. These are whole callbacks. Separate CPU atlas/font work from D3D/API/driver work before
+selecting another change; preserve the current multi-tier clock atlas, glyph coverage, natural lighting and live
+animation. The proposed four-ms slice, physical-touch/first-pixel, earlier screenshot fault and clock peak remain
+open. A current-fixture clock allocation capture is prepared; its additional UAC timing permission is pending.
+
+The counterbalanced native logs, all four hardware roots, paired context/source/runtime identities, profile and
+actual-payload proofs are bound by `p34-shader-native-matched-comparison.json`, both
+`p34-shader-matched-comparison*.json` and `p34-shader-qualified-comparison.json`. Closeout requires the final
+BuildProcess scope in `p34-shader-final-tooling.log` and immutable source/profile/evidence manifests in
+`p34-shader-sealed/` and `p34-shader-closure.json` before the step's commit. The complete plan remains active.
+
 ### P4.6 clock allocation capture and fixture pacing (2026-10-12)
 
 The approved replacement captures a normal-user, byte-identical Release HostPluginTests alias with one separate
@@ -2477,7 +2587,7 @@ cold visit to that page, and nothing from the page that was left.
 | P3.1 | **Checked borrowed selection and exact immutable validation witness implemented.** Full logical document equality includes inactive pages; bounded witness misses, optional-cache failure and oversized valid documents take cold full validation. No duplicate parsed document or target-only trust. | Malformed inactive pages, selector/source-only reuse, rollback and exact gates pass. Lower selection/provider cost does not qualify the proposed 2 ms UI CPU / 8 ms stage targets; GPU/visibility and later preparation still need attribution. |
 | P3.2 | **Complete 2026-10-10.** 64-bit hash filter plus original widget index, 32-byte keys. Full original-byte comparison preserves identity under collisions, with no extra serialization/allocation. | Compiler PDB frame records prove Initialize/Reconfigure <32 KiB in both x64 profiles; forced-collision and actual reuse/reconfigure tests pass. |
 | P3.3 | **Reconciled against current quality and lifetime contracts.** Keep first follow-finger presentation before deferred staging (`FlushPendingTransitionStage`), current plus one directional neighbor, and retire the previous neighbor on reversal. Continuous widgets keep animating during pan/settle. Blocked edges and canceled-before-staging gestures activate nothing; a canceled gesture that already exposed a neighbor can legitimately have activated it. | Current policy, partial/offscreen rendering, native-neighbor and retirement tests pass. Physical F/input/presented latency remains under P0.2. September eager recognition, both-neighbor retention and blanket staged-animation suppression are rejected. |
-| P3.4 | **Attribution and offscreen discrete Launcher construction implemented.** Ordinary native parsing/quality stays intact on one lazy host-owned STA, with copied jobs, stale-generation cancellation, bounded admission and a full-quality readiness barrier. The current page keeps animating; initial/touch setup remains synchronous. A 4-ms host slice cannot bound an indivisible GPU/native callback above 4 ms. | Both Release orders remove Launcher visibility stalls (68.354/73.821 -> 0.035/0.033 ms median), with exact raw pixels and recorded profile accounting. Whole Gallery readiness is mixed and one returned process thread is added. Physical input/first-pixel, the whole-page 4-ms slice/16.7-ms frame and retention targets remain unqualified. |
+| P3.4 | **Attribution, offscreen discrete Launcher construction and bounded Shaders background rasterization implemented.** Ordinary native parsing/quality stays intact on one lazy host-owned STA, with copied jobs, stale-generation cancellation, bounded admission and a full-quality readiness barrier. The current page keeps animating; initial/touch setup remains synchronous. Shader lighting uses a 6-KiB stack row and conservative ranges with exact original mip bytes. A 4-ms host slice cannot bound an indivisible GPU/native callback above 4 ms. | Both orders remove Launcher visibility stalls (68.354/73.821 -> 0.035/0.033 ms median). Shader device medians fall 20.664/23.555 -> 4.568/4.850 ms on XENEON AMD; CPU background time falls 91.6–91.7% in both native orders, with all x64 mip payloads exact. Returned private is 1.09/1.21 MiB higher in the shader pairs, with unchanged resource payloads and mixed CPU; attribution remains open. Desk/Weather/Pulse medians and AV outliers are the next measured construction targets. Physical input/first-pixel, the whole-page 4-ms slice/16.7-ms frame and retention remain unqualified. |
 | P3.5 | **Conditional snapshot product option.** A 2560x720 BGRA snapshot costs 7.031 MiB (1280x360 costs 1.758 MiB) per retained image, in addition to live pages/driver references. Sliding a frozen snapshot replaces visible animation; downsampling can reduce quality. Neither trade is accepted by this implementation request. | Decide only from measured P3.4 limits and a concrete visual/first-present comparison. Keep live animation and the two-page bound until such a decision; no snapshot code is selected. |
 | P3.6 | **Source, GPU binding and AV coordinator ownership cuts complete; full retention remains in progress.** Sources retire after their last external facade/subscription lease and quiescent collection/callback use. Context bindings clear at successful page retirement without rebuilding the device or swap chain. AV coordinator/graphics caches release with the last provider, preserving survivors, failed-allocation rollback and retiring host work. Mapped plugin images remain. Driver trimming on visible settles is not selected. | Full recorded profile gates pass. Source retention 87.61 → 71.75 MiB; separate GPU pair 69.54 → 69.08 MiB. The AV pair has 18 stages/402 callbacks each, returned private 62.18 → 64.60 MiB and local usage 32.26 MiB in both; its cold difference already precedes AV visits. No causal process-memory/CPU/latency saving is established. Submissions stay near 60/s and hidden/minimized zero. Whole D cold-A +4 MiB and residual driver/cache attribution remain open. |
 
@@ -2490,7 +2600,7 @@ cold visit to that page, and nothing from the page that was left.
 | P4.3 | **Count-sized icons, glyph batch, single shell output, folder binding, verified-file opaque reuse and combined queries implemented; cold-parent shortcuts rejected.** Empty/8/32 entries use 0/2/8 MiB GPU payload. Eight decoded buffers retain 2 MiB with exact token/identifier and fresh shield/file checks; the prior expansion adds 1.5 MiB. Ordinary parsing remains. P3.4 now constructs incoming discrete Launcher CPU pixels on the host STA, sharing that cache under a short SRW lock. | Current-DLL phase/ownership/normal-route regression, cache/shield/metadata/OOM/capacity/shutdown, import/drop/device-loss, stale jobs, exact STA pixels, matched measurements and profile accounting are recorded above. Initial/touch cold setup, worst whole-page activation, process memory and first-pixel budgets remain open. Historical failed guard/hash receipts remain; no causal D-return saving is claimed. |
 | P4.4 | **Surface lifetime landed and retained at the current pin.** Hidden tile and unraised overlay surfaces are released without detaching control trees. The raised hardware P0.4 run confirms exact tile/overlay bytes, dismissal, hidden zero and restore. Lazy control-tree attachment, hidden-view update skipping, profile-control destruction and inventory diffing remain separate proposals. | Native fixtures and production hardware accounting agree; unchanged-observation copy cost and any new control-tree proposal still require measurements. Real AV release gates remain in the HOLD RFC. |
 | P4.5 | **Content-sized Weather cache and last-widget release implemented.** Cold bodies remain unallocated; each used entry owns payload plus terminator, with equal-size reuse and transactional new/grow/shrink/eviction. Surviving/hidden widgets retain shared data; final strong callback leases release it. Existing validators, 304, cancellation and refresh clamps remain. Curl connection reuse and failure coalescing are separate conditional candidates. | Real-DLL lower offline transport proves 2,097,160 → 24 bytes for eight two-byte responses, capacity/OOM/expiry/validator/failure and last-owner scenarios, with red/green against the old cache. Exact images and profile accounting are recorded above. Matched Gallery observations establish no causal whole-process CPU or memory saving. |
-| P4.6 | **Hardware baseline and owned heap diagnostic captured; clock fixture pacing corrected.** Shared multi-tier atlas and one-ms Desk active-flip requests remain. Initial/warm/measured fixture draws now acquire DXGI readiness, with permit-refusal/consumption/failure tests. Fresh profile accounting and four counterbalanced guards pass. GdiOrbit remains absent from shipped Gallery. | The loss-free replacement ETL identifies fluctuating WARP pool payload in that recording, without reproducing/explaining the old failed peak. Cadence is comparable; CPU/memory remain mixed and no product saving is claimed. Preserve typography, rollover quality and unchanged 4/8-MiB guards. Hardware callback/physical-first-pixel and the historical failure remain separate open work. |
+| P4.6 | **Hardware baseline and owned heap diagnostic captured; clock fixture pacing corrected.** Shared multi-tier atlas and one-ms Desk active-flip requests remain. Initial/warm/measured fixture draws now acquire DXGI readiness, with permit-refusal/consumption/failure tests. The fixture-step profile accounting and four counterbalanced guards pass. A later shader qualification retains a new 4.14-MiB Release guard miss after pacing, followed by a passing exact-closure host repeat. GdiOrbit remains absent from shipped Gallery. | The loss-free replacement ETL identifies fluctuating WARP pool payload in its earlier recording; it does not explain the 5.06-MiB or new 4.14-MiB failed peaks. Cadence is comparable; CPU/memory remain mixed and no clock product saving is claimed. A current-fixture trace is prepared and awaits additional UAC timing permission. Preserve typography, rollover quality and unchanged 4/8-MiB guards. Hardware callback/physical-first-pixel and the historical failures remain open. |
 
 ### Phase 5 — DxUi upstream and spec closeout
 

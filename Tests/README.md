@@ -20,6 +20,13 @@ still uses `HostPluginTests.exe --matrix-soak`, `--studio-clock-soak` or `--desk
 ASan retains its default quarantine and lifetime checks; it reports process bytes diagnostically and checks the
 same object/resource counts, scheduling and teardown, without applying the uninstrumented byte-growth bar.
 
+`PluginContractTests.exe --shader-setup-attribution --warp <new-raw-path>` records six call-local Shaders setup phases
+and saves every production background mip texel. `--hardware` selects the default hardware adapter and prints its
+identity; it does not select the XENEON adapter or show a window. The regular `PluginContract` scope compares all
+349,525 texels to the independent original pixel-major oracle and checks diagnostic refusal, output bounds and
+temporary-owner retirement. Native setup times include driver/API work and retirement, not GPU completion or
+displayed/input latency. Keep old/new runtime and raw-payload hashes with any comparison.
+
 For independent resource investigations, force fresh execution and retain paired fixture/build provenance. Timing, native ARM64, real devices, IME/assistive technology and foreground input remain separate qualification requirements. These commands do not manufacture those claims.
 ```powershell
 ./Test-Changes.ps1 -Scopes <name> -SkipBuild

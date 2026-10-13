@@ -42,6 +42,8 @@
   "Tests/LogiconTests/Logicon.Tests.Runner.cpp",
   "Tests/PluginContractTests/PluginContract.Tests.AddressSanitizerProbe.h",
   "Tests/PluginContractTests/PluginContract.Tests.Runner.cpp",
+  "Tests/PluginContractTests/PluginContract.Tests.ShadersBackground.cpp",
+  "Tests/PluginContractTests/PluginContract.Tests.ShadersBackground.h",
   "Tests/SettingsTests/Settings.Tests.FrameRate.cpp",
   "Tests/SettingsTests/Settings.Tests.FrameRate.h",
   "Tests/SettingsTests/Settings.Tests.JsonStorage.cpp",
