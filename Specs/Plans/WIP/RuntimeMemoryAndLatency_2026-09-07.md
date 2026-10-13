@@ -2508,8 +2508,9 @@ System Pulse 9.409 / 11.006 ms (six calls each). AV Control medians are 0.894 / 
 124.971 / 144.499 ms. These are whole callbacks. Separate CPU atlas/font work from D3D/API/driver work before
 selecting another change; preserve the current multi-tier clock atlas, glyph coverage, natural lighting and live
 animation. The proposed four-ms slice, physical-touch/first-pixel, earlier screenshot fault and clock peak remain
-open. The current-fixture clock allocation capture is prepared. Its 2026-10-13 approved UAC attempt was canceled
-before the recorder started; a replacement prompt requires the owner's pending authorization.
+open. The current-fixture clock allocation capture's first approved UAC attempt was canceled before recording.
+The explicitly authorized replacement is now loss-free, with verified cleanup; the P4.6 batching step below
+records its driver attribution and candidate qualification.
 
 The counterbalanced native logs, all four hardware roots, paired context/source/runtime identities, profile and
 actual-payload proofs are bound by `p34-shader-native-matched-comparison.json`, both
@@ -2585,8 +2586,8 @@ inputs and copied the sealed build-282 Release runtime to a fresh receipt root. 
 `Start-Process -Verb RunAs` before the administrator recorder started. No recorder directory or ETL was created.
 Independent read-only inspection confirms that the unique clock alias is not running and its IFEO image key is
 absent. Preserve `runtime-2026-10-13-p46-current-clock-allocation/refused-at-uac.json` and
-`p46-current-clock-capture-controller.log`; this attempt supplies no allocation attribution. One replacement prompt
-has been requested and MUST NOT be launched until the owner authorizes it.
+`p46-current-clock-capture-controller.log`; this attempt supplies no allocation attribution. Replacement authorization
+was pending at this checkpoint; the owner's later explicit authorization and successful recording are below.
 
 While that request is pending, an isolated uninstrumented current Release WARP control passes the unchanged
 20-second warm-up, 60-second measurement and two-second hidden interval. It submits 1,655 measured fixture frames,
@@ -2608,6 +2609,119 @@ Receipts are `p46-current-clock-uninstrumented-control0` and `p46-current-clock-
 `.build/receipts/`. After the authorized current-fixture trace succeeds, verify owned PID/symbols, event loss and
 cleanup, attribute the remaining cost, then select a measured change. Add independent regression coverage and compare
 both Release orders before committing the optimization. The old failed peaks and the complete WIP remain open.
+
+### P4.6 current-clock allocation attribution and compatible batching (2026-10-13)
+
+The owner explicitly authorized one replacement UAC prompt. The normal-user current paced Release fixture records
+a 92.475-second ETL with zero lost events/buffers, all periodic profile checks live and successful owned stop. Its
+unique IFEO image key is absent and WPR independently reports the owned instance inactive. The initial cleanup
+assertion refused WPR's `WPR is not recording` wording; the exact response is preserved, the read-only assertion
+was corrected and no recording or cleanup mutation was repeated. The first canceled UAC receipt remains intact.
+All 474 captured native inputs and 145 copied runtime files match before/after recording; the native inputs are
+also archived byte for byte from the verified sealed source. Microsoft/private symbols and kernel command-line
+metadata bind the stacks to PID 85932 and its unique normal-user clock alias.
+
+The analysis includes all 2,284 reported stack groups, with one explicitly unresolved group. Heap extent totals
+are rejected after xperf's decommit warning; virtual-allocation totals are not process private commitment.
+
+| Process-age cut | Outstanding heap payload (KiB) | First non-allocator WARP caller payload (KiB) | Direct clock caller payload (KiB) |
+| --- | ---: | ---: | ---: |
+| 25 seconds | 4,157.4 | 3,422.9 | 0.9 |
+| 50 seconds | 5,120.5 | 4,394.4 | 0.9 |
+| 85 seconds | 5,119.4 | 4,397.2 | 0.9 |
+| Recording end | 4,206.6 | 3,484.6 | 0.9 |
+
+Across the recording, WARP accounts for 528,682.7 of 544,475.0 KiB allocated payload (97.1 percent). Its dominant
+`Task_Transform` pool stack allocates 324 blocks / 295,072.9 KiB (54.2 percent of total payload). Direct clock caller
+groups allocate four blocks / 1,506.9 KiB and retain two / 0.9 KiB. These are allocation-work and ownership
+observations, not CPU-stack attribution or process-commit savings. The traced fixture passes with 3,181 measured
+frames and 2,887,680-byte peak private growth. It does not reproduce or explain the earlier 4,341,760-byte
+post-pacing failure or the older 5,308,416-byte peak.
+
+The selected experiment batches the compatible clock passes into one instanced draw after the separate opaque
+background. A compact integer mapping preserves the original card, moving-face, separator and date primitive order.
+Static/active frames still submit 40/46 instances and use the same changed-only 400-byte upload, atlas tiers,
+font contours, colors, shading, duration, deadlines and pacing. Total draws fall from three/four to two/two, and
+three immutable 16-byte offset buffers and their bindings are removed. No cache, owner, worker or wake is added.
+
+All ten sealed current Release BMP baselines remain byte-identical in the pilot. Twelve control and twelve candidate
+native observations in counterbalanced order produce static submission medians 0.04725 -> 0.03625 ms and active
+medians 0.05035 -> 0.03770 ms (23.3 / 25.1 percent lower). Single-frame WARP timestamp medians are effectively
+unchanged at 1.20695 / 1.20745 ms, with broad individual variation. These uncapped API probes do not establish
+displayed hardware cadence, whole-process CPU savings, lower driver allocation payload or memory acceptance.
+
+The independent native oracle freezes the original vertex shader and three-pass offset-buffer sequence, borrowing
+the same visual constants/atlas/pixel pipeline so serviced fonts and timing cannot change the reference. The Release
+candidate passes 31 complete-frame comparisons across static, flip/date phases, landscape/portrait/minimum/DPI
+extents and both initialized atlas tiers. The first expanded fixture failed its high-tier assertion because it
+notified size before the initial clock sample; that receipt is retained. The corrected fixture exercises the
+established initialized resize path and passes.
+
+Separate cold-setup gap: `DeskClockWidget::OnTargetSizeChanged` currently gates atlas resizing on its wall-clock
+`_initialized` state, so the first notification after device creation can be ignored although device resources
+exist. A first large unchanged extent can therefore retain the base tier. This predates batching and is not fixed
+or accepted by the initialized-tier oracle. Add a cold maximum-extent regression and qualify a resource-readiness
+guard in a separate step; preserve the existing tier thresholds and full-quality glyphs.
+
+Receipts are `runtime-2026-10-13-p46-current-clock-allocation-repeat`, `p46-clock-batch-pilot-native`,
+`p46-clock-batch-native-pilot-matched`, and `p46-clock-batch-release-oracle-test*` under `.build/receipts/`.
+Fresh Release, Debug and ASan Debug Full each pass all fifteen scopes on 475 unchanged native inputs and
+144/145/75 unchanged deployed artifacts. The original-draw oracle compares 31 Release and 30 Debug/ASan frames;
+the additional Release target-display readback accounts for the difference. Source builds report zero warnings
+or errors; ARM64 Release compiles cleanly, with native ARM64 runtime unexecuted. All ten skill checks pass.
+Release's sixty-second Desk Clock guard peaks at 1,331,200 private bytes and 1,462,272 working-set bytes, with
+1,685 measured frames and exactly 3,370 draws. This passing repeat does not explain the prior failed peaks.
+
+The final native comparison uses the identical new `--submission-probe` executable, host/dependency/scene bytes
+and both orders; only the clock DLL/PDB differ. Each backend has eight control and eight candidate observations:
+
+| Backend | Static API median (ms), control -> candidate | Active API median (ms), control -> candidate | Active GPU timestamp median (ms), control -> candidate |
+| --- | ---: | ---: | ---: |
+| WARP | 0.03020 -> 0.02465 | 0.04620 -> 0.03640 | 1.01440 -> 0.90630 |
+| Default RTX 5080 | 0.00305 -> 0.00265 | 0.01030 -> 0.01120 | 0.01080 -> 0.01040 |
+
+WARP submission medians are 18.4/21.2 percent lower. The RTX active API median is adversely 0.9 microseconds higher;
+there is no all-backend CPU win. The bounded adverse observation is accepted for the simpler draw/resource set,
+exact pixels and the WARP/AMD benefits, and is recorded in the performance contract. Native timestamps are
+single offscreen draws, not displayed cadence or input latency; the default RTX adapter is not the XENEON adapter.
+
+Four nonactivating production observations use the same 65-second cold phase, 25-second hidden/minimized phases,
+ten-second recoveries, one-second probe interval, scene/host/settings/DxUi bytes and build stamp 282. Every
+`device-created` record names the monitor-owning AMD Radeon, LUID `00000000-0001C33F`. Both orders preserve visible
+submission cadence and hidden/minimized zero submissions:
+
+| Order | CPU (% of one core), control -> candidate | Submissions/s, control -> candidate | Private (MiB), control -> candidate | Working set (MiB), control -> candidate |
+| --- | ---: | ---: | ---: | ---: |
+| Control then candidate | 1.531 -> 0.896 | 26.347 -> 26.461 | 33.86 -> 41.05 | 49.64 -> 62.19 |
+| Candidate then control | 1.683 -> 1.145 | 26.246 -> 26.513 | 34.27 -> 34.44 | 49.91 -> 49.93 |
+
+Observed CPU is 41.5/32.0 percent lower, with uncontrolled live-clock phases and background workload. Local GPU usage
+is 25.51 MiB in every cold phase. Process private changes are +7.19/+0.17 MiB; the large first-pair difference is not
+repeated, and neither pair establishes a memory win or attributes every driver/font/allocator byte. No new owner,
+cache, timer or worker exists in the changed production code. Memory acceptance and the original peaks remain open.
+Raw captures, shared native logs and byte/context verification are retained in `p46-clock-batch-matched/` and its
+`comparison.json`.
+
+The five-minute uninstrumented candidate retains stable owners, two draws per frame, active/idle scheduling,
+hidden zero work and complete teardown, but fails its unchanged four-MiB private-growth guard at 6,213,632 bytes
+(5.93 MiB); working-set growth is 4,702,208 bytes, below eight MiB. It measures 6,086 frames / 12,172 draws. The
+equal-duration sealed old-clock control also fails that private guard at 6,770,688 bytes (6.46 MiB), with working
+set 3,948,544 bytes, 5,813 frames and otherwise passing original draw/resource/hidden/teardown bounds. Both
+20-second warm-up / 300-second measurements preserve native/runtime identity. This demonstrates that the late
+peak can occur without batching; the two runs do not attribute it or prove a candidate memory saving.
+
+Preserve `p46-clock-batch-five-minute` and `p46-clock-batch-five-minute-control`, including both failures and their
+one-second process samples. Long memory qualification is `HOLD`; do not call a passing sixty-second repeat an
+explanation or widen the 4/8-MiB guards. The short allocation recording ends before this late window. A prepared
+330-second recording of the current normal-user candidate, using a unique image alias and bounded owned recorder,
+covers the complete five-minute interval while the fixture remains alive. Its additional UAC permission is pending;
+preparation alone starts no prompt, process, registry configuration or recording.
+
+The batching implementation has exact pixels, all three Full profiles and matched Release CPU/submission evidence;
+it is not complete memory qualification. Final independent tooling passes. `p46-clock-batch-sealed/` and
+`p46-clock-batch-closure.json` bind the source, all four runtime profiles, raw pixel/control/trace evidence and both
+preserved long failures before this step's commit. The seal explicitly reports long memory qualification `HOLD`,
+no explanation of the earlier peaks and the cold-setup gap still open. The complete plan stays active.
 
 ### Phase 3 — fluid swipe, nothing left behind
 

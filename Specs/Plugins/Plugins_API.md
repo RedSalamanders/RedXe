@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-10-12
+Last reviewed: 2026-10-13
 
 ## Purpose and scope
 
@@ -1403,13 +1403,15 @@ final target has no retained moving face. A date change cross-fades the date onc
 device recovery, or first visible frame snaps to current local time and never replays missed ticks.
 
 The provider owns four embedded stripped Shader Model 5.0 blobs, one 1024×1024 `R8_UNORM` atlas, one 400-byte
-dynamic visual constant buffer, three 16-byte immutable instance-offset buffers, and immutable sampler, blend,
+dynamic visual constant buffer, and immutable sampler, blend,
 rasterizer, and depth states. It creates the set transactionally per provider/device and releases it idempotently.
-Geometry comes from `SV_VertexID`; there are no vertex, index, per-tile, off-screen, depth-texture, or post-process
-resources. A static frame submits one constant upload only when cached visual state changed, one background draw, one
-12-instance card draw, and one 28-instance glyph/separator/date draw. An active flip adds one six-instance moving-face
-draw. Thus a frame is bounded to 40 submitted instances and three draws while static or 46 submitted instances and
-four draws while animating; logical instance indices remain within 0 through 59.
+Geometry comes from `SV_VertexID`; there are no vertex, index, instance-offset, per-tile, off-screen, depth-texture, or post-process
+resources. A static frame submits one constant upload only when cached visual state changed, one background draw,
+and one 40-instance draw containing the twelve card halves and twenty-eight glyph/separator/date instances. An
+active flip includes its six moving faces in that same draw, after the cards and before the glyphs. The vertex shader
+maps compact instance IDs into the original logical ranges without changing primitive order or visual arithmetic.
+Thus a frame uses two draws with 40 submitted instances while static or 46 while animating; logical instance indices
+remain within 0 through 59. No per-frame offset-buffer binding or additional constant upload is required.
 
 The first frame samples local time and requests one immediate bootstrap frame when necessary. A static clock requests
 the remaining 1–1000 milliseconds to the next local second. A detected changed sample and every active flip frame
@@ -1804,7 +1806,8 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     reference-aligned slim-card, crisp native-font glyph, common-baseline, and compact real-advance date bounds
     including an unpadded single-digit day, unchanged-tile visibility and pixel stability throughout every flip phase,
     isolated DirectWrite initialization with no inactive or steady font work, device recreation, zero steady render
-    allocations, the one-upload/four-draw and 46-instance bounds, absence of persistent DirectWrite, the runtime shader
+    allocations, the one-upload/two-draw and 46-instance bounds, exact frames against the frozen original vertex shader
+    and draw order at both atlas tiers, absence of persistent DirectWrite, the runtime shader
     compiler, WIC, and loose font/image assets, five-minute scheduled production-host soak, and complete teardown
     through `DeskClockTests`,
     `SettingsTests`, and `HostPluginTests`. Its automated 60-second soak uses the same 20-second scheduled warm-up

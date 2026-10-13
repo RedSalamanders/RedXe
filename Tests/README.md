@@ -20,6 +20,16 @@ still uses `HostPluginTests.exe --matrix-soak`, `--studio-clock-soak` or `--desk
 ASan retains its default quarantine and lifetime checks; it reports process bytes diagnostically and checks the
 same object/resource counts, scheduling and teardown, without applying the uninstrumented byte-growth bar.
 
+Desk Clock uses two draws in static and moving states, preserving the 40/46 instance and 400-byte changed-only
+upload bounds. `DeskClockTests` compares 31 complete frames to a frozen original vertex shader and offset-buffer
+draw sequence. It covers static/flip/date phases and landscape/portrait/minimum/DPI extents at both initialized
+atlas tiers; its temporary reference resources exist only in the test. Scheduled memory guards retain their
+existing 4/8-MiB limits and DXGI pacing.
+Release-only `DeskClockTests.exe --submission-probe [--hardware]` runs the same offscreen fixture against either
+clock DLL, reports its draw counts without enforcing the candidate's two-draw contract, and performs no oracle
+draws before timing. The optional hardware flag chooses the default adapter, not the XENEON adapter; live XENEON
+cadence still needs the production probe. Keep identical probe executable, runtime and backend identities in pairs.
+
 `PluginContractTests.exe --shader-setup-attribution --warp <new-raw-path>` records six call-local Shaders setup phases
 and saves every production background mip texel. `--hardware` selects the default hardware adapter and prints its
 identity; it does not select the XENEON adapter or show a window. The regular `PluginContract` scope compares all

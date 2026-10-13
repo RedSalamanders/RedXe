@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-10-12
+Last reviewed: 2026-10-13
 
 ## Mandate
 
@@ -649,10 +649,10 @@ per frame for the overlay draw plus the much smaller tile draw, about 3 percent 
 negligible on a hardware GPU. The increase is accepted because it is fill-rate only, stays at the 256-pixel tile's
 cost except while the clock is raised next to a continuous widget, and `glowPercent` 0 submits no halo at all.
 
-The measured Desk Clock is also an accepted bounded low-cadence `IRedXeGpuWidget`. One static instance uses three
-draws and 40 submitted instances; its configured 250–800 ms split-flap burst uses four draws and 46 submitted
+The measured Desk Clock is also an accepted bounded low-cadence `IRedXeGpuWidget`. One static instance uses two
+draws and 40 submitted instances; its configured 250–800 ms split-flap burst uses two draws and 46 submitted
 instances. It maps one 400-byte provider-shared constant buffer only when cached visual state changes, uses one
-1024×1024 single-channel atlas and three immutable 16-byte instance-offset buffers, and owns no timer, worker, HWND,
+1024×1024 single-channel atlas, and owns no instance-offset buffers, timer, worker, HWND,
 off-screen target, or shader compiler. It wakes at one second boundaries and requests presentation-paced frames only
 while the flap moves. This second measured clock remains within the immediate-context mechanism and does not justify a
 host primitive-batching IID; a materially larger family still requires aggregate measurement and review.
@@ -663,6 +663,14 @@ initialization; the module handle, factory, font faces, analysis objects, tempor
 collection references do not survive initialization. The larger atlas preserves native contours at the target display
 while keeping inactive discovery and the steady path free of font work, frame uploads, additional draws, allocations,
 state changes, and wake-ups.
+
+Compatible clock batching preserves exact original-draw pixels and removes the three offset buffers while keeping
+40/46 instances and one changed-only upload. A shared Release probe observes WARP static/active submission medians
+0.03020/0.04620 -> 0.02465/0.03640 ms. The default RTX adapter's active API median is adversely 0.01030 -> 0.01120 ms;
+this bounded 0.9-microsecond observation is accepted for the simpler two-draw/resource set and unchanged pixels,
+alongside lower WARP submission work and both AMD XENEON CPU observations. It is not an all-backend CPU guarantee.
+The XENEON pairs observe private changes +7.19/+0.17 MiB with unchanged local GPU usage; these variable process
+observations do not establish a memory win, identify a new retained owner, or accept the overall retention budget.
 
 The Process Viewer family is a sample-driven `IRedXeGpuWidget` plus `IRedXeScheduledWidget` set in one DLL. Ten
 settings-visible widgets share one device resource hub: build-time Shader Model 5.0 blobs, one instanced pipeline, one
@@ -926,10 +934,16 @@ remain with the AV owner.
   descriptors, the square clock plus lower date band, zero steady render allocations, unchanged-frame zero maps,
   shared immutable resources, and complete device-loss teardown.
 - Desk Clock validation additionally proves deterministic rollover phases, changed-tile-only animation with every
-  unchanged tile visible and pixel-stable, 40/46 static/active instance bounds, three/four draw bounds, one 400-byte
+  unchanged tile visible and pixel-stable, 40/46 static/active instance bounds, two draws in either state, one 400-byte
   upload only on visual change, zero steady render allocations, one shared 1 MiB DirectWrite-rasterized atlas, no
   persistent DirectWrite or runtime shader/image dependencies, a five-minute scheduled flip soak with stable resources
   and hidden zero work, and complete device-loss teardown.
+  Compatible card, moving-face and glyph work MUST preserve the original primitive order in one instanced draw,
+  with the opaque background drawn separately. Tests compare complete frames to the frozen original vertex shader
+  and draw sequence across static/rollover/date phases, landscape/portrait/minimum/DPI extents and both atlas tiers.
+  Batching adds no CPU owner, cache, map, instance, wake or allocation, and removes three immutable offset buffers.
+  API-submission improvements MUST NOT be reported as displayed cadence or an explanation of an intermittent
+  whole-process memory peak without matching evidence.
 - Shaders device setup MUST preserve every background/mip texel against the original pixel-major oracle. Its
   background rasterization uses one reusable 6 KiB stack row and conservative light ranges, preserving each
   pixel's contribution order. This temporary stack cost replaces repeated full-canvas light scans without new

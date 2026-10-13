@@ -3601,8 +3601,8 @@ void TestDeskClockScheduling(bool& success) noexcept
     Check(SUCCEEDED(result) && renderer.LastFrameSuccessfulWidgetCount() == 1 &&
               afterStatic.liveDeviceResourceSets == 1 &&
               afterStatic.constantUploads == beforeRender.constantUploads + 1 &&
-              afterStatic.drawCalls == beforeRender.drawCalls + 3,
-          L"Desk Clock renders one static upload and three batched draws at 2560x720", success);
+              afterStatic.drawCalls == beforeRender.drawCalls + 2,
+          L"Desk Clock renders one static upload and two batched draws at 2560x720", success);
 
     if (SUCCEEDED(result))
     {
@@ -3632,8 +3632,8 @@ void TestDeskClockScheduling(bool& success) noexcept
         result = ReadDeskClockDiagnostics(duringFlip);
     }
     Check(SUCCEEDED(result) && duringFlip.constantUploads == afterStatic.constantUploads + 1 &&
-              duringFlip.drawCalls == afterStatic.drawCalls + 4,
-          L"an active half-flap uses one upload and four bounded draws", success);
+              duringFlip.drawCalls == afterStatic.drawCalls + 2,
+          L"an active half-flap uses one upload and two bounded draws", success);
     if (SUCCEEDED(result))
     {
         result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
@@ -3654,9 +3654,9 @@ void TestDeskClockScheduling(bool& success) noexcept
     {
         result = dashboard.GetNextFrameDelayMilliseconds(&scheduledDelay);
     }
-    Check(SUCCEEDED(result) && afterFlip.drawCalls == duringFlip.drawCalls + 3 && scheduledDelay >= 640 &&
+    Check(SUCCEEDED(result) && afterFlip.drawCalls == duringFlip.drawCalls + 2 && scheduledDelay >= 640 &&
               scheduledDelay <= 650,
-          L"Desk Clock returns to three static draws and a blocked deadline after the flip", success);
+          L"Desk Clock returns to two static draws and a blocked deadline after the flip", success);
 
     const uint64_t hiddenSamples = afterFlip.timeSamples;
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -9076,8 +9076,7 @@ void TestSoakGrowthBudgets(bool& success) noexcept
               diagnosticsAfter.liveDeviceResourceSets == diagnosticsBefore.liveDeviceResourceSets,
           L"Desk Clock soak retains stable object and resource counts", success);
     const uint64_t soakDraws = diagnosticsAfter.drawCalls - diagnosticsBefore.drawCalls;
-    Check(soakDraws >= frames * 3 && soakDraws <= frames * 4,
-          L"Desk Clock soak remains within three static or four animated draws per frame", success);
+    Check(soakDraws == frames * 2, L"Desk Clock soak uses two draws per static or animated frame", success);
 
     const uint64_t hiddenSampleCount = diagnosticsAfter.timeSamples;
     std::this_thread::sleep_for(std::chrono::seconds(2));

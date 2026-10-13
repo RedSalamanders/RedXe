@@ -10,7 +10,12 @@ discovery and the steady render path perform no font work or allocation.
 The HLSL files are compiled to stripped Shader Model 5.0 bytecode by the Visual Studio project. The plugin performs no
 runtime shader compilation or image decoding and carries no loose font or image asset.
 
+The opaque background is one draw. Cards, moving faces and glyphs share one instanced draw in their original
+primitive order, with 40 static or 46 active instances. No instance-offset constant buffers are retained or bound.
+
 The focused `DeskClockTests` executable validates the static factory contract, strict settings parsing, scheduled
 cadence, deterministic rollover phases, WARP pixels, device recreation, and steady render allocations. Its Debug
 and Release runs write deterministic BMP review frames beside the test executable; Release additionally writes the
 target-display `DeskClock2560x720.bmp` frame under `.build/x64/Release/`.
+The test also compares 31 complete frames to the frozen original vertex shader and draw sequence, covering static,
+flip/date phases, landscape/portrait/minimum/DPI extents, and both initialized atlas tiers.
