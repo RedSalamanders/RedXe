@@ -7,13 +7,13 @@ $fixture=Join-Path $repo ('.build/BuildProcessTests/DxUi-'+[guid]::NewGuid().ToS
 try {
     $lock=Join-Path $fixture 'lock.json'
     function Write-Lock([int]$ApiRevision) { @{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=$ApiRevision;targets=@('DxUi')} | ConvertTo-Json | Set-Content -LiteralPath $lock }
-    Write-Lock 3
+    Write-Lock 4
     $modules=foreach ($name in @('RedXe.exe','Plugins/AVControl.dll','AVControlTests.exe')) {
         $path=Join-Path $fixture $name
         Set-Content -LiteralPath $path -Value "fixture $name"
         @{path=$name;sha256=(Get-FileHash -LiteralPath $path).Hash}
     }
-    $record=@{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=3;platform='x64';configuration='Debug';modules=@($modules)}
+    $record=@{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=4;platform='x64';configuration='Debug';modules=@($modules)}
     function Write-Record { $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fixture 'DxUi.provenance.json') }
     function Reject([string]$Scenario) {
         $rejected=$false
@@ -29,13 +29,13 @@ try {
     $record.platform='x64'; $record.configuration='ASan Debug'; Write-Record; Reject 'wrong configuration'
     $record.configuration='Debug'
     $record.commit='b'*40; Write-Record; Reject 'wrong pin'
-    $record.commit='a'*40; $record.apiRevision=2; Write-Record; Reject 'wrong API'
-    $record.apiRevision=3; $record.modules=@($modules[0]); Write-Record; Reject 'incomplete module closure'
+    $record.commit='a'*40; $record.apiRevision=3; Write-Record; Reject 'wrong API'
+    $record.apiRevision=4; $record.modules=@($modules[0]); Write-Record; Reject 'incomplete module closure'
     $record.modules=@($modules[0],$modules[0],$modules[2]); Write-Record; Reject 'duplicate module'
     $record.modules=@($modules); Write-Record
     # The check reads the lock as the restore does, so a lock the build refuses fails it too, even with a record that matches it.
-    Write-Lock 2; $record.apiRevision=2; Write-Record; Reject 'a lock the restore refuses, even with a matching record'
-    Write-Lock 3; $record.apiRevision=3; Write-Record
+    Write-Lock 3; $record.apiRevision=3; Write-Record; Reject 'a lock the restore refuses, even with a matching record'
+    Write-Lock 4; $record.apiRevision=4; Write-Record
     Add-Content -LiteralPath (Join-Path $fixture 'Plugins/AVControl.dll') -Value 'replacement'
     Reject 'changed binary'
 
@@ -44,7 +44,7 @@ try {
     $product=Join-Path $fixture 'product'
     $dependencyRoot=Join-Path $product '.build/dependencies/DxUi'
     [void](New-Item -ItemType Directory -Path (Join-Path $product 'Dependencies'),$dependencyRoot -Force)
-    @{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=3;targets=@('DxUi')} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $product 'Dependencies/DxUi.lock.json')
+    @{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=4;targets=@('DxUi')} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $product 'Dependencies/DxUi.lock.json')
     @{Fingerprint=('c'*64);Identity=@{commit=('a'*40);platform='x64'}} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $dependencyRoot 'DxUi.identity.x64.json')
     function Write-OutputRoot([string]$Root) {
         Set-Content -LiteralPath (Join-Path $dependencyRoot 'DxUi.resolved.x64.props') -Value "<Project><PropertyGroup><DxUiConsumerOutputRoot>$Root</DxUiConsumerOutputRoot></PropertyGroup></Project>"

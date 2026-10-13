@@ -1,7 +1,7 @@
 # DxUi integration
 
 Status: current normative consumer contract
-Last reviewed: 2026-10-07
+Last reviewed: 2026-10-13
 
 This contract owns how RedXe consumes the standalone DxUi library: the exact source pin, restore/build isolation,
 which process modules link `DxUi.lib`, and the COM/POD boundary that keeps DxUi C++ objects inside those modules.
@@ -12,13 +12,13 @@ and matched text/UIA performance remain in [`Plugins_AVControl.md`](../Plugins/P
 ## Pin and restore
 
 `Dependencies/DxUi.lock.json` identifies `https://github.com/RedSalamanders/DxUi`, one 40-character commit, API
-revision 3, and lock target `["DxUi"]`. The API revision is DxUi's compatibility number. The pinned source names its own
+revision 4, and lock target `["DxUi"]`. The API revision is DxUi's compatibility number. The pinned source names its own
 in `capabilities.json`, `Tools/validate_consumer.ps1` rejects a lock that names another, and `Build/DxUiRestore.psm1`
 accepts only the revision this product is adapted to. Moving to a new revision is therefore one reviewed change: the
 lock, that number and the adapters the revision needs. `Update-DxUi.ps1` changes only the commit unless asked to start
-that change (see [Manual update loop](#manual-update-loop)). Revision 3 needed no product source change: the product
-uses none of the renamed `IGridModel`, `IGridDelegate`, `ITreeModel` and `ITreeDelegate` interfaces, no Python tool of
-the library and no `WM_APP` value of DxUi's (see Host bridges), and CI runs the library's PowerShell
+that change (see [Manual update loop](#manual-update-loop)). Revision 4 retains the APIs consumed by RedXe's host and
+AV adapters; its new intrinsic layout, forms, and prepared Tree APIs remain opt-in library features. RedXe does not
+use the library's Python tools or private window messages (see Host bridges), and CI runs the library's PowerShell
 `validate-build-matrix.ps1`.
 
 `build.ps1` runs `vcpkg-install.ps1` and then `restore-dxui.ps1` for the selected platform, and both restore the pin
@@ -56,8 +56,8 @@ a sibling `DxUi` checkout that holds it and otherwise from the canonical reposit
   `git status`, which `Tools/validate_consumer.ps1` requires.
 - A clone of the canonical repository MUST NOT download file contents the checkout leaves out: it uses
   `--filter=blob:none`, so the checkout fetches the kept files' contents only. Every commit and tree is still fetched,
-  so `HEAD:include`, `git status` and `Tools/validate_consumer.ps1` behave as on a full clone. For the pin at API
-  revision 3 the restore's `.git` holds 2.7 MB instead of 47.8 MB (2026-10-07). A clone from a sibling checkout is
+  so `HEAD:include`, `git status` and `Tools/validate_consumer.ps1` behave as on a full clone. At the previous API
+  revision 3 pin, the restore's `.git` held 2.7 MB instead of 47.8 MB (2026-10-07). A clone from a sibling checkout is
   local, where Git ignores filters, and copies its objects.
 - DxUi keeps every tracked path within 150 characters, so a product root of up to 35 characters restores even without
   long paths. The setting covers deeper roots, such as a CI runner's, where a longer path made the restore fail as a
@@ -202,16 +202,17 @@ the lock records the commit and its revision, the build refuses that lock until 
 Pull requests run one x64 Release leg for each update; feature-branch pushes do not start a duplicate matrix.
 Pushes to main and explicit workflow dispatch retain the full six-configuration validation entrypoints.
 After the product tests, every leg runs the pinned library's `validate-build-matrix.ps1 -Root <checkout>`, which fails
-when a native project or the solution does not map all six configurations. It is a PowerShell script at API revision 3;
+when a native project or the solution does not map all six configurations. It is a PowerShell script at API revision 4;
 the Python validator it replaced is gone.
 CI validates repository skill metadata with the repository-owned validator and pinned Python dependency before
 building. Clean runners require no developer-specific Codex installation or home-directory scripts.
 
 Rollback reverts the complete product adoption change, including adapter/build changes, and rebuilds/tests that
 previous source revision. Retain the previously qualified product package; a pin-only edit cannot restore an older
-library that predates required integration helpers. Current candidate qualification and rollback evidence are tracked
-in the completed adoption records: [2026-09-09](../Plans/Done/DxUiAdoption_2026-09-09.md) and, for the pin at API
-revision 3, whose rollback pin is `40c6c215`, [2026-10-01](../Plans/Done/DxUiFollowUps_2026-10-01.md).
+library that predates required integration helpers. Earlier adoption and rollback evidence is in the completed
+[2026-09-09](../Plans/Done/DxUiAdoption_2026-09-09.md) and
+[2026-10-01](../Plans/Done/DxUiFollowUps_2026-10-01.md) records. For this revision 4 adoption, the previous
+qualified consumer pin is `271bd54be24eadf3f03ba5221d1be7be069860f2` at revision 3.
 The user deferred further ARM64 and ASan qualification on 2026-09-13; the cross-product
 follow-up is `Specs/Plans/WIP/DxUi_DeferredPlatformQualification_2026-09-13.md` in
 RedSalamander. That deferral is not a runtime pass or a change to the supported matrix.

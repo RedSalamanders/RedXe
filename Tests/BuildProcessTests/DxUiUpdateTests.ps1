@@ -9,12 +9,12 @@ Import-Module (Join-Path $repoRoot 'Build/DxUiUpdate.psm1') -Force -ErrorAction 
 function New-RedXeDxUiUpdateFixture {
     param([string] $Root, [string] $Commit)
     [void](New-Item -ItemType Directory -Path (Join-Path $Root 'Dependencies') -Force)
-    [ordered]@{ repository = 'https://github.com/RedSalamanders/DxUi'; commit = $Commit; apiRevision = 3; targets = @('DxUi') } |
+    [ordered]@{ repository = 'https://github.com/RedSalamanders/DxUi'; commit = $Commit; apiRevision = 4; targets = @('DxUi') } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Root 'Dependencies/DxUi.lock.json') -NoNewline
 }
 
 function New-RedXeDxUiUpdateRequest {
-    param([string] $Current, [string] $Candidate, [string] $Conclusion = 'success', [int] $ApiRevision = 3)
+    param([string] $Current, [string] $Candidate, [string] $Conclusion = 'success', [int] $ApiRevision = 4)
     return {
         param([string] $Route)
         if ($Route -eq 'commits/main') { return [pscustomobject]@{ sha = $Candidate } }
@@ -66,22 +66,22 @@ try {
     # A validated candidate at another API revision is refused, in either mode, unless the adoption is asked for.
     $revisionRoot = Join-Path $testRoot 'revision'; $current = '1' * 40; $candidate = '2' * 40
     New-RedXeDxUiUpdateFixture -Root $revisionRoot -Commit $current
-    $revisionRequest = New-RedXeDxUiUpdateRequest -Current $current -Candidate $candidate -ApiRevision 4
+    $revisionRequest = New-RedXeDxUiUpdateRequest -Current $current -Candidate $candidate -ApiRevision 5
     foreach ($updateOnly in @($false, $true)) {
         $state = [pscustomobject]@{ Ran = $false }
         $message = ''
         try { Invoke-RedXeDxUiUpdate -RepoRoot $revisionRoot -UpdateOnly:$updateOnly -Request $revisionRequest -ValidationAction { $state.Ran = $true } 6>$null }
         catch { $message = $_.Exception.Message }
-        if ($message -notlike 'Cannot select a validated DxUi main candidate: *is at API revision 4 and this product is adapted to revision 3*-AllowApiRevisionChange*') {
+        if ($message -notlike 'Cannot select a validated DxUi main candidate: *is at API revision 5 and this product is adapted to revision 4*-AllowApiRevisionChange*') {
             throw "The updater did not refuse a DxUi candidate at another API revision (UpdateOnly=${updateOnly}): $message"
         }
         $lock = Get-Content -Raw -LiteralPath (Join-Path $revisionRoot 'Dependencies/DxUi.lock.json') | ConvertFrom-Json
-        if ($lock.commit -ne $current -or $lock.apiRevision -ne 3 -or $state.Ran) { throw 'The updater changed the lock for a DxUi candidate at another API revision.' }
+        if ($lock.commit -ne $current -or $lock.apiRevision -ne 4 -or $state.Ran) { throw 'The updater changed the lock for a DxUi candidate at another API revision.' }
     }
     $state = [pscustomobject]@{ Ran = $false }
     $result = Invoke-RedXeDxUiUpdate -RepoRoot $revisionRoot -AllowApiRevisionChange -Request $revisionRequest -ValidationAction { $state.Ran = $true } 6>$null
     $lock = Get-Content -Raw -LiteralPath (Join-Path $revisionRoot 'Dependencies/DxUi.lock.json') | ConvertFrom-Json
-    if (-not $result.Updated -or $result.Validated -or $state.Ran -or $lock.commit -ne $candidate -or $lock.apiRevision -ne 4) {
+    if (-not $result.Updated -or $result.Validated -or $state.Ran -or $lock.commit -ne $candidate -or $lock.apiRevision -ne 5) {
         throw 'An asked-for API revision change did not record the commit and its revision without running validation that cannot pass yet.'
     }
 }

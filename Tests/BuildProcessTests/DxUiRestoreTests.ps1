@@ -67,7 +67,7 @@ function New-DxUiFixtureRepository([string] $Path) {
 }
 
 function New-DxUiLockFile([string] $Path, [hashtable] $Override = @{}) {
-    $lock = [ordered]@{ repository = 'https://github.com/RedSalamanders/DxUi'; commit = ('a' * 40); apiRevision = 3; targets = @('DxUi') }
+    $lock = [ordered]@{ repository = 'https://github.com/RedSalamanders/DxUi'; commit = ('a' * 40); apiRevision = 4; targets = @('DxUi') }
     foreach ($key in $Override.Keys) { $lock[$key] = $Override[$key] }
     [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($Path))
     [IO.File]::WriteAllText($Path, ($lock | ConvertTo-Json))
@@ -98,17 +98,17 @@ try {
     # --- The lock ---
     $lockPath = Join-Path $testRoot 'locks/DxUi.lock.json'
     New-DxUiLockFile $lockPath
-    Assert-That ((Read-RedXeDxUiLock -LockFile $lockPath).commit -ceq ('a' * 40)) 'a canonical API revision 3 lock is accepted'
+    Assert-That ((Read-RedXeDxUiLock -LockFile $lockPath).commit -ceq ('a' * 40)) 'a canonical API revision 4 lock is accepted'
     foreach ($case in @(
-            @{ Name = 'the previous API revision 2'; Override = @{ apiRevision = 2 } },
-            @{ Name = 'a later API revision 4'; Override = @{ apiRevision = 4 } },
+            @{ Name = 'the previous API revision 3'; Override = @{ apiRevision = 3 } },
+            @{ Name = 'a later API revision 5'; Override = @{ apiRevision = 5 } },
             @{ Name = 'another repository'; Override = @{ repository = 'https://example.invalid/DxUi' } },
             @{ Name = 'an abbreviated commit'; Override = @{ commit = 'a0b4934' } },
             @{ Name = 'an uppercase commit'; Override = @{ commit = ('A' * 40) } },
             @{ Name = 'another target'; Override = @{ targets = @('Foundation') } },
             @{ Name = 'two targets'; Override = @{ targets = @('DxUi', 'Foundation') } })) {
         New-DxUiLockFile $lockPath $case.Override
-        Assert-Throws { Read-RedXeDxUiLock -LockFile $lockPath } 'API revision 3' "the lock refuses $($case.Name)"
+        Assert-Throws { Read-RedXeDxUiLock -LockFile $lockPath } 'API revision 4' "the lock refuses $($case.Name)"
     }
 
     # --- The Visual Studio installation of the build's MSBuild ---
