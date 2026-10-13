@@ -2508,7 +2508,8 @@ System Pulse 9.409 / 11.006 ms (six calls each). AV Control medians are 0.894 / 
 124.971 / 144.499 ms. These are whole callbacks. Separate CPU atlas/font work from D3D/API/driver work before
 selecting another change; preserve the current multi-tier clock atlas, glyph coverage, natural lighting and live
 animation. The proposed four-ms slice, physical-touch/first-pixel, earlier screenshot fault and clock peak remain
-open. A current-fixture clock allocation capture is prepared; its additional UAC timing permission is pending.
+open. The current-fixture clock allocation capture is prepared. Its 2026-10-13 approved UAC attempt was canceled
+before the recorder started; a replacement prompt requires the owner's pending authorization.
 
 The counterbalanced native logs, all four hardware roots, paired context/source/runtime identities, profile and
 actual-payload proofs are bound by `p34-shader-native-matched-comparison.json`, both
@@ -2576,6 +2577,37 @@ camera available, so physical touch-to-first-changed-pixel remains unqualified; 
 cannot substitute for it. `p46-clock-pacing-closure.json` seals the completed step, including final independent tooling,
 source/runtime snapshots, all four arm logs and the retained original Debug failure. This physical gate, broader
 retention, GPU setup and the earlier screenshot fault keep the WIP active.
+
+### P4.6 current-clock control and refused allocation attempt (2026-10-13)
+
+The owner authorized one current-clock allocation UAC prompt. The prepared helper verified the current 474 native
+inputs and copied the sealed build-282 Release runtime to a fresh receipt root. Windows returned cancellation from
+`Start-Process -Verb RunAs` before the administrator recorder started. No recorder directory or ETL was created.
+Independent read-only inspection confirms that the unique clock alias is not running and its IFEO image key is
+absent. Preserve `runtime-2026-10-13-p46-current-clock-allocation/refused-at-uac.json` and
+`p46-current-clock-capture-controller.log`; this attempt supplies no allocation attribution. One replacement prompt
+has been requested and MUST NOT be launched until the owner authorizes it.
+
+While that request is pending, an isolated uninstrumented current Release WARP control passes the unchanged
+20-second warm-up, 60-second measurement and two-second hidden interval. It submits 1,655 measured fixture frames,
+with 1,596 active and 60 idle delays, stable owners, bounded draws, hidden zero work and complete device teardown.
+Peak private/working-set growth is 3,633,152 / 2,564,096 bytes (3.46 / 2.45 MiB), inside the unchanged 4/8-MiB guards.
+Whole-fixture CPU is 45.33 percent of one core across 82.172 seconds, including startup and warm-up. These fixture
+frames are not displayed XENEON submissions. Source and runtime hashes remain unchanged. This single passing control
+does not reproduce or explain the earlier post-pacing 4,341,760-byte peak.
+
+Three isolated current Release Desk Clock native controls also pass factory, scheduling, deterministic rollover,
+WARP composition, allocation and lifecycle checks. Their disabled/static/animation submission medians are
+0.0006 / 0.0425 / 0.0530 ms per frame; the representative active WARP timestamp median is 1.1268 ms. These uncapped
+API timings are not production CPU or cadence measurements. Ten deterministic BMP baselines cover static, five flip
+phases, midnight cross-fade/final, the 2560x720 composition and reference extent. Preserve their exact bytes and
+hashes for a future candidate comparison. No clock rendering, atlas, shader, settings, deadline or memory limit has
+changed, and no optimization or new regression-test implementation is accepted by this control-only checkpoint.
+
+Receipts are `p46-current-clock-uninstrumented-control0` and `p46-current-clock-native-control` under
+`.build/receipts/`. After the authorized current-fixture trace succeeds, verify owned PID/symbols, event loss and
+cleanup, attribute the remaining cost, then select a measured change. Add independent regression coverage and compare
+both Release orders before committing the optimization. The old failed peaks and the complete WIP remain open.
 
 ### Phase 3 — fluid swipe, nothing left behind
 
