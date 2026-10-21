@@ -28,3 +28,9 @@ separate from lossless local evidence. Historical cleanup requires a separate in
 same-volume move or full independent copy verification; a timestamp or dead PID alone never authorizes deletion.
 
 RedXe retains capture settings, PNG/JSONL output, crash dumps/reports/markers and isolated failure fixtures. Each unattended argument-error case has its own log. Fixture executable/runtime copies remain exact run inputs; archival makes no additional payload copy.
+
+Inventory attributes and creation/write times come from pinned file handles, rather than cached directory entries.
+Compare inventories in canonical relative-path and stream-name order without relaxing any identity, hash, attribute,
+time or ACL check. Native moves retain the exact intent and observed post-move inventories before comparison; a
+mismatch retains both snapshots and the payload and refuses completion. Independent regression controls keep
+stale provider metadata and reverse enumeration while verifying the actual file and directory metadata exactly.
