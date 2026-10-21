@@ -3,7 +3,7 @@
 Set-StrictMode -Version Latest
 
 function Initialize-TestRunEvidenceNative {
-    if ('TestRunEvidenceV1.Native' -as [type]) { return }
+    if ('TestRunEvidenceV2.Native' -as [type]) { return }
     Add-Type -TypeDefinition @'
 using System;
 using System.IO;
@@ -12,8 +12,9 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Microsoft.Win32.SafeHandles;
-namespace TestRunEvidenceV1 {
+namespace TestRunEvidenceV2 {
     public sealed class StreamRecord { public string Name; public long Length; public string Sha256; }
+    public sealed class MetadataRecord { public int Attributes; public long CreatedTicks, WrittenTicks; }
     public static class Native {
         [StructLayout(LayoutKind.Sequential)] struct Info {
             public uint Attributes; public System.Runtime.InteropServices.ComTypes.FILETIME Created, Accessed, Written;
@@ -51,6 +52,14 @@ namespace TestRunEvidenceV1 {
             FileIdInfo info;
             if (!GetFileInformationByHandleEx(handle, 18, out info, 24)) throw new Win32Exception(Marshal.GetLastWin32Error());
             return info.Volume.ToString("X16") + ":" + info.High.ToString("X16") + info.Low.ToString("X16");
+        }
+        public static MetadataRecord Metadata(SafeFileHandle handle) {
+            Info info;
+            if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            long created = ((long)(uint)info.Created.dwHighDateTime << 32) | (uint)info.Created.dwLowDateTime;
+            long written = ((long)(uint)info.Written.dwHighDateTime << 32) | (uint)info.Written.dwLowDateTime;
+            return new MetadataRecord { Attributes=(int)info.Attributes,
+                CreatedTicks=DateTime.FromFileTimeUtc(created).Ticks, WrittenTicks=DateTime.FromFileTimeUtc(written).Ticks };
         }
         public static FileStream Lock(string path) {
             var handle = CreateFileW(LongPath(path), 0xC0000000, 0, IntPtr.Zero, 4, 0x02200000, IntPtr.Zero);
@@ -118,31 +127,31 @@ function Start-TestRunEvidence {
         $part = $root
         while ($part) { $ancestors.Push($part); $part = [IO.Path]::GetDirectoryName($part) }
         foreach ($part in $ancestors) {
-            $pin = [TestRunEvidenceV1.Native]::Pin($part, $true)
+            $pin = [TestRunEvidenceV2.Native]::Pin($part, $true)
             $pins.Add($pin)
-            $anchors.Add(@{path=$part;identity=[TestRunEvidenceV1.Native]::Identity($pin)})
+            $anchors.Add(@{path=$part;identity=[TestRunEvidenceV2.Native]::Identity($pin)})
         }
         $parent = $root
         foreach ($name in @('.build', 'evidence', 'test-runs')) {
             $parent = Join-Path $parent $name
             [void][IO.Directory]::CreateDirectory($parent)
-            $pin = [TestRunEvidenceV1.Native]::Pin($parent, $true)
+            $pin = [TestRunEvidenceV2.Native]::Pin($parent, $true)
             $pins.Add($pin)
-            $anchors.Add(@{path=$parent;identity=[TestRunEvidenceV1.Native]::Identity($pin)})
+            $anchors.Add(@{path=$parent;identity=[TestRunEvidenceV2.Native]::Identity($pin)})
         }
         $id = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ') + "-$PID-" + [guid]::NewGuid().ToString('N')
         $directory = Join-Path $parent $id
         if (Test-Path -LiteralPath $directory) { throw "Evidence collision: $directory" }
         [void][IO.Directory]::CreateDirectory($directory)
-        $pin = [TestRunEvidenceV1.Native]::Pin($directory, $true)
+        $pin = [TestRunEvidenceV2.Native]::Pin($directory, $true)
         $pins.Add($pin)
-        $anchors.Add(@{path=$directory;identity=[TestRunEvidenceV1.Native]::Identity($pin)})
+        $anchors.Add(@{path=$directory;identity=[TestRunEvidenceV2.Native]::Identity($pin)})
         $lock = [IO.File]::Open((Join-Path $directory 'run.lock'), 'CreateNew', 'ReadWrite', 'Read')
         $path = Join-Path $directory 'payload'
         [void][IO.Directory]::CreateDirectory($path)
-        $pin = [TestRunEvidenceV1.Native]::Pin($path, $true)
+        $pin = [TestRunEvidenceV2.Native]::Pin($path, $true)
         $pins.Add($pin)
-        $anchors.Add(@{path=$path;identity=[TestRunEvidenceV1.Native]::Identity($pin)})
+        $anchors.Add(@{path=$path;identity=[TestRunEvidenceV2.Native]::Identity($pin)})
         $run = [pscustomobject]@{ Repository=$root; Id=$id; Directory=$directory; Path=$path; Pins=$pins; Anchors=$anchors; Lock=$lock;
             Owner=$PID; OwnerStarted=(Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks; Closed=$false;
             CaptureNativeArtifacts=[bool]$CaptureNativeArtifacts; ArtifactLock=$null }
@@ -151,7 +160,7 @@ function Start-TestRunEvidence {
             startedUtc=[DateTime]::UtcNow.ToString('o'); context=$Context
         })
         if ($CaptureNativeArtifacts) {
-            $artifactLock = [TestRunEvidenceV1.Native]::Lock((Join-Path $root '.build/test-artifacts.lock'))
+            $artifactLock = [TestRunEvidenceV2.Native]::Lock((Join-Path $root '.build/test-artifacts.lock'))
             $run.ArtifactLock = $artifactLock
             Save-TestRunNativeArtifacts -Run $run -Label 'previous-native-artifacts'
         }
@@ -180,8 +189,8 @@ function Save-TestRunNativeArtifacts($Run, [string] $Label) {
     if (Test-Path -LiteralPath $destination) { throw "Native artifact evidence already exists: $destination" }
     $beforePins = [Collections.Generic.List[IDisposable]]::new()
     try {
-        $beforePins.Add([TestRunEvidenceV1.Native]::Pin($source, $true))
-        $identity = [TestRunEvidenceV1.Native]::Identity($beforePins[0])
+        $beforePins.Add([TestRunEvidenceV2.Native]::Pin($source, $true))
+        $identity = [TestRunEvidenceV2.Native]::Identity($beforePins[0])
         $before = Get-TestRunEvidenceInventory $source $beforePins | ConvertTo-Json -Depth 12 -Compress
     } finally { for ($i=$beforePins.Count-1; $i -ge 0; $i--) { $beforePins[$i].Dispose() } }
     Write-TestRunEvidenceRecord (Join-Path $Run.Directory ($Label+'.intent.json')) @{source=$source;destination=$destination;identity=$identity;inventory=($before | ConvertFrom-Json)}
@@ -189,9 +198,10 @@ function Save-TestRunNativeArtifacts($Run, [string] $Label) {
     [IO.Directory]::Move($source, $destination)
     $afterPins = [Collections.Generic.List[IDisposable]]::new()
     try {
-        $afterPins.Add([TestRunEvidenceV1.Native]::Pin($destination, $true))
+        $afterPins.Add([TestRunEvidenceV2.Native]::Pin($destination, $true))
         $after = Get-TestRunEvidenceInventory $destination $afterPins | ConvertTo-Json -Depth 12 -Compress
-        if ([TestRunEvidenceV1.Native]::Identity($afterPins[0]) -cne $identity -or $after -cne $before) {
+        Write-TestRunEvidenceRecord (Join-Path $Run.Directory ($Label+'.after.json')) @{identity=[TestRunEvidenceV2.Native]::Identity($afterPins[0]);inventory=($after | ConvertFrom-Json)}
+        if ([TestRunEvidenceV2.Native]::Identity($afterPins[0]) -cne $identity -or $after -cne $before) {
             throw "Native artifact rename failed preservation verification; evidence retained at $destination"
         }
     } finally { for ($i=$afterPins.Count-1; $i -ge 0; $i--) { $afterPins[$i].Dispose() } }
@@ -203,21 +213,23 @@ function Get-TestRunEvidenceInventory([string] $Path, [Collections.Generic.List[
         $queue.Enqueue($Path)
         while ($queue.Count) {
             $directory = $queue.Dequeue()
-            $pins.Add([TestRunEvidenceV1.Native]::Pin($directory, $true))
+            $pins.Add([TestRunEvidenceV2.Native]::Pin($directory, $true))
             foreach ($item in Get-ChildItem -LiteralPath $directory -Force) {
                 $isDirectory = [bool]($item.Attributes -band [IO.FileAttributes]::Directory)
-                $handle = [TestRunEvidenceV1.Native]::Pin($item.FullName, $isDirectory)
+                $handle = [TestRunEvidenceV2.Native]::Pin($item.FullName, $isDirectory)
                 $pins.Add($handle)
+                # Directory enumeration can cache NTFS attributes/times. The pinned handle is authoritative.
+                $metadata = [TestRunEvidenceV2.Native]::Metadata($handle)
                 $row = [ordered]@{ path=$item.FullName.Substring($Path.Length+1); directory=$isDirectory;
-                    identity=[TestRunEvidenceV1.Native]::Identity($handle); attributes=[int]$item.Attributes;
-                    createdTicks=$item.CreationTimeUtc.Ticks; writtenTicks=$item.LastWriteTimeUtc.Ticks;
+                    identity=[TestRunEvidenceV2.Native]::Identity($handle); attributes=$metadata.Attributes;
+                    createdTicks=$metadata.CreatedTicks; writtenTicks=$metadata.WrittenTicks;
                     security=(Get-Acl -LiteralPath $item.FullName).Sddl }
                 if ($isDirectory) { $queue.Enqueue($item.FullName) }
-                else { $row.streams = @([TestRunEvidenceV1.Native]::Streams($item.FullName)) }
-                $rows.Add($row)
+                else { $row.streams = @([TestRunEvidenceV2.Native]::Streams($item.FullName) | Sort-Object Name -CaseSensitive) }
+                $rows.Add([pscustomobject]$row)
             }
         }
-    return ,$rows.ToArray()
+    return ,@($rows | Sort-Object path -CaseSensitive)
 }
 
 function Complete-TestRunEvidence {
@@ -230,9 +242,9 @@ function Complete-TestRunEvidence {
     $pins = [Collections.Generic.List[IDisposable]]::new()
     try {
         foreach ($anchor in $Run.Anchors) {
-            $pin = [TestRunEvidenceV1.Native]::Pin($anchor.path, $true)
+            $pin = [TestRunEvidenceV2.Native]::Pin($anchor.path, $true)
             $pins.Add($pin)
-            if ([TestRunEvidenceV1.Native]::Identity($pin) -cne $anchor.identity) { throw "Evidence directory identity changed: $($anchor.path)" }
+            if ([TestRunEvidenceV2.Native]::Identity($pin) -cne $anchor.identity) { throw "Evidence directory identity changed: $($anchor.path)" }
         }
         if ($Run.CaptureNativeArtifacts) { Save-TestRunNativeArtifacts -Run $Run -Label 'native-artifacts' }
         $rows = Get-TestRunEvidenceInventory -Path $Run.Path -Pins $pins
@@ -257,20 +269,20 @@ function Publish-TestRunEvidenceReceipt {
     Write-TestRunEvidenceRecord $archive $Receipt
     $reports = Join-Path $Run.Repository '.build\reports'
     [void][IO.Directory]::CreateDirectory($reports)
-    $pin = [TestRunEvidenceV1.Native]::Pin($reports, $true)
+    $pin = [TestRunEvidenceV2.Native]::Pin($reports, $true)
     $publication = $null
     try {
         # Serialize only the small compatibility view. Runs and their payloads never share writable output.
-        $publication = [TestRunEvidenceV1.Native]::Lock((Join-Path $reports '.evidence-publication.lock'))
+        $publication = [TestRunEvidenceV2.Native]::Lock((Join-Path $reports '.evidence-publication.lock'))
         $latest = Join-Path $reports $Name
         if (Test-Path -LiteralPath $latest) {
-            $file = [TestRunEvidenceV1.Native]::Pin($latest, $false)
-            try { $before = [TestRunEvidenceV1.Native]::Streams($latest) | ConvertTo-Json -Depth 4 -Compress } finally { $file.Dispose() }
+            $file = [TestRunEvidenceV2.Native]::Pin($latest, $false)
+            try { $before = [TestRunEvidenceV2.Native]::Streams($latest) | ConvertTo-Json -Depth 4 -Compress } finally { $file.Dispose() }
             $previous = Join-Path $Run.Path 'previous-receipts'
             [void][IO.Directory]::CreateDirectory($previous)
             $destination = Join-Path $previous ($Name + '.' + [guid]::NewGuid().ToString('N'))
             [IO.File]::Move($latest, $destination)
-            if ($before -cne ([TestRunEvidenceV1.Native]::Streams($destination) | ConvertTo-Json -Depth 4 -Compress)) {
+            if ($before -cne ([TestRunEvidenceV2.Native]::Streams($destination) | ConvertTo-Json -Depth 4 -Compress)) {
                 throw "Previous receipt failed preservation verification: $destination"
             }
         }

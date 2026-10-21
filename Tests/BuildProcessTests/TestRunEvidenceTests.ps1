@@ -146,8 +146,8 @@ if ($volume.FileSystem -eq 'NTFS') {
         $alias = Join-Path $run.Path 'shared.bin'
         [void](New-Item -ItemType HardLink -Path $alias -Target $shared)
         [IO.File]::SetAttributes($shared, [IO.FileAttributes]::ReadOnly)
-        $handle = [TestRunEvidenceV1.Native]::Pin($shared, $false)
-        try { $identity = [TestRunEvidenceV1.Native]::Identity($handle) } finally { $handle.Dispose() }
+        $handle = [TestRunEvidenceV2.Native]::Pin($shared, $false)
+        try { $identity = [TestRunEvidenceV2.Native]::Identity($handle) } finally { $handle.Dispose() }
         Complete-TestRunEvidence $run $true
         $sharedManifest = Get-Content (Join-Path $run.Directory 'completed.json') -Raw | ConvertFrom-Json
         Assert-Evidence ($sharedManifest.payload[0].identity -ceq $identity -and
@@ -186,6 +186,62 @@ try {
     Assert-Evidence ((Test-Path (Join-Path $run.Path 'native-artifacts/new.png')) -and -not (Test-Path $native)) 'Failed native capture output was not retained.'
     Assert-Evidence ([IO.File]::ReadAllText((Join-Path $run.Path 'native-artifacts/new.png:scenario')) -ceq 'original native scenario') 'Native capture stream changed in rename.'
 } finally { if (-not $run.Closed) { Complete-TestRunEvidence $run $false } }
+
+# FindFirstFile metadata can be stale on a busy NTFS host. Keep the stale provider objects and reverse
+# their enumeration, while the actual files have newer metadata. A safe rename must still verify exactly.
+$cachedRoot = New-Fixture 'cached-native-metadata'
+$cachedNative = Join-Path $cachedRoot '.build/test-artifacts'
+$nested = Join-Path $cachedNative 'nested'
+[void][IO.Directory]::CreateDirectory($nested)
+foreach ($relative in @('a.txt','z.txt','nested/inside.txt')) {
+    [IO.File]::WriteAllText((Join-Path $cachedNative $relative), 'unique cached-metadata evidence: '+$relative)
+}
+$cache = @{}
+foreach ($folder in @($cachedNative,$nested)) {
+    $items = @(Get-ChildItem -LiteralPath $folder -Force)
+    foreach ($item in $items) { $item.Refresh(); [void]$item.LastWriteTimeUtc; [void]$item.CreationTimeUtc; [void]$item.Attributes }
+    [array]::Reverse($items)
+    $cache[[IO.Path]::GetFullPath($folder)] = $items
+}
+$changed = Join-Path $cachedNative 'a.txt'
+[IO.File]::SetCreationTimeUtc($changed,[DateTime]::UtcNow.AddDays(-3))
+[IO.File]::SetLastWriteTimeUtc($changed,[DateTime]::UtcNow.AddDays(-2))
+[IO.File]::SetAttributes($changed,[IO.FileAttributes]::ReadOnly -bor [IO.FileAttributes]::Hidden)
+[IO.Directory]::SetLastWriteTimeUtc($nested,[DateTime]::UtcNow.AddDays(-1))
+$expectedCreated = [IO.File]::GetCreationTimeUtc($changed).Ticks
+$expectedWritten = [IO.File]::GetLastWriteTimeUtc($changed).Ticks
+$expectedDirectoryWritten = [IO.Directory]::GetLastWriteTimeUtc($nested).Ticks
+$stale = @($cache[[IO.Path]::GetFullPath($cachedNative)] | Where-Object Name -eq 'a.txt')[0]
+Assert-Evidence ($stale.LastWriteTimeUtc.Ticks -ne $expectedWritten) 'The cached-metadata negative control was not stale.'
+$evidenceModule = Get-Module | Where-Object Path -eq $ModulePath | Select-Object -First 1
+& $evidenceModule {
+    param($cache)
+    $script:EvidenceTestCache = $cache
+    function script:Get-ChildItem {
+        param([string]$LiteralPath,[switch]$Force)
+        $key = [IO.Path]::GetFullPath($LiteralPath)
+        if ($script:EvidenceTestCache.ContainsKey($key)) { return $script:EvidenceTestCache[$key] }
+        Microsoft.PowerShell.Management\Get-ChildItem -LiteralPath $LiteralPath -Force:$Force
+    }
+} $cache
+$cachedRun = $null
+try {
+    $cachedRun = Start-TestRunEvidence $cachedRoot @{scenario='cached-metadata-and-reversed-enumeration'} -CaptureNativeArtifacts
+    $intent = Get-Content (Join-Path $cachedRun.Directory 'previous-native-artifacts.intent.json') -Raw | ConvertFrom-Json
+    $observed = Get-Content (Join-Path $cachedRun.Directory 'previous-native-artifacts.after.json') -Raw | ConvertFrom-Json
+    $entry = @($intent.inventory | Where-Object path -ceq 'a.txt')[0]
+    $folder = @($intent.inventory | Where-Object path -ceq 'nested')[0]
+    Assert-Evidence ($entry.createdTicks -eq $expectedCreated -and $entry.writtenTicks -eq $expectedWritten -and
+        ($entry.attributes -band [int][IO.FileAttributes]::ReadOnly) -and ($entry.attributes -band [int][IO.FileAttributes]::Hidden)) 'Inventory trusted stale provider file metadata.'
+    Assert-Evidence ($folder.writtenTicks -eq $expectedDirectoryWritten) 'Inventory trusted stale provider directory metadata.'
+    Assert-Evidence (($intent.inventory.path -join '|') -ceq 'a.txt|nested|nested\inside.txt|z.txt') 'Inventory comparison depends on provider enumeration order.'
+    Assert-Evidence (($intent.inventory | ConvertTo-Json -Depth 12 -Compress) -ceq
+        ($observed.inventory | ConvertTo-Json -Depth 12 -Compress)) 'Observed move evidence differs from its exact intent.'
+    Complete-TestRunEvidence $cachedRun $true
+} finally {
+    & $evidenceModule { Remove-Item Function:Get-ChildItem; Remove-Variable EvidenceTestCache -Scope Script }
+    if ($cachedRun -and -not $cachedRun.Closed) { Complete-TestRunEvidence $cachedRun $false }
+}
 
 [ordered]@{passed=$script:count;module=(Get-FileHash -LiteralPath $ModulePath).Hash;scratch=$ScratchRoot} |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ScratchRoot 'result.json')
