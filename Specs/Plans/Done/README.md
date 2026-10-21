@@ -23,3 +23,5 @@ They record sequencing and rationale only; they do not define current RedXe beha
 
 Do not edit completed plans to change current requirements. Update the owning domain spec or create a new indexed WIP
 plan instead.
+
+- [Test-run evidence retention](TestRunEvidence_2026-10-21.md) — completed workflow implementation; product qualification boundaries remain explicit.

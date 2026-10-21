@@ -293,3 +293,8 @@ AVControl, Launcher, Logicon and Zoom edits also select Settings because that su
 CI invokes explicit full gates rather than the affected default. The forthcoming PR executes its candidate workflow merged with the base; a reviewed local workflow digest, a runner the base has not changed since, the enabled GitHub workflow and checks the default branch requires gate delegation. Workflow edits invalidate that digest until the scope contract is reviewed and updated. RedXe's independent Windows tooling/skill tests execute once in its tooling job. Every RedXe workflow job that runs `test.ps1` MUST pass `-SkipTooling` or install `Build/requirements-validation.txt` itself; `ScopedTesting.Tests.ps1` checks each workflow. Hosted timing investigations still use paired, fixture-matched resource evidence; cached historical observations are not new measurements.
 
 PR delegation MUST account for conditional workflow jobs: a check covers a scope only for the changes it runs on. Both RedXe PR checks run on every pull request, because `ci.yml` has no path filter and no job condition, so the scopes they cover do not depend on what changed. A workflow edit that adds a filter or a condition changes the reviewed digest, which keeps every obligation local until the manifest accounts for it.
+
+
+## Test-run retention
+
+[Generated test-run evidence](Build_TestRunEvidence.md) owns completed, failed and interrupted output storage and verification.
