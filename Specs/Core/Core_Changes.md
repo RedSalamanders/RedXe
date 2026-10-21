@@ -39,4 +39,5 @@ The commands never stage, commit, push, fetch, build native code or take desktop
 
 The shared behavior suite is [`Tools/Test-ChangelogWorkflow.ps1`](../../Tools/Test-ChangelogWorkflow.ps1).
 Repository-specific adapters supply their existing test scratch root and register the suite with normal tooling
-validation. This tooling-only workflow does not establish native runtime, platform, rendering or performance qualification.
+validation. The runner bounds its owned child and pipe waits and terminates its child tree on timeout before
+fixture cleanup. This tooling-only workflow does not establish native runtime, platform, rendering or performance qualification.

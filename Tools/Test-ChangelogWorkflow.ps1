@@ -49,6 +49,29 @@ function Snapshot([string] $Root) {
         [IO.Path]::GetRelativePath($Root, $_.FullName) + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
     }) -join "`n")
 }
+function Invoke-FixtureProcess([Diagnostics.ProcessStartInfo] $Start,
+    [ValidateRange(1,30000)][int] $TimeoutMilliseconds = 30000, [ref] $ProcessIdentity) {
+    # This standalone cross-project suite owns this synthetic child; repository-specific native runners are not dependencies.
+    $process = [Diagnostics.Process]::Start($Start)
+    try {
+        if ($ProcessIdentity) {
+            $ProcessIdentity.Value = @{ Id = $process.Id; StartTicks = $process.StartTime.ToUniversalTime().Ticks }
+        }
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        Assert ($process.WaitForExit($TimeoutMilliseconds)) 'Fixture child did not exit within its budget'
+        $drain = [Threading.Tasks.Task]::WhenAll([Threading.Tasks.Task[]]@($stdout, $stderr))
+        Assert ($drain.Wait(5000)) 'Fixture child pipes did not close within their drain budget'
+        return [pscustomobject]@{ ExitCode = $process.ExitCode; Output = $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult() }
+    } finally {
+        try {
+            if (-not $process.HasExited) {
+                $process.Kill($true)
+                Assert ($process.WaitForExit(5000)) 'Owned fixture child did not terminate within its cleanup budget'
+            }
+        } finally { $process.Dispose() }
+    }
+}
 function Case([string] $Name, [scriptblock] $Body) {
     $root = Join-Path $parent ('changelog-' + [guid]::NewGuid().ToString('N'))
     [void][IO.Directory]::CreateDirectory($root)
@@ -137,11 +160,14 @@ Case 'retry after publication cleans fragments without duplicate entries' {
     $text = [IO.File]::ReadAllText((Join-Path $r 'CHANGELOG.md'))
     Assert ([regex]::Matches($text, '(?m)^- Existing\.$').Count -eq 1) 'Retry duplicated a published entry'
 }
-Case 'released matching text does not suppress a new entry' {
-    param($r)
-    Put $r 'Changes/2026-10-21-again.md' '- Released.'
-    & $fold -Root $r
-    Assert ([regex]::Matches([IO.File]::ReadAllText((Join-Path $r 'CHANGELOG.md')), '(?m)^- Released\.$').Count -eq 2) 'Released history suppressed a new entry'
+foreach ($separator in @(@{Name='space'; Text=' '}, @{Name='tab'; Text="`t"})) {
+    Case "released heading with $($separator.Name) does not suppress a new entry" {
+        param($r)
+        Put $r 'CHANGELOG.md' ("# Changelog`n`n## Unreleased`n`n- Existing.`n`n##" + $separator.Text + "1.0`n`n- Released.`n")
+        Put $r 'Changes/2026-10-21-again.md' '- Released.'
+        & $fold -Root $r
+        Assert ([regex]::Matches([IO.File]::ReadAllText((Join-Path $r 'CHANGELOG.md')), '(?m)^- Released\.$').Count -eq 2) 'Released history suppressed a new entry'
+    }
 }
 Case 'missing README, invalid headings, unexpected files and directories fail' {
     param($r)
@@ -192,14 +218,40 @@ Case 'public final runner rejects pending fragments before build or test discove
     $start.RedirectStandardError = $true
     foreach ($argument in @('-NoProfile','-File',(Join-Path $r $runnerName))) { $start.ArgumentList.Add($argument) }
     if ($scoped) { $start.ArgumentList.Add('-Mode'); $start.ArgumentList.Add('PrePush') }
-    $process = [Diagnostics.Process]::Start($start)
+    $result = Invoke-FixtureProcess $start
+    Assert ($result.ExitCode -ne 0 -and $result.Output.Contains('pending changelog fragment')) "Final runner did not refuse pending fragments: $($result.Output)"
+}
+Case 'a timed-out fixture child is terminated before fixture cleanup' {
+    param($r)
+    $start = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    foreach ($argument in @('-NoProfile','-Command','Start-Sleep -Seconds 60')) { $start.ArgumentList.Add($argument) }
+    $identity = $null
+    $message = ''
     try {
-        $stdout = $process.StandardOutput.ReadToEndAsync()
-        $stderr = $process.StandardError.ReadToEndAsync()
-        Assert ($process.WaitForExit(30000)) 'Final gate child did not exit within its budget'
-        $output = $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
-        Assert ($process.ExitCode -ne 0 -and $output.Contains('pending changelog fragment')) "Final runner did not refuse pending fragments: $output"
-    } finally { $process.Dispose() }
+        try { Invoke-FixtureProcess $start -TimeoutMilliseconds 100 -ProcessIdentity ([ref]$identity) | Out-Null }
+        catch { $message = $_.Exception.Message }
+        Assert ($message.Contains('did not exit within its budget') -and $null -ne $identity) 'Timeout negative control was not reached'
+        $remaining = Get-Process -Id $identity.Id -ErrorAction SilentlyContinue
+        try { Assert ($null -eq $remaining -or $remaining.StartTime.ToUniversalTime().Ticks -ne $identity.StartTicks) 'Owned fixture child survived timeout cleanup' }
+        finally { if ($remaining) { $remaining.Dispose() } }
+    } finally {
+        # Keep this negative control self-cleaning even if the implementation regresses; PID alone is not ownership proof.
+        if ($identity) {
+            $remaining = Get-Process -Id $identity.Id -ErrorAction SilentlyContinue
+            if ($remaining) {
+                try {
+                    if ($remaining.StartTime.ToUniversalTime().Ticks -eq $identity.StartTicks) {
+                        $remaining.Kill($true)
+                        Assert ($remaining.WaitForExit(5000)) 'Negative-control cleanup did not finish'
+                    }
+                } finally { $remaining.Dispose() }
+            }
+        }
+    }
 }
 Write-Host "Changelog behavior: $($results.Count) passed, $($failures.Count) failed."
 if ($failures.Count) { throw ($failures -join "`n") }

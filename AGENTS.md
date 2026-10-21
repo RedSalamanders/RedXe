@@ -17,9 +17,7 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 - Python 3 with `Build/requirements-validation.txt` for `validate-skills.ps1` and the `BuildProcess` tooling suite of
   `test.ps1` (`-SkipTooling` leaves that suite to the CI `tooling` job)
 
-## Canonical project guidance
-
-### Drive-root output policy
+## Drive-root output policy
 
 Do not create scratch, caches, evidence, copied checkouts, or other output directories directly at a drive root.
 Use repository-local generated outputs or an existing approved workspace. The only permitted new drive-root
@@ -30,6 +28,8 @@ Keep outputs beneath the approved root; do not invent sibling root folders. Pres
 markers and authorization. Historical cleanup inventories and preserves useful evidence/recovery data, checks
 process use, repairs live junction/worktree references, and verifies preservation before removal. Never follow
 junctions during cleanup or leave compatibility junctions at forbidden old roots.
+
+## Canonical project guidance
 
 - This file is the repository-wide instruction source.
 - `Specs/README.md` defines specification authority and the plan lifecycle.

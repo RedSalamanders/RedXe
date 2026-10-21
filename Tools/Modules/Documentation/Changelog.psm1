@@ -90,7 +90,7 @@ function Merge-ChangelogFragments([Parameter(Mandatory)][string] $Changelog, [ob
     if (-not $Fragments -or $Fragments.Count -eq 0) { return $Changelog }
     $newline = if ($Changelog.Contains("`r`n")) { "`r`n" } else { "`n" }
     $at = $heading.Index + $heading.Length
-    $unreleased = ($Changelog.Substring($at) -split '(?m)^## ', 2)[0]
+    $unreleased = ($Changelog.Substring($at) -split '(?m)^##[ \t]+', 2)[0]
     $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($entry in [regex]::Matches($unreleased, '(?m)^- [^\r\n]*(?:\r?\n(?:[ \t][^\r\n]*|[ \t]*(?=\r?$)))*')) {
         [void]$seen.Add(($entry.Value.Trim() -replace '\r\n', "`n"))
