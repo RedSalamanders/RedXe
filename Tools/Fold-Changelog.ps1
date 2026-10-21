@@ -29,7 +29,7 @@ param([string] $Root = (Split-Path $PSScriptRoot -Parent), [switch] $Check)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Modules/Documentation/Changelog.psm1')
-$Root = [IO.Path]::GetFullPath($Root)
+$Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
 $problems = Get-ChangelogProblems $Root -RequireFolded:$Check
 if ($problems.Count) { throw "Changelog validation failed:`n$($problems -join "`n")" }
 if ($Check) { Write-Host 'Changelog is valid and fully folded.'; return }

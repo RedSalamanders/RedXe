@@ -130,6 +130,34 @@ Case 'preview writes nothing' {
     & $fold -Root $r -WhatIf
     Assert ((Snapshot $r) -ceq $before) 'WhatIf mutated files'
 }
+Case 'relative roots follow PowerShell location without touching the process directory' {
+    param($r)
+    $processRoot = Join-Path $r 'process-checkout'
+    $requestedRoot = Join-Path $r 'requested-checkout'
+    foreach ($checkout in @($processRoot, $requestedRoot)) {
+        Put $checkout 'Changes/README.md' '# Fragments'
+        Put $checkout 'CHANGELOG.md' "# Changelog`n`n## Unreleased`n`n- Existing.`n"
+    }
+    Put $requestedRoot 'Changes/2026-10-21-relative.md' '- Requested checkout only.'
+    $processBefore = Snapshot $processRoot
+    $requestedBefore = Snapshot $requestedRoot
+    $previousDirectory = [Environment]::CurrentDirectory
+    Push-Location -LiteralPath $requestedRoot
+    try {
+        [Environment]::CurrentDirectory = $processRoot
+        Refuses { & $validate -Root . -RequireFolded }
+        Refuses { & $fold -Root . -Check }
+        & $fold -Root . -WhatIf
+        Assert ((Snapshot $requestedRoot) -ceq $requestedBefore) 'Relative preview mutated the requested checkout'
+        & $fold -Root .
+        & $validate -Root . -RequireFolded
+        Assert ([IO.File]::ReadAllText((Join-Path $requestedRoot 'CHANGELOG.md')).Contains('- Requested checkout only.')) 'Relative fold did not publish to the requested checkout'
+        Assert ((Snapshot $processRoot) -ceq $processBefore) 'Relative command touched the process-directory checkout'
+    } finally {
+        [Environment]::CurrentDirectory = $previousDirectory
+        Pop-Location
+    }
+}
 Case 'newest first, stable topic order, preserve released history and README' {
     param($r)
     Put $r 'Changes/2026-10-20-old.md' '- Older.'

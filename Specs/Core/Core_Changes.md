@@ -29,6 +29,8 @@ A checkout-local exclusive lease prevents overlapping folds. Retry after interru
 an identical entry already in Unreleased. An identical entry in a released section does not suppress a new entry.
 `-WhatIf` previews without writing; `-Check` is read-only and rejects even one remaining fragment.
 The commands never stage, commit, push, fetch, build native code or take desktop focus.
+An explicit relative `-Root` resolves against the caller's PowerShell location, including after `Set-Location`,
+independently of the process working directory. Validation, preview and folding all target that same checkout.
 
 ```powershell
 ./Tools/Test-Changelog.ps1

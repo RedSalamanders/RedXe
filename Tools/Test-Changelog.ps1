@@ -23,6 +23,7 @@ param([string] $Root = (Split-Path $PSScriptRoot -Parent), [switch] $RequireFold
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Modules/Documentation/Changelog.psm1')
+$Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
 $problems = Get-ChangelogProblems $Root -RequireFolded:$RequireFolded
 if ($problems.Count) { throw "Changelog validation failed:`n$($problems -join "`n")" }
 $fragments = Get-ChangelogFragments $Root
