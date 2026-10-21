@@ -40,6 +40,11 @@ one. The vcpkg overlay triplets and the DxUi identity files therefore do not dep
 
 ## Output and validation
 
+Python tooling MUST prefer `python.exe` on PATH, so an activated environment or `setup-python` uses the same
+interpreter for dependency installation and validation. Ignore the WindowsApps Store placeholder; when no executable
+Python is found, fall back to `py.exe -3`. The independent tooling suite tests divergent installed commands, launcher
+fallback and a Store placeholder.
+
 Every native project and solution mapping supports Debug, Release and ASan Debug on x64 and ARM64.
 Optimized Release projects MUST use full link-time code generation (`/LTCG`), preserving whole-program
 optimization without `/LTCG:incremental`. The v145 incremental cache has reused old inlined member offsets after a

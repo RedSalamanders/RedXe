@@ -13,6 +13,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSCommandPath
+& (Join-Path $repoRoot 'Tools/Test-Changelog.ps1')
 $skillRoot = Join-Path $repoRoot '.agents\skills'
 if (-not (Test-Path -LiteralPath $skillRoot -PathType Container)) {
     throw "The repository skill directory was not found: $skillRoot"
@@ -20,10 +21,12 @@ if (-not (Test-Path -LiteralPath $skillRoot -PathType Container)) {
 
 $validator = Join-Path $repoRoot 'Build\validate_skills.py'
 
-$python = Get-Command 'py.exe' -ErrorAction SilentlyContinue
-$pythonUsesLauncher = $null -ne $python
+$python = Get-Command 'python.exe' -ErrorAction SilentlyContinue
+if ($python -and $python.Source -like '*\Microsoft\WindowsApps\python.exe') { $python = $null }
+$pythonUsesLauncher = $false
 if (-not $python) {
-    $python = Get-Command 'python.exe' -ErrorAction SilentlyContinue
+    $python = Get-Command 'py.exe' -ErrorAction SilentlyContinue
+    $pythonUsesLauncher = $null -ne $python
 }
 if (-not $python) {
     throw 'Python was not found. Install Python and Build/requirements-validation.txt.'

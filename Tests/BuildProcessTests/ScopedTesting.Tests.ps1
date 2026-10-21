@@ -497,6 +497,11 @@ jobs:
         $sandbox=Join-Path $fixture 'runner'
         Write-Fixture (Join-Path $sandbox '.gitignore') '.build/'
         Copy-Item -LiteralPath (Join-Path $repository 'Test-Changes.ps1') -Destination (Join-Path $sandbox 'Test-Changes.ps1')
+        foreach ($relative in @('Tools/Fold-Changelog.ps1','Tools/Modules/Documentation/Changelog.psm1')) {
+            Write-Fixture (Join-Path $sandbox $relative) ([IO.File]::ReadAllText((Join-Path $repository $relative)))
+        }
+        Write-Fixture (Join-Path $sandbox 'Changes/README.md') '# Changelog fragments'
+        Write-Fixture (Join-Path $sandbox 'CHANGELOG.md') "# Changelog`n`n## Unreleased`n"
         Write-Fixture (Join-Path $sandbox 'Build/ScopedTesting.psm1') ([IO.File]::ReadAllText((Join-Path $repository 'Build/ScopedTesting.psm1')))
         Write-Fixture (Join-Path $sandbox 'Tests/Example.Tests.Case.cpp') 'int example;'
         Write-Fixture (Join-Path $sandbox 'Specs/TestRuns/history/SelfTest/Old.SelfTest.cpp') 'immutable historical source;'

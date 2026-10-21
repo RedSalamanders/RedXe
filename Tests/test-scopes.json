@@ -85,6 +85,7 @@
     }
   ],
   "rules": [
+    {"pattern":"Tools/**","scopes":["BuildProcess"],"reason":"repository Changes workflow and behavioral fixtures"},
     {
       "pattern": "Plugins/AVControl/**",
       "scopes": [

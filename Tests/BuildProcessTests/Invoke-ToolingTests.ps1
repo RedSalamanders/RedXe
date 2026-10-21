@@ -8,20 +8,24 @@ Creates bounded test-owned fixtures under .build; does not build or run the prod
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $repository=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$changesScratch = Join-Path $repository '.build/changelog-fixtures'
+[void][IO.Directory]::CreateDirectory($changesScratch)
+& (Join-Path $repository 'Tools/Test-ChangelogWorkflow.ps1') -ScratchRoot $changesScratch
 # The restore contract checks the pinned source's VisualStudio helper. Independent
 # tooling runs before a product build too, so establish that source-only prerequisite.
 Import-Module (Join-Path $repository 'Build/DxUiRestore.psm1') -Force
 $null=Restore-RedXeDxUiPin -RepoRoot $repository
-foreach($name in @('BuildProcessTests.ps1','LinkConfiguration.Tests.ps1','DxUiProvenanceTests.ps1','DxUiUpdateTests.ps1','DxUiRestoreTests.ps1','ScopedTesting.Tests.ps1')) {
+foreach($name in @('BuildProcessTests.ps1','LinkConfiguration.Tests.ps1','DxUiProvenanceTests.ps1','DxUiUpdateTests.ps1','DxUiRestoreTests.ps1','ScopedTesting.Tests.ps1','PythonEnvironment.Tests.ps1')) {
     $global:LASTEXITCODE=0
     & (Join-Path $PSScriptRoot $name)
     if ($LASTEXITCODE) {throw "Tooling test failed: $name (exit $LASTEXITCODE)."}
 }
 & (Join-Path $repository 'validate-skills.ps1')
 if ($LASTEXITCODE) {throw 'Repository skill validation failed.'}
-$python=Get-Command py.exe -ErrorAction SilentlyContinue
+$python=Get-Command python.exe -ErrorAction SilentlyContinue
+if($python -and $python.Source -like '*\Microsoft\WindowsApps\python.exe') {$python=$null}
 $arguments=@('-m','unittest','discover','-s',(Join-Path $repository 'Tests/SkillValidationTests'),'-v')
-if($python) {$arguments=@('-3')+$arguments} else {$python=Get-Command python.exe -ErrorAction Stop}
+if(-not $python) {$python=Get-Command py.exe -ErrorAction Stop; $arguments=@('-3')+$arguments}
 & $python.Source @arguments
 if($LASTEXITCODE) {throw 'Skill validator regression tests failed.'}
 Write-Host 'All independent tooling tests passed.'
