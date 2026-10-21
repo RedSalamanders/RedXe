@@ -65,8 +65,10 @@ jobs:
         if: always()
         with:
           name: redxe-${{ matrix.platform }}-${{ matrix.configuration }}
+          include-hidden-files: true
           path: |
             .build/logs/**
+            .build/evidence/test-runs/**
             .build/reports/**
             .build/test-artifacts/**
             .build/${{ matrix.platform }}/${{ matrix.configuration }}/*.log
