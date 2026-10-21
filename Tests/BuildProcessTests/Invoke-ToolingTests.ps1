@@ -8,6 +8,9 @@ Creates bounded test-owned fixtures under .build; does not build or run the prod
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $repository=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$changesScratch = Join-Path $repository '.build/changelog-fixtures'
+[void][IO.Directory]::CreateDirectory($changesScratch)
+& (Join-Path $repository 'Tools/Test-ChangelogWorkflow.ps1') -ScratchRoot $changesScratch
 # The restore contract checks the pinned source's VisualStudio helper. Independent
 # tooling runs before a product build too, so establish that source-only prerequisite.
 Import-Module (Join-Path $repository 'Build/DxUiRestore.psm1') -Force

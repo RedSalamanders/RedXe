@@ -19,6 +19,18 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 
 ## Canonical project guidance
 
+### Drive-root output policy
+
+Do not create scratch, caches, evidence, copied checkouts, or other output directories directly at a drive root.
+Use repository-local generated outputs or an existing approved workspace. The only permitted new drive-root
+output name is `<Project>.Perf` (for example `RedXe.Perf`, `RedSalamander.Perf`, or `RedPrism.Perf`), and the
+user must explicitly authorize the exact path before its first creation or initialization. A matching name,
+environment variable, low disk space, or authorization for another drive/project is not authorization.
+Keep outputs beneath the approved root; do not invent sibling root folders. Preserve runner-specific ownership
+markers and authorization. Historical cleanup inventories and preserves useful evidence/recovery data, checks
+process use, repairs live junction/worktree references, and verifies preservation before removal. Never follow
+junctions during cleanup or leave compatibility junctions at forbidden old roots.
+
 - This file is the repository-wide instruction source.
 - `Specs/README.md` defines specification authority and the plan lifecycle.
 - Normative product behavior lives in domain contracts under `Specs/<Domain>/`; read the owning contract before
@@ -300,3 +312,12 @@ and must not write to the user's normal crash directory.
 ## Scoped testing policy (2026-10-05)
 
 The user's accepted workflow replaces unconditional full-test iteration. Use `Test-Changes.ps1 -Explain` and the affected default while editing; use `-Mode PrePush` to account for full local/PR coverage without duplicate identical obligations. A forthcoming enabled CI gate is pending acceptance, never an already passed result, and only a check `main` requires can take work off the local run. An empty affected plan (`NOTHING_SELECTED`) evaluates nothing; explicit Full (`test.ps1 -Full`) remains the full gate. Active native test files use `Scope.Tests.Something.h/.cpp` and the native file inventory. Follow [Specs/Build/Build_Process.md](Specs/Build/Build_Process.md) and [the test guide](Tests/README.md). Focus-taking work requires agreement to the time; no scoped pass closes that gate. Build/runtime/platform qualification still applies to changed behavior, with exact prior evidence reusable only under the owning contract.
+
+## Changes workflow
+
+Record each change as one dated Markdown fragment under `Changes/`; follow [Changes/README.md](Changes/README.md)
+and [Specs/Core/Core_Changes.md](Specs/Core/Core_Changes.md). Do not hand-edit generated `CHANGELOG.md` entries.
+Run `Tools/Test-Changelog.ps1` while editing. Before PrePush and final handoff, and immediately after every
+merge/rebase that introduces fragments, run `Tools/Fold-Changelog.ps1` and then `Tools/Fold-Changelog.ps1 -Check`,
+even for one fragment. Include the generated changelog and fragment removals in the current change; do not wait
+for release batches or a separate cleanup PR. Validation is read-only; `-WhatIf` previews folding without writes.

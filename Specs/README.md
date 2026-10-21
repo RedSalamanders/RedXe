@@ -99,3 +99,5 @@ Before closing specification or skill changes:
 
 Also run the build and runtime checks named by each modified domain spec. Generated reports and build products belong
 under `.build/`, never under `Specs/` or `docs/`.
+
+The [Changes workflow](Core/Core_Changes.md) owns fragment format, validation and immediate folding before PrePush/final handoff and after integration.

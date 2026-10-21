@@ -13,6 +13,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSCommandPath
+& (Join-Path $repoRoot 'Tools/Test-Changelog.ps1')
 $skillRoot = Join-Path $repoRoot '.agents\skills'
 if (-not (Test-Path -LiteralPath $skillRoot -PathType Container)) {
     throw "The repository skill directory was not found: $skillRoot"
