@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Start the construction-lane idle measurement after finite completion notifications quiesce. Add a deterministic late-notification witness and separate CPU/wait diagnostics while keeping the existing 250-ms sample and 1-ms CPU budget. Leave the production event-blocked queue unchanged and preserve the earlier native ARM64 Release failure without assigning an unproved cause.
 - Match the native compiler host during DxUi restore and RedXe compilation on ARM64 as well as x64, including emulated PowerShell. Preserve explicit overrides and restore the caller environment. Validate native/emulated host and override combinations through real MSBuild property evaluation; retain the earlier hosted ARM64 mismatch as failed evidence.
 - Share only the pinned RedMonitor client header and MIT notice, verify them offline during builds, and discover the separately installed production Release helper for explicit launch or optional bare Debug startup; keep normalized bounded diagnostics and application-only packages.
 - Add the exact pinned RedMonitor producer SDK, bounded application-labelled diagnostics and explicit optional adjacent viewer command; preserve existing logs, crash handling and application ownership, with consumer qualification tracked separately.

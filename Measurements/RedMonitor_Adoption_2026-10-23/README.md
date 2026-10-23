@@ -1,4 +1,8 @@
-# Header-only RedMonitor adoption — 2026-10-23
+# Header-only RedMonitor adoption — first checkpoint, 2026-10-23
+
+This records the initial be0e2bf checkpoint. The native ARM64 follow-up is documented in
+[Native compiler host qualification](NativeCompilerHost_2026-10-23.md). Generated package paths are mutable;
+the initial JSON retains its original package hash, while the follow-up records the replacement package.
 
 All six native configurations built through the normal wrappers. The ARM64 fix selects one x64 compiler-host scope for dependency restore, identity and compilation, respects explicit overrides and restores the caller environment.
 
