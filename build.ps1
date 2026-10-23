@@ -59,6 +59,13 @@ if ($Clean -and $Run) {
     throw '-Run cannot be combined with -Clean.'
 }
 
+# Use one compiler host for dependency identity, restore, compilation and provenance.
+$previousToolArchitecture=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
+try {
+    if ($null -eq $previousToolArchitecture -and
+        [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq [Runtime.InteropServices.Architecture]::X64) {
+        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture','x64','Process')
+    }
 $repoRoot = Split-Path -Parent $PSCommandPath
 $solutionPath = Join-Path $repoRoot 'RedXe.sln'
 $executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
@@ -164,4 +171,12 @@ if (-not $Clean) {
 }
 else {
     Write-Host "CLEAN SIGNAL LOCKED in $duration" -ForegroundColor Green
+}
+
+} finally {
+    if ($null -eq $previousToolArchitecture) {
+        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',[System.Management.Automation.Language.NullString]::Value,'Process')
+    } else {
+        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',$previousToolArchitecture,'Process')
+    }
 }

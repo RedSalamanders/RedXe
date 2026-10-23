@@ -14,6 +14,7 @@
 enum class RedXeSwitch : uint8_t
 {
     Help = 0,
+    RedMonitor,
     Settings,
     Warp,
     Dock,
@@ -67,6 +68,9 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeHelpArguments{L"--help", L"
 inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwitch::Count)> kRedXeCommandLineSwitches{
     RedXeCommandLineSwitch{RedXeSwitch::Help, L"--help", L"-h, /?, -?", RedXeSwitchValue::None, nullptr,
                            L"Show this text and exit.", L"General", true},
+    RedXeCommandLineSwitch{RedXeSwitch::RedMonitor, L"--redmonitor", nullptr, RedXeSwitchValue::None, nullptr,
+                           L"Open the separately installed Release RedMonitor helper and exit (1 if unavailable).",
+                           L"General", true},
     RedXeCommandLineSwitch{RedXeSwitch::Settings, L"--settings", nullptr, RedXeSwitchValue::Separate, L"<path>",
                            L"Use one portable settings file instead of the one under %LocalAppData%\\RedXe\\Settings; "
                            L"its Logs folder sits beside it.",

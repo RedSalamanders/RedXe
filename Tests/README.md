@@ -51,3 +51,5 @@ Repeated unchanged scopes print REUSED. Force reruns them. SkipBuild requires an
 
 Generated test output stays under `.build/evidence/test-runs/<id>/payload` on success, failure and interruption.
 See the [retention contract](../Specs/Build/Build_TestRunEvidence.md) for verification and qualification boundaries.
+
+RedMonitor controls verify the two vendored files entirely offline: exact bytes, missing/tampered inputs, invalid locks and reparse paths. No source checkout or viewer build is required. Actual application --redmonitor-probe tests cover cross-process Unicode/severity/PID/TID; installer closure tests belong to RedMonitor.

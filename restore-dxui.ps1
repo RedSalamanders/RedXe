@@ -3,6 +3,13 @@
 param([ValidateSet('x64','ARM64')][string] $Platform = 'x64', [string] $MSBuildPath = '', [switch] $CheckUpdates)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# Use one compiler host for dependency identity, restore, compilation and provenance.
+$previousToolArchitecture=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
+try {
+    if ($null -eq $previousToolArchitecture -and
+        [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq [Runtime.InteropServices.Architecture]::X64) {
+        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture','x64','Process')
+    }
 # The lock, the verified sparse long-path restore of its exact commit, the sibling-checkout rule, the folder names and the MSBuild
 # the build runs live in one module, which build.ps1 and vcpkg-install.ps1 use too: vcpkg-install.ps1 imports the pinned source's
 # Visual Studio and vcpkg helpers.
@@ -63,3 +70,11 @@ if ($CheckUpdates) {
     }
 }
 Write-Host "DxUi restored at exact pin $($pin.commit); sibling checkout unchanged."
+
+} finally {
+    if ($null -eq $previousToolArchitecture) {
+        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',[System.Management.Automation.Language.NullString]::Value,'Process')
+    } else {
+        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',$previousToolArchitecture,'Process')
+    }
+}

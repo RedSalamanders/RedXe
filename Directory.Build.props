@@ -2,6 +2,7 @@
 <Project>
   <PropertyGroup>
     <SolutionDir Condition="'$(SolutionDir)'==''">$(MSBuildThisFileDirectory)</SolutionDir>
+    <PreferredToolArchitecture Condition="'$(PreferredToolArchitecture)'=='' and '$(PROCESSOR_ARCHITECTURE)'=='AMD64'">x64</PreferredToolArchitecture>
     <RedXeBuildRoot>$(MSBuildThisFileDirectory).build\</RedXeBuildRoot>
     <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(RedXeBuildRoot)Intermediate\$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
@@ -61,4 +62,5 @@
       <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(RedXeVcpkgTriplet)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
+  <Import Project="$(MSBuildThisFileDirectory)Build\RedMonitor.props" />
 </Project>

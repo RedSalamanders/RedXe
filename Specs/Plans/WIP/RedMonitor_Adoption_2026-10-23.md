@@ -1,0 +1,23 @@
+# RedXe RedMonitor adoption
+
+Status: ACTIVE qualification. The canonical detailed execution plan is
+[RedMonitor extraction and adoption](https://github.com/RedSalamanders/RedMonitor/blob/ej/redmonitor-adoption-20261023/Specs/Plans/WIP/RedMonitorExtraction_2026-10-21.md).
+The current contract is [RedMonitor integration](../../Core/Core_RedMonitorIntegration.md).
+
+- [x] Inspect current main and preserve diagnostics, crash and provider ownership.
+- [x] Implement the bounded labelled native adapter and explicit installed-helper command.
+- [x] Replace managed viewer builds/staging with one vendored client header, MIT notice and immutable lock.
+- [x] Add local-only verification and explicit two-file update tooling.
+- [x] Update contracts, usage and application-only packaging with the client MIT notice.
+- [x] Run offline client controls and repository validators/format checks on the revised boundary.
+- [x] Build all six profiles and run required x64 Debug/Release/ASan suites, including actual ASan detection.
+- [x] Verify the actual app ETW Unicode/severity/PID/TID probe, missing-helper behavior and clean app-only package.
+After final validation, retain reviewed receipts, fold changes, commit and push; verify the remote branch equals local HEAD.
+- [ ] Close native ARM64 runtime, physical input/accessibility, controlled performance and release gates.
+
+Earlier 2026-10-23 managed-viewer checkpoints remain historical evidence in Measurements and .build.
+They do not qualify this revised dependency boundary. Tests never require an installed helper.
+No ordinary build invokes the dependency updater. The viewer owns its separate Release packaging.
+ARM64 repair: default PreferredToolArchitecture to x64 on an AMD64 host while preserving explicit overrides. Earlier all three ARM64 builds passed with an explicit x64-host override after default-host C1060; the corrected normal wrapper and standalone restore share one environment scope, preserve overrides and restore the caller environment. All three ARM64 profiles and all three x64 Full noninteractive profiles passed; independent tooling and app-only portable extraction passed.
+
+Final PrePush passed all 15 requested scopes. Actual application ETW probes and explicit absent-helper commands passed in all three x64 profiles. The portable ZIP contains the SDK MIT notice and no viewer executable or satellites. Reviewed source, dependency, binary, run and package identities are retained in Measurements/RedMonitor_Adoption_2026-10-23. These checks do not establish native ARM64 runtime, physical input/accessibility or paired performance qualification.
