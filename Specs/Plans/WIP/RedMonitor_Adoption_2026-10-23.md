@@ -12,8 +12,9 @@ The current contract is [RedMonitor integration](../../Core/Core_RedMonitorInteg
 - [x] Run offline client controls and repository validators/format checks on the revised boundary.
 - [x] Build all six profiles and run required x64 Debug/Release/ASan suites, including actual ASan detection.
 - [x] Verify the actual app ETW Unicode/severity/PID/TID probe, missing-helper behavior and clean app-only package.
-After final validation, retain reviewed receipts, fold changes, commit and push; verify the remote branch equals local HEAD.
-- [ ] Close native ARM64 runtime, physical input/accessibility, controlled performance and release gates.
+- [x] Retain reviewed receipts, fold changes, commit and push the implementation branch.
+- [x] Pass the native ARM64 Debug/Release/ASan Full matrix after the host-selection repair.
+- [ ] Close physical input/accessibility, controlled performance and release gates.
 
 Earlier 2026-10-23 managed-viewer checkpoints remain historical evidence in Measurements and .build.
 They do not qualify this revised dependency boundary. Tests never require an installed helper.
@@ -25,3 +26,12 @@ Final PrePush passed all 15 requested scopes. Actual application ETW probes and 
 Hosted run 39943731651 passed tooling and all three x64 profiles, but failed all three native ARM64 builds on the DxUi/compiler-host identity guard before runtime tests. The follow-up selects the native OS host for both restore and compilation (including emulated shells), with six real MSBuild host/override controls. Earlier local cross-builds and the pushed be0e2bf checkpoint remain valid only for their recorded scope; the revised tooling and hosted native ARM64 profiles require new qualification.
 
 Run 39947763357 passed tooling, all x64 jobs, and native ARM64 Debug/ASan. Native ARM64 Release built but failed a combined idle-CPU/notification assertion; its original log does not identify which predicate failed. A deterministic witness now forces a notification to arrive after the owner drained the result. The idle test settles that finite tail before one unchanged 250-ms/10000-100ns-budget sample and emits failure diagnostics. The production queue is unchanged. The revised test requires new focused/native qualification; a passing repeat alone will not establish the cause of the earlier failure.
+
+Final hosted [run 39954330299](https://github.com/RedSalamanders/RedXe/actions/runs/39954330299),
+at `a55901c1fad009dab2fbd068002846a33ead2160`, passed tooling and all six native Full jobs.
+Each profile executed all 15 scopes; actual ARM64 execution now qualifies the corrected build/test
+boundary. Debug/Release also passed the native AV resource fixture. Downloaded started/completed
+receipts, all recorded payload stream hashes and DxUi provenance were independently checked; reviewed
+identities are in Measurements/RedMonitor_Adoption_2026-10-23/native-hosted-validation.json.
+The original failed idle run remains failed and its cause remains unproven. No timing budget was
+relaxed. Physical input/IME/AT, paired performance and release publication remain open.

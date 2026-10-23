@@ -36,3 +36,14 @@ adds a deterministic late-notification witness, bounded quiescence and failure d
 original idle budget and sample interval. It needs new qualification; no repeat establishes the original cause.
 Local ARM64 evidence establishes compilation only. Physical input/IME/AT,
 paired Release performance and release publication remain separate WIP gates.
+
+Final native matrix: [run 39954330299](https://github.com/RedSalamanders/RedXe/actions/runs/39954330299)
+at test follow-up commit `a55901c1fad009dab2fbd068002846a33ead2160` passed tooling and all six native
+Debug/Release/ASan jobs on x64 and ARM64. Each archived runtime receipt contains all 15 requested scopes
+and a passed outcome. Every recorded payload stream hash was checked after download; the reviewed
+started/completed, artifact archive and DxUi provenance identities are retained in
+[native-hosted-validation.json](native-hosted-validation.json). The published ARM64 provenance records
+compiler host x86, consistently for restore/consumer compilation; the wrapper preserves an explicit
+host override. Native-OS default/override policy is also covered by the independent tooling controls.
+Debug/Release AV resource fixtures passed. This closes the native ARM64 runtime gate for this commit;
+it does not establish the original idle failure's cause or paired performance non-regression.
