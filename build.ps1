@@ -60,11 +60,11 @@ if ($Clean -and $Run) {
 }
 
 # Use one compiler host for dependency identity, restore, compilation and provenance.
+Import-Module (Join-Path $PSScriptRoot 'Build/DxUiRestore.psm1') -Force -ErrorAction Stop
 $previousToolArchitecture=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
 try {
-    if ($null -eq $previousToolArchitecture -and
-        [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq [Runtime.InteropServices.Architecture]::X64) {
-        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture','x64','Process')
+    if ($null -eq $previousToolArchitecture) {
+        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',(Get-RedXeDefaultCompilerHost),'Process')
     }
 $repoRoot = Split-Path -Parent $PSCommandPath
 $solutionPath = Join-Path $repoRoot 'RedXe.sln'
@@ -87,7 +87,6 @@ Write-Host ''
 Assert-BuildOutputProcessNotRunning -ProcessName 'RedXe.exe' -ExpectedExecutablePath $executable
 
 # vcpkg-install.ps1 and restore-dxui.ps1 resolve the same MSBuild when they run on their own.
-Import-Module (Join-Path $repoRoot 'Build\DxUiRestore.psm1') -Force -ErrorAction Stop
 $msbuild = Find-RedXeMSBuild
 $target = if ($Clean) { 'Clean' } elseif ($Rebuild) { 'Rebuild' } else { 'Build' }
 $dependencyInstaller = Join-Path $repoRoot 'vcpkg-install.ps1'

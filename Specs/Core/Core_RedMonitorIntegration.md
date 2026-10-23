@@ -28,4 +28,4 @@ readiness barrier without document/settings/window state. Offline verification c
 missing, tampered, unsafe and reparse inputs with Git/network unavailable. Real cross-process transport
 tests use the actual application executable. App packages carry the client MIT notice and no viewer
 payload. Native platform, physical input/accessibility and paired performance gates remain separate.
-ARM64 build tooling uses the same default x64 compiler host for dependency identity/restore and compilation on an x64 process, respects explicit overrides and restores the caller environment. Project evaluation carries the same default for direct MSBuild.
+Build tooling uses the native OS compiler host (x64 on x64 Windows, arm64 on ARM64 Windows) for dependency identity/restore and compilation, including when PowerShell runs under emulation. Explicit overrides are preserved and the caller environment is restored. Direct MSBuild carries the same defaults, checking the native WOW64 architecture before the process architecture.
