@@ -1,0 +1,56 @@
+[
+  {
+    "name": "x64-Debug-build",
+    "platform": "x64",
+    "configuration": "Debug",
+    "startedUtc": "2026-10-23T23:00:51.6594858Z",
+    "finishedUtc": "2026-10-23T23:02:29.5142894Z",
+    "exitCode": 0,
+    "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\x64-Debug-build.log"
+  },
+  {
+    "name": "x64-Release-build",
+    "platform": "x64",
+    "configuration": "Release",
+    "startedUtc": "2026-10-23T23:02:29.5377515Z",
+    "finishedUtc": "2026-10-23T23:04:12.1813764Z",
+    "exitCode": 0,
+    "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\x64-Release-build.log"
+  },
+  {
+    "name": "x64-ASanDebug-build",
+    "platform": "x64",
+    "configuration": "ASan Debug",
+    "startedUtc": "2026-10-23T23:04:12.1854621Z",
+    "finishedUtc": "2026-10-23T23:05:40.1604465Z",
+    "exitCode": 0,
+    "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\x64-ASanDebug-build.log"
+  },
+  {
+    "name": "ARM64-Debug-build",
+    "platform": "ARM64",
+    "configuration": "Debug",
+    "startedUtc": "2026-10-23T23:05:40.1626245Z",
+    "finishedUtc": "2026-10-23T23:07:26.8164369Z",
+    "exitCode": 0,
+    "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\ARM64-Debug-build.log"
+  },
+  {
+    "name": "ARM64-Release-build",
+    "platform": "ARM64",
+    "configuration": "Release",
+    "startedUtc": "2026-10-23T23:07:26.8188368Z",
+    "finishedUtc": "2026-10-23T23:09:29.1720163Z",
+    "exitCode": 0,
+    "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\ARM64-Release-build.log"
+  },
+  {
+    "name": "ARM64-ASanDebug-build",
+    "platform": "ARM64",
+    "configuration": "ASan Debug",
+    "startedUtc": "2026-10-23T23:09:29.1739630Z",
+    "finishedUtc": "2026-10-23T23:11:10.9968246Z",
+    "exitCode": 0,
+    "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\ARM64-ASanDebug-build.log"
+  }
+]

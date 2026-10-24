@@ -1,0 +1,18 @@
+[
+  {
+    "platform": "ARM64",
+    "profiles": 96,
+    "hosts": [
+      "x64"
+    ],
+    "failures": 0
+  },
+  {
+    "platform": "x64",
+    "profiles": 96,
+    "hosts": [
+      "x64"
+    ],
+    "failures": 0
+  }
+]
