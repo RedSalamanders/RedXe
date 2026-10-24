@@ -16,7 +16,34 @@ $dependencyRoot = Get-RedXeDxUiDependencyRoot -RepoRoot $PSScriptRoot
 # Run on its own, the script identifies the MSBuild build.ps1 would pass, so the identity does not depend on which ran last.
 if (-not $MSBuildPath) { $MSBuildPath = Find-RedXeMSBuild }
 Import-Module (Join-Path $source 'Tools/ConsumerBuild.psm1') -Force
-$buildIdentity=Get-DxUiConsumerBuildIdentity -DxUiRoot $source -MSBuildPath $MSBuildPath -Platform $Platform
+# The old pinned probe evaluates the library alone. Match the product's ARM64 host default
+# while preserving every caller environment value even when probing throws.
+$callerCompilerHost=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
+try {
+    if($Platform-eq 'ARM64' -and [string]::IsNullOrWhiteSpace($callerCompilerHost)){
+        $env:PreferredToolArchitecture=if([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()-eq 'Arm64'){'arm64'}else{'x64'}
+    }
+    $buildIdentity=Get-DxUiConsumerBuildIdentity -DxUiRoot $source -MSBuildPath $MSBuildPath -Platform $Platform
+} finally {
+    [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',$callerCompilerHost,'Process')
+}
+# A changed compiler policy owns a separate writable archive output, even when the API/source pin stays unchanged.
+[xml]$msvcPolicy = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'Directory.Build.props')
+$requiredTools = $msvcPolicy.SelectSingleNode('/Project/PropertyGroup/RequiredMsvcToolsVersion').InnerText
+if (-not ([string]$buildIdentity.Identity.vcToolsVersion).StartsWith($requiredTools + '.', [StringComparison]::Ordinal)) {
+    throw "This product requires MSVC $requiredTools.x; selected $($buildIdentity.Identity.vcToolsVersion)."
+}
+$policyIdentity = [ordered]@{}
+if ($buildIdentity.Identity -is [Collections.IDictionary]) {
+    foreach ($entry in $buildIdentity.Identity.GetEnumerator()) { $policyIdentity[$entry.Key] = $entry.Value }
+} else {
+    foreach ($entry in $buildIdentity.Identity.PSObject.Properties) { $policyIdentity[$entry.Name] = $entry.Value }
+}
+$policyIdentity['releaseOptimizationPolicy'] = 'Gy-REF-GL-LTCG-full-v1'
+$policyHasher = [Security.Cryptography.SHA256]::Create()
+try { $policyFingerprint = ([BitConverter]::ToString($policyHasher.ComputeHash([Text.Encoding]::UTF8.GetBytes(($policyIdentity | ConvertTo-Json -Depth 8 -Compress))))).Replace('-','').ToLowerInvariant() }
+finally { $policyHasher.Dispose() }
+$buildIdentity = [pscustomobject]@{ Fingerprint=$policyFingerprint; Identity=$policyIdentity }
 $output = Get-RedXeDxUiOutputRoot -RepoRoot $PSScriptRoot -Fingerprint $buildIdentity.Fingerprint
 # The root's lease is renewed before anything uses it, the source's was by Restore-RedXeDxUiPin: no removal of superseded
 # restores, this session's or another's, takes either for the lease window, even once another fingerprint's properties replace ours.

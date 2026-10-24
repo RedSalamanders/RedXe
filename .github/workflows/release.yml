@@ -118,6 +118,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Prepare required MSVC 14.52 tools
+        uses: ./.github/actions/setup-msvc
+        with:
+          platform: ${{ matrix.platform }}
       - name: Build and test Release ${{ matrix.platform }}
         shell: pwsh
         # The full gate without the Python tooling suite, which needs Build/requirements-validation.txt: the ci.yml

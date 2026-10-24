@@ -1,0 +1,106 @@
+{
+  "repository": "RedXe",
+  "phase": "Final local x64 qualification and ARM64 cross-builds",
+  "passed": true,
+  "updatedUtc": "2026-10-24T01:39:46.5582978Z",
+  "sourceHead": "596b6eb476d0a9bf7e68fc078a73533c6a400d23",
+  "builds": [
+    {
+      "name": "x64-Debug-build",
+      "platform": "x64",
+      "configuration": "Debug",
+      "startedUtc": "2026-10-23T23:00:51.6594858Z",
+      "finishedUtc": "2026-10-23T23:02:29.5142894Z",
+      "exitCode": 0,
+      "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\x64-Debug-build.log"
+    },
+    {
+      "name": "x64-Release-build",
+      "platform": "x64",
+      "configuration": "Release",
+      "startedUtc": "2026-10-23T23:02:29.5377515Z",
+      "finishedUtc": "2026-10-23T23:04:12.1813764Z",
+      "exitCode": 0,
+      "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\x64-Release-build.log"
+    },
+    {
+      "name": "x64-ASanDebug-build",
+      "platform": "x64",
+      "configuration": "ASan Debug",
+      "startedUtc": "2026-10-23T23:04:12.1854621Z",
+      "finishedUtc": "2026-10-23T23:05:40.1604465Z",
+      "exitCode": 0,
+      "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\x64-ASanDebug-build.log"
+    },
+    {
+      "name": "ARM64-Debug-build",
+      "platform": "ARM64",
+      "configuration": "Debug",
+      "startedUtc": "2026-10-23T23:05:40.1626245Z",
+      "finishedUtc": "2026-10-23T23:07:26.8164369Z",
+      "exitCode": 0,
+      "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\ARM64-Debug-build.log"
+    },
+    {
+      "name": "ARM64-Release-build",
+      "platform": "ARM64",
+      "configuration": "Release",
+      "startedUtc": "2026-10-23T23:07:26.8188368Z",
+      "finishedUtc": "2026-10-23T23:09:29.1720163Z",
+      "exitCode": 0,
+      "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\ARM64-Release-build.log"
+    },
+    {
+      "name": "ARM64-ASanDebug-build",
+      "platform": "ARM64",
+      "configuration": "ASan Debug",
+      "startedUtc": "2026-10-23T23:09:29.173963Z",
+      "finishedUtc": "2026-10-23T23:11:10.9968246Z",
+      "exitCode": 0,
+      "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\ARM64-ASanDebug-build.log"
+    }
+  ],
+  "fullNative": [
+    {
+      "repository": "RedXe",
+      "configuration": "Debug",
+      "exitCode": 0,
+      "startedUtc": "2026-10-24T00:10:00.4710128Z",
+      "finishedUtc": "2026-10-24T00:19:51.590106Z",
+      "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\Debug-Full.log",
+      "scope": "Full functional qualification; concurrent builds make printed performance diagnostic only"
+    },
+    {
+      "repository": "RedXe",
+      "configuration": "Release",
+      "exitCode": 0,
+      "startedUtc": "2026-10-24T00:19:51.6129889Z",
+      "finishedUtc": "2026-10-24T00:29:21.5542581Z",
+      "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\Release-Full.log",
+      "scope": "Full functional qualification; concurrent builds make printed performance diagnostic only"
+    },
+    {
+      "repository": "RedXe",
+      "configuration": "ASan Debug",
+      "exitCode": 0,
+      "startedUtc": "2026-10-24T00:29:21.5579335Z",
+      "finishedUtc": "2026-10-24T00:39:23.1187455Z",
+      "log": "E:\\RedXe.Perf\\failure-remediation\\scope-refresh\\ASanDebug-Full.log",
+      "scope": "Full functional qualification; concurrent builds make printed performance diagnostic only"
+    }
+  ],
+  "checks": {
+    "validateSkills": 0,
+    "foldCheck": 0,
+    "prepushExplain": 0,
+    "BuildProcess": 0,
+    "finishedUtc": "2026-10-24T00:50:52.3097409Z",
+    "scope": "Final prose/index/tooling checks. Previous three Full native runs retain identical compiled input/artifact attestation."
+  },
+  "evidenceReuse": "Only plan/index/prose changed after Full; final BuildProcess check verifies unchanged compiled/artifact attestation.",
+  "separateGates": [
+    "Native ARM64 runtime",
+    "Actual hosted CI provisioning"
+  ],
+  "performanceLimit": "Concurrent functional timing is diagnostic. The preserved reviewed optimizer-only study is separate; no reliable runtime improvement was established."
+}
