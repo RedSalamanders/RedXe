@@ -1,7 +1,7 @@
 # RedXe RedMonitor adoption
 
 Status: ACTIVE qualification. The canonical detailed execution plan is
-[RedMonitor extraction and adoption](https://github.com/RedSalamanders/RedMonitor/blob/ej/redmonitor-adoption-20261023/Specs/Plans/WIP/RedMonitorExtraction_2026-10-21.md).
+[RedMonitor extraction and adoption](https://github.com/RedSalamanders/RedMonitor/blob/main/Specs/Plans/WIP/RedMonitorExtraction_2026-10-21.md).
 The current contract is [RedMonitor integration](../../Core/Core_RedMonitorIntegration.md).
 
 - [x] Inspect current main and preserve diagnostics, crash and provider ownership.
