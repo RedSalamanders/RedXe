@@ -202,3 +202,5 @@ Changes to this contract require:
 
 and, for workflow changes, one `Release` run with `publish_winget` off followed by a manual `Publish to winget`
 run with `submit` off against that release.
+
+RedMonitor is installed independently. Application packages include its client MIT notice and no viewer executable, runtime, satellite or theme payload. Normal builds verify only the pinned local header/license; see [RedMonitor integration](../Core/Core_RedMonitorIntegration.md).

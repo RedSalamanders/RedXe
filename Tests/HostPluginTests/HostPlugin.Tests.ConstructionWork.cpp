@@ -140,6 +140,21 @@ bool Drain(ConstructionWorkQueue& queue, HANDLE notification,
     }
     return false;
 }
+bool WaitForNotificationQuiet(ConstructionWorkQueue& queue, HANDLE notification) noexcept
+{
+    // Completion publication precedes the callback. Drain finite late hints before measuring steady idle.
+    const ULONGLONG deadline = GetTickCount64() + 5'000;
+    while (GetTickCount64() < deadline)
+    {
+        queue.DrainCompletions();
+        const DWORD wait = WaitForSingleObject(notification, 50);
+        if (wait == WAIT_TIMEOUT)
+            return true;
+        if (wait != WAIT_OBJECT_0 || !ResetEvent(notification))
+            return false;
+    }
+    return false;
+}
 } // namespace
 
 void TestConstructionWork(bool& success) noexcept
@@ -210,12 +225,17 @@ void TestConstructionWork(bool& success) noexcept
                     work[i]->lastResult == S_OK;
         check(exact, L"each accepted object runs once and completes once on its owner");
         notification.ResetEvent();
+        check(WaitForNotificationQuiet(queue, notification.get()),
+              L"finite completion notifications quiesce before the steady-idle sample");
         const uint64_t idleBefore = Cpu(ConstructionWorkQueueTestAccess::Thread(queue));
         const DWORD idleWait = WaitForSingleObject(notification.get(), 250);
         const uint64_t idleAfter = Cpu(ConstructionWorkQueueTestAccess::Thread(queue));
-        check(idleBefore != UINT64_MAX && idleAfter != UINT64_MAX && idleWait == WAIT_TIMEOUT &&
-                  idleAfter - idleBefore <= 10'000,
-              L"idle STA blocks on events without a timer or periodic CPU wake");
+        const bool idle = idleBefore != UINT64_MAX && idleAfter != UINT64_MAX && idleWait == WAIT_TIMEOUT &&
+                          idleAfter - idleBefore <= 10'000;
+        if (!idle)
+            std::wcerr << L"construction_idle before_100ns=" << idleBefore << L" after_100ns=" << idleAfter << L" wait="
+                       << idleWait << L" wall_ms=250 budget_100ns=10000\n";
+        check(idle, L"idle STA blocks on events without a timer or periodic CPU wake");
         std::wcout << L"construction_idle cpu_100ns=" << idleAfter - idleBefore << L" wall_ms=250\n";
         check(queue.Stop() == ConstructionWorkQueue::StopResult::Stopped && !queue.Running(),
               L"idle construction lane joins and releases its fixed storage");
@@ -223,6 +243,52 @@ void TestConstructionWork(bool& success) noexcept
             item.reset();
         check(lifetime.destroyed.load() == ConstructionWorkQueue::Capacity + 1 && lifetime.releasedOnOwner.load(),
               L"final job releases and their owned storage occur on the owner thread");
+
+        {
+            struct DelayedNotify final
+            {
+                wil::unique_event_nothrow entered;
+                wil::unique_event_nothrow release;
+                wil::unique_event_nothrow delivered;
+                wil::unique_event_nothrow notification;
+            } delayed;
+            THROW_IF_FAILED(delayed.entered.create());
+            THROW_IF_FAILED(delayed.release.create(wil::EventOptions::ManualReset));
+            THROW_IF_FAILED(delayed.delivered.create());
+            THROW_IF_FAILED(delayed.notification.create(wil::EventOptions::ManualReset));
+            auto delayedWork = MakeConstruction();
+            delayedWork->gate.SetEvent();
+            ConstructionWorkQueue delayedQueue;
+            const auto releaseNotification = wil::scope_exit([&]() noexcept { delayed.release.SetEvent(); });
+            const auto delayedNotify = [](void* context) noexcept
+            {
+                auto& value = *static_cast<DelayedNotify*>(context);
+                value.entered.SetEvent();
+                (void)WaitForSingleObject(value.release.get(), INFINITE);
+                value.notification.SetEvent();
+                value.delivered.SetEvent();
+            };
+            const bool entered = delayedQueue.Start(delayedNotify, &delayed) == S_OK &&
+                                 delayedQueue.Enqueue(delayedWork.get()) == S_OK &&
+                                 WaitForSingleObject(delayed.entered.get(), 5'000) == WAIT_OBJECT_0;
+            check(entered, L"the late-notification witness pauses after publishing its result");
+            if (entered)
+            {
+                delayedQueue.DrainCompletions();
+                check(delayedWork->completions == 1 && delayedWork->lastResult == S_OK,
+                      L"the owner may drain a result before its notification callback returns");
+                delayed.release.SetEvent();
+                check(WaitForSingleObject(delayed.delivered.get(), 5'000) == WAIT_OBJECT_0 &&
+                          WaitForSingleObject(delayed.notification.get(), 0) == WAIT_OBJECT_0,
+                      L"a completed and drained job can still deliver a finite late notification");
+                check(WaitForNotificationQuiet(delayedQueue, delayed.notification.get()),
+                      L"idle preparation consumes the late hint without another completion");
+                check(delayedWork->completions == 1, L"a late notification cannot repeat UI completion");
+            }
+            delayed.release.SetEvent();
+            check(delayedQueue.Stop() == ConstructionWorkQueue::StopResult::Stopped,
+                  L"the late-notification witness joins before its callback storage is released");
+        }
 
         Lifetime onlyHostReference;
         auto onlyHostWork = MakeConstruction(&onlyHostReference);

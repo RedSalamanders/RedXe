@@ -1,4 +1,5 @@
 #include "Renderer.h"
+#include "MonitorDiagnostics.h"
 
 #include "DashboardHost.h"
 #include "PluginHost.h"
@@ -1488,6 +1489,7 @@ RECT Renderer::RaisedContentRect() const noexcept
 HRESULT Renderer::RecoverDevice() noexcept
 {
     OutputDebugStringW(L"Direct3D device was lost; rebuilding graphics resources.\n");
+    MonitorDiagnostics::Write(RedMonitor::Severity::Warning, L"Direct3D device lost; rebuilding graphics resources");
     return CreateDeviceResources();
 }
 

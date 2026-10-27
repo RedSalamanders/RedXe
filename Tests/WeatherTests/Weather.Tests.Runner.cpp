@@ -208,6 +208,32 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         return FAILED(result) ? result : kTestFailure;
     }
 
+    // Every season must round-trip in the active zone, even when its UTC bias differs from today's.
+    // The fixed civil hour avoids ambiguous or nonexistent times at daylight-saving transitions.
+    for (WORD month = 1; month <= 12; ++month)
+    {
+        SYSTEMTIME seasonalLocal = local;
+        seasonalLocal.wMonth = month;
+        SYSTEMTIME seasonalUtc{};
+        FILETIME seasonalFileTime{};
+        if (TzSpecificLocalTimeToSystemTimeEx(nullptr, &seasonalLocal, &seasonalUtc) == FALSE ||
+            SystemTimeToFileTime(&seasonalUtc, &seasonalFileTime) == FALSE)
+        {
+            shutdown();
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+        const uint64_t seasonalTime = (static_cast<uint64_t>(seasonalFileTime.dwHighDateTime) << 32) |
+                                      static_cast<uint64_t>(seasonalFileTime.dwLowDateTime);
+        result = formatClockDay(seasonalTime, seasonalTime, clock.data(), static_cast<uint32_t>(clock.size()),
+                                day.data(), static_cast<uint32_t>(day.size()));
+        if (FAILED(result) || std::wcscmp(clock.data(), L"07:11") != 0 || std::wcscmp(day.data(), L"Today") != 0)
+        {
+            std::wprintf(L"Weather seasonal clock/day mismatch in month %u: %s %s\n", month, clock.data(), day.data());
+            shutdown();
+            return FAILED(result) ? result : kTestFailure;
+        }
+    }
+
     constexpr uint64_t kDay = 864000000000ULL;
     std::array<wchar_t, 32> tomorrow{};
     result = formatClockDay(fileTime + kDay, fileTime, clock.data(), static_cast<uint32_t>(clock.size()),

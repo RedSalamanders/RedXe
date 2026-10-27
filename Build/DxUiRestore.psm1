@@ -472,6 +472,18 @@ function Remove-RedXeDxUiSupersededRestores {
     finally { Exit-RedXeDxUiLock -Lock $lock }
 }
 
+function Get-RedXeDefaultCompilerHost {
+    [CmdletBinding()]
+    param([Runtime.InteropServices.Architecture]$OperatingSystemArchitecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture)
+
+    # Use the native OS host even when this PowerShell process runs under emulation.
+    switch ($OperatingSystemArchitecture) {
+        ([Runtime.InteropServices.Architecture]::Arm64) { return 'arm64' }
+        ([Runtime.InteropServices.Architecture]::X64) { return 'x64' }
+        default { return 'x86' }
+    }
+}
+
 function Find-RedXeMSBuild {
     <# The MSBuild the build runs: MSBUILD_EXE_PATH when that file exists, then msbuild.exe on PATH (a Developer PowerShell's), then
        the first x64 MSBuild of an installation vswhere reports, then a scan of the Visual Studio folders. build.ps1 hands its
@@ -539,4 +551,4 @@ function Get-RedXeVisualStudioInstallation {
 
 Export-ModuleMember -Function Read-RedXeDxUiLock, Get-RedXeDxUiSupportedApiRevision, Get-RedXeDxUiDependencyRoot, Get-RedXeDxUiSourcePath,
     Get-RedXeDxUiOutputRoot, Get-RedXeDxUiCloneSource, Restore-RedXeDxUiSource, Restore-RedXeDxUiPin, Update-RedXeDxUiLease,
-    Remove-RedXeDxUiSupersededRestores, Find-RedXeMSBuild, Get-RedXeVisualStudioInstallation
+    Remove-RedXeDxUiSupersededRestores, Get-RedXeDefaultCompilerHost, Find-RedXeMSBuild, Get-RedXeVisualStudioInstallation

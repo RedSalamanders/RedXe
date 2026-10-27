@@ -165,6 +165,7 @@ The bar collapses to a thin line until you rest the pointer on it. Its `thicknes
 
 | Switch | Meaning |
 | --- | --- |
+| `--redmonitor` | Open the separately installed production RedMonitor helper and exit (0 if available, 1 if absent or launch fails). Use this switch alone. See [Diagnostics](Diagnostics.md). |
 | `--settings <path>` | Use one portable settings file instead of the one under `%LocalAppData%\RedXe\Settings`; its `Logs` folder sits beside it. |
 | `--warp` | Render on the Microsoft Basic Render Driver (WARP) instead of the GPU. |
 | `--dock <edge>[@<monitor>]` | Run as a bar on that screen edge; see [Dock](#dock) for `--dock-mode`, `--dock-thickness`, `--dock-reserve`, and `--dock-peek`. |

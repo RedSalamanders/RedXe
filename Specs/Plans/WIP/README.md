@@ -24,3 +24,5 @@ its row here.
 [DxUi adoption is complete](../Done/DxUiAdoption_2026-09-09.md) for the accepted local scope.
 Further ARM64 and ASan qualification is user-deferred and routed through RedSalamander's
 `DxUi_DeferredPlatformQualification_2026-09-13.md`; AV release gates retain their owner above.
+
+- [RedMonitor adoption](RedMonitor_Adoption_2026-10-23.md) — pinned producer, optional viewer and consumer qualification.

@@ -3,6 +3,7 @@
 #include "CommandLine.h"
 #include "CrashHandler.h"
 #include "DockOptions.h"
+#include "MonitorDiagnostics.h"
 #include "PluginHost.h"
 
 #include <array>
@@ -218,6 +219,11 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             message += unknown;
             message += L"\". Run RedXe.exe --help for the command line.\n";
             EmitCommandLineText(message, true, unattended);
+            return 2;
+        }
+        if (HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::RedMonitor)))
+        {
+            EmitCommandLineText(L"Use --redmonitor by itself.\n", true, unattended);
             return 2;
         }
     }
@@ -439,8 +445,12 @@ int RunWithCrashBoundary(HINSTANCE instance, int showCommand) noexcept
 }
 } // namespace
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int showCommand)
 {
+    MonitorDiagnostics::Initialize();
+    const int monitorCommand = MonitorDiagnostics::HandleCommand(command ? command : L"");
+    if (monitorCommand >= 0)
+        return monitorCommand;
     CrashHandler::Install();
     return RunWithCrashBoundary(instance, showCommand);
 }

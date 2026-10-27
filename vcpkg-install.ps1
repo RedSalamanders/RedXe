@@ -68,6 +68,9 @@ Import-Module (Join-Path $dxUi.Source 'Tools/VcpkgTriplet.psm1') -Force
 if (-not $MSBuildPath) { $MSBuildPath = Find-RedXeMSBuild }
 $installation = Get-RedXeVisualStudioInstallation -MSBuildPath $MSBuildPath
 $toolset = Get-DxUiDefaultToolset -Installation $installation
+[xml]$msvcPolicy = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'Directory.Build.props')
+$requiredTools = $msvcPolicy.SelectSingleNode('/Project/PropertyGroup/RequiredMsvcToolsVersion').InnerText
+if ($toolset.MajorMinor -cne $requiredTools) { throw "This product requires default MSVC $requiredTools.x; selected $($toolset.Version)." }
 Write-Host "Visual Studio: $installation" -ForegroundColor Cyan
 Write-Host "MSVC toolset:  $($toolset.Version), the default MSBuild compiles with; vcpkg is pinned to $($toolset.MajorMinor)" -ForegroundColor Cyan
 

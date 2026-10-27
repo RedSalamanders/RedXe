@@ -124,8 +124,8 @@ struct CaptureSource
     winrt::check_hresult(source.device->QueryInterface(IID_PPV_ARGS(dxgiDevice.put())));
     wil::com_ptr_nothrow<IInspectable> inspectable;
     winrt::check_hresult(CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice.get(), inspectable.put()));
-    winrt::check_hresult(inspectable->QueryInterface(winrt::guid_of<Direct3D::IDirect3DDevice>(),
-                                                     winrt::put_abi(source.projected)));
+    winrt::check_hresult(
+        inspectable->QueryInterface(winrt::guid_of<Direct3D::IDirect3DDevice>(), winrt::put_abi(source.projected)));
     const auto interop = winrt::get_activation_factory<Capture::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
     winrt::check_hresult(
         interop->CreateForWindow(window, winrt::guid_of<Capture::GraphicsCaptureItem>(), winrt::put_abi(source.item)));

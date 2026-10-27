@@ -22,8 +22,8 @@
 
 // 1,0,183,0 for FILEVERSION / PRODUCTVERSION and "1.0.183.0" for the string table.
 #define REDXE_VERSION_NUMERIC REDXE_VERSION_MAJOR, REDXE_VERSION_MINOR, REDXE_VERSION_BUILD, 0
-#define REDXE_VERSION_STRING                                                                                     \
-    REDXE_VERSION_STRINGIZE(REDXE_VERSION_MAJOR)                                                                 \
+#define REDXE_VERSION_STRING                                                                                           \
+    REDXE_VERSION_STRINGIZE(REDXE_VERSION_MAJOR)                                                                       \
     "." REDXE_VERSION_STRINGIZE(REDXE_VERSION_MINOR) "." REDXE_VERSION_STRINGIZE(REDXE_VERSION_BUILD) ".0"
 
 #define REDXE_VERSION_COMPANY "RedSalamanders"

@@ -46,7 +46,7 @@ Every relative path a complete package must contain for the platform (ordinal, f
 function Get-RedXePackageRequiredEntries {
     param([Parameter(Mandatory)][string] $RepoRoot)
     $entries = [Collections.Generic.List[string]]::new()
-    foreach ($name in $script:PackageRootBinaries + $script:PackageInstallerFiles + @('README.txt', 'LICENSE.txt')) { $entries.Add($name) }
+    foreach ($name in $script:PackageRootBinaries + $script:PackageInstallerFiles + @('README.txt', 'LICENSE.txt', 'RedMonitor-LICENSE.txt')) { $entries.Add($name) }
     foreach ($name in $script:PackageSettingsFiles) { $entries.Add("Settings/$name") }
     foreach ($name in (Get-RedXeBundledPluginModules -RepoRoot $RepoRoot) + $script:PackagePluginHelpers) { $entries.Add("Plugins/$name") }
     foreach ($name in $script:PackageVcRuntimeRequired) { $entries.Add($name); $entries.Add("Plugins/$name") }
@@ -214,6 +214,7 @@ function New-RedXePortablePackage {
 
         foreach ($name in $script:PackageInstallerFiles) { Copy-RedXePackageFile (Join-Path $RepoRoot "Installer\$name") (Join-Path $staging $name) }
         Copy-RedXePackageFile (Join-Path $RepoRoot 'LICENSE.txt') (Join-Path $staging 'LICENSE.txt')
+        Copy-RedXePackageFile (Join-Path $RepoRoot 'ThirdParty/RedMonitor/LICENSE.txt') (Join-Path $staging 'RedMonitor-LICENSE.txt')
         [IO.File]::WriteAllText((Join-Path $staging 'README.txt'), (New-RedXePackageReadme -Version $version -Platform $Platform), [Text.UTF8Encoding]::new($false))
 
         $entries = @(Get-ChildItem -LiteralPath $staging -File -Recurse | ForEach-Object { $_.FullName.Substring($staging.Length).TrimStart('\', '/').Replace('\', '/') } | Sort-Object)
