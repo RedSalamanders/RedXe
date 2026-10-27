@@ -1067,12 +1067,13 @@ namespace
         return false;
     }
     const FILETIME utc{static_cast<DWORD>(fileTime100ns), static_cast<DWORD>(fileTime100ns >> 32)};
-    FILETIME localFileTime{};
-    if (FileTimeToLocalFileTime(&utc, &localFileTime) == FALSE)
+    SYSTEMTIME universal{};
+    if (FileTimeToSystemTime(&utc, &universal) == FALSE)
     {
         return false;
     }
-    return FileTimeToSystemTime(&localFileTime, &local) != FALSE;
+    // Use the timestamp's daylight-saving rule, rather than the current date's UTC bias.
+    return SystemTimeToTzSpecificLocalTimeEx(nullptr, &universal, &local) != FALSE;
 }
 [[nodiscard]] uint32_t CivilDayNumber(const SYSTEMTIME& local) noexcept
 {

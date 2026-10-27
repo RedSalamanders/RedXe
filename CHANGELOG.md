@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Apply the forecast timestamp's daylight-saving rules when formatting Weather times and local-day groups. Preserve the failed winter/summer fixture and add exact civil-hour/day-label round trips for all twelve months.
 - Integrate the standalone RedMonitor pinned header client with MSVC 14.52 Release optimization and current main, preserving existing tests, source-bound qualification evidence and separate native/manual/release gates.
 - Complete local MSVC 14.52 Release optimization qualification in all six build profiles and all three Full x64 test profiles, with reviewed size/performance evidence and separate native ARM64 and hosted provisioning gates.
 - Record the agreed local x64 test and ARM64 cross-build scope for MSVC 14.52 qualification; retain native ARM64 execution and hosted CI provisioning as separate handoff gates.

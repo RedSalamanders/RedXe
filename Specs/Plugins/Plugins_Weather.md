@@ -90,7 +90,10 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
 - Keep 24 genuine one-hour entries and nine daily entries. A six-hour period MUST NOT masquerade as hourly data.
   Missing precipitation amounts differ from zero. Amounts are mm over the following period, not probabilities or
   exact onset times. [MET ForecastJSON](https://api.met.no/doc/ForecastJSON) defines these period semantics.
-- Group days and format clocks using the computer's local civil date/time, including across UTC midnight. The first
+- Group days and format clocks using the computer's local civil date/time, including across UTC midnight. Apply
+  the time-zone and daylight-saving rules for each forecast timestamp, independently of the current season.
+  All twelve months have exact civil-hour/day-label round-trip regression coverage in the active system zone.
+  The first
   day's min/max covers available samples. Show that range once in Today; daily rows start with a future local day.
 - The location owns its line. The header shows large light-gray temperature, an outline condition icon centered in
   the remaining space between that temperature and optional sunrise/sunset, and sunrise/sunset only when all fit. The
