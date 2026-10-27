@@ -7,7 +7,15 @@ inputs:
 runs:
   using: composite
   steps:
-    - shell: pwsh
+    - id: prepare
+      shell: pwsh
       env:
         MSVC_SETUP_PLATFORM: ${{ inputs.platform }}
       run: '& "$env:GITHUB_ACTION_PATH/Setup.ps1" -Platform $env:MSVC_SETUP_PLATFORM'
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      if: ${{ !cancelled() && steps.prepare.outputs.installer_logs != '' }}
+      with:
+        name: ${{ steps.prepare.outputs.artifact_id }}
+        path: |
+          ${{ steps.prepare.outputs.installer_logs }}/*.log
+        if-no-files-found: warn
