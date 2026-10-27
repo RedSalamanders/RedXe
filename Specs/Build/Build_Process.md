@@ -319,3 +319,5 @@ Active Windows compilation/tooling workflows use the local setup-msvc composite 
 ### ARM64 compiler host
 
 ARM64 uses an x64 compiler host on x64 Windows and a native arm64 compiler host on ARM64 Windows, respecting explicit caller selection. MSVC 14.52's 32-bit host reproducibly ran out of compiler heap in the large SystemData type inventory across all three ARM64 configurations. The existing x64 runtime profile is unchanged. This host selection is forwarded to the pinned archive and checked in all evaluated ARM64 profiles; cross-build success still cannot qualify native execution.
+
+Hosted setup waits for the hidden, owned GUI bootstrapper with both its --wait switch and PowerShell Start-Process -Wait. It reads that process's explicit exit code (0 or 3010), then rechecks the required compiler family and complete target tools. Ambient LASTEXITCODE cannot establish installer success. Paths with spaces stay one argument; installer stdout, stderr and fresh dd_* logs remain downloadable on failure. Delayed-GUI, stale-exit, wrong-family, missing-tool, signature and local/read-only refusal controls exercise the actual setup script without running an installer.
