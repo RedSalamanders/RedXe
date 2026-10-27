@@ -6,6 +6,8 @@
     <PreferredToolArchitecture Condition="'$(Platform)'=='ARM64' and '$(PreferredToolArchitecture)'=='' and ('$(PROCESSOR_ARCHITECTURE)'=='ARM64' or '$(PROCESSOR_ARCHITEW6432)'=='ARM64')">arm64</PreferredToolArchitecture>
     <PreferredToolArchitecture Condition="'$(Platform)'=='ARM64' and '$(PreferredToolArchitecture)'==''">x64</PreferredToolArchitecture>
     <SolutionDir Condition="'$(SolutionDir)'==''">$(MSBuildThisFileDirectory)</SolutionDir>
+    <PreferredToolArchitecture Condition="'$(PreferredToolArchitecture)'=='' and ('$(PROCESSOR_ARCHITECTURE)'=='ARM64' or '$(PROCESSOR_ARCHITEW6432)'=='ARM64')">arm64</PreferredToolArchitecture>
+    <PreferredToolArchitecture Condition="'$(PreferredToolArchitecture)'=='' and ('$(PROCESSOR_ARCHITECTURE)'=='AMD64' or '$(PROCESSOR_ARCHITEW6432)'=='AMD64')">x64</PreferredToolArchitecture>
     <RedXeBuildRoot>$(MSBuildThisFileDirectory).build\</RedXeBuildRoot>
     <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(RedXeBuildRoot)Intermediate\$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
@@ -68,4 +70,6 @@
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
+
+<Import Project="$(MSBuildThisFileDirectory)Build\RedMonitor.props" />
 </Project>

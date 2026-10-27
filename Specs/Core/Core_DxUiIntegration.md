@@ -83,6 +83,13 @@ hashes, SDK version/header/import-library hashes, CRT family and sanitizer annot
 full fingerprint stays in the identity file and the product provenance. Restore never checks out, resets, or edits a
 sibling `DxUi` working tree. A mismatched or dirty pin fails the consumer restore.
 
+Compiler-host defaults follow the native Windows OS: x64 on x64 Windows and arm64 on ARM64 Windows,
+including emulated PowerShell. Build and standalone restore use one environment scope for identity,
+restore and compilation, preserve explicit PreferredToolArchitecture overrides, and restore the caller
+environment on success or failure. Direct MSBuild checks the native WOW64 architecture before the
+process architecture and applies the same defaults. Native/emulated host and override combinations
+are checked through actual MSBuild property evaluation.
+
 Every pin bump, toolset or SDK update leaves the previous output root behind (from about 70 MB to about 700 MB once
 `DxUi.lib` is built), and a pin bump its source clone. After it writes its platform's resolved properties,
 `restore-dxui.ps1` MUST remove what earlier restores left and nothing uses: output roots that no

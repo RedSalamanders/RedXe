@@ -1,7 +1,7 @@
 # RedXe performance and resource contract
 
 Status: current normative contract
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-23
 
 ## Mandate
 
@@ -77,6 +77,10 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   (session end only the time left in its shared deadline), and retains runtime/work/module storage for a late native
   call until it exits or the process ends. Private-owner destruction joins before storage/module release. The lane
   starts only when content construction requests it, has no timer or periodic wake and runs no user mutation.
+  Completion notifications are coalesced hints and may arrive after the owner drained the published result.
+  Idle resource measurements first establish bounded notification quiescence, then take one steady sample with
+  the existing CPU budget and interval. Settling finite completion work must not retry a failed idle sample,
+  relax its budget, or admit periodic notifications or ongoing CPU work.
   The host enables submission for an offscreen incoming page of discrete navigation. Initial/ordinary activation
   and touch pans refuse deferral so their first exposed pixels retain full quality. Launcher owns only copied
   shortcut identities, a bounded result grid and a lifetime/generation token in each job; no provider or graphics

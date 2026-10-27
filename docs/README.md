@@ -11,3 +11,5 @@ This folder is the **user guide**. Product requirements live in `Specs/`; those 
 | [Actions](actions.md) | Everything a Logicon key, dialpad turn, or Launcher tile can do: `page.*`, `widget.*`, `redxe.*`, `system.*`, `keys.*`, `mouse.*`, `logicon.*`, `zoom.*` |
 
 Edit the JSON settings file while RedXe is running; a valid save applies immediately. See [Global usage](usage.md#settings-file).
+
+[RedMonitor diagnostics](Diagnostics.md) explains the optional viewer and application logging.

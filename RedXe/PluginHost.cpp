@@ -1,4 +1,5 @@
 #include "PluginHost.h"
+#include "MonitorDiagnostics.h"
 
 #include "Actions/ActionTargets.h"
 #include "FailureReports.h"
@@ -764,6 +765,13 @@ HRESULT PluginHost::Log(const RedXeLogRecord* record) noexcept
         const auto guard = wil::AcquireSRWLockExclusive(&_standardErrorLock);
         RedXeFailureReports::WriteUtf8ToStandardError(line.data(), bytes);
     }
+    const auto severity = record->level == RedXeLogLevelError     ? RedMonitor::Severity::Error
+                          : record->level == RedXeLogLevelWarning ? RedMonitor::Severity::Warning
+                          : record->level == RedXeLogLevelDebug   ? RedMonitor::Severity::Debug
+                                                                  : RedMonitor::Severity::Info;
+    // Forward the already bounded synchronous copy, even when the file queue is full.
+    // No borrowed plugin text, provider owner or ETW handle crosses the ABI.
+    MonitorDiagnostics::WriteUtf8(severity, {line.data(), bytes});
     return EnqueueLogLine(line.data(), bytes);
 }
 
