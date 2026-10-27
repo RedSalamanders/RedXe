@@ -26,5 +26,3 @@ Further ARM64 and ASan qualification is user-deferred and routed through RedSala
 `DxUi_DeferredPlatformQualification_2026-09-13.md`; AV release gates retain their owner above.
 
 - [RedMonitor adoption](RedMonitor_Adoption_2026-10-23.md) — pinned producer, optional viewer and consumer qualification.
-
-- [Hosted MSVC setup followup](MsvcHostedSetup_2026-10-27.md) - owned GUI completion, exact required tools, retained installer diagnostics and behavioral controls.
