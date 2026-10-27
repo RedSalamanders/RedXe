@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Bind the Release policy regression to the directly guarded dependency-identity assignment, so the outer native-compiler-host environment guard does not create a false duplicate. Retain success/failure caller-environment restoration assertions.
 - Apply the forecast timestamp's daylight-saving rules when formatting Weather times and local-day groups. Preserve the failed winter/summer fixture and add exact civil-hour/day-label round trips for all twelve months.
 - Integrate the standalone RedMonitor pinned header client with MSVC 14.52 Release optimization and current main, preserving existing tests, source-bound qualification evidence and separate native/manual/release gates.
 - Complete local MSVC 14.52 Release optimization qualification in all six build profiles and all three Full x64 test profiles, with reviewed size/performance evidence and separate native ARM64 and hosted provisioning gates.

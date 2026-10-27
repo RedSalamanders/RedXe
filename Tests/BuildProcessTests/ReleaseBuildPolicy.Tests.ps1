@@ -137,7 +137,13 @@ Write-Host 'PASS CI toolchain verification and missing-family/local-install refu
 $restoreTokens=$null;$restoreErrors=$null
 $restoreAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $Root 'restore-dxui.ps1'),[ref]$restoreTokens,[ref]$restoreErrors)
 if($restoreErrors.Count){throw 'Restore script has syntax errors.'}
-$identityGuards=@($restoreAst.FindAll({param($node) $node -is [Management.Automation.Language.TryStatementAst] -and $node.Extent.Text.Contains('$buildIdentity=Get-DxUiConsumerBuildIdentity')},$true))
+$identityGuards=@($restoreAst.FindAll({param($node)
+    $node -is [Management.Automation.Language.TryStatementAst] -and @($node.Body.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left.Extent.Text -ceq '$buildIdentity' -and
+        $_.Right.Extent.Text -match '^Get-DxUiConsumerBuildIdentity(?:\s|$)'
+    }).Count -eq 1
+},$true))
 if($identityGuards.Count-ne 1){throw 'Expected one environment-guarded identity probe.'}
 $guard=[scriptblock]::Create($identityGuards[0].Extent.Text)
 & {
