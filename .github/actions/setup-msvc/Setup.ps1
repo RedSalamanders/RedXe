@@ -29,7 +29,12 @@ function Get-SelectedTools {
     if(-not(Test-Path -LiteralPath (Join-Path $tools "lib/$Platform/$asan"))){return $null}
     if(-not(Test-Path -LiteralPath (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/Include/10.0.26100.0/um/Windows.h'))){return $null}
     if($Platform-eq 'x64' -and -not(Test-Path -LiteralPath (Join-Path $installation 'VC/Tools/Llvm/x64/bin/llvm-pdbutil.exe'))){return $null}
-    return [ordered]@{installation=$installation;version=$version;host=$nativeHost;platform=$Platform}
+    $msbuildHost=if($nativeHost-eq 'arm64'){'arm64'}else{'amd64'}
+    $msbuild=@((Join-Path $installation "MSBuild/Current/Bin/$msbuildHost/MSBuild.exe"),
+        (Join-Path $installation 'MSBuild/Current/Bin/MSBuild.exe')) |
+        Where-Object {Test-Path -LiteralPath $_ -PathType Leaf} | Select-Object -First 1
+    if(-not $msbuild){return $null}
+    return [ordered]@{installation=$installation;version=$version;host=$nativeHost;platform=$Platform;msbuild=$msbuild}
 }
 $selected=Get-SelectedTools
 if(-not $selected){
@@ -82,4 +87,9 @@ if(-not $selected){
     if(-not $selected){throw "Insiders did not provide default MSVC $required.x and every required target tool. Review channel/component availability; another compiler is never accepted."}
 }
 Write-Host ('Verified required toolchain: '+($selected|ConvertTo-Json -Compress))
+if(-not $VerifyOnly -and $env:GITHUB_ACTIONS-eq 'true' -and $env:GITHUB_ENV){
+    # Subsequent build/restore steps must consume this verified installation,
+    # ahead of an older MSBuild inherited from the runner's environment or PATH.
+    Add-Content -LiteralPath $env:GITHUB_ENV -Value ('MSBUILD_EXE_PATH='+$selected.msbuild)
+}
 $global:LASTEXITCODE=0
