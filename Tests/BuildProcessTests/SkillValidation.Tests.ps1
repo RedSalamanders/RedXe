@@ -16,6 +16,7 @@ $cases = @(
     @{Name='JSON quoted escape'; Text='---'+"`nname: example-skill`ndescription: "+'"Line\nDeux \u65e5"'+"`n---`nRead."; Valid=$true},
     @{Name='plain comment'; Text="---`n# comment`nname: example-skill`ndescription: valid # comment`n---`nRead."; Valid=$true},
     @{Name='quoted typed string'; Text="---`nname: example-skill`ndescription: '123'`n---`nRead."; Valid=$true},
+    @{Name='double quoted timestamp'; Text=$prefix.Replace('description: valid','description: "2026-10-28T09:00:00Z"')+'Read.'; Valid=$true},
     @{Name='missing file'; Text=$null; Valid=$false},
     @{Name='missing delimiters'; Text='name: example-skill'+"`ndescription: valid`nRead."; Valid=$false},
     @{Name='malformed YAML'; Text="---`n[`n---`nRead."; Valid=$false},
@@ -73,6 +74,15 @@ try {
     $path = Join-Path $fixture '.agents/skills/example-skill/SKILL.md'
     [IO.File]::WriteAllText($path,$prefix+'Read.',[Text.UTF8Encoding]::new($false))
     if ((Test-RepositorySkills $fixture) -ne 1) { throw 'Aggregate did not validate the fixture skill' }
+    $hidden = Join-Path $fixture '.agents/skills/hidden-skill'
+    [void][IO.Directory]::CreateDirectory($hidden)
+    [IO.File]::WriteAllText((Join-Path $hidden 'SKILL.md'), 'Malformed hidden skill')
+    [IO.File]::SetAttributes($hidden, [IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::Directory)
+    try {
+        $message=''; try { Test-RepositorySkills $fixture | Out-Null } catch [System.Management.Automation.RuntimeException] { $message=$_.Exception.Message }
+        if ($message -notlike '*hidden-skill: missing YAML front matter*') { throw 'Hidden package bypassed metadata validation' }
+        $passed++
+    } finally { [IO.File]::SetAttributes($hidden, [IO.FileAttributes]::Directory); [IO.File]::Delete((Join-Path $hidden 'SKILL.md')); [IO.Directory]::Delete($hidden) }
     [IO.File]::WriteAllText($path,$prefix,[Text.UTF8Encoding]::new($false))
     $message='';try { Test-RepositorySkills $fixture | Out-Null } catch [System.Management.Automation.RuntimeException] {$message=$_.Exception.Message}
     if ($message -notlike '*example-skill: empty skill instructions*') { throw "Aggregate admitted invalid instructions: $message" }

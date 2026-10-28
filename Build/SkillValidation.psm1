@@ -16,7 +16,9 @@ function ConvertFrom-SkillScalar {
     if ($Value.StartsWith('"')) {
         $match = [regex]::Match($Value, '^(?<quoted>"(?:[^"\\]|\\.)*")(?: +#.*)?$')
         if (-not $match.Success) { throw 'invalid double-quoted scalar' }
-        return ConvertFrom-Json -InputObject $match.Groups['quoted'].Value -ErrorAction Stop
+        # JsonDocument preserves strings on every supported PowerShell 7 runtime, including ISO dates.
+        $document = [System.Text.Json.JsonDocument]::Parse($match.Groups['quoted'].Value)
+        try { return $document.RootElement.GetString() } finally { $document.Dispose() }
     }
     $plain = [regex]::Replace($Value, ' +#.*$', '')
     if ($plain -match '^[-?:,\[\]{}#&*!|>''"%@`]' -or $plain.Contains(': ') -or $plain.EndsWith(':') -or $plain -match '[\x00-\x1f]') {
@@ -133,7 +135,7 @@ function Test-RepositorySkills {
     param([Parameter(Mandatory)][string]$Root)
     $skillRoot = Join-Path $Root '.agents/skills'
     if (-not [IO.Directory]::Exists($skillRoot)) { throw "The repository skill directory was not found: $skillRoot" }
-    $folders = @(Get-ChildItem -LiteralPath $skillRoot -Directory | Sort-Object Name)
+    $folders = @(Get-ChildItem -LiteralPath $skillRoot -Directory -Force | Sort-Object Name)
     if (-not $folders.Count) { throw 'No repository skills found' }
     $failures = [Collections.Generic.List[string]]::new()
     foreach ($folder in $folders) {

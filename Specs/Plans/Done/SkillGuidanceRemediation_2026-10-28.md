@@ -36,6 +36,13 @@ parser, public wrapper, tooling runner, scope planner, CI and migration document
 
 ## Completion boundary
 
+PR review follow-up reproduced cross-paragraph backtick hiding, omitted continued reference destinations,
+parenthesized titles, file-URI double decoding, root-reparse read ordering, quoted timestamp coercion and hidden
+metadata omission. The focused fixes pass 30 package and 60 metadata controls, including positive title/continued
+destination/literal filename cases and a linked-root check while UI metadata is exclusively locked. The earlier
+22/58-control and x64 Release PrePush successes remain historical receipts for their prior source; the follow-up
+candidate requires its own PrePush and CI acceptance. No full CommonMark conformance is claimed.
+
 `Specs/Build/Build_SkillPackages.md`, `Specs/Core/Core_Settings.md` and `Specs/Plugins/Plugins_API.md` own the durable
 requirements. Metadata and local-reference fixtures do not prove model effectiveness. Root independent review and
 any later product/platform qualification remain separate; this plan closes only the stated guidance/tooling scope.

@@ -337,6 +337,8 @@ tags, anchors, aliases, arbitrary nesting and unsupported syntax fail validation
 YAML 1.1 scalar-type rejection, exact folder/name identity, 64/1024-character limits and nonempty
 instructions. Description TODO placeholders and standalone body TODO placeholders outside Markdown
 backtick/tilde fences fail. This is a deliberate restricted grammar, not general YAML compatibility.
+Quoted scalar strings remain strings even when they contain ISO timestamps. Hidden skill directories receive
+the same metadata validation as visible packages; package admission runs before their metadata is opened.
 
 `Tests/BuildProcessTests/SkillValidation.Tests.ps1` covers valid and malformed metadata, Unicode,
 CRLF, multiline values, boundaries, fenced examples and aggregate failures. Its parser fixtures run in

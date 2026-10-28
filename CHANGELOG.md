@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Close reviewed skill-validator gaps for paragraph/code boundaries, continued references, parenthesized titles, literal file-URI filenames, linked-root admission, quoted timestamps and hidden packages; add focused positive/negative controls and preserve separate native/model qualification gates.
 - Correct category-aware widget/service template guidance and stale skill routes/matrix claims; route mutable layout/settings detail to its owning contracts, and add read-only package/reference checks with negative fixtures. These tooling checks do not establish model behavior or native product qualification.
 - Run skill validation and its behavioral tests on PowerShell 7 without Python/PyYAML; retain multiline descriptions and fenced examples, reject unsupported YAML explicitly, and remove interpreter discovery from tooling receipts.
 - Allow 20 minutes for hosted compiler provisioning and the complete independent tooling job after the measured 15-minute timeout; retain all test scopes and individual/native deadlines.

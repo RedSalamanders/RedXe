@@ -17,12 +17,15 @@ the canonical root/CLAUDE/Copilot guidance routes, rejects missing local targets
 and rejects empty supplied UI metadata. UI metadata remains optional. External links, anchor existence, inline
 command signatures, C++ compilation and model decisions are outside this package verdict.
 
-Inline and reference-style Markdown destinations support balanced/escaped parentheses and angle-delimited paths.
-Fenced examples and matching inline code spans do not create references; protocol-relative URLs remain external.
+Inline and reference-style Markdown destinations support balanced/escaped parentheses, angle-delimited paths,
+parenthesized or quoted titles and a reference destination continued on the next line. Fenced examples and
+matching inline code spans within a blank-line-delimited paragraph do not create references; unmatched backticks
+cannot pair across a blank paragraph boundary. Protocol-relative URLs remain external.
 The bounded parser extracts destinations without evaluating Markdown or examples. Package traversal and input/
-reference admission inspect ancestry before reading and MUST NOT follow reparse points. Referenced
+reference admission inspect ancestry, including the supplied root itself, before reading and MUST NOT follow reparse points. Referenced
 supporting Markdown is checked as part of the package. Unicode and percent-encoded local filenames are supported.
-No validator fetches, builds, edits product files or takes desktop focus. The focused package regression script
+File URI paths are decoded once by the URI parser; literal hash and percent characters in filenames are preserved.
+Metadata enumeration includes hidden skill directories. No validator fetches, builds, edits product files or takes desktop focus. The focused package regression script
 creates/removes only its own unique directory below repository `.build/skill-package-fixtures`.
 
 ## Verification
