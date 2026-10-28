@@ -47,7 +47,7 @@ When diagnosing a failure:
 
 1. For dependency failures, run `vcpkg-install.ps1` for the exact platform and fix the first vcpkg diagnostic.
 2. Re-run `build.ps1` with the exact configuration and platform that failed.
-3. Fix the first project-code diagnostic; warnings are errors.
+3. Fix every project-code diagnostic; `/WX` stays disabled and build validation requires zero warnings.
 4. After a successful build, use `Test-Changes.ps1 -Explain` and the affected suites to iterate on the repair.
    Qualification uses PrePush/Full accounting and the owning domain gates: factory ABI, borrowed descriptors,
    COM identity, rendering-IID negotiation, settings and hidden WARP presentation remain required when affected.

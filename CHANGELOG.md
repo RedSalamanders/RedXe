@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Clarify build guidance: leave `/WX` disabled and require every project-code warning to be fixed before the build validation gate can pass.
 - Scope the ARM64 volatile-model diagnostic to the isolated use-after-free detection fixture, retaining the real sanitizer failure, selected volatile model and ordinary warning policy.
 - Scope the MSVC ARM64 volatile-model notice to the deliberate isolated crash/sanitizer probe. Keep the selected volatile model, genuine crash/sanitizer detection and ordinary warnings unchanged.
 - Retain the working-set soak budget for ordinary profiles without an unused-constant warning in ASan, where that diagnostic budget is intentionally not used.
