@@ -46,6 +46,18 @@ try {
     $null = Expect-Integrity 'inline-code pseudo-link ignored'
     Write-Fixture '.agents/skills/example-skill/SKILL.md' ($prefix + '``inline ` [example](missing.md)' + "`n" + 'still code`` and ' + $body)
     $null = Expect-Integrity 'matching multiline code span ignored'
+    Write-Fixture '.agents/skills/example-skill/SKILL.md' ($prefix + '```literal```' + "`n`n[Missing](missing.md)")
+    $null = Expect-Integrity 'line-leading triple backticks cannot hide later paragraphs' 'missing local reference'
+    Write-Fixture '.agents/skills/example-skill/SKILL.md' ($prefix + '```[example](missing.md)```' + "`n`n" + $body)
+    $null = Expect-Integrity 'line-leading triple-backtick code span remains inline code'
+    Write-Fixture '.agents/skills/example-skill/SKILL.md' ($prefix + '~~~info`' + "`n[Example](missing.md)`n~~~`n" + $body)
+    $null = Expect-Integrity 'tilde fence permits a backtick in its info string'
+    foreach ($indent in @('    ', "`t")) {
+        Write-Fixture '.agents/skills/example-skill/SKILL.md' ($prefix + $indent + '```' + "`n`n[Missing](missing.md)")
+        $null = Expect-Integrity 'indented code does not open a fence over later prose' 'missing local reference'
+    }
+    Write-Fixture '.agents/skills/example-skill/SKILL.md' ($prefix + '```text' + "`n    " + '```' + "`n[Example](missing.md)`n" + '```' + "`n" + $body)
+    $null = Expect-Integrity 'overindented fence marker does not close a valid fence'
     Write-Fixture '.agents/skills/example-skill/SKILL.md' ($prefix + 'first `' + "`n `t`n[Missing](missing.md)`n`n" + 'last `')
     $null = Expect-Integrity 'unmatched code delimiters cannot cross paragraphs' 'missing local reference'
     Write-Fixture '.agents/skills/example-skill/SKILL.md' ($prefix + '[Read](missing.md (Owning contract))')

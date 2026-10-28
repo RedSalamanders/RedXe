@@ -120,8 +120,8 @@ function Get-SkillValidationProblem {
     if (-not $body.Trim()) { return 'empty skill instructions' }
     $fence = $null
     foreach ($line in $body -split "`n") {
-        $marker = [regex]::Match($line, '^[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(?<fence>`{3,}|~{3,})(?<rest>.*)$')
-        if ($marker.Success) {
+        $marker = [regex]::Match($line, '^ {0,3}(?:(?:[-+*]|\d+[.)])[ \t]+)?(?<fence>`{3,}|~{3,})(?<rest>.*)$')
+        if ($marker.Success -and ($null -ne $fence -or $marker.Groups['fence'].Value[0] -cne '`' -or -not $marker.Groups['rest'].Value.Contains('`'))) {
             $token = $marker.Groups['fence'].Value
             if ($null -eq $fence) { $fence = $token }
             elseif ($token[0] -ceq $fence[0] -and $token.Length -ge $fence.Length -and -not $marker.Groups['rest'].Value.Trim()) { $fence = $null }

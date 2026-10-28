@@ -4,6 +4,8 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Keep four-space and tab-indented code from opening or closing Markdown fences over later links or unfinished instructions, with focused admission and valid-closer controls.
+- Distinguish line-leading triple-backtick inline code from fenced examples so later missing links and unfinished instructions stay visible to validation; retain valid tilde-fence info strings and add focused controls.
 - Preserve date-prefixed description prose while rejecting complete unquoted timestamp scalars, and keep isolated edits to the migrated metadata fixture in the independent tooling scope with retained shared-build fallback coverage.
 - Close reviewed skill-validator gaps for paragraph/code boundaries, continued references, parenthesized titles, literal file-URI filenames, linked-root admission, quoted timestamps and hidden packages; add focused positive/negative controls and preserve separate native/model qualification gates.
 - Correct category-aware widget/service template guidance and stale skill routes/matrix claims; route mutable layout/settings detail to its owning contracts, and add read-only package/reference checks with negative fixtures. These tooling checks do not establish model behavior or native product qualification.

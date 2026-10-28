@@ -46,6 +46,11 @@ The second PR pass reproduced date-prefixed prose rejection and unnecessary Pack
 migrated metadata fixture. Complete scalar timestamp matching and the exact fixture exception now pass 65 metadata
 controls and the 31-case planner suite. The successful Release PrePush at `9940f90` remains bound to that earlier
 source; final source qualification is recorded separately.
+The next bounded review reproduced a line-leading triple-backtick inline span being misclassified as an unclosed
+fence, hiding later missing links and TODO instructions. The same admission check reproduced overindented fence
+markers hiding later prose; markers now use zero to three leading spaces. These fixes pass 36 package and 70
+metadata controls, including valid tilde info and overindented-closer counterexamples. Earlier PrePush/CI results
+keep their original identities.
 
 `Specs/Build/Build_SkillPackages.md`, `Specs/Core/Core_Settings.md` and `Specs/Plugins/Plugins_API.md` own the durable
 requirements. Metadata and local-reference fixtures do not prove model effectiveness. Root independent review and

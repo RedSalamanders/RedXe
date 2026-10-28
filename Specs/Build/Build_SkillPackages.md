@@ -21,6 +21,10 @@ Inline and reference-style Markdown destinations support balanced/escaped parent
 parenthesized or quoted titles and a reference destination continued on the next line. Fenced examples and
 matching inline code spans within a blank-line-delimited paragraph do not create references; unmatched backticks
 cannot pair across a blank paragraph boundary. Protocol-relative URLs remain external.
+Opening backtick fences require an info string without backticks; a line-leading triple-backtick inline span
+therefore cannot hide later prose. Tilde-fence info strings may contain backticks.
+Fence markers use zero to three leading spaces (optionally followed by the supported list marker); four-space
+or tab-indented code cannot open or close a fence over surrounding prose. This remains a bounded package parser.
 The bounded parser extracts destinations without evaluating Markdown or examples. Package traversal and input/
 reference admission inspect ancestry, including the supplied root itself, before reading and MUST NOT follow reparse points. Referenced
 supporting Markdown is checked as part of the package. Unicode and percent-encoded local filenames are supported.

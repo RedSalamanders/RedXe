@@ -49,9 +49,10 @@ function Get-PackageMarkdownLink([string] $Text) {
     $prose = [Text.StringBuilder]::new()
     $fence = $null
     foreach ($line in $Text.Replace("`r`n", "`n") -split "`n") {
-        $marker = [regex]::Match($line, '^\s*(?:(?:[-+*]|\d+[.)])\s+)?(?<fence>`{3,}|~{3,})(?<rest>.*)$')
+        $marker = [regex]::Match($line, '^ {0,3}(?:(?:[-+*]|\d+[.)])[ \t]+)?(?<fence>`{3,}|~{3,})(?<rest>.*)$')
         $hidden = $null -ne $fence
-        if ($marker.Success) {
+        # Backtick fence info cannot itself contain a backtick; a line-leading code span is prose.
+        if ($marker.Success -and ($null -ne $fence -or $marker.Groups['fence'].Value[0] -cne '`' -or -not $marker.Groups['rest'].Value.Contains('`'))) {
             $token = $marker.Groups['fence'].Value
             if ($null -eq $fence) { $fence = $token }
             elseif ($token[0] -ceq $fence[0] -and $token.Length -ge $fence.Length -and -not $marker.Groups['rest'].Value.Trim()) { $fence = $null }
