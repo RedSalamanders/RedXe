@@ -5,134 +5,58 @@ description: Implement or revise RedXe native plugin interfaces, factory exports
 
 # RedXe plugin development
 
-Read `Specs/Plugins/Plugins_API.md` before changing shipped plugin behavior. Read
-[`Specs/Plugins/Plugins_Weather.md`](../../Specs/Plugins/Plugins_Weather.md) when work concerns the host network
-lane, plugin-owned curl, or the weather widget; the rationale is historical in
-[`Specs/Plans/Done/WeatherPlugin_2026-09-04.md`](../../Specs/Plans/Done/WeatherPlugin_2026-09-04.md). Read
-[`Specs/Plugins/Plugins_Logicon.md`](../../Specs/Plugins/Plugins_Logicon.md) when work concerns a headless service
-(`Common/PlugInterfaces/Service.h`), the host-owned device lane, `IRedXeHost::RequestAction` / `ExecuteAction` / `ValidateAction` and `IRedXeActionPack` (`Specs/Plugins/Plugins_Actions.md`), the `services`
-settings root, or the MX Creative Console keypad and dialpad; the rationale is historical in
-[`Specs/Plans/Done/LogiconPlugin_2026-09-16.md`](../../Specs/Plans/Done/LogiconPlugin_2026-09-16.md). Read
-[`Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md`](../../Specs/Plans/WIP/PluginDashboardRemainingCloseout_2026-09-02.md)
-only when work concerns remaining closeout: push providers, network `IRedXeDataSource` datasets, host-owned primitive
-batching, settings migration beyond version 5 reset, interactive WebView policy, or System Data follow-on hosts. Read
-`Specs/Core/Core_PerformanceAndResources.md` for every plugin ABI or hot path change. Apply `spec-workflow` when
-behavior or ABI changes. Launcher GPU tiles, `IRedXeInteractiveWidget`, jumbo extraction, host drop, and shortcut
-persist are owned by `Specs/Plugins/Plugins_API.md` and `Specs/UI/UI_Dashboard.md`.
+Start with [the plugin API contract](../../../Specs/Plugins/Plugins_API.md). Read the owning contract for the work:
 
-Preserve these boundaries:
+- [Weather](../../../Specs/Plugins/Plugins_Weather.md): network lane, curl and forecast behavior.
+- [Logicon](../../../Specs/Plugins/Plugins_Logicon.md): headless service and device lane.
+- [Actions](../../../Specs/Plugins/Plugins_Actions.md): action publication, execution and validation.
+- [Dashboard](../../../Specs/UI/UI_Dashboard.md): placement, pointer routing, raised widgets and internal paging.
+- [Performance and resources](../../../Specs/Core/Core_PerformanceAndResources.md): every ABI or hot-path change.
 
-- Keep public ABI declarations under `Common/PlugInterfaces/`; host-only code belongs under `RedXe/`, and
-  bundled DLL projects belong under `Plugins/`.
-- RedXe is pre-production: change the one current ABI in place and rebuild every source-coordinated host/plugin
-  consumer together. Do not add old-IID, prefix, tail, major/minor, or legacy-module fallback before an explicit
-  production ABI freeze. `IRedXeHost` and `IRedXeWidget` vtables MAY grow. Do not add a sibling IID only to freeze a
-  vtable. Rendering and work mechanisms stay sibling `IUnknown` children. Persist is
-  `IRedXeHost::PersistWidgetSettings` (complete object or a mergeable subset); collect-on-exit is
-  `IRedXeWidget::CollectPersistentSettings`. Diagnostics are `IRedXeHost::Log` with `RedXeLogRecord`; there is no
-  sibling log IID. There is no `IRedXeSettingsEditor`. Default collect is
-  `RedXeCollectNoPersistentSettings` (`S_FALSE`, nothing to save). Plugins MUST NOT write the settings file.
-- Public ABI records use a leading `sizeBytes`, require exact equality with the current `sizeof`, and do not expose STL
-  containers, exceptions, WIL owners, allocators, or yyjson document pointers.
-- Declare public COM contracts with the MSVC `interface __declspec(uuid(...)) __declspec(novtable) Name : IUnknown`
-  form. Do not use `struct` for an interface, and do not derive rendering or service interfaces from
-  `IRedXeWidget`; implementations expose sibling interfaces through `QueryInterface` with one controlling identity.
-- Use `FactoryImpl.h` for bundled plugin factory behavior. Clear outputs before validation, return the contract's
-  exact HRESULTs, and return one caller-owned reference on success.
-- Resolve exports from an absolute DLL path with restricted `LoadLibraryExW` flags. Do not search the working
-  directory or hot-unload a module.
-- Release widget, host-provider, and plugin-source COM objects before optional shutdown. Keep the module mapped until
-  process teardown.
-- When adding or removing a settings-visible bundled widget, update `RedXe/BundledPlugins.h`, schema/parser support,
-  real placed examples in both shipped settings templates, and the matching `docs/plugins/` user-guide page in the same
-  change. Template validation iterates this catalog and must fail when either default omits the plugin. Catalog plugin
-  IDs and type IDs stay unique; module names MAY repeat. `PluginHost` maps a shared DLL once and copies exports to
-  sibling slots; optional shutdown runs only on
-  the owning slot. A catalogued DLL that `LoadLibraryExW` cannot map is a per-instance placeholder, not a startup abort.
-  Unknown plugin IDs remain a fatal document. Do not put a catalogued widget on the Debug or Release first page until
-  its DLL is in the `Plugins` output.
-- After delivering a snapshot to an active GPU data sink, `PluginHost` copies sink pointers, releases the subscription
-  lock, then invokes `OnDataSnapshot`, and coalesces one UI-thread frame invalidation so scheduled GPU widgets can
-  start an ease without a child HWND. A failed `CollectSnapshots` batch MUST NOT keep rate-history mutations.
-- Keep every widget declaration in `Widget.h` and every data declaration in `Data.h`. Generic widgets expose GPU,
-  scheduled, native-window, and raised-overlay mechanisms through sibling IIDs; never add a plugin's geometry, shader, or
-  drawing commands to the generic root. The host MUST query `IRedXeRaisedWidget::GetRaisedExtent` before raising a
-  non-full tile; it MUST NOT guess 1/4, 1/3, 1/2, or 1/1. Those fractions are of **client width** as a full-height
-  slice over the original column. Dimmed siblings keep drawing. The content rectangle MUST NOT shrink the tile.
-  `SetRaised` is UI-thread, idempotent, and allocation-free. The host sends `TRUE` when raise starts and `FALSE` when
-  dismiss settle completes. `OnTargetSizeChanged` reports the final overlay size at raise start, not each interpolated
-  frame.
-- GPU widgets receive a borrowed D3D11 device during setup and immediate context during rendering. They never receive
-  the HWND, swap chain, or back buffer. Share immutable device resources across compatible instances. Dashboard page
-  pan requires two or three simultaneous touch contacts. One-finger and pen contacts are forwarded to
-  `IRedXeInteractiveWidget`, including Move/Up after a padding Down that returned `S_FALSE`. A second or third finger
-  may start host paging; `Cancel` is sent when that pan locks horizontally, not on contact. Mouse wheel samples
-  arrive as `RedXePointerPhaseWheel` (vertical) and `RedXePointerPhaseHorizontalWheel` with Win32 `wheelDelta`
-  (120 per notch, fractions from touchpads). Answer `S_OK` for every sample on an axis the widget pages while it has more than one page (bounds included)
-  and `S_FALSE` when it has no use for it (a single page, an axis it does not scroll): the first sample of a
-  wheel sequence decides whether the widget keeps the sequence or the host turns each notch into a dashboard page
-  change. Step paged content once per whole detent with `Common/WheelDetent.h` (`RedXeWheelDetent`), forward on
-  wheel down or tilt right. Launcher paginates overflow shortcuts
-  and GPU-draws a bottom page-dot strip using the same DIP metrics as `DxUi::PageIndicator` when shortcuts
-  overflow the chosen cell (`iconSize` `small`/`medium`/`large`/`huge` = 72/96/144/192 DIP square icon edge and
-  pagination cell, closed cap 32 shortcuts, leftover space even gutters of at least 8 DIP between icon edges plus an
-  8 DIP edge inset; `automatic`, the default, takes the largest icons that fit one page and adds a page only for
-  icons twice the edge, never below 72 DIP). Internal pages
-  follow a one-finger pan 1:1, then ease-out settle via `RequestFrame`; dots stay put. A swipe
-  viewport keeps the widget's full size and may have a negative origin; `Render` must still draw, and must not treat
-  that origin as invalid. Direct3D clips to the target. System Data GPU
-  viewers pick a density rung from the widget rectangle, grow type with leftover height among visible rows, split wide
-  lists into two columns, omit content that does not fit below type floors of 16 / 18 / 30 / 48 px and a 26 px title
-  floor, inset panel chrome 4 px with at least 12 px interior padding, color utilization and temperature values by
-  healthy/warn/hot intent, hide network interfaces that stay at 0 B/s for eight samples, display Celsius as `°C`,
-  format byte and rate values as one-decimal 1000-based KB/MB/GB/TB (or `/s`), show process working set rather than
-  unlabeled PID (PID 0 is `System Idle Process`), keep storage used/total above a used-percent-sorted capacity track, draw progress troughs near the
-  panel with fill matching KPI intent color, sit network and memory bars under their text, keep thermal names above
-  the level track, and join `gpu.process` names from `process.list` without adding a new dataset ID. Omitted ranked
-  rows and adapters page with one-finger swipe, wheel (kept at either end while pages exist, so the dashboard never changes page under a paging tile; declined only with one page so the host can change dashboard
-  pages), or a tap on the shared page control: every widget with internal pages draws the dot strip from
-  `Common/PageIndicator.h` (`RedXePageIndicatorInStrip` for the layout, `RedXePageIndicatorHit` on Up against the
-  layout the last frame drew) with the DxUi::PageIndicator metrics; a `+N` caption is only for items no page
-  reaches. While
-  `SetRaised(TRUE)`, System Data viewers use Standard density so overlay content can show every row that `topN` allows.
-  Raised System Pulse also fills leftover height with a physical-memory bar and CPU history. Weather follows
-  `Specs/Plugins/Plugins_Weather.md`: configured city wins; empty city resolves once in a disposable helper and the
-  host queues a UI-thread save. Location owns a line, Today appears once, and fitting hourly columns, rain/snow
-  notices and future-day rows use remaining space. Forecast notices and authority alerts use a colored leading icon
-  badge and grow when leftover height cannot fit another day row. The current-condition icon is centered between the
-  temperature and sun times as a sharp ~80 px mark. Fit complete glyph ink, preserve accents/icons, and ellipsize
-  labels without overflow. Type remains light Segoe UI.
-- Window widgets receive only a borrowed host-owned child container and own all children, timers, controllers, and GDI
-  resources they create. Every widget quiesces visibility-dependent work in `IRedXeWidget::SetVisible(FALSE)`;
-  window widgets destroy their children before `Detach` returns.
-- Keep GPU `Render`, GDI paint, and visibility callbacks allocation-free and non-blocking. Native-window resize may
-  rebuild bounded size-dependent buffers and handles, then must reuse them until size or DPI changes again.
-  Process Viewer and Weather keep worker delivery free of font/GPU work; UI-thread preparation freezes paint,
-  rasterizes new glyphs and uploads only changed 48 px cells before tile/raised drawing, never from `Render`. Sample-
-  driven Process Viewer delivery already coalesces one host invalidation. Settled viewers return `S_FALSE`; only a
-  real ease or bounded pulse returns a 33 ms visual deadline, without Render-side immediate requests or idle polling.
-- Use `IRedXeHost::Log` for lifetime and failure diagnostics, never for per-frame success. The call is any-thread,
-  allocation-free, and forbidden from `Render` and GDI paint. `OnDataSnapshot` and `RunNetworkWork` MAY log. Factory
-  create, placeholders, attach, device-create, and render-failure (once per HRESULT) are host-covered; plugins add
-  their own sparse event ids such as weather `forecast-ok` / `forecast-failed`. Weather HTTP response bodies are 256 KiB
-  heap buffers; do not put them on the network-worker stack.
-- Keep each `CreateWidget` result isolated so multiple instance IDs can animate and configure independently.
-- Every `IRedXeWidget` implements `CollectPersistentSettings`. The host calls it after `SetVisible(FALSE)` and before
-  `Detach`. `S_FALSE` is the correct answer when there is nothing to save. A widget MAY call
-  `IRedXeHost::PersistWidgetSettings` from `OnPointer` (committed click) or `OnDrop` with all of its instance settings
-  or a part of them. The host always merges, then validates the complete object. Do not persist from `Render`,
-  device, size, visibility, raise, collect, `OnDataSnapshot`, or `RunNetworkWork`.
-  Worker-discovered settings may instead use the optional `IRedXeSettingsQueue`; it copies a bounded merge and posts
-  UI-thread persistence outside plugin callbacks. Retain collect fallback for failed or unavailable queued delivery.
-- Do not allow exceptions across exports, COM methods, callbacks, `wWinMain`, or Win32 procedures.
+Use [the active plan index](../../../Specs/Plans/WIP/README.md) for unfinished work; delivery history and old
+closeout snapshots do not define today's ABI or support status. Apply `spec-workflow` when behavior or ABI changes.
 
-When a plugin project is added, include all four solution configurations, place its DLL under the host output
-`Plugins` directory, and add a build-only project reference from RedXe without static import-library linkage.
-`Weather.dll` load flags search only the plugin directory and System32: copy every vcpkg runtime DLL it and `libcurl`
-import (`libcurl*.dll`, `yyjson.dll`, and zlib as `z.dll`/`zd.dll` or `zlib1.dll`) into `Plugins\`. Do not assume the
-classic `zlib1.dll` name. Also copy `Plugins/Weather/Fonts/weathericons-regular-webfont.ttf` (Erik Flowers Weather
-Icons, SIL OFL 1.1) beside `Weather.dll` so the tile can atlas-rasterize condition glyphs. `Launcher.dll` also needs
-`yyjson.dll` beside it.
+## Boundaries
 
-Run `./format.ps1`, `./test.ps1 -Full -Configuration Debug -Platform x64 -Rebuild`,
-`./test.ps1 -Full -Configuration Release -Platform x64 -Rebuild`, an affected ARM64 build, and `./validate-skills.ps1`.
+- Keep public ABI declarations under `Common/PlugInterfaces/`, host-only code under `RedXe/`, and bundled DLL
+  projects under `Plugins/`. Match the current ABI in place before an explicit production freeze; rebuild every
+  source-coordinated consumer. Do not invent legacy-IID or vtable-prefix compatibility.
+- Expose rendering/work mechanisms as sibling `IUnknown` interfaces with one controlling identity. Keep widget
+  declarations in `Widget.h` and data declarations in `Data.h`; plugin geometry and drawing commands stay out of
+  the generic root. Public records use the contract's exact size checks and expose no owning C++/yyjson types.
+- Use `FactoryImpl.h`, clear outputs before validation, return the specified HRESULT and one caller-owned reference.
+  Load only absolute DLL paths with restricted flags. `PluginHost` maps shared DLLs once; release objects before
+  optional shutdown and retain modules until process teardown. Do not add hot unload.
+- Determine template coverage from `RedXe/BundledPlugins.h` and
+  [the settings template contract](../../../Specs/Core/Core_Settings.md#selection-storage-and-deployed-defaults):
+  ordinary widgets have effective examples in both templates, opt-in widgets in neither, and Debug-only widgets
+  only in Debug. Services have entries in both templates without requiring a placed widget. Update the catalog,
+  schema/parser, owning contract and `docs/plugins/` together; validate category-aware coverage.
+- A catalogued DLL that cannot map becomes an instance placeholder; an unknown plugin ID rejects the document.
+  Preserve per-instance state even when a shared module serves multiple plugin IDs.
+- Deliver copied sink references after releasing subscription locks; coalesce UI invalidation. A failed snapshot
+  batch must not commit rate-history mutation.
+- GPU widgets borrow the device/context, never the HWND, swap chain or back buffer. Share compatible immutable
+  resources. Preserve full-size, potentially negative swipe viewports; Direct3D performs clipping.
+- Query `IRedXeRaisedWidget::GetRaisedExtent` and follow its notification lifecycle instead of guessing dimensions.
+  Pointer cancellation, wheel-sequence ownership, paging geometry, density and typography belong to the linked
+  dashboard/plugin contracts. Reuse `Common/WheelDetent.h` and `Common/PageIndicator.h`; test boundary paging
+  and cancellation when changing interaction rather than copying their metrics.
+- Native-window widgets own their children/resources, quiesce visibility-dependent work and destroy children before
+  detach returns. GPU Render, paint and visibility callbacks remain allocation-free and nonblocking; prepare changed
+  glyphs/textures on the owner before rendering and reuse bounded size-dependent resources.
+- Use sparse `IRedXeHost::Log` failure/lifetime records; no per-frame success, Render or paint logging. Consult the
+  performance contract for current capacities and worker stack limits instead of duplicating them here.
+- Persist through host services, never by writing the settings file in a plugin. Follow the API's permitted callback
+  set, queued-worker delivery and collect-on-exit fallback. No exception crosses exports, COM or Win32 callbacks.
+
+## Build and verification
+
+New plugin projects follow the supported matrix in the solution/project files and
+[the build contract](../../../Specs/Build/Build_Process.md#output-and-validation). Place their DLLs under the host's
+`Plugins` output with build-only project references. Preserve each plugin's declared runtime DLL/font dependencies
+and the package smoke contract; do not substitute a guessed dependency filename or a developer-global DLL.
+
+Iterate with `Test-Changes.ps1 -Explain` and affected coverage. For qualification, use PrePush/Full accounting and
+the owning domain's build/runtime gates; an unchanged CI-covered obligation need not run twice. Run
+`validate-skills.ps1` for guidance changes. Focus-taking acceptance requires agreement to the time.

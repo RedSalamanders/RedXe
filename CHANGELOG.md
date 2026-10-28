@@ -4,6 +4,12 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Keep four-space and tab-indented code from opening or closing Markdown fences over later links or unfinished instructions, with focused admission and valid-closer controls.
+- Distinguish line-leading triple-backtick inline code from fenced examples so later missing links and unfinished instructions stay visible to validation; retain valid tilde-fence info strings and add focused controls.
+- Preserve date-prefixed description prose while rejecting complete unquoted timestamp scalars, and keep isolated edits to the migrated metadata fixture in the independent tooling scope with retained shared-build fallback coverage.
+- Close reviewed skill-validator gaps for paragraph/code boundaries, continued references, parenthesized titles, literal file-URI filenames, linked-root admission, quoted timestamps and hidden packages; add focused positive/negative controls and preserve separate native/model qualification gates.
+- Correct category-aware widget/service template guidance and stale skill routes/matrix claims; route mutable layout/settings detail to its owning contracts, and add read-only package/reference checks with negative fixtures. These tooling checks do not establish model behavior or native product qualification.
+- Run skill validation and its behavioral tests on PowerShell 7 without Python/PyYAML; retain multiline descriptions and fenced examples, reject unsupported YAML explicitly, and remove interpreter discovery from tooling receipts.
 - Allow 20 minutes for hosted compiler provisioning and the complete independent tooling job after the measured 15-minute timeout; retain all test scopes and individual/native deadlines.
 - Bind hosted build and restore to the verified MSVC 14.52 installation's MSBuild, preserving strict compiler-family checks and local read-only behavior; cover stale ambient discovery and missing-MSBuild refusal.
 - Wait for the hosted Visual Studio GUI installer and use its explicit result before verifying MSVC 14.52; retain installer diagnostics and cover delayed completion, failures and strict tool/refusal checks without a real installation.

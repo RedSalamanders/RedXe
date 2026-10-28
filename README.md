@@ -45,7 +45,7 @@ Windows. Opening `.vsconfig` in Visual Studio offers the required workload. The 
 .\Update-DxUi.ps1 -UpdateOnly
 
 # Validate all repository-local Codex skills
-py -3 -m pip install -r Build/requirements-validation.txt
+# PowerShell 7; no Python or pip packages required
 .\validate-skills.ps1
 ```
 

@@ -40,10 +40,7 @@ one. The vcpkg overlay triplets and the DxUi identity files therefore do not dep
 
 ## Output and validation
 
-Python tooling MUST prefer `python.exe` on PATH, so an activated environment or `setup-python` uses the same
-interpreter for dependency installation and validation. Ignore the WindowsApps Store placeholder; when no executable
-Python is found, fall back to `py.exe -3`. The independent tooling suite tests divergent installed commands, launcher
-fallback and a Store placeholder.
+Routine repository validators and their regression tests require PowerShell 7 and no Python or external YAML module.
 
 Every native project and solution mapping supports Debug, Release and ASan Debug on x64 and ARM64.
 Optimized Release projects MUST use full link-time code generation (`/LTCG`), preserving whole-program
@@ -236,10 +233,10 @@ also runs Git on the product checkout, sets `commit.gpgsign`, `core.hooksPath` a
 fixture repository, which overrides global and system settings, and reports a failing fixture command with its output.
 
 The independent tooling runner, `Tests/BuildProcessTests/Invoke-ToolingTests.ps1`, MUST work on a clean checkout before
-any product build: the CI `tooling` job runs it after installing only Python and `Build/requirements-validation.txt`,
+any product build: the CI `tooling` job runs it using PowerShell 7,
 while `test.ps1` runs it as the `BuildProcess` suite after its own build step. It therefore restores the exact pinned
 DxUi source first, the source only, because the restore tests inspect that source. It builds no product and installs no
-vcpkg package. Its PowerShell suites create their fixtures under `.build`; the Python validator tests use a temporary
+vcpkg package. All tooling suites create their fixtures under `.build`; skill scalar/parser cases run in memory rather than a temporary
 folder.
 
 Changes to this contract require:
@@ -274,7 +271,7 @@ Successful whole-scope results are reused only for equal repository content, com
 
 Git output is decoded as UTF-8 whatever the console code page. A path Git lists that is not a file on disk leaves the source identity only when Git reports it deleted (or it is a nested repository's directory); any other unresolvable path fails the identity instead of silently dropping out of it.
 
-The environment identity covers the machine, OS build and update revision (UBR), architecture, PowerShell, the Direct2D, Direct3D, WARP, DirectWrite, DXGI and WIC system runtimes by hash, the Git version, the Visual Studio and Windows SDK installations, and the sanitizer, CI, processor, `PATH` and toolset environment variables. Tooling receipts also cover the Python interpreter and PyYAML version that `validate-skills.ps1` and `Invoke-ToolingTests.ps1` select. Receipts store only digests, never these values.
+The environment identity covers the machine, OS build and update revision (UBR), architecture, PowerShell, the Direct2D, Direct3D, WARP, DirectWrite, DXGI and WIC system runtimes by hash, the Git version, the Visual Studio and Windows SDK installations, and the sanitizer, CI, processor, `PATH` and toolset environment variables. Tooling receipts record the PowerShell tooling contract; PowerShell version is already part of the common identity. No Python discovery or PyYAML probe runs. Receipts store only digests, never these values.
 
 When the inputs of a scope that passed change while the run executes, `Test-Changes.ps1` MUST NOT record that scope, MUST still record the scopes whose inputs did not change, MUST warn naming the changed scopes, and MUST end with `SELECTED_PASSED; NOT_RECORDED` and exit 0: the selected tests passed on the tree as it started, and the current tree is not covered. A source change during the build still fails the run before any test executes, because its binaries could mix both trees.
 
@@ -288,9 +285,9 @@ Every suite `Test-Changes.ps1`, `test.ps1` and CI run is noninteractive. Timing,
 
 The manifest's scope names are the suite names. `test.ps1` takes `-Suites` and its default from them and runs each suite in exactly one `if ('<Scope>' -in $Suites)` block. `ScopedTesting.Tests.ps1` MUST check that every manifest scope has exactly one such block and every block names a manifest scope; that every rule matches at least one tracked path; and that every input of a project whose executable a suite runs selects that suite or the full fallback. Those inputs are the project's items, its project references and the quoted `#include` closure, resolved beside the including file, then through the project's include directories and `Common`. A rule that misses a consumer therefore fails the tooling suite instead of narrowing selection.
 
-AVControl, Launcher, Logicon and Zoom edits also select Settings because that suite compiles their models/settings or consumes their shared settings constraints. A test project file (`Tests/<Project>/<Project>.vcxproj`) also selects PluginContract, HostPlugin, HostSmoke and Packaging: every project builds into the shared output folder, where the files it deploys and the product projects it references reach those suites. Its `.filters` file, which only the IDE reads, stays with its own suite. Skill metadata (`.agents/**`), `validate-skills.ps1`, `Build/validate_skills.py` and `Build/requirements-validation.txt` select only `BuildProcess`.
+AVControl, Launcher, Logicon and Zoom edits also select Settings because that suite compiles their models/settings or consumes their shared settings constraints. A test project file (`Tests/<Project>/<Project>.vcxproj`) also selects PluginContract, HostPlugin, HostSmoke and Packaging: every project builds into the shared output folder, where the files it deploys and the product projects it references reach those suites. Its `.filters` file, which only the IDE reads, stays with its own suite. Skill metadata (`.agents/**`), `validate-skills.ps1`, `Build/SkillValidation.psm1` select only `BuildProcess`.
 
-CI invokes explicit full gates rather than the affected default. The forthcoming PR executes its candidate workflow merged with the base; a reviewed local workflow digest, a runner the base has not changed since, the enabled GitHub workflow and checks the default branch requires gate delegation. Workflow edits invalidate that digest until the scope contract is reviewed and updated. RedXe's independent Windows tooling/skill tests execute once in its tooling job. Every RedXe workflow job that runs `test.ps1` MUST pass `-SkipTooling` or install `Build/requirements-validation.txt` itself; `ScopedTesting.Tests.ps1` checks each workflow. Hosted timing investigations still use paired, fixture-matched resource evidence; cached historical observations are not new measurements.
+CI invokes explicit full gates rather than the affected default. The forthcoming PR executes its candidate workflow merged with the base; a reviewed local workflow digest, a runner the base has not changed since, the enabled GitHub workflow and checks the default branch requires gate delegation. Workflow edits invalidate that digest until the scope contract is reviewed and updated. RedXe's independent Windows tooling/skill tests execute once in its tooling job. Native workflow jobs pass `-SkipTooling` to avoid repeating the independent tooling job. Workflow guards reject routine Python provisioning. Hosted timing investigations still use paired, fixture-matched resource evidence; cached historical observations are not new measurements.
 
 PR delegation MUST account for conditional workflow jobs: a check covers a scope only for the changes it runs on. Both RedXe PR checks run on every pull request, because `ci.yml` has no path filter and no job condition, so the scopes they cover do not depend on what changed. A workflow edit that adds a filter or a condition changes the reviewed digest, which keeps every obligation local until the manifest accounts for it.
 
@@ -325,3 +322,27 @@ Hosted setup waits for the hidden, owned GUI bootstrapper with both its --wait s
 The hosted action exports MSBUILD_EXE_PATH through GITHUB_ENV from the exact installation it verified, preferring its native 64-bit MSBuild and requiring the chosen executable to exist. Build and restore therefore consume that verified toolchain ahead of the runner's older environment or PATH entries. Local -VerifyOnly does not publish or change compiler selection. The regression applies the exported value to the actual product discovery function and retains the older-ambient counterfactual; rejecting MSVC 14.51 remains required.
 
 The hosted Windows tooling job has a 20-minute outer ceiling to include required MSVC provisioning and the complete independent tooling suite. Run 40513243075 used 8m45s in provisioning and reached the former 15-minute job limit while tooling was still running. All per-child/test limits, assertions, scopes and the 45-minute native-job ceiling are unchanged; timeout evidence remains a failed attempt, not a partial pass.
+
+## Repository skill validation
+
+`validate-skills.ps1` uses the local `Build/SkillValidation.psm1` on PowerShell 7. No Python,
+pip package, external YAML module or developer Codex installation is required. The routine CI tooling
+job runs the same validator and behavioral fixtures once; native jobs retain their independent coverage.
+
+The supported front matter is an explicit YAML subset: exact top-level keys `name`, `description`,
+`license`, `allowed-tools` and `metadata`; plain, single-quoted or JSON-compatible double-quoted scalars;
+two-space-indented literal (`|`) and folded (`>`) block scalars with optional `-`/`+` chomping; comments;
+and a one-level, two-space-indented scalar mapping for `metadata`. Duplicate keys, flow collections,
+tags, anchors, aliases, arbitrary nesting and unsupported syntax fail validation. Required strings retain
+YAML 1.1 scalar-type rejection, exact folder/name identity, 64/1024-character limits and nonempty
+instructions. Description TODO placeholders and standalone body TODO placeholders outside Markdown
+backtick/tilde fences fail. This is a deliberate restricted grammar, not general YAML compatibility.
+Quoted scalar strings remain strings even when they contain ISO timestamps. Hidden skill directories receive
+the same metadata validation as visible packages; package admission runs before their metadata is opened.
+Date/timestamp type rejection matches the complete scalar; date-prefixed ordinary description prose remains a string.
+
+`Tests/BuildProcessTests/SkillValidation.Tests.ps1` covers valid and malformed metadata, Unicode,
+CRLF, multiline values, boundaries, fenced examples and aggregate failures. Its parser fixtures run in
+memory and its small aggregate fixtures stay under repository `.build`. Python is not discovered or
+included in tooling receipt identity. Historical measurement scripts remain reproduction artifacts;
+manual source generators and upstream dependency tools retain their separate prerequisites.

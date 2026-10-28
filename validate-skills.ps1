@@ -1,50 +1,30 @@
 <#
 .SYNOPSIS
-Validates every repository-local RedXe skill.
-
+Validates repository-local skill metadata, instructions and package references.
 .DESCRIPTION
-Runs the repository-owned metadata validator for .agents/skills on local machines and clean CI runners.
-Requires Python and the dependencies in Build/requirements-validation.txt; no Codex installation is needed.
+Runs the repository-owned PowerShell 7 validator. Supports the documented YAML subset,
+including multiline descriptions; requires no Python, external YAML module or Codex installation.
+Package/input checks run before metadata files are opened. Structure and local-reference checks do not
+evaluate model decisions, command signatures or native behavior.
+.OUTPUTS
+Validation diagnostics. Fails on any invalid skill.
+.NOTES
+Reads skills and validates changelog fragments; does not modify files or access the network.
+.EXAMPLE
+./validate-skills.ps1
 #>
-[CmdletBinding()]
-param()
-
+#Requires -Version 7.0
+[CmdletBinding()]param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-
-$repoRoot = Split-Path -Parent $PSCommandPath
-& (Join-Path $repoRoot 'Tools/Test-Changelog.ps1')
-$skillRoot = Join-Path $repoRoot '.agents\skills'
-if (-not (Test-Path -LiteralPath $skillRoot -PathType Container)) {
-    throw "The repository skill directory was not found: $skillRoot"
-}
-
-$validator = Join-Path $repoRoot 'Build\validate_skills.py'
-
-$python = Get-Command 'python.exe' -ErrorAction SilentlyContinue
-if ($python -and $python.Source -like '*\Microsoft\WindowsApps\python.exe') { $python = $null }
-$pythonUsesLauncher = $false
-if (-not $python) {
-    $python = Get-Command 'py.exe' -ErrorAction SilentlyContinue
-    $pythonUsesLauncher = $null -ne $python
-}
-if (-not $python) {
-    throw 'Python was not found. Install Python and Build/requirements-validation.txt.'
-}
-
-$skills = Get-ChildItem -LiteralPath $skillRoot -Directory | Sort-Object Name
-if ($skills.Count -eq 0) {
-    throw "No repository skills were found under: $skillRoot"
-}
-
-if ($pythonUsesLauncher) {
-    & $python.Source -3 $validator
-}
-else {
-    & $python.Source $validator
-}
-if ($LASTEXITCODE -ne 0) {
-    throw 'Skill validation failed. Check the diagnostics and install Build/requirements-validation.txt if needed.'
-}
-
-Write-Host "Validated $($skills.Count) RedXe skills." -ForegroundColor Green
+$global:LASTEXITCODE = 0
+& (Join-Path $PSScriptRoot 'Tools/Test-Changelog.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Changelog validation failed.' }
+Import-Module (Join-Path $PSScriptRoot 'Build/SkillPackageIntegrity.psm1') -Force
+$packages = Get-SkillPackageIntegrity -Root $PSScriptRoot
+if ($packages.Problems.Count) { throw ($packages.Problems -join "`n") }
+Write-Host "Skill package/reference checks passed: $($packages.Skills) packages, $($packages.References) local references; model decisions NOT_EVALUATED."
+Import-Module (Join-Path $PSScriptRoot 'Build/SkillValidation.psm1') -Force
+$count = Test-RepositorySkills -Root $PSScriptRoot
+Write-Host "Validated $count repository skills." -ForegroundColor Green
+$global:LASTEXITCODE = 0

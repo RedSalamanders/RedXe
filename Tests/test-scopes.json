@@ -85,7 +85,13 @@
     }
   ],
   "rules": [
-    {"pattern":"Tools/**","scopes":["BuildProcess"],"reason":"repository Changes workflow and behavioral fixtures"},
+    {
+      "pattern": "Tools/**",
+      "scopes": [
+        "BuildProcess"
+      ],
+      "reason": "repository Changes workflow and behavioral fixtures"
+    },
     {
       "pattern": "Plugins/AVControl/**",
       "scopes": [
@@ -318,7 +324,7 @@
       "reason": "build/process/packaging tooling"
     },
     {
-      "pattern": "Tests/SkillValidationTests/**",
+      "pattern": "Tests/BuildProcessTests/SkillValidation.Tests.ps1",
       "scopes": [
         "BuildProcess"
       ],
@@ -339,18 +345,11 @@
       "reason": "skill validation tooling"
     },
     {
-      "pattern": "Build/validate_skills.py",
+      "pattern": "Build/SkillValidation.psm1",
       "scopes": [
         "BuildProcess"
       ],
       "reason": "skill validation tooling"
-    },
-    {
-      "pattern": "Build/requirements-validation.txt",
-      "scopes": [
-        "BuildProcess"
-      ],
-      "reason": "skill validator dependencies"
     }
   ],
   "toolingCommands": [
@@ -386,5 +385,5 @@
       ]
     }
   ],
-  "prWorkflowDigest": "1decf957e8e9bc0eb9073a7e6a54f89428d4f10ccebe16a53421edb576a0000c"
+  "prWorkflowDigest": "f3037906f886b309ccb4af14925037be99f8a60ff2946600846d28e658a59eaf"
 }

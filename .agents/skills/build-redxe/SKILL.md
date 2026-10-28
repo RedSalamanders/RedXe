@@ -48,10 +48,10 @@ When diagnosing a failure:
 1. For dependency failures, run `vcpkg-install.ps1` for the exact platform and fix the first vcpkg diagnostic.
 2. Re-run `build.ps1` with the exact configuration and platform that failed.
 3. Fix the first project-code diagnostic; warnings are errors.
-4. Run `test.ps1 -Full` after a successful x64 build. It validates the factory ABI, borrowed descriptors, COM identity, and
-   rendering-IID negotiation, then validates settings parsing, device creation, embedded shader-bytecode loading,
-   drawing, and presentation.
-   without requiring a hardware GPU.
+4. After a successful build, use `Test-Changes.ps1 -Explain` and the affected suites to iterate on the repair.
+   Qualification uses PrePush/Full accounting and the owning domain gates: factory ABI, borrowed descriptors,
+   COM identity, rendering-IID negotiation, settings and hidden WARP presentation remain required when affected.
+   A focused repair run is partial evidence; it does not close those final obligations.
 5. Build Debug, Release and ASan Debug when changing project properties, manifests, or compiler behavior. Build x64 and ARM64
    when changing vcpkg, platform mapping, or dependency paths.
    Run ASan Debug tests natively (`test.ps1 -Full -Configuration 'ASan Debug'`); the deliberate isolated probe must
