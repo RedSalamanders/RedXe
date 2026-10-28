@@ -37,7 +37,9 @@ it does not add the skipped control to its passing count.
 Metadata regression coverage remains owned by the repository's skill grammar tests.
 The explicit independent-tooling runner includes the package fixture once. The exact module and fixture paths
 `Build/SkillPackageIntegrity.psm1` and `Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1` select only
-`BuildProcess` during affected iteration. Shared `Build/ScopedTesting.psm1`, unknown Build inputs and the broader
+`BuildProcess` during affected iteration. The migrated metadata fixture
+`Tests/BuildProcessTests/SkillValidation.Tests.ps1` receives the same exact tooling-only exception; its enclosing
+BuildProcess test directory still has broader consumers. Shared `Build/ScopedTesting.psm1`, unknown Build inputs and the broader
 build/runtime rules retain conservative full selection; the isolated exception is not a prefix-wide exclusion.
 
 For a current corpus check in a fresh PowerShell process:

@@ -85,7 +85,7 @@ try {
     }
     Run-Case 'unmapped executable input widens to every scope' {$plan=Get-ScopedTestPlan $manifest @('Unknown/new.cpp');Assert-Scope $plan.full 'Fallback was narrowed'}
     Run-Case 'isolated skill package checks select only tooling without narrowing shared build policy' {
-        foreach($path in @('Build/SkillPackageIntegrity.psm1','Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1')) {
+        foreach($path in @('Build/SkillPackageIntegrity.psm1','Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1','Tests/BuildProcessTests/SkillValidation.Tests.ps1')) {
             $plan=Get-ScopedTestPlan $manifest @($path)
             Assert-Scope (($plan.scopes -join ',') -ceq 'BuildProcess') "Independent package input widened coverage: $path"
         }

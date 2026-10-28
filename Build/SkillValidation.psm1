@@ -27,7 +27,7 @@ function ConvertFrom-SkillScalar {
     # Preserve the old YAML 1.1 type checks for required string fields.
     if ($plain -cmatch '^(?:~|null|Null|NULL|yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF|=|<<)$' -or
         $plain -cmatch '^[-+]?(?:[0-9][0-9_:]*(?:\.[0-9_]*)?(?:[eE][-+]?[0-9]+)?|\.[0-9_]+(?:[eE][-+]?[0-9]+)?|0b[01_]+|0x[0-9a-fA-F_]+|\.(?:inf|Inf|INF|nan|NaN|NAN))$' -or
-        $plain -cmatch '^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}') {
+        $plain -cmatch '^(?:[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}(?:[Tt]|[ \t]+)[0-9]{1,2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9]{1,2}(?::[0-9]{2})?))?)$') {
         return [pscustomobject]@{ NonStringScalar = $plain }
     }
     return $plain

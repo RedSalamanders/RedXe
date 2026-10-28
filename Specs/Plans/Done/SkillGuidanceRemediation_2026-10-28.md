@@ -42,6 +42,10 @@ metadata omission. The focused fixes pass 30 package and 60 metadata controls, i
 destination/literal filename cases and a linked-root check while UI metadata is exclusively locked. The earlier
 22/58-control and x64 Release PrePush successes remain historical receipts for their prior source; the follow-up
 candidate requires its own PrePush and CI acceptance. No full CommonMark conformance is claimed.
+The second PR pass reproduced date-prefixed prose rejection and unnecessary Packaging selection for an isolated
+migrated metadata fixture. Complete scalar timestamp matching and the exact fixture exception now pass 65 metadata
+controls and the 31-case planner suite. The successful Release PrePush at `9940f90` remains bound to that earlier
+source; final source qualification is recorded separately.
 
 `Specs/Build/Build_SkillPackages.md`, `Specs/Core/Core_Settings.md` and `Specs/Plugins/Plugins_API.md` own the durable
 requirements. Metadata and local-reference fixtures do not prove model effectiveness. Root independent review and

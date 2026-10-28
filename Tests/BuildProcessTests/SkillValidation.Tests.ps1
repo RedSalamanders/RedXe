@@ -17,6 +17,8 @@ $cases = @(
     @{Name='plain comment'; Text="---`n# comment`nname: example-skill`ndescription: valid # comment`n---`nRead."; Valid=$true},
     @{Name='quoted typed string'; Text="---`nname: example-skill`ndescription: '123'`n---`nRead."; Valid=$true},
     @{Name='double quoted timestamp'; Text=$prefix.Replace('description: valid','description: "2026-10-28T09:00:00Z"')+'Read.'; Valid=$true},
+    @{Name='date-prefixed prose'; Text=$prefix.Replace('description: valid','description: 2026-10-28 migration guidance')+'Read.'; Valid=$true},
+    @{Name='timestamp-prefixed prose'; Text=$prefix.Replace('description: valid','description: 2026-10-28T09:00:00Z migration guidance')+'Read.'; Valid=$true},
     @{Name='missing file'; Text=$null; Valid=$false},
     @{Name='missing delimiters'; Text='name: example-skill'+"`ndescription: valid`nRead."; Valid=$false},
     @{Name='malformed YAML'; Text="---`n[`n---`nRead."; Valid=$false},
@@ -45,7 +47,7 @@ $cases = @(
     @{Name='bad JSON escape'; Text=$prefix.Replace('description: valid','description: "bad\q"')+'Read.'; Valid=$false},
     @{Name='invalid indentation'; Text=$prefix.Replace('description: valid',"description: |`n one space")+'Read.'; Valid=$false}
 )
-foreach ($typed in @('123','true','yes','null','2026-10-28','1.5','0x10','.inf','off')) {
+foreach ($typed in @('123','true','yes','null','2026-10-28','2026-10-28T09:00:00Z','2026-10-28 9:00:00 +02:30','2026-10-28t09:00:00.25-08:00','1.5','0x10','.inf','off')) {
     $cases += @{Name="typed $typed"; Text=$prefix.Replace('description: valid',"description: $typed")+'Read.'; Valid=$false}
 }
 $unicodeScalar = [char]::ConvertFromUtf32(0x1f4d8)

@@ -153,12 +153,12 @@ function Get-ScopedTestPlan {
     if (-not $Scopes.Count -and -not $Full) {
         foreach ($path in $ChangedPaths) {
             if ($path -match '(^/|(^|/)\.\.(/|$)|:|\\)') { throw "Expected a repository-relative Git path: $path" }
-            # These independent package checks cannot change a compiled/runtime input. Keep the exact
+            # These independent skill checks cannot change a compiled/runtime input. Keep the exact
             # allowlist narrow; shared Build/ScopedTesting and unknown Build files retain full fallback.
-            if ($path -cin @('Build/SkillPackageIntegrity.psm1', 'Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1')) {
+            if ($path -cin @('Build/SkillPackageIntegrity.psm1', 'Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1', 'Tests/BuildProcessTests/SkillValidation.Tests.ps1')) {
                 if ('BuildProcess' -cnotin $names) { throw 'Package tooling requires the BuildProcess scope' }
                 [void]$selected.Add('BuildProcess')
-                $reasons.Add([pscustomobject]@{path=$path; scopes=@('BuildProcess'); reason='independent skill package integrity tooling'})
+                $reasons.Add([pscustomobject]@{path=$path; scopes=@('BuildProcess'); reason='independent skill validation tooling'})
                 continue
             }
             if ($path -match '\.md$') {

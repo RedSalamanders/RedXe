@@ -339,6 +339,7 @@ instructions. Description TODO placeholders and standalone body TODO placeholder
 backtick/tilde fences fail. This is a deliberate restricted grammar, not general YAML compatibility.
 Quoted scalar strings remain strings even when they contain ISO timestamps. Hidden skill directories receive
 the same metadata validation as visible packages; package admission runs before their metadata is opened.
+Date/timestamp type rejection matches the complete scalar; date-prefixed ordinary description prose remains a string.
 
 `Tests/BuildProcessTests/SkillValidation.Tests.ps1` covers valid and malformed metadata, Unicode,
 CRLF, multiline values, boundaries, fenced examples and aggregate failures. Its parser fixtures run in
