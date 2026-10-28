@@ -8693,7 +8693,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
 }
 
 constexpr uint64_t kSoakPrivateGrowthBudget = 4ULL * 1024 * 1024;
-constexpr uint64_t kSoakWorkingSetGrowthBudget = 8ULL * 1024 * 1024;
+[[maybe_unused]] constexpr uint64_t kSoakWorkingSetGrowthBudget = 8ULL * 1024 * 1024;
 constexpr auto kClockSoakWarmup = std::chrono::seconds(20);
 
 [[nodiscard]] constexpr bool SoakGrowthWithinBudget(uint64_t before, uint64_t peak, uint64_t budget) noexcept
