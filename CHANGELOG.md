@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Scope the MSVC ARM64 volatile-model notice to the deliberate isolated crash/sanitizer probe. Keep the selected volatile model, genuine crash/sanitizer detection and ordinary warnings unchanged.
 - Retain the working-set soak budget for ordinary profiles without an unused-constant warning in ASan, where that diagnostic budget is intentionally not used.
 - Lock DxUi API4 at fa3de6c980f4d7d2700e44a82ad9e751cbebcdc3 for the native warning/Release folding policy. Preserve the consumer API boundary and restore matching headers/archive through the normal entrypoint; complete product qualification is tracked by the indexed native policy plan.
 - Keep Debug allocation hooks non-throwing and annotate the CRT-erased previous-hook type only at restoration. Make Logicon monitor layout conversions explicit while preserving COM ownership traits, and retain the Release-only GPU-query helper without a Debug unused-function warning.

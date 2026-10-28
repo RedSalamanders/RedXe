@@ -521,8 +521,13 @@ void WriteDumpAndMarker(EXCEPTION_POINTERS* exceptionPointers) noexcept
 }
 
 // The recursion is deliberate: this exists only behind --crash-test-stack-overflow.
+// Its volatile stack touches intentionally use the selected ARM64 volatile model.
+// Owner: RedXe crash-test maintainers; review: 2027-01-31.
 #pragma warning(push)
 #pragma warning(disable : 4717)
+#if defined(_M_ARM64)
+#pragma warning(disable : 4746)
+#endif
 __declspec(noinline) ULONG_PTR ConsumeStackUntilOverflow() noexcept
 {
     volatile unsigned char stackBlock[4096]{};
