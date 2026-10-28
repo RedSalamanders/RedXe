@@ -30,8 +30,9 @@ Work in `RedXe/Application.*` and keep the callback boundary narrow.
 - Keep hidden-window creation working because `.\test.ps1` depends on it. Message dispatch must never make a hidden,
   minimized, suspended, or display-off window render one extra frame.
 
-After lifetime, DPI, or message-loop changes, run the Debug and Release checks required by the domain spec and manually
-launch `.\build.ps1 -Run` when interactive behavior changed. DPI changes also require a live cross-monitor move test
+After lifetime, DPI, or message-loop changes, use affected coverage for iteration and the domain's required profiles
+for qualification. With the person's agreement to the time, manually launch `.\build.ps1 -Run` when interactive
+behavior changed. DPI changes also require an agreed live cross-monitor move test
 with a Per-Monitor-V2 probe so diagnostic virtualization cannot hide a sizing defect.
 
 If the work closes a WIP plan, merge lasting requirements into the domain spec before moving the plan to

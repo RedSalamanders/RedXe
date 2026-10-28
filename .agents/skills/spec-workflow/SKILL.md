@@ -38,6 +38,7 @@ Use normative language only for observable requirements, ownership boundaries, c
 required validation. Keep rationale concise and avoid copying exact schemas, dependency versions, or generated data
 when a machine-owned artifact can be linked instead.
 
-For specification-only or skill-only changes, run `.\validate-skills.ps1`; it applies the bundled
-`quick_validate.py` to every directory under `.agents/skills/`. Code changes still require the build and runtime checks
-owned by their domain spec.
+For specification-only or skill-only changes, run `.\validate-skills.ps1`, the repository-owned skill validation
+entrypoint. Follow the [skill package contract](../../../Specs/Build/Build_SkillPackages.md) for its structural and
+local-reference checks and their limits. Code changes still require the build/runtime checks owned by their domain
+spec; ordinary iteration uses affected coverage, with PrePush/Full accounting for qualification.

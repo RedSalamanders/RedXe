@@ -14,7 +14,7 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 - Unicode Win32 APIs
 - Debug, Release and ASan Debug project configurations on x64 and ARM64, including real sanitizer instrumentation
 - Git for the pinned vcpkg bootstrap
-- Python 3 with `Build/requirements-validation.txt` for `validate-skills.ps1` and the `BuildProcess` tooling suite of
+- PowerShell 7 for `validate-skills.ps1` and the `BuildProcess` tooling suite of
   `test.ps1` (`-SkipTooling` leaves that suite to the CI `tooling` job)
 
 ## Drive-root output policy
@@ -36,7 +36,7 @@ junctions during cleanup or leave compatibility junctions at forbidden old roots
 - Normative product behavior lives in domain contracts under `Specs/<Domain>/`; read the owning contract before
   changing durable behavior.
 - Repo-scoped skills live in `.agents/skills/` and must pass `.\validate-skills.ps1`, which runs the repository-owned
-  `Build/validate_skills.py` validator. Install `Build/requirements-validation.txt` on a clean Python environment.
+  `Build/SkillValidation.psm1` validator. Routine repository validation requires no Python or external YAML module.
 - Keep reusable build entrypoints at the repository root.
 - Generated build products belong under `.build/`; never commit them.
 

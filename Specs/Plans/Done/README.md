@@ -1,5 +1,7 @@
 # Completed plan history
 
+- [Skill and guidance remediation](SkillGuidanceRemediation_2026-10-28.md) — category-aware template guidance, current contract routing, bounded package/reference admission and tooling-only scope tests; native/model effectiveness remain separate.
+
 - [`DxUiRevision4Adoption_2026-10-13.md`](DxUiRevision4Adoption_2026-10-13.md) — completed 2026-10-13: adopted validated DxUi main at API revision 4, updated the consumer lock and revision checks, passed three x64 product profiles and three ARM64 cross-builds, and repaired clean-host link evaluation; AV real-client gates remain on their active plan.
 - [`SliderTouchRecovery_2026-10-10.md`](SliderTouchRecovery_2026-10-10.md) — completed 2026-10-10: retained RedXe pointer cancellation, independent-endpoint slider drag and minimum AV touch targets ported onto the current DxUi API revision 3 pin; full x64 Debug/Release gates, Release ARM64 cross-build and skills validation passed. The larger upstream appearance proposal and physical acceptance remain on the AV RFC.
 - [`SliderTouchReview_2026-09-09.md`](SliderTouchReview_2026-09-09.md) — historical September slider/touch validation;

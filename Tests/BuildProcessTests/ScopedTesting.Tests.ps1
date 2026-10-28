@@ -25,25 +25,6 @@ function Get-TestSuiteBlocks([string]$Path) {
         foreach($clause in $statement.Clauses) {if($clause.Item1.Extent.Text -match '^''(\w+)'' -in \$Suites$'){[pscustomobject]@{Name=$Matches[1];Body=$clause.Item2}}}
     }
 }
-# Each workflow test.ps1 call, by job. A call runs the Python tooling suite unless it passes -SkipTooling, so it is
-# provisioned only then or when its job installs Build/requirements-validation.txt. Comment lines are not calls.
-function Get-WorkflowTestCalls([string]$Directory) {
-    foreach($file in @(Get-ChildItem -LiteralPath $Directory -File | Where-Object {$_.Extension -in '.yml','.yaml'})) {
-        $jobs=[ordered]@{};$job=$null;$indent=-1;$inJobs=$false
-        foreach($line in @([IO.File]::ReadAllLines($file.FullName) | Where-Object {$_ -notmatch '^\s*#'})) {
-            if($line -match '^\S') {$inJobs=$line -match '^jobs:\s*$';$job=$null;continue}
-            if(-not $inJobs) {continue}
-            if($line -match '^(\s+)([\w-]+):\s*$' -and ($indent -lt 0 -or $Matches[1].Length -eq $indent)) {$indent=$Matches[1].Length;$job=$Matches[2];$jobs[$job]=@();continue}
-            if($job) {$jobs[$job]+=$line}
-        }
-        foreach($name in $jobs.Keys) {
-            $installs=@($jobs[$name] -match 'pip\s+install\s.*-r\s+[''"]?Build[\\/]requirements-validation\.txt').Count -gt 0
-            foreach($call in @($jobs[$name] -match '(?<![\w./\\-])(?:\.[\\/])?test\.ps1(?![\w.])')) {
-                [pscustomobject]@{Workflow=$file.Name;Job=$name;Call=$call.Trim();Provisioned=$installs -or $call -match '(?<!\S)-SkipTooling(?!\S)'}
-            }
-        }
-    }
-}
 $fixture=Join-Path $repository ('.build/ToolTests/ScopedTesting-'+[guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $fixture -Force)
 try {
@@ -103,6 +84,15 @@ try {
         Assert-Scope ($message -like "HEAD shares no history with '$unrelated'*git fetch --unshallow*./test.ps1 -Full*git merge-base $unrelated HEAD exited with code 1: (no message)") "A base without shared history was not explained: $message"
     }
     Run-Case 'unmapped executable input widens to every scope' {$plan=Get-ScopedTestPlan $manifest @('Unknown/new.cpp');Assert-Scope $plan.full 'Fallback was narrowed'}
+    Run-Case 'isolated skill package checks select only tooling without narrowing shared build policy' {
+        foreach($path in @('Build/SkillPackageIntegrity.psm1','Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1','Tests/BuildProcessTests/SkillValidation.Tests.ps1')) {
+            $plan=Get-ScopedTestPlan $manifest @($path)
+            Assert-Scope (($plan.scopes -join ',') -ceq 'BuildProcess') "Independent package input widened coverage: $path"
+        }
+        foreach($path in @('Build/ScopedTesting.psm1','Build/UnknownNewBuildPolicy.psm1')) {
+            Assert-Scope ((Get-ScopedTestPlan $manifest @($path)).full) "Shared/unknown Build policy lost conservative coverage: $path"
+        }
+    }
     Run-Case 'executable schema changes are never mistaken for prose' {$plan=Get-ScopedTestPlan $manifest @('Specs/Unmapped.schema.json');Assert-Scope $plan.full 'Schema was ignored'}
     Run-Case 'prose selects only independent validators, and empty changes select nothing' {
         foreach($path in @('Specs/Testing/explanation.md','Plugins/Weather/README.md','.agents/skills/example/SKILL.md')) {
@@ -143,7 +133,7 @@ try {
         foreach($consumer in @('Settings','PluginContract','HostPlugin','HostSmoke','Packaging')) {Assert-Scope ($consumer -in $project.scopes) "A test project edit omitted $consumer"}
         Assert-Scope (-not $project.full) 'A test project edit fell back to every scope'
         Assert-Scope (((Get-ScopedTestPlan $manifest @('Tests/SettingsTests/SettingsTests.vcxproj.filters')).scopes -join ',') -eq 'Settings') 'An IDE-only filters edit left its own suite'
-        foreach($path in @('.agents/skills/yyjson/agents/openai.yaml','validate-skills.ps1','Build/validate_skills.py','Build/requirements-validation.txt')) {
+        foreach($path in @('.agents/skills/yyjson/agents/openai.yaml','validate-skills.ps1','Build/SkillValidation.psm1')) {
             $plan=Get-ScopedTestPlan $manifest @($path)
             Assert-Scope (($plan.scopes -join ',') -eq 'BuildProcess') "Skill tooling input $path selected $($plan.scopes -join ', ')"
         }
@@ -275,14 +265,14 @@ try {
         $default=Resolve-RedXeBuildNumber -RepoRoot $repository -WarningAction SilentlyContinue
         Assert-Scope ((Get-ScopedBuildNumber $repository 'refs/remotes/origin/no-such-fixture-branch') -eq $default) 'A missing base did not fall back to the default build number'
     }
-    Run-Case 'environment identity covers OS servicing, graphics and imaging runtimes, Git and the tooling interpreter' {
+    Run-Case 'environment identity covers OS servicing, graphics and imaging runtimes, Git and PowerShell tooling' {
         $inputs=@(Get-ScopedEnvironmentInputs)
         foreach($label in @('os-build=','d2d1.dll=','dxgi.dll=','windowscodecs.dll=','git=')) {
             Assert-Scope (@($inputs | Where-Object {"$_".StartsWith($label)}).Count -eq 1) "Environment identity omits $label"
         }
         $tooling=@(Get-ScopedEnvironmentInputs -Tooling)
-        Assert-Scope (@($tooling | Where-Object {"$_".StartsWith('python=')}).Count -eq 1 -and @($inputs | Where-Object {"$_".StartsWith('python=')}).Count -eq 0) 'The Python identity is not limited to tooling evidence'
-        Assert-Scope ((Get-ScopedEnvironmentIdentity -Tooling) -cne (Get-ScopedEnvironmentIdentity)) 'Tooling evidence ignores its interpreter'
+        Assert-Scope (@($tooling | Where-Object {"$_".StartsWith('tooling-runtime=')}).Count -eq 1 -and @($inputs | Where-Object {"$_".StartsWith('tooling-runtime=')}).Count -eq 0) 'The PowerShell tooling identity is not limited to tooling evidence'
+        Assert-Scope ((Get-ScopedEnvironmentIdentity -Tooling) -cne (Get-ScopedEnvironmentIdentity)) 'Tooling evidence omits its runtime contract'
     }
     Run-Case 'runtime platform rule matches test.ps1 on x64 and ARM64 hosts' {
         foreach($pair in @(@('x64','X64'),@('x64','Arm64'),@('ARM64','Arm64'))) {Assert-ScopedRuntimePlatform $pair[0] $pair[1]}
@@ -418,27 +408,10 @@ try {
         # A check's name is its job's: `native (x64, Release)` is the native job's matrix leg.
         foreach($job in $manifest.prCoverage){Assert-Scope ($workflow -match ('(?m)^  '+[regex]::Escape(($job.check -split ' ')[0])+':')) "PR check $($job.check) is not a job of ci.yml"}
         Assert-Scope ($workflow.Contains('./Tests/BuildProcessTests/Invoke-ToolingTests.ps1')) 'Independent tooling job missing'
-        # The release workflow runs test.ps1 too: no workflow may run the tooling suite without its Python packages.
-        $calls=@(Get-WorkflowTestCalls (Join-Path $repository '.github/workflows'))
-        foreach($name in @('ci.yml','release.yml')) {Assert-Scope (@($calls | Where-Object Workflow -eq $name).Count -gt 0) "No test.ps1 call found in $name"}
-        foreach($call in $calls) {Assert-Scope $call.Provisioned "$($call.Workflow) job $($call.Job) runs the tooling suite without Build/requirements-validation.txt: $($call.Call)"}
-        Write-Fixture (Join-Path $fixture 'workflows/fixture.yml') @'
-jobs:
-  bare:
-    steps:
-      # ./test.ps1 in a comment is not a call
-      - run: ./test.ps1 -Configuration Release -Platform 'x64' -BuildNumber 7
-  installs:
-    steps:
-      - run: |
-          python -m pip install -r Build/requirements-validation.txt
-          ./test.ps1 -Full
-  skips:
-    steps:
-      - run: ./test.ps1 -Full -SkipTooling -Configuration Release
-'@
-        $calls=@(Get-WorkflowTestCalls (Join-Path $fixture 'workflows'))
-        Assert-Scope ($calls.Count -eq 3 -and (@($calls | Where-Object {-not $_.Provisioned} | ForEach-Object Job) -join ',') -eq 'bare') 'Workflow tooling provisioning was misread'
+        foreach($file in Get-ChildItem (Join-Path $repository '.github/workflows') -Filter '*.yml') {
+            $text=[IO.File]::ReadAllText($file.FullName)
+            Assert-Scope ($text -notmatch 'setup-python|pip\s+install') "Routine CI unexpectedly provisions Python: $($file.Name)"
+        }
     }
     Run-Case 'every input of a project a suite runs selects that suite, and every rule matches a tracked path' {
         # A matched rule replaces the full fallback, so it must name every suite that builds its paths. Each suite's

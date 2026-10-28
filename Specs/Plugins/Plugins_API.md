@@ -1,7 +1,7 @@
 # RedXe plugin API contract
 
 Status: current normative contract
-Last reviewed: 2026-10-13
+Last reviewed: 2026-10-28
 
 ## Purpose and scope
 
@@ -920,8 +920,10 @@ module file name. `PluginHost` is the only module loader and maps that path once
 both use it, so a DLL cannot be mapped or validated by competing paths. The
 widget projection binds only settings-visible widget plugin IDs to their internal type IDs and drives schema/template
 coverage. This is a bundled allowlist, not automatic filesystem discovery: adding any bundled plugin requires one
-module entry; adding a widget also requires its widget entry, schema/parser support, settings contract, and a real
-placed example in both shipped templates. Template tests iterate the widget projection.
+module entry; adding a widget also requires its widget entry, schema/parser support, settings contract, and the
+category-appropriate examples in [the settings template contract](../Core/Core_Settings.md#selection-storage-and-deployed-defaults).
+Ordinary widgets appear in both templates, opt-in widgets in neither, and Debug-only widgets only in Debug. Services
+have entries in both templates without requiring a placed widget. Template tests iterate the catalogs and their categories.
 
 `Plugins/MatrixRain` is the production-oriented bundled GPU plugin. It exposes settings-visible plugin ID
 `builtin.matrix-rain`, internally maps it to type ID `matrix-rain`, publishes its complete closed settings schema and
