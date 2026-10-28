@@ -1,6 +1,6 @@
 #pragma once
-#include "../../Common/PlugInterfaces/Factory.h"
 #include "AVControlProtocol.h"
+#include "Common/PlugInterfaces/Factory.h"
 #if defined(REDXE_PLUGIN_EXPORTS)
 #define REDXE_AV_TEST_API __declspec(dllexport)
 #else

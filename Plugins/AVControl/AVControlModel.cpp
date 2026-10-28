@@ -29,19 +29,19 @@ bool ValidUtf8(std::string_view value, size_t maximumScalars, bool rejectControl
         if (first >= 0xC2 && first <= 0xDF)
         {
             trailing = 1;
-            scalar = first & 0x1F;
+            scalar = first & 0x1Fu;
             minimum = 0x80;
         }
         else if (first >= 0xE0 && first <= 0xEF)
         {
             trailing = 2;
-            scalar = first & 0x0F;
+            scalar = first & 0x0Fu;
             minimum = 0x800;
         }
         else if (first >= 0xF0 && first <= 0xF4)
         {
             trailing = 3;
-            scalar = first & 0x07;
+            scalar = first & 0x07u;
             minimum = 0x10000;
         }
         else if (first >= 0x80)

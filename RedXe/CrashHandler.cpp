@@ -38,6 +38,10 @@ wchar_t g_markerPath[kPathCapacity]{};
 wchar_t g_dumpPath[kPathCapacity]{};
 volatile LONG g_stackConsumptionDepth = 0;
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct DbgHelpFunctions final
 {
     wil::unique_hmodule module;
@@ -52,9 +56,13 @@ struct DbgHelpFunctions final
     decltype(&SymGetModuleInfoW64) symGetModuleInfoW64 = nullptr;
     decltype(&SymGetLineFromAddrW64) symGetLineFromAddrW64 = nullptr;
 };
+#pragma warning(pop)
 
 template <typename Function> [[nodiscard]] Function ResolveDbgHelpFunction(HMODULE module, const char* name) noexcept
 {
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     return reinterpret_cast<Function>(GetProcAddress(module, name));
 }
 

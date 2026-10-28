@@ -23,6 +23,10 @@
 
 namespace
 {
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct CacheEntry final
 {
     std::array<char, kWeatherMaximumUrlBytes + 1> url{};
@@ -33,6 +37,7 @@ struct CacheEntry final
     uint64_t expiresTick = 0;
     bool used = false;
 };
+#pragma warning(pop)
 
 std::once_flag g_curlOnce;
 SRWLOCK g_cacheLock = SRWLOCK_INIT;
@@ -388,8 +393,9 @@ HRESULT WeatherBuildLocationSearchUrl(std::string_view location, char* url, uint
                value == '-' || value == '.' || value == '_' || value == '~';
     };
     size_t bytes = prefix.size() + suffix.size();
-    for (unsigned char value : location)
+    for (const char rawByte : location)
     {
+        const auto value = static_cast<unsigned char>(rawByte);
         bytes += unreserved(value) ? 1U : 3U;
     }
     if (bytes >= capacity)
@@ -399,8 +405,9 @@ HRESULT WeatherBuildLocationSearchUrl(std::string_view location, char* url, uint
     size_t used = prefix.size();
     std::memcpy(url, prefix.data(), used);
     constexpr char hex[] = "0123456789ABCDEF";
-    for (unsigned char value : location)
+    for (const char rawByte : location)
     {
+        const auto value = static_cast<unsigned char>(rawByte);
         if (unreserved(value))
         {
             url[used++] = static_cast<char>(value);

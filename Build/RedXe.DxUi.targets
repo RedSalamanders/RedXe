@@ -2,7 +2,7 @@
   <Import Project="$(DxUiRoot)\Build\DxUi.Consumer.targets" />
   <ItemGroup Condition="'$(DxUiRoot)'!=''">
     <ProjectReference Update="$(DxUiResolvedRoot)src\DxUi.vcxproj">
-      <AdditionalProperties>%(ProjectReference.AdditionalProperties);WholeProgramOptimization=$(WholeProgramOptimization);VCToolsVersion=$(VCToolsVersion)</AdditionalProperties>
+      <AdditionalProperties>%(ProjectReference.AdditionalProperties);WholeProgramOptimization=$(WholeProgramOptimization);VCToolsVersion=$(VCToolsVersion);ForceImportAfterCppTargets=$(MSBuildThisFileDirectory)PinnedDxUiPolicy.targets</AdditionalProperties>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup Condition="'$(DxUiRoot)'!='' and '$(Platform)'=='ARM64'">

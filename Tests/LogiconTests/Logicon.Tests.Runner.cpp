@@ -3,9 +3,9 @@
 // keypad, the HID port's request path and I/O budget over named pipes, the raw-input wait, stop drain, and
 // registration ownership, and the shipped DLL's factory, contract, service lifetime, device lane, and test exports.
 
-#include "../../Common/FailureReports.h"
-#include "../../Common/ProcessResources.h"
 #include "Actions/ActionTargets.h"
+#include "Common/FailureReports.h"
+#include "Common/ProcessResources.h"
 #include "Logicon.Tests.Contract.h"
 #include "LogiconDevice.h"
 #include "LogiconFaces.h"
@@ -56,6 +56,9 @@ constexpr HRESULT kTestFailure = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
 template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, const char* name) noexcept
 {
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     return reinterpret_cast<Function>(GetProcAddress(module, name));
 }
 
@@ -846,6 +849,9 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
     {
         ++g_listenerMessages;
     }
+    // Borrowed Win32 subclass procedure obeys the no-exception window-procedure ABI.
+    // Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 5039)
     return CallWindowProcW(g_listenerProcedure, window, message, wParam, lParam);
 }
 
@@ -1210,6 +1216,10 @@ constexpr USHORT kMouseUsage = 0x02;
 // A stand-in for builtin.system-data: the three data sets Logicon reads with the columns it looks up, one
 // subscription slot per data set, and a Push that delivers a snapshot to the sink the way the acquisition worker
 // would.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class FakeSystemData final : public IRedXeDataProvider
 {
   public:
@@ -1370,7 +1380,12 @@ class FakeSystemData final : public IRedXeDataProvider
     std::atomic<uint32_t> subscribed{0};
     uint64_t sequence = 0;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class TestHost final : public IRedXeHost
 {
   public:
@@ -1516,6 +1531,7 @@ class TestHost final : public IRedXeHost
     char lastInvalidBinding[kRedXeMaximumLogMessageBytes]{};
     FakeSystemData systemData;
 };
+#pragma warning(pop)
 
 template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, DWORD milliseconds) noexcept
 {

@@ -487,7 +487,7 @@ try {
     Assert-That ((Get-RedXeDxUiCloneSource -RepoRoot $productRoot -Commit ('b' * 40)) -eq '') 'a sibling without the commit is not used'
     $pinRestore = Restore-RedXeDxUiPin -RepoRoot $productRoot
     Assert-That ($pinRestore.Source -ieq (Get-RedXeDxUiSourcePath -RepoRoot $productRoot -Commit $siblingCommit)) 'the pin restores under .build/dependencies/DxUi/source/<commit>'
-    Assert-That ([IO.File]::Exists((Join-Path (Get-RedXeDxUiDependencyRoot -RepoRoot $productRoot) "leases/source.$siblingCommit"))) `
+    Assert-That ([IO.File]::Exists((Join-Path (Get-RedXeDxUiDependencyRoot -RepoRoot $productRoot) "leases/source.$($siblingCommit.Substring(0,16))"))) `
         'the pin restore renews the lease of the source it returns'
     Assert-That ([IO.File]::Exists((Join-Path $pinRestore.Source 'capabilities.json')) -and -not [IO.Directory]::Exists((Join-Path $pinRestore.Source 'Specs'))) `
         'the pin restore is the sparse checkout'

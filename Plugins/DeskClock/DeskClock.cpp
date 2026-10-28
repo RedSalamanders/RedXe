@@ -94,7 +94,6 @@ inline constexpr uint32_t kDateDigitOffset = kTimeGlyphCount;
 inline constexpr uint32_t kDateGlyphCount = 62;
 inline constexpr uint32_t kGlyphCount = kDateDigitOffset + kDateGlyphCount;
 inline constexpr uint32_t kGlyphAtlasSize = 1024;
-inline constexpr uint32_t kGlyphAtlasMip0Bytes = kGlyphAtlasSize * kGlyphAtlasSize;
 
 // The atlas is rasterized once at a fixed em size and then scaled to whatever the tile is, so the glyphs are almost
 // always minified: a time cell is 192x288 while the on-screen glyph is 152x254 at the design size and smaller on
@@ -434,6 +433,10 @@ struct alignas(16) DeskClockConstants final
 static_assert(sizeof(DeskClockConstants) == 400);
 static_assert(sizeof(DeskClockConstants) <= 512);
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct GlyphAtlasBuildResult final
 {
     std::unique_ptr<std::uint8_t[]> pixels;
@@ -441,6 +444,7 @@ struct GlyphAtlasBuildResult final
     float dateSpaceAdvance = 0.0f;
     uint32_t scale = 1;
 };
+#pragma warning(pop)
 
 [[nodiscard]] HRESULT CreateClockFontFace(IDWriteFactory& factory, wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
 {
@@ -624,6 +628,9 @@ struct GlyphAtlasBuildResult final
     }
     using DWriteCreateFactoryFn = HRESULT(WINAPI*)(DWRITE_FACTORY_TYPE, REFIID, IUnknown**);
     const auto createFactory =
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
         reinterpret_cast<DWriteCreateFactoryFn>(GetProcAddress(directWrite.get(), "DWriteCreateFactory"));
     if (!createFactory)
     {
@@ -1171,6 +1178,10 @@ void ReadLocalClock(SYSTEMTIME& time) noexcept
     return clamped * clamped * clamped * (clamped * (clamped * 6.0f - 15.0f) + 10.0f);
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class DeskClockWidget final
     : public RedXeComObject<DeskClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
 {
@@ -1593,7 +1604,12 @@ class DeskClockWidget final
     float _originY = 0.0f;
     float _dateY = 0.0f;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class DeskClockProvider final : public RedXeComObject<DeskClockProvider, IRedXeWidgetProvider>
 {
   public:
@@ -1662,6 +1678,7 @@ class DeskClockProvider final : public RedXeComObject<DeskClockProvider, IRedXeW
     DeskClockConfiguration _configuration;
     DeskClockDeviceResources _resources;
 };
+#pragma warning(pop)
 
 // The whole glyph chain stays under 1.5 MiB of R8 coverage. Mip 0 is 1 MiB; the two filtered levels add 320 KiB.
 static_assert(kGlyphAtlasBytes == 1024U * 1024U + 512U * 512U + 256U * 256U);

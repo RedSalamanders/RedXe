@@ -21,6 +21,10 @@ struct ChannelState final
 // consumer creates Global objects in Session 0; the helper only opens them (no SeCreateGlobalPrivilege needed).
 // Local names are an explicit isolated-test option. Access is limited to the owner SID, Local Service and SYSTEM.
 // Every method is caller-serialized. Read/EndRead form one same-thread lease through sample publication.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class FrameChannel final
 {
   public:
@@ -49,4 +53,6 @@ class FrameChannel final
     HRESULT Lock(wil::mutex_release_scope_exit& lease) noexcept;
     bool Valid() const noexcept;
 };
+#pragma warning(pop)
+
 } // namespace AVControl::Camera

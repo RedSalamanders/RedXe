@@ -1,7 +1,7 @@
-#include "../../Common/FailureReports.h"
-#include "../../Plugins/Weather/Weather.Tests.Contract.h"
-#include "../../Plugins/Weather/WeatherHttp.h"
+#include "Common/FailureReports.h"
 #include "PlugInterfaces/Factory.h"
+#include "Plugins/Weather/Weather.Tests.Contract.h"
+#include "Plugins/Weather/WeatherHttp.h"
 #include "Weather.Tests.HttpCache.h"
 
 #include <array>
@@ -29,6 +29,9 @@ static_assert(sizeof(WeatherHttpResponse) < kWeatherMaximumBodyBytes);
 
 template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, const char* name) noexcept
 {
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     return reinterpret_cast<Function>(GetProcAddress(module, name));
 }
 

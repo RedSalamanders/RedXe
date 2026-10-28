@@ -109,6 +109,9 @@ void LayoutNoticeControls(HWND notice) noexcept
 {
     using Function = BOOL(WINAPI*)(HWND, UINT32);
     static const Function function =
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
         reinterpret_cast<Function>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetPointerCapture"));
     if (function)
     {
@@ -128,6 +131,9 @@ void HostReleasePointerCapture(HWND window, UINT32 pointerId) noexcept
 {
     using Function = BOOL(WINAPI*)(HWND, UINT32);
     static const Function function =
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
         reinterpret_cast<Function>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "ReleasePointerCapture"));
     if (function)
     {
@@ -315,7 +321,7 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
         LONG status = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount);
         if (status != ERROR_SUCCESS)
         {
-            return HRESULT_FROM_WIN32(status);
+            return HRESULT_FROM_WIN32(static_cast<DWORD>(status));
         }
 
         std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
@@ -323,7 +329,7 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
         status = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount, modes.data(), nullptr);
         if (status != ERROR_SUCCESS)
         {
-            return HRESULT_FROM_WIN32(status);
+            return HRESULT_FROM_WIN32(static_cast<DWORD>(status));
         }
 
         for (UINT32 index = 0; index < pathCount; ++index)
@@ -547,7 +553,9 @@ struct FirstRunTopology final
     return plugin && plugin->enabled;
 }
 
-[[nodiscard]] HRESULT DisablePluginAndRemoveWidgets(AppSettings& settings, std::string_view pluginId) noexcept
+// Kept for the ENABLE_TESTS plugin-admission regression; Release omits that caller.
+[[maybe_unused, nodiscard]] HRESULT DisablePluginAndRemoveWidgets(AppSettings& settings,
+                                                                  std::string_view pluginId) noexcept
 {
     PluginSettings* plugin = FindPluginSettings(settings, pluginId);
     if (!plugin)
@@ -2592,6 +2600,7 @@ void Application::BeginDockResize(HWND window) noexcept
         case DockEdge::Right:
             _dockResizeGrabPx = cursor.x - _dockFullRect.left;
             break;
+        case ::DockEdge::None:
         default:
             break;
         }
@@ -2622,6 +2631,7 @@ void Application::UpdateDockResize() noexcept
     case DockEdge::Right:
         cursor.x -= _dockResizeGrabPx;
         break;
+    case ::DockEdge::None:
     default:
         break;
     }

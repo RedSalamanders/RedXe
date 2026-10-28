@@ -115,6 +115,7 @@ BOOL CALLBACK EnumerateWindows(HWND window, LPARAM parameter) noexcept
         matched = length > 0 && ContainsIgnoreCase(title.data(), needle.data());
         break;
     }
+    case ::RedXeActions::WindowSelector::Kind::Foreground:
     default:
         break;
     }

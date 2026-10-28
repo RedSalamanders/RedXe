@@ -1185,8 +1185,9 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
             auto* host = constructionPending ? &PluginHost::Instance() : nullptr;
             const bool previousConstructionAccess = host && host->ConstructionAccessEnabled();
             if (host)
-                host->SetConstructionAccessEnabled(dashboard == _transitionDashboardHost &&
-                                                   (tile.TopLeftX >= _width || tile.TopLeftX + tile.Width <= 0));
+                host->SetConstructionAccessEnabled(
+                    dashboard == _transitionDashboardHost &&
+                    (tile.TopLeftX >= static_cast<float>(_width) || tile.TopLeftX + tile.Width <= 0));
             const auto restoreConstructionAccess = wil::scope_exit(
                 [&]() noexcept
                 {

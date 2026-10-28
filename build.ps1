@@ -51,6 +51,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$nativeEntryElapsed = [Diagnostics.Stopwatch]::StartNew()
+Import-Module (Join-Path $PSScriptRoot 'Build/BuildConsole.psm1') -ErrorAction Stop
 
 if ($Clean -and $Rebuild) {
     throw 'Choose either -Clean or -Rebuild, not both.'
@@ -151,6 +153,7 @@ if ($exitCode -ne 0) {
     throw "MSBuild failed with exit code $exitCode."
 }
 
+Assert-NativeBuildDiagnostics -LogPath $logPath
 if (-not $Clean) {
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
         throw "Build succeeded but the expected executable was not found: $executable"
@@ -158,9 +161,7 @@ if (-not $Clean) {
     Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1') -Force
     $provenance=Write-RedXeDxUiProvenance -RepoRoot $repoRoot -Platform $Platform -Configuration $Configuration
     Write-Host "DxUi module provenance: $provenance" -ForegroundColor DarkGray
-    Write-Host "BUILD SIGNAL LOCKED in $duration" -ForegroundColor Green
-    Write-Host "Ready: $executable" -ForegroundColor Green
-
+    Write-NativeBuildResult -Project RedXe -Platform $Platform -Configuration $Configuration -LogPath $logPath -Artifacts @($executable) -Executable $executable -Duration $nativeEntryElapsed.Elapsed
     if ($Run) {
         if ($Platform -ne 'x64' -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') {
             throw 'This host cannot directly run the ARM64 build. Build it without -Run or run it on ARM64 Windows.'

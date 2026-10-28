@@ -1,8 +1,8 @@
 #include "SystemDataPhase0.Tests.Runner.h"
-#include "../../Common/FailureReports.h"
-#include "../../Plugins/SystemData/NtLayout.h"
+#include "Common/FailureReports.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
+#include "Plugins/SystemData/NtLayout.h"
 
 #include <algorithm>
 #include <array>

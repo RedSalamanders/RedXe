@@ -137,6 +137,7 @@ enum class ViewerKind : uint32_t
     case ViewerKind::GpuMeter:
     case ViewerKind::PowerMeter:
         return RedXeRaisedExtentThird;
+    case ::ViewerKind::Count:
     default:
         return RedXeRaisedExtentQuarter;
     }
@@ -654,7 +655,7 @@ void IntentThermalTextColor(float celsius, bool available, float& red, float& gr
 {
     if (available == 0 || innerHeight < rowMin)
     {
-        return available == 0 ? 0 : (innerHeight >= rowMin * 0.6f ? 1 : 0);
+        return available == 0 ? 0u : (innerHeight >= rowMin * 0.6f ? 1u : 0u);
     }
     const uint32_t maxFit = std::max(1u, static_cast<uint32_t>(innerHeight / rowMin));
     return std::min(available, maxFit);
@@ -1102,6 +1103,10 @@ void DrawHistoryArea(ViewerDrawList& list, float x, float y, float width, float 
 
 class ViewerWidget;
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class ViewerSink final : public RedXeComObject<ViewerSink, IRedXeDataSink>
 {
   public:
@@ -1122,7 +1127,12 @@ class ViewerSink final : public RedXeComObject<ViewerSink, IRedXeDataSink>
     ViewerWidget* _widget;
     uint32_t _dataSetIndex;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget,
                                                  IRedXeRaisedWidget, IRedXeInteractiveWidget, IRedXePreparedGpuWidget>
 {
@@ -1697,6 +1707,11 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         case ViewerKind::ThermalMeter:
             value(7);
             break;
+        case ::ViewerKind::Count:
+        case ::ViewerKind::GpuMeter:
+        case ::ViewerKind::GpuProcesses:
+        case ::ViewerKind::NetworkMeter:
+        case ::ViewerKind::ProcessViewer:
         default:
             break;
         }
@@ -1752,6 +1767,11 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             break;
         case ViewerKind::PowerMeter:
             return _sample.batteryPresent && percent(0);
+        case ::ViewerKind::Count:
+        case ::ViewerKind::GpuMeter:
+        case ::ViewerKind::GpuProcesses:
+        case ::ViewerKind::NetworkMeter:
+        case ::ViewerKind::ProcessViewer:
         default:
             break;
         }
@@ -1819,6 +1839,10 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             return false;
         case ViewerKind::NetworkMeter:
             return sample.available[7] && sample.values[7] >= kHighBand;
+        case ::ViewerKind::Count:
+        case ::ViewerKind::GpuMeter:
+        case ::ViewerKind::PowerMeter:
+        case ::ViewerKind::ThermalMeter:
         default:
             return false;
         }
@@ -1877,6 +1901,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             return dataSetIndex == 0 ? IngestPower(snapshot) : IngestBatteries(snapshot);
         case ViewerKind::ThermalMeter:
             return dataSetIndex == 0 ? IngestThermal(snapshot) : IngestFans(snapshot);
+        case ::ViewerKind::Count:
         default:
             return E_UNEXPECTED;
         }
@@ -2878,6 +2903,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             return DrawPower(resources, list, sample, panel, width, height);
         case ViewerKind::ThermalMeter:
             return DrawThermal(resources, list, sample, panel, width, height);
+        case ::ViewerKind::Count:
         default:
             return S_OK;
         }
@@ -3899,12 +3925,17 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     float _pulseStartSeconds = 0.0f;
     float _pulse = 0.0f;
 };
+#pragma warning(pop)
 
 HRESULT ViewerSink::OnDataSnapshot(const RedXeDataSnapshot* snapshot) noexcept
 {
     return _widget ? _widget->Publish(_dataSetIndex, snapshot) : E_UNEXPECTED;
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetProvider>
 {
   public:
@@ -4003,6 +4034,7 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
     IRedXeHost* _host = nullptr;
     std::array<RedXeWidgetTypeDescriptor, 1> _types{};
 };
+#pragma warning(pop)
 
 HRESULT CreateViewerProviderFor(ViewerKind kind, REFIID interfaceId, const RedXeFactoryOptions* options,
                                 IRedXeHost* host, void** result) noexcept

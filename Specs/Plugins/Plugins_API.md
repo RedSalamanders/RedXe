@@ -1734,7 +1734,7 @@ synchronous save succeeds; queued acceptance alone is not a commit acknowledgeme
     the host merges and the ones the DLL publishes cannot drift apart.
 13. Compile-time checks MUST validate unique bundled plugin IDs and module names, keep every widget projection entry
     backed by one module entry, and keep that projection within the 64-plugin settings limit.
-14. Keep `/W4`, `/permissive-`, SDL checks, and warnings-as-errors green.
+14. Use `/Wall`, `/permissive-` and SDL checks with `/WX` disabled. Require zero emitted warnings before accepting a build.
 15. Verify the system-data factory and `IRedXeDataSource`, controlling-IUnknown identity, static descriptors including
     unique IDs and `source.status`, unknown-dataset and malformed-batch rejection, common batch sequence/timestamp,
     sequence advance only on full-batch success, discarded CPU rate history after a mid-batch failure, summary shape,

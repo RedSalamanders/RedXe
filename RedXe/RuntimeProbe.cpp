@@ -259,7 +259,7 @@ uint32_t FormatRuntimePageCallbackBatch(const RuntimePageCallbackSample* samples
         return true;
     };
     if (!append())
-        return line[0] = '\0', 0;
+        return line[0] = '\0', 0u;
     for (uint32_t index = 0; index < count; ++index)
     {
         const auto& s = samples[index];
@@ -267,11 +267,11 @@ uint32_t FormatRuntimePageCallbackBatch(const RuntimePageCallbackSample* samples
                               s.tick, s.widget, static_cast<uint32_t>(s.kind), s.detail,
                               static_cast<uint32_t>(s.result), s.wallMicroseconds, s.cpuValid, s.cpu100ns);
         if (!append())
-            return line[0] = '\0', 0;
+            return line[0] = '\0', 0u;
     }
     bytes = std::snprintf(line + used, capacity - used, "]}\n");
     if (!append())
-        return line[0] = '\0', 0;
+        return line[0] = '\0', 0u;
     return static_cast<uint32_t>(used);
 }
 

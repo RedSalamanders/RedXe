@@ -147,6 +147,10 @@ struct RedXeNetworkProtocolPrevious final
     bool valid = false;
 };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct RedXeStorageDiskCache final
 {
     wil::unique_hfile handle;
@@ -170,6 +174,7 @@ struct RedXeStorageDiskCache final
     bool skipPerformance = false;
     bool hasPreviousPerformance = false;
 };
+#pragma warning(pop)
 
 struct RedXeNetStorageState final
 {

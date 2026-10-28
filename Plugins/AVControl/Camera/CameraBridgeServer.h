@@ -15,6 +15,10 @@ class BridgeObserver
 };
 // Lives only in the owned helper (or an explicit synthetic fixture). Driver stalls in observer callbacks are
 // contained by the parent's process deadline. Pipe/shared-memory work itself has bounded waits and storage.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class BridgeServer final
 {
   public:
@@ -47,6 +51,10 @@ class BridgeServer final
     HRESULT Publish(uint64_t generation, std::span<const BYTE> frame, LONGLONG timestamp) noexcept;
 
   private:
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
     struct Client final
     {
         FrameChannel channel;
@@ -61,6 +69,8 @@ class BridgeServer final
         void Close() noexcept;
         void ReadDemand() noexcept;
     };
+#pragma warning(pop)
+
     BridgeIdentity _identity;
     BridgeObserver* _observer = nullptr; // Borrowed until Stop joins the helper lane.
     wil::unique_handle _thread, _listener;
@@ -79,4 +89,6 @@ class BridgeServer final
     void Accept() noexcept;
     void Drop(Client& client) noexcept;
 };
+#pragma warning(pop)
+
 } // namespace AVControl::Camera

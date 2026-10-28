@@ -31,6 +31,10 @@ void Require(bool condition, const char* message)
         throw std::runtime_error(message);
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class ObservationSubscription final : public RedXeComObject<ObservationSubscription, IRedXeDataSubscription>
 {
   public:
@@ -43,7 +47,12 @@ class ObservationSubscription final : public RedXeComObject<ObservationSubscript
     wil::com_ptr_nothrow<IRedXeDataSink> sink;
     bool active = false;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class ObservationProvider final : public RedXeComObject<ObservationProvider, IRedXeDataProvider>
 {
   public:
@@ -94,7 +103,12 @@ class ObservationProvider final : public RedXeComObject<ObservationProvider, IRe
     std::array<Slot, 2> slots{};
     size_t slotCount = 0;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class ObservationHost final : public RedXeComObject<ObservationHost, IRedXeHost>
 {
   public:
@@ -146,6 +160,7 @@ class ObservationHost final : public RedXeComObject<ObservationHost, IRedXeHost>
     wil::com_ptr_nothrow<ObservationProvider> data;
     std::atomic<uint32_t> requests{0};
 };
+#pragma warning(pop)
 
 struct Observation final
 {
@@ -227,6 +242,10 @@ struct Surface final
     }
 };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct Viewer final
 {
     ObservationHost host;
@@ -321,6 +340,7 @@ struct Viewer final
     }
     const char* _type = nullptr;
 };
+#pragma warning(pop)
 
 void FillSummary(Observation& observation, double cpu)
 {
@@ -494,7 +514,7 @@ void CheckIdleProcessPulse(RedXeCreateFn create, Surface& surface)
 #if defined(_DEBUG)
 std::atomic<DWORD> renderThread{0};
 std::atomic<uint32_t> allocations{0};
-int __cdecl CountAllocation(int type, void*, size_t, int, long, const unsigned char*, int)
+int __cdecl CountAllocation(int type, void*, size_t, int, long, const unsigned char*, int) noexcept
 {
     if (type != _CRT_BLOCK && renderThread == GetCurrentThreadId())
         ++allocations;
@@ -521,6 +541,9 @@ void CheckAllocationAndDeviceRecovery(RedXeCreateFn create, Surface& surface)
         const auto restore = wil::scope_exit(
             [&]
             {
+        // The CRT return type erases noexcept; restore the exact previous hook unchanged.
+        // Owner: RedXe test maintainers; review: 2027-01-31.
+#pragma warning(suppress : 5039)
                 (void)_CrtSetAllocHook(previous);
                 renderThread = 0;
             });
@@ -922,15 +945,24 @@ void TestProcessViewerScheduling(bool& success) noexcept
         static_assert(sizeof(address) == sizeof(create));
         std::memcpy(&create, &address, sizeof(create));
         Require(create != nullptr, "viewer factory export missing");
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
         const auto diagnostics = reinterpret_cast<ProcessViewerGetTestDiagnosticsFn>(
             GetProcAddress(module.get(), kProcessViewerGetTestDiagnosticsExport));
         Require(diagnostics != nullptr, "viewer atlas diagnostics missing");
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
         const auto failNext = reinterpret_cast<decltype(&RedXeProcessViewerFailNextAtlasInitialization)>(
             GetProcAddress(module.get(), "RedXeProcessViewerFailNextAtlasInitialization"));
         Require(failNext != nullptr, "viewer atlas fault export missing");
         Surface surface;
         if (!g_pixelReference.is_open())
         {
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
             const auto failGlyphs = reinterpret_cast<decltype(&RedXeProcessViewerFailNextGlyphPreparation)>(
                 GetProcAddress(module.get(), "RedXeProcessViewerFailNextGlyphPreparation"));
             Require(failGlyphs != nullptr, "viewer glyph preparation fault export missing");

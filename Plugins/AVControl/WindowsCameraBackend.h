@@ -6,6 +6,10 @@ namespace AVControl
 {
 // Helper-only MTA backend. The camera's persistent virtual-device lifetime and its optional acquisition lane
 // are independent from display observation. Initialize/Observe never capture a physical camera while off.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class WindowsCameraBackend final
 {
   public:
@@ -25,4 +29,6 @@ class WindowsCameraBackend final
     struct State;
     std::unique_ptr<State> _state;
 };
+#pragma warning(pop)
+
 } // namespace AVControl

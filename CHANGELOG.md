@@ -4,6 +4,10 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Lock DxUi API4 at fa3de6c980f4d7d2700e44a82ad9e751cbebcdc3 for the native warning/Release folding policy. Preserve the consumer API boundary and restore matching headers/archive through the normal entrypoint; complete product qualification is tracked by the indexed native policy plan.
+- Keep Debug allocation hooks non-throwing and annotate the CRT-erased previous-hook type only at restoration. Make Logicon monitor layout conversions explicit while preserving COM ownership traits, and retain the Release-only GPU-query helper without a Debug unused-function warning.
+- Make byte decoding, numeric drawing and HRESULT boundaries explicit for the zero-warning /Wall build; retain named-export and subclass ABI annotations at their reviewed call sites and remove unused private helpers. Native and runtime qualification remains tracked in the build-policy plan.
+- Unify native builds on /Wall without /WX and require zero diagnostics before accepting success; align Debug /ZI and ASan /Zi, enable Release-only /OPT:ICF, print green artifact/log links with quoted launch commands, and shorten consumer DxUi source/output folders while preserving complete collision-checked identities. Native qualification remains tracked in the active build-policy plan.
 - Allow 20 minutes for hosted compiler provisioning and the complete independent tooling job after the measured 15-minute timeout; retain all test scopes and individual/native deadlines.
 - Bind hosted build and restore to the verified MSVC 14.52 installation's MSBuild, preserving strict compiler-family checks and local read-only behavior; cover stale ambient discovery and missing-MSBuild refusal.
 - Wait for the hosted Visual Studio GUI installer and use its explicit result before verifying MSVC 14.52; retain installer diagnostics and cover delayed completion, failures and strict tool/refusal checks without a real installation.

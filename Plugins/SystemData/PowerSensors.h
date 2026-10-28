@@ -85,6 +85,10 @@ struct RedXeAcpiThermalRow final
     bool hasCritical = false;
 };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct RedXeBatteryCache final
 {
     wil::unique_hfile handle;
@@ -94,6 +98,7 @@ struct RedXeBatteryCache final
     bool tagValid = false;
     bool used = false;
 };
+#pragma warning(pop)
 
 struct RedXePowerState final
 {

@@ -10,7 +10,7 @@
 // --screenshot, the crash harness, an unknown argument) are awaited so the caller sees their output and exit code.
 #include <windows.h>
 
-#include "../RedXe/CommandLine.h"
+#include "RedXe/CommandLine.h"
 
 #include <shellapi.h>
 

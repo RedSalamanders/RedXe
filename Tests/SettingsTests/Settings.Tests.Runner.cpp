@@ -1,11 +1,11 @@
-#include "../../RedXe/Settings.h"
-#include "../../Common/FailureReports.h"
-#include "../../Plugins/Launcher/LauncherPaging.h"
-#include "../../Plugins/StudioClock/StudioClockSettings.h"
-#include "../../RedXe/BundledPlugins.h"
-#include "../../RedXe/CommandLine.h"
-#include "../../RedXe/DockOptions.h"
-#include "../../RedXe/SettingsWatcher.h"
+#include "RedXe/Settings.h"
+#include "Common/FailureReports.h"
+#include "Plugins/Launcher/LauncherPaging.h"
+#include "Plugins/StudioClock/StudioClockSettings.h"
+#include "RedXe/BundledPlugins.h"
+#include "RedXe/CommandLine.h"
+#include "RedXe/DockOptions.h"
+#include "RedXe/SettingsWatcher.h"
 #include "Settings.Tests.FrameRate.h"
 #include "Settings.Tests.JsonStorage.h"
 #include "Settings.Tests.ReleasedTemplates.h"
@@ -3717,6 +3717,10 @@ BOOL WriteHalf(HANDLE file, const void* bytes, DWORD size, DWORD* written) noexc
 
 // Another program acting on the settings file at one phase of the next guarded replacement (the write seam's
 // checkpoint). `error` is the act's result: ERROR_SUCCESS when it went through.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct EditorAtCommit final
 {
     enum class Act : uint8_t
@@ -3735,6 +3739,7 @@ struct EditorAtCommit final
     uint32_t calls = 0;
     wil::unique_hfile held;
 };
+#pragma warning(pop)
 
 void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
 {

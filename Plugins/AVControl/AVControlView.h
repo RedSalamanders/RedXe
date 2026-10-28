@@ -34,6 +34,10 @@ struct ViewCallbacks final
 };
 
 // Retained public DxUI controls. One instance per tile/raised view; the caller owns the confirmed shared model.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class LiveView final
 {
   public:
@@ -136,4 +140,6 @@ class LiveView final
     }
     [[nodiscard]] const wchar_t* DeviceName(size_t index) const noexcept;
 };
+#pragma warning(pop)
+
 } // namespace AVControl

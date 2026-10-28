@@ -1,5 +1,7 @@
 # Active plan index
 
+- **ACTIVE**: [Native build policy, terminal results and short DxUi paths](NativeBuildPolicyCoherence_2026-10-28.md). Shared /Wall without /WX, zero-warning validation, Debug/ASan symbols, Release-only ICF, terminal results and verified short dependency folders.
+
 Files in this directory are non-normative execution or decision records. Current requirements remain in the owning
 domain spec under `Specs/<Domain>/`.
 

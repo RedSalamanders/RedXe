@@ -14,6 +14,10 @@ void Check(bool condition, const char* description)
 }
 // Deterministic host scheduler: each real IPC operation runs on an MTA worker, then completes on the caller/UI.
 // Deferred start lets tests place simultaneous UI intents without races or sleeps.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Host final : public RedXeComObject<Host, IRedXeHost>
 {
   public:
@@ -100,6 +104,8 @@ class Host final : public RedXeComObject<Host, IRedXeHost>
         Check(!pending, "coordinator drains bounded pending lanes without an observation loop");
     }
 };
+#pragma warning(pop)
+
 AVControl::ViewCommand Mute(const AVControl::Endpoint& endpoint, AVControl::DeviceKind kind, bool muted)
 {
     return {AVControl::ViewCommandKind::SetMuted,

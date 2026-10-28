@@ -1,5 +1,5 @@
 #include "CameraMediaSource.h"
-#include "../../../Common/PlugInterfaces/FactoryImpl.h"
+#include "Common/PlugInterfaces/FactoryImpl.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -29,9 +29,14 @@ struct Counted
         --objectCount;
     }
 };
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Session final : public RedXeComObject<Session, IUnknown>, private Counted
 {
 };
+#pragma warning(pop)
 
 HRESULT CreateType(IMFMediaType** result) noexcept
 {
@@ -72,6 +77,10 @@ HRESULT Neutral(BYTE* bytes, DWORD capacity, LONG pitch) noexcept
     return S_OK;
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCallback>, private Counted
 {
   public:
@@ -372,7 +381,12 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
         return S_OK;
     }
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class Source final
     : public RedXeComObject<Source, IMFMediaSourceEx, IMFGetService, IKsControl, IMFSampleAllocatorControl>,
       private Counted
@@ -600,6 +614,8 @@ class Source final
     wil::com_ptr_nothrow<Stream> _stream;
     bool _shutdown = false, _started = false, _everStarted = false;
 };
+#pragma warning(pop)
+
 } // namespace
 HRESULT CreateMediaSource(std::shared_ptr<FrameProvider> provider, IMFMediaSource** result) noexcept
 {

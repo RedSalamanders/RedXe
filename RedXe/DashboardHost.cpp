@@ -72,10 +72,16 @@ LRESULT CALLBACK PointerForwardProcedure(HWND window, UINT message, WPARAM wPara
     }
     if (message == WM_NCDESTROY)
     {
+        // Borrowed Win32 subclass procedure obeys the no-exception window-procedure ABI.
+        // Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 5039)
         const LRESULT result = CallWindowProcW(previous, window, message, wParam, lParam);
         RemovePropW(window, kPointerForwardPrevProc);
         return result;
     }
+    // Borrowed Win32 subclass procedure obeys the no-exception window-procedure ABI.
+    // Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 5039)
     return CallWindowProcW(previous, window, message, wParam, lParam);
 }
 
@@ -574,7 +580,7 @@ HRESULT DashboardHost::SetNativeDimAlpha(BYTE dimAlpha, size_t raisedIndex) noex
         {
             continue;
         }
-        const BYTE alpha = index == raisedIndex ? 255 : dimmed;
+        const BYTE alpha = index == raisedIndex ? BYTE{255} : dimmed;
         if (!SetLayeredWindowAttributes(_windowContainers[index].get(), 0, alpha, LWA_ALPHA))
         {
             return HRESULT_FROM_WIN32(GetLastError());

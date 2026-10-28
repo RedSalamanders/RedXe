@@ -1,5 +1,5 @@
 #include "Settings.Tests.JsonStorage.h"
-#include "../../RedXe/Settings.h"
+#include "RedXe/Settings.h"
 
 #include <array>
 #include <atomic>

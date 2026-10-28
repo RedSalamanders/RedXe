@@ -1,6 +1,6 @@
 #pragma once
-#include "../AVControlModel.h"
 #include "CameraBridgeServer.h"
+#include "Plugins/AVControl/AVControlModel.h"
 
 namespace AVControl::Camera
 {
@@ -17,6 +17,10 @@ class __declspec(novtable) CaptureSession
 // Device-independent control/lifetime policy, shared by the real helper and explicitly injected synthetic
 // tests. Public changes are serialized by the broker MTA; capture work runs exclusively on the bridge MTA.
 // Display visibility does not appear here: an enabled route belongs to camera consumers, not the AV tile.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class CameraController final : private BridgeObserver
 {
   public:
@@ -65,4 +69,6 @@ class CameraController final : private BridgeObserver
     void EndDriverCall() noexcept;
     void CloseCapture() noexcept;
 };
+#pragma warning(pop)
+
 } // namespace AVControl::Camera

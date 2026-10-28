@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Common/Actions/ActionTargets.h"
+#include "Common/Actions/ActionTargets.h"
 
 #include <algorithm>
 #include <array>
@@ -78,6 +78,7 @@ inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
         return "left";
     case DockEdge::Right:
         return "right";
+    case ::DockEdge::None:
     default:
         return "none";
     }
@@ -113,6 +114,7 @@ inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
         return 0; // ABE_LEFT
     case DockEdge::Right:
         return 2; // ABE_RIGHT
+    case ::DockEdge::None:
     default:
         return 3;
     }
@@ -187,6 +189,9 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
         return overlaps && other.bottom == monitor.top;
     case DockEdge::Bottom:
         return overlaps && other.top == monitor.bottom;
+    case ::DockEdge::Left:
+    case ::DockEdge::None:
+    case ::DockEdge::Right:
     default:
         return false;
     }
@@ -238,6 +243,7 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     case DockEdge::Right:
         rect.left = rect.right - thicknessPx;
         break;
+    case ::DockEdge::None:
     default:
         break;
     }
@@ -277,6 +283,7 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     case DockEdge::Right:
         rect.left = rect.right - peekPx;
         break;
+    case ::DockEdge::None:
     default:
         break;
     }
@@ -317,6 +324,7 @@ enum class DockReservation : uint8_t
         return thicknessPx;
     case DockReservation::Strip:
         return peekPx;
+    case ::DockReservation::None:
     default:
         return 0;
     }
@@ -477,6 +485,9 @@ constexpr void DockAppBarCommitted(DockAppBarState& state, DockReservation reser
         return POINT{0, -hidden};
     case DockEdge::Left:
         return POINT{-hidden, 0};
+    case ::DockEdge::Bottom:
+    case ::DockEdge::None:
+    case ::DockEdge::Right:
     default:
         return POINT{0, 0};
     }
@@ -499,6 +510,7 @@ constexpr void DockAppBarCommitted(DockAppBarState& state, DockReservation reser
         return POINT{hidden, 0};
     case DockEdge::Right:
         return POINT{-hidden, 0};
+    case ::DockEdge::None:
     default:
         return POINT{0, 0};
     }
@@ -576,6 +588,7 @@ enum class DockInputRoute : uint8_t
     case DockEdge::Right:
         rect.right = grip.left + std::min(accentPx, width);
         break;
+    case ::DockEdge::None:
     default:
         return RECT{};
     }
@@ -606,6 +619,7 @@ inline constexpr int kDockResizeBandDips = 6;
         return RECT{clientWidth - band, 0, clientWidth, clientHeight};
     case DockEdge::Right:
         return RECT{0, 0, band, clientHeight};
+    case ::DockEdge::None:
     default:
         return RECT{};
     }
@@ -632,6 +646,7 @@ inline constexpr int kDockResizeBandDips = 6;
     case DockEdge::Right:
         pixels = full.right - screenPoint.x;
         break;
+    case ::DockEdge::None:
     default:
         return kDockDefaultThicknessDips;
     }
@@ -819,6 +834,7 @@ struct DockMonitorCandidate final
             }
         }
         break;
+    case ::RedXeActions::MonitorSelector::Kind::All:
     default:
         break;
     }

@@ -44,8 +44,9 @@ void WriteDiagnostic(char* diagnostic, size_t capacity, const char* text) noexce
 [[nodiscard]] size_t Utf8CodePoints(std::string_view text) noexcept
 {
     size_t count = 0;
-    for (const unsigned char value : text)
+    for (const char rawByte : text)
     {
+        const auto value = static_cast<unsigned char>(rawByte);
         if ((value & 0xC0U) != 0x80U)
         {
             ++count;

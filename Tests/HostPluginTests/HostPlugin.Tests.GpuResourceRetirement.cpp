@@ -51,6 +51,10 @@ struct PluginManagerGpuResourceTestAccess final
 
 namespace
 {
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class VisibilityFaultWidget final : public RedXeComObject<VisibilityFaultWidget, IRedXeWidget>
 {
   public:
@@ -71,8 +75,14 @@ class VisibilityFaultWidget final : public RedXeComObject<VisibilityFaultWidget,
   private:
     wil::com_ptr_nothrow<IRedXeWidget> _inner;
 };
+#pragma warning(pop)
+
 // Both wrappers use one staging texture and copy the completed frame before Present, while a flip-discard back
 // buffer's contents are still defined. The copy changes no pipeline state.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class CaptureGpuWidget final : public RedXeComObject<CaptureGpuWidget, IRedXeGpuWidget>
 {
   public:
@@ -106,11 +116,16 @@ class CaptureGpuWidget final : public RedXeComObject<CaptureGpuWidget, IRedXeGpu
     wil::com_ptr_nothrow<IRedXeGpuWidget> _inner;
     wil::com_ptr_nothrow<ID3D11Texture2D> _staging;
 };
+#pragma warning(pop)
 
 constexpr UINT kWidth = 640;
 constexpr UINT kHeight = 360;
 constexpr GUID kResourceLifetime = {0x3b778e03, 0xe7e6, 0x4315, {0xa9, 0xe4, 0x35, 0xeb, 0x83, 0x47, 0x92, 0xa1}};
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class ResourceLifetime final : public RedXeComObject<ResourceLifetime, IUnknown>
 {
   public:
@@ -123,6 +138,7 @@ class ResourceLifetime final : public RedXeComObject<ResourceLifetime, IUnknown>
   private:
     std::atomic<UINT>& _destructions;
 };
+#pragma warning(pop)
 
 // Bind resources in slots the shipped triangles never use. Once the local owners go away, only the production
 // immediate context retains them. A single private-data identity dies only after every resource is released.

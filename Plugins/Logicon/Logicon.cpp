@@ -8,7 +8,7 @@
 #include "PlugInterfaces/Widget.h"
 
 #if defined(_DEBUG)
-#include "../ProcessViewer/ViewerGpu.h"
+#include "Plugins/ProcessViewer/ViewerGpu.h"
 #endif
 
 #include <array>

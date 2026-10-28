@@ -163,7 +163,7 @@ void FillTopologyCache(RedXeNativeState& state, const GroupBaseTable& groups) no
         {
             const bool isCore = record->Relationship == RelationProcessorCore;
             const uint32_t identifier = isCore ? cores : packages;
-            const WORD affinityCount = isCore ? 1 : record->Processor.GroupCount;
+            const WORD affinityCount = isCore ? WORD{1} : record->Processor.GroupCount;
             for (WORD entry = 0; entry < affinityCount; ++entry)
             {
                 const GROUP_AFFINITY& affinity = record->Processor.GroupMask[entry];

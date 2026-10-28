@@ -132,7 +132,7 @@ Invoke-TestCase 'verified installation reaches actual build discovery ahead of a
     Assert-Equal (Join-Path $result.Root "VS instance/MSBuild/Current/Bin/$hostArch/MSBuild.exe") $selected 'MSBuild belongs to the verified installation and native host'
     $previous=[Environment]::GetEnvironmentVariable('MSBUILD_EXE_PATH','Process')
     try{
-        $project=Split-Path $repository -Leaf
+        $project=if(Test-Path -LiteralPath (Join-Path $repository 'RedXe.sln')){'RedXe'}elseif(Test-Path -LiteralPath (Join-Path $repository 'RedPrism.sln')){'RedPrism'}else{throw 'No supported solution identity in the repository.'}
         switch($project){
             'RedXe' {Import-Module (Join-Path $repository 'Build/DxUiRestore.psm1') -Force;$discover='Find-RedXeMSBuild'}
             'RedPrism' {Import-Module (Join-Path $repository 'Build/VisualStudioDiscovery.psm1') -Force;$discover='Find-RedPrismMSBuild'}

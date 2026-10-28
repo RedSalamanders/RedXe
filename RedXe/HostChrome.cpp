@@ -38,6 +38,7 @@ constexpr float kGlyphEmDips = 22.0f;
         return PageEdgeChevronGlyph(kPageEdgeDirectionNext, font);
     case HostChromeGlyph::Close:
         return FluentIcons::SelectGlyph(font, FluentIcons::kClear, FluentIcons::kFallbackClear);
+    case ::HostChromeGlyph::Count:
     default:
         return L'\0';
     }

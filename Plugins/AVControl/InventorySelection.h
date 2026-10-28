@@ -57,6 +57,10 @@ struct InventoryPreferences final
 
 // One-pass bounded admission: late defaults/references displace ordinary devices, and equal priorities keep
 // enumeration order. Membership is finalized before opening any endpoint-volume subscription.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4626 5027)
 template <typename Descriptor, size_t Capacity> class RankedInventory final
 {
   public:
@@ -97,6 +101,7 @@ template <typename Descriptor, size_t Capacity> class RankedInventory final
     std::array<uint32_t, Capacity> _ranks{};
     bool _truncated = false;
 };
+#pragma warning(pop)
 
 template <size_t Capacity>
 uint32_t InventoryRank(const DeviceId& id, std::span<const DeviceId> defaults,

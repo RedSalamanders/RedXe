@@ -1,5 +1,5 @@
 #pragma once
-#include "../../Common/PlugInterfaces/Factory.h"
+#include "Common/PlugInterfaces/Factory.h"
 
 namespace AVControl
 {

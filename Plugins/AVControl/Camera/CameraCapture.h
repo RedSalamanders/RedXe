@@ -7,6 +7,10 @@ namespace AVControl::Camera
 // Helper acquisition-lane object, never loaded into Frame Server or the UI. One asynchronous read and one
 // completed sample are retained at a time. Callbacks own only their mailbox and a duplicate wake event;
 // they cannot call a destroyed backend or publish frames from a previous capture session.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class CaptureReader final
 {
   public:
@@ -26,4 +30,6 @@ class CaptureReader final
     struct State;
     std::unique_ptr<State> _state;
 };
+#pragma warning(pop)
+
 } // namespace AVControl::Camera

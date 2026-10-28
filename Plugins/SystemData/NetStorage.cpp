@@ -34,7 +34,7 @@ constexpr wchar_t kProtocolTcp6[] = L"tcp6";
 constexpr wchar_t kProtocolUdp4[] = L"udp4";
 constexpr wchar_t kProtocolUdp6[] = L"udp6";
 
-void CALLBACK OnIpInterfaceChange(PVOID context, PMIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE)
+void CALLBACK OnIpInterfaceChange(PVOID context, PMIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE) noexcept
 {
     if (context)
     {

@@ -1,8 +1,8 @@
-#include "../../Common/FailureReports.h"
-#include "../../Plugins/SystemData/SystemData.Tests.Contract.h"
+#include "Common/FailureReports.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
+#include "Plugins/SystemData/SystemData.Tests.Contract.h"
 
 #include <algorithm>
 #include <array>

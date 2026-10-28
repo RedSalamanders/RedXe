@@ -3,6 +3,7 @@
 param([ValidateSet('x64','ARM64')][string] $Platform = 'x64', [string] $MSBuildPath = '', [switch] $CheckUpdates)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'Build/DxUiPaths.psm1') -Scope Local -ErrorAction Stop
 # Use one compiler host for dependency identity, restore, compilation and provenance.
 Import-Module (Join-Path $PSScriptRoot 'Build/DxUiRestore.psm1') -Force -ErrorAction Stop
 $previousToolArchitecture=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
@@ -46,11 +47,12 @@ if ($buildIdentity.Identity -is [Collections.IDictionary]) {
     foreach ($entry in $buildIdentity.Identity.PSObject.Properties) { $policyIdentity[$entry.Name] = $entry.Value }
 }
 $policyIdentity['releaseOptimizationPolicy'] = 'Gy-REF-GL-LTCG-full-v1'
+foreach($field in (Get-DxUiNativePolicyFields -RepoRoot $PSScriptRoot).GetEnumerator()){$policyIdentity[$field.Key]=$field.Value}
 $policyHasher = [Security.Cryptography.SHA256]::Create()
 try { $policyFingerprint = ([BitConverter]::ToString($policyHasher.ComputeHash([Text.Encoding]::UTF8.GetBytes(($policyIdentity | ConvertTo-Json -Depth 8 -Compress))))).Replace('-','').ToLowerInvariant() }
 finally { $policyHasher.Dispose() }
 $buildIdentity = [pscustomobject]@{ Fingerprint=$policyFingerprint; Identity=$policyIdentity }
-$output = Get-RedXeDxUiOutputRoot -RepoRoot $PSScriptRoot -Fingerprint $buildIdentity.Fingerprint
+$output = Initialize-DxUiOutputRoot -DependencyRoot $dependencyRoot -BuildIdentity $buildIdentity
 # The root's lease is renewed before anything uses it, the source's was by Restore-RedXeDxUiPin: no removal of superseded
 # restores, this session's or another's, takes either for the lease window, even once another fingerprint's properties replace ours.
 Update-RedXeDxUiLease -RepoRoot $PSScriptRoot -Path $output

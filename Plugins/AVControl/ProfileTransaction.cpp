@@ -39,6 +39,10 @@ struct Undo final
     uint64_t ownedRevision = 0;
     bool restorable = true;
 };
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5027)
 class Transaction final
 {
   public:
@@ -292,6 +296,8 @@ class Transaction final
         }
     }
 };
+#pragma warning(pop)
+
 } // namespace
 ApplyOutcome ApplyProfile(const Profile& profile, BackendTransport& backend, BrokerReply& reply,
                           const SafetyState& safety, HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexcept

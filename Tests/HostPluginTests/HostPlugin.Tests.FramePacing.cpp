@@ -1,6 +1,6 @@
 #include "HostPlugin.Tests.FramePacing.h"
-#include "../../RedXe/FramePacing.h"
-#include "../../RedXe/FrameScheduler.h"
+#include "RedXe/FramePacing.h"
+#include "RedXe/FrameScheduler.h"
 
 #include <array>
 #include <chrono>

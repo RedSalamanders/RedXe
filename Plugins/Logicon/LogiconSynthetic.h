@@ -104,6 +104,10 @@ class SyntheticKeypad final
     bool _unresponsive = false;
 };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4626 5027)
 class SyntheticHidPort final : public HidPort
 {
   public:
@@ -121,4 +125,6 @@ class SyntheticHidPort final : public HidPort
     SyntheticKeypad& _keypad;
     HidCollectionInfo _info{};
 };
+#pragma warning(pop)
+
 } // namespace Logicon

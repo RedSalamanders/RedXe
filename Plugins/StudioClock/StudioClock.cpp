@@ -642,6 +642,10 @@ class StudioClockSharedResources final
 // object padding even though the record itself has an exact asserted layout.
 #pragma warning(push)
 #pragma warning(disable : 4324)
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class StudioClockWidget final
     : public RedXeComObject<StudioClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
 {
@@ -900,12 +904,12 @@ class StudioClockWidget final
         std::array<uint32_t, 2> month{};
         SplitTwoDigits(_time.wDay, day[0], day[1]);
         SplitTwoDigits(_time.wMonth, month[0], month[1]);
-        const std::array year{
+        const std::array<uint32_t, 4> year{{
             static_cast<uint32_t>(_time.wYear / 1000U),
             static_cast<uint32_t>((_time.wYear / 100U) % 10U),
             static_cast<uint32_t>((_time.wYear / 10U) % 10U),
             static_cast<uint32_t>(_time.wYear % 10U),
-        };
+        }};
         if (_configuration.dateFormat == DateFormat::YearMonthDay)
         {
             digits = {year[0], year[1], year[2], year[3], month[0], month[1], day[0], day[1]};
@@ -982,6 +986,12 @@ class StudioClockWidget final
 };
 #pragma warning(pop)
 
+#pragma warning(pop)
+
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class StudioClockProvider final : public RedXeComObject<StudioClockProvider, IRedXeWidgetProvider>
 {
   public:
@@ -1036,6 +1046,7 @@ class StudioClockProvider final : public RedXeComObject<StudioClockProvider, IRe
     StudioClockConfiguration _configuration;
     StudioClockSharedResources _resources;
 };
+#pragma warning(pop)
 
 static_assert(sizeof(StudioClockSharedResources) < 16U * 1024U);
 static_assert(sizeof(StudioClockProvider) < 16U * 1024U);

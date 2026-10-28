@@ -71,6 +71,10 @@ constexpr std::array kWidgetTypes{
 
 [[nodiscard]] HRESULT EnsureWindowClass() noexcept;
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget, IRedXeWindowWidget, IRedXeRaisedWidget>
 {
   public:
@@ -516,6 +520,7 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
 
     friend HRESULT EnsureWindowClass() noexcept;
 };
+#pragma warning(pop)
 
 [[nodiscard]] HRESULT EnsureWindowClass() noexcept
 {
@@ -539,6 +544,10 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
     return error == ERROR_CLASS_ALREADY_EXISTS ? S_OK : HRESULT_FROM_WIN32(error);
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class GdiOrbitProvider final : public RedXeComObject<GdiOrbitProvider, IRedXeWidgetProvider>
 {
   public:
@@ -600,6 +609,7 @@ class GdiOrbitProvider final : public RedXeComObject<GdiOrbitProvider, IRedXeWid
   private:
     COLORREF _background;
 };
+#pragma warning(pop)
 
 HRESULT CreateGdiOrbitProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
                                void** result) noexcept

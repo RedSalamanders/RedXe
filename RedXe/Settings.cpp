@@ -1,13 +1,13 @@
 #include "Settings.h"
 
-#include "../Plugins/5H4D3R5/ShadersSettings.h"
-#include "../Plugins/AVControl/AVControlModel.h"
-#include "../Plugins/Launcher/LauncherBindings.h"
-#include "../Plugins/Launcher/LauncherPaging.h"
-#include "../Plugins/StudioClock/StudioClockSettings.h"
 #include "BundledPlugins.h"
 #include "HostActionCatalog.h"
 #include "PlugInterfaces/Factory.h"
+#include "Plugins/5H4D3R5/ShadersSettings.h"
+#include "Plugins/AVControl/AVControlModel.h"
+#include "Plugins/Launcher/LauncherBindings.h"
+#include "Plugins/Launcher/LauncherPaging.h"
+#include "Plugins/StudioClock/StudioClockSettings.h"
 #include "SettingsJsonText.h"
 
 #include <algorithm>
@@ -239,7 +239,6 @@ constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
     }
 }
 
-constexpr char kSchemaReference[] = "RedXe.settings.schema.json";
 constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
 constexpr char kProcessViewerPluginId[] = "builtin.process-viewer";
 constexpr char kStudioClockPluginId[] = "builtin.studio-clock";
@@ -299,31 +298,6 @@ template <size_t Count>
         return false;
     }
     return !machineId || RedXeIsValidMachineId(text.utf8.data());
-}
-
-[[nodiscard]] bool CopyText(yyjson_val* value, SettingsText& destination, bool machineId) noexcept
-{
-    if (!yyjson_is_str(value))
-    {
-        return false;
-    }
-    const size_t length = yyjson_get_len(value);
-    const char* text = yyjson_get_str(value);
-    if (!text || length == 0 || length > kMaximumSettingsTextBytes ||
-        std::string_view(text, length).find('\0') != std::string_view::npos)
-    {
-        return false;
-    }
-
-    SettingsText copied{};
-    std::memcpy(copied.utf8.data(), text, length);
-    copied.bytes = static_cast<uint32_t>(length);
-    if (machineId && !RedXeIsValidMachineId(copied.utf8.data()))
-    {
-        return false;
-    }
-    destination = copied;
-    return true;
 }
 
 [[nodiscard]] bool ReadUnsigned(yyjson_val* object, const char* key, uint32_t minimum, uint32_t maximum,
@@ -664,77 +638,6 @@ template <size_t Count>
         return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
     }
     return destination.Assign({written.get(), length});
-}
-
-[[nodiscard]] HRESULT ParsePlugin(yyjson_val* value, PluginSettings& plugin) noexcept
-{
-    constexpr std::array keys{"id", "enabled", "private"};
-    yyjson_val* enabled = yyjson_is_obj(value) ? yyjson_obj_get(value, "enabled") : nullptr;
-    if (!HasExactKeys(value, keys) || !CopyText(yyjson_obj_get(value, "id"), plugin.id, true) ||
-        !yyjson_is_bool(enabled))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-    plugin.enabled = yyjson_get_bool(enabled);
-    return CopyObject(yyjson_obj_get(value, "private"), plugin.privateConfiguration);
-}
-
-[[nodiscard]] HRESULT ParsePlacement(yyjson_val* value, WidgetGridPlacement& placement) noexcept
-{
-    constexpr std::array keys{"column", "row", "columnSpan", "rowSpan"};
-    if (!HasExactKeys(value, keys) ||
-        !ReadUnsigned(value, "column", 0, kMaximumDashboardGridDimension - 1, placement.column) ||
-        !ReadUnsigned(value, "row", 0, kMaximumDashboardGridDimension - 1, placement.row) ||
-        !ReadUnsigned(value, "columnSpan", 1, kMaximumDashboardGridDimension, placement.columnSpan) ||
-        !ReadUnsigned(value, "rowSpan", 1, kMaximumDashboardGridDimension, placement.rowSpan))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-    return S_OK;
-}
-
-[[nodiscard]] HRESULT ParseWidget(yyjson_val* value, WidgetInstanceSettings& widget) noexcept
-{
-    constexpr std::array keys{"id", "pluginId", "typeId", "placement", "private"};
-    if (!HasExactKeys(value, keys) || !CopyText(yyjson_obj_get(value, "id"), widget.id, true) ||
-        !CopyText(yyjson_obj_get(value, "pluginId"), widget.pluginId, true) ||
-        !CopyText(yyjson_obj_get(value, "typeId"), widget.typeId, true))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-    HRESULT result = ParsePlacement(yyjson_obj_get(value, "placement"), widget.placement);
-    if (SUCCEEDED(result))
-    {
-        result = CopyObject(yyjson_obj_get(value, "private"), widget.privateConfiguration);
-    }
-    return result;
-}
-
-[[nodiscard]] HRESULT ParsePage(yyjson_val* value, DashboardPageSettings& page)
-{
-    constexpr std::array keys{"id", "name", "widgets"};
-    yyjson_val* widgets = yyjson_is_obj(value) ? yyjson_obj_get(value, "widgets") : nullptr;
-    if (!HasExactKeys(value, keys) || !CopyText(yyjson_obj_get(value, "id"), page.id, true) ||
-        !CopyText(yyjson_obj_get(value, "name"), page.name, false) || !yyjson_is_arr(widgets))
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-    const size_t count = yyjson_arr_size(widgets);
-    if (count == 0 || count > kMaximumWidgetsPerPage)
-    {
-        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    }
-    page.widgets.resize(count);
-    for (size_t index = 0; index < count; ++index)
-    {
-        const HRESULT result = ParseWidget(yyjson_arr_get(widgets, index), page.widgets[index]);
-        if (FAILED(result))
-        {
-            return result;
-        }
-    }
-    page.widgetCount = static_cast<uint32_t>(count);
-    return S_OK;
 }
 
 [[nodiscard]] HRESULT GetModuleDirectory(std::filesystem::path& directory) noexcept

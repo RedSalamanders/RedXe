@@ -1,7 +1,7 @@
 #include "Launcher.Tests.GlyphBatch.h"
 
-#include "../../Common/Actions/FluentGlyphNames.h"
-#include "../../Common/Actions/GlyphIcon.h"
+#include "Common/Actions/FluentGlyphNames.h"
+#include "Common/Actions/GlyphIcon.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -15,7 +15,7 @@
 namespace
 {
 thread_local bool gRejectNextAllocation = false;
-int __cdecl RejectNextAllocation(int type, void*, size_t, int, long, const unsigned char*, int)
+int __cdecl RejectNextAllocation(int type, void*, size_t, int, long, const unsigned char*, int) noexcept
 {
     if (type == _HOOK_ALLOC && gRejectNextAllocation)
     {
@@ -114,6 +114,9 @@ HRESULT ValidateLauncherGlyphRasterization(const wchar_t* pixelsPath) noexcept
             [&]() noexcept
             {
                 gRejectNextAllocation = false;
+            // The CRT return type erases noexcept; restore the exact previous hook unchanged.
+            // Owner: RedXe test maintainers; review: 2027-01-31.
+#pragma warning(suppress : 5039)
                 (void)_CrtSetAllocHook(previous);
             });
         gRejectNextAllocation = true;

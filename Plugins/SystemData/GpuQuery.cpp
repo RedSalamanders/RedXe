@@ -309,18 +309,6 @@ void RefreshKmtAdapters(RedXeGpuState& state) noexcept
     state.kmtCount = count;
 }
 
-[[nodiscard]] D3dkmtHandle FindKmtHandle(const RedXeGpuState& state, uint64_t luid) noexcept
-{
-    for (uint32_t index = 0; index < state.kmtCount; ++index)
-    {
-        if (state.kmtLuids[index] == luid)
-        {
-            return state.kmtHandles[index];
-        }
-    }
-    return 0;
-}
-
 void EnsurePdh(RedXeGpuState& state) noexcept
 {
     if (state.pdhReady)

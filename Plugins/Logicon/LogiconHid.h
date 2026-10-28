@@ -154,6 +154,10 @@ class WindowsHidPort final : public HidPort
     // Keep every buffer, OVERLAPPED, event, and file handle in one backing block, which holds one budget unit while
     // it exists. If a broken driver does not complete canceled I/O within the close drain, that block is retired
     // intact with its unit rather than freed under I/O.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
     struct IoState final
     {
         wil::unique_hfile handle;
@@ -166,6 +170,7 @@ class WindowsHidPort final : public HidPort
         bool readArmed = false;
         bool writeArmed = false;
     };
+#pragma warning(pop)
 
     HidIoBudget* _budget;
     HidCollectionInfo _info{};

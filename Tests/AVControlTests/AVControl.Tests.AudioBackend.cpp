@@ -25,6 +25,10 @@ struct SubscriptionCounts final
 };
 
 // Real backend code consumes these explicit COM fixtures. No MMDeviceEnumerator or policy object is activated.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Volume final : public RedXeComObject<Volume, IAudioEndpointVolume>
 {
   public:
@@ -146,6 +150,12 @@ class Volume final : public RedXeComObject<Volume, IAudioEndpointVolume>
   private:
     SubscriptionCounts& _counts;
 };
+#pragma warning(pop)
+
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Device final : public RedXeComObject<Device, IMMDevice>
 {
   public:
@@ -187,6 +197,12 @@ class Device final : public RedXeComObject<Device, IMMDevice>
         return S_OK;
     }
 };
+#pragma warning(pop)
+
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Collection final : public RedXeComObject<Collection, IMMDeviceCollection>
 {
   public:
@@ -207,6 +223,12 @@ class Collection final : public RedXeComObject<Collection, IMMDeviceCollection>
         return index < count ? devices[index]->QueryInterface(IID_PPV_ARGS(value)) : E_INVALIDARG;
     }
 };
+#pragma warning(pop)
+
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Enumerator final : public RedXeComObject<Enumerator, IMMDeviceEnumerator>
 {
   public:
@@ -294,6 +316,8 @@ class Enumerator final : public RedXeComObject<Enumerator, IMMDeviceEnumerator>
         return result;
     }
 };
+#pragma warning(pop)
+
 const AVControl::Endpoint* Find(const AVControl::Inventory& inventory, uint32_t flow, const AVControl::DeviceId& id)
 {
     const auto& rows = flow ? inventory.inputs : inventory.outputs;

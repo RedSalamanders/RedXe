@@ -38,6 +38,10 @@ constexpr std::array kZoomNamespaces{RedXeActionNamespace{sizeof(RedXeActionName
 constexpr RedXeActionContract kZoomActionContract{
     sizeof(RedXeActionContract), static_cast<uint32_t>(kZoomNamespaces.size()), kZoomNamespaces.data()};
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class ZoomActions final : public RedXeComObject<ZoomActions, IRedXeActionPack>
 {
   public:
@@ -104,6 +108,7 @@ class ZoomActions final : public RedXeComObject<ZoomActions, IRedXeActionPack>
     // Borrowed from the process runtime, which releases this executor in PluginHost::Shutdown before it goes away.
     IRedXeHost* _host = nullptr;
 };
+#pragma warning(pop)
 
 HRESULT CreateZoomActions(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                           void** result) noexcept

@@ -37,6 +37,10 @@ HRESULT AuthenticateBridgeConsumer(HANDLE pipe, const BridgeIdentity& identity) 
 // On failure the individual operation is canceled and drained before its stack storage can be released.
 HRESULT BridgeTransfer(HANDLE pipe, bool write, void* bytes, DWORD size, ULONGLONG deadline) noexcept;
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class BridgeFrameProvider final : public FrameProvider
 {
   public:
@@ -67,4 +71,6 @@ class BridgeFrameProvider final : public FrameProvider
     void Disconnect() noexcept;
     HRESULT Demand() noexcept;
 };
+#pragma warning(pop)
+
 } // namespace AVControl::Camera

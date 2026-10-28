@@ -1,3 +1,4 @@
+Import-Module (Join-Path $PSScriptRoot 'DxUiPaths.psm1') -Scope Local -ErrorAction Stop
 # The exact DxUi pin and what restoring it takes: the lock, the pinned source and the output roots under .build, the MSBuild the
 # build runs and the Visual Studio installation that vcpkg must build with. build.ps1, restore-dxui.ps1, vcpkg-install.ps1 and the
 # update and provenance helpers share it, so each fact lives once.
@@ -61,7 +62,7 @@ function Get-RedXeDxUiSourcePath {
         [Parameter(Mandatory)][string] $RepoRoot,
         [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string] $Commit
     )
-    return Join-Path (Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot) "source/$Commit"
+    return Get-DxUiSourcePath -DependencyRoot (Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot) -Commit $Commit
 }
 
 function Get-RedXeDxUiOutputRoot {
@@ -443,7 +444,7 @@ function Remove-RedXeDxUiSupersededRestores {
             }
         }
         foreach ($folder in $sources) {
-            if ($folder.Name -cmatch '^([0-9a-f]{40}|~[0-9a-f]+)$' -and $folder.Name -cne $Commit) { [void]$candidates.Add($folder.FullName) }
+            if ($folder.Name -cmatch '^([0-9a-f]{16}|[0-9a-f]{40}|~[0-9a-f]+)$' -and $folder.Name -cne $Commit -and $folder.Name -cne $Commit.Substring(0,16)) { [void]$candidates.Add($folder.FullName) }
         }
         # The leases of the folders that stay; every other lease is an orphan.
         $leases = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)

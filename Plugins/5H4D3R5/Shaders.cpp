@@ -1078,6 +1078,10 @@ struct ShowState final
     float fade = 1.0f;
 };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class ShadersWidget final
     : public RedXeComObject<ShadersWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget, IRedXeInteractiveWidget>
 {
@@ -1779,7 +1783,12 @@ class ShadersWidget final
     float _pointerStartX = 0.0f;
     float _pointerStartY = 0.0f;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class ShadersProvider final : public RedXeComObject<ShadersProvider, IRedXeWidgetProvider>
 {
   public:
@@ -1865,6 +1874,7 @@ class ShadersProvider final : public RedXeComObject<ShadersProvider, IRedXeWidge
     std::array<float, 4> _background;
     SharedDeviceResources _shared;
 };
+#pragma warning(pop)
 
 static_assert(sizeof(SharedDeviceResources) < 4U * 1024U);
 static_assert(sizeof(ShadersProvider) < 4U * 1024U);

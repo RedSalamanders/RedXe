@@ -1,5 +1,5 @@
-#include "../../Plugins/SystemData/NativeProcessQuery.h"
-#include "../../Plugins/SystemData/NativeQuery.h"
+#include "Plugins/SystemData/NativeProcessQuery.h"
+#include "Plugins/SystemData/NativeQuery.h"
 
 #include <iostream>
 #include <stdexcept>
