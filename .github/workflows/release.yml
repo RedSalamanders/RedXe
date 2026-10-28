@@ -124,7 +124,7 @@ jobs:
           platform: ${{ matrix.platform }}
       - name: Build and test Release ${{ matrix.platform }}
         shell: pwsh
-        # The full gate without the Python tooling suite, which needs Build/requirements-validation.txt: the ci.yml
+        # The full native gate skips repeated independent PowerShell tooling: the ci.yml
         # push run that the version job requires for this commit has already run it once in its tooling job.
         run: |
           ./test.ps1 -Full -SkipTooling -Configuration Release -Platform '${{ matrix.platform }}' -BuildNumber ${{ needs.version.outputs.build_number }}

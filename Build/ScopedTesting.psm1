@@ -153,6 +153,14 @@ function Get-ScopedTestPlan {
     if (-not $Scopes.Count -and -not $Full) {
         foreach ($path in $ChangedPaths) {
             if ($path -match '(^/|(^|/)\.\.(/|$)|:|\\)') { throw "Expected a repository-relative Git path: $path" }
+            # These independent package checks cannot change a compiled/runtime input. Keep the exact
+            # allowlist narrow; shared Build/ScopedTesting and unknown Build files retain full fallback.
+            if ($path -cin @('Build/SkillPackageIntegrity.psm1', 'Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1')) {
+                if ('BuildProcess' -cnotin $names) { throw 'Package tooling requires the BuildProcess scope' }
+                [void]$selected.Add('BuildProcess')
+                $reasons.Add([pscustomobject]@{path=$path; scopes=@('BuildProcess'); reason='independent skill package integrity tooling'})
+                continue
+            }
             if ($path -match '\.md$') {
                 $targets = @($Manifest.scopes | Where-Object { -not $_.native } | ForEach-Object name)
                 foreach ($name in $targets) { [void]$selected.Add($name) }
@@ -233,7 +241,7 @@ function Get-ScopedArtifactIdentity {
 function Get-ScopedEnvironmentInputs {
     # Only the digest of these rows is stored, never a secret. Different machines, OS builds or servicing levels,
     # PowerShell, graphics, text or imaging runtimes, Git or sanitizer options cannot reuse evidence. Tooling evidence
-    # also depends on the Python interpreter and PyYAML that the validators run under.
+    # uses the same PowerShell runtime as repository validation; no Python is discovered.
     param([switch] $Tooling)
     $values = @([Environment]::MachineName,[Runtime.InteropServices.RuntimeInformation]::OSDescription,
         [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(),$PSVersionTable.PSVersion.ToString(),
@@ -270,14 +278,7 @@ function Get-ScopedEnvironmentInputs {
     if ($env:SystemRoot -and (Test-Path 'HKLM:/SOFTWARE/Microsoft/Windows Kits/Installed Roots')) {
         $values += (Get-ChildItem 'HKLM:/SOFTWARE/Microsoft/Windows Kits/Installed Roots' | Sort-Object Name | ForEach-Object Name) -join "`n"
     }
-    if ($Tooling) {
-        # The interpreter validate-skills.ps1 and Invoke-ToolingTests.ps1 select: the py launcher's Python 3, else python.exe.
-        $python = Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-        $selector = @(if ($python) { '-3' })
-        if (-not $python) { $python = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 }
-        $probe = 'import sys,importlib.util as u;print(sys.executable,sys.version,u.find_spec(''yaml'') and __import__(''yaml'').__version__)'
-        $values += 'python=' + $(if ($python) { "$((& $python.Source @selector -c $probe 2>$null) -join ' ') exit $LASTEXITCODE" } else { 'absent' })
-    }
+    if ($Tooling) { $values += 'tooling-runtime=PowerShell' }
     return $values
 }
 

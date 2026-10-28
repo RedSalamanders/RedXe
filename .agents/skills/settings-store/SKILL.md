@@ -5,84 +5,43 @@ description: Implement or revise RedXe settings paths, Debug and Release setting
 
 # RedXe settings store
 
-Read `Specs/Core/Core_Settings.md`, `Specs/Core/Core_PerformanceAndResources.md`, and `Specs/Settings.schema.json` before
-changing settings behavior. Bounded array plugin schemas and widget settings persist
-(`IRedXeHost::PersistWidgetSettings` and `IRedXeWidget::CollectPersistentSettings`) are owned by
-`Specs/Core/Core_Settings.md` and `Specs/Plugins/Plugins_API.md`. Persist merge, schema rejection, collect-on-exit, and the in-memory
-`--self-test` write policy are owned by `Specs/Core/Core_Settings.md`. Use `yyjson` for document ownership and
-validation, `wil-raii` for files/events/change notifications, `win32-windowing` for the posted UI message, and
-`plugin-development` when a setting recreates widgets.
+Read [the settings contract](../../../Specs/Core/Core_Settings.md),
+[the performance contract](../../../Specs/Core/Core_PerformanceAndResources.md) and
+[the canonical schema](../../../Specs/Settings.schema.json) before changing behavior. Current document versions,
+field ranges, filenames and migration rules belong there and in the parser/templates, not in a second skill copy.
+Use `yyjson` for document/string ownership, `wil-raii` for files/events, `win32-windowing` for UI delivery and
+`plugin-development` when settings recreate widgets.
 
-## Contract
+## Preserve the storage boundary
 
-- Normal user files live under `%LocalAppData%\RedXe\Settings`. Debug selects
-  `RedXe-debug.settings.json`; Release selects `RedXe.settings.json`. Schema compatibility comes from the document,
-  never the filename. Interactive diagnostics live under the sibling `%LocalAppData%\RedXe\Logs` folder as UTC-dated
-  `RedXe-debug-YYYY-MM-DD.jsonl` / `RedXe-YYYY-MM-DD.jsonl`. `logRetentionDays` (omitted default 15, range 1–365)
-  deletes older dated files and leftover undated `*.jsonl` / `*.jsonl.1` names. When the settings directory is not named
-  `Settings`, logs are `<settingsDir>\Logs`. `--self-test` must never write that folder.
-- Release performs a one-time unchanged rename from legacy `RedXe-1.0.settings.json` only when the new filename is
-  absent; a present new-name file always wins.
-- Keep `Settings/` templates, `Specs/Settings.schema.json`, the C++ parser, and the normative settings spec aligned in
-  the same change. Do not publish a setting the executable cannot apply.
-- Document major is 5. User files author `widgets` / `columns` / `rows` and flattened plugin keys (`plugin` plus
-  settings members on the same object). `layout`, `areas`, `arrangeAlong`, `sizeRatio`, nested `settings`, and
-  `override` reject the candidate. The parser compiles sugar into the in-memory adaptive tree; persist patches
-  flattened keys in place and MUST NOT rewrite a page to `layout`. A load MUST NOT write. Major 4 is incompatible:
-  default recovery backups the bytes and installs the v5 template; `--settings` portable v4 is left unchanged.
-- Both shipped templates must contain a real placed example of every settings-visible entry in
-  `RedXe/BundledPlugins.h`. Template validation must iterate that catalog rather than maintain a second plugin list.
-- Launcher `iconSize` is the closed set `small` / `medium` / `large` / `huge` / `automatic` (omit to default `automatic`).
-  Launcher `shortcuts` is a closed array of 0 through 32 items.
-- The hidden self-test parses the deployed template only. It must never touch `%LocalAppData%` and must never call
-  `PluginHost::SetLogDirectory`.
-- Cold start with no user file installs the template and continues. An unmapped catalogued plugin DLL is a
-  placeholder, not a settings or startup failure. Without an active XENEON, outside a remote session, the template
-  installed for a missing file carries the first-run dock through `PatchFirstRunDock`, which also drops the
-  template's commented `dock` example so the file never invites a duplicate member; recovery of an invalid file
-  installs the plain template, and a `--settings` file is never installed or patched.
-- A live `dock` change applies to the running window, including `edge` between `none` and an edge, which restyles
-  the same HWND (`Application::SwitchWindowKind`); never defer it to a restart. A failed switch rolls back to the
-  previous kind and rejects the reload; it never exits unless the rollback leaves no renderer.
-- Validate types, ranges, required members, duplicates, unknown members, schema version, and the 1 MiB limit before
-  replacing typed runtime state. yyjson values and strings remain borrowed from their owning document. Every read of
-  the user document passes `YYJSON_READ_ALLOW_BOM`, and every host write keeps a leading BOM the document has.
-- `PatchWidgetInstanceSettings` merges supplied members into the stored instance object, validates the complete
-  result, and patches `sourceDocument`. It MUST NOT replace unspecified members. A merge that changes nothing returns
-  `S_FALSE` and touches neither the typed settings nor the source, so comments survive an unchanged collect.
-  `PatchDockThickness` does the same for a release at the current thickness. Interactive persist MAY write the user
-  file; `--self-test` keeps the merge in memory.
-- `PersistPatchedDocument` writes only while the file's current stamp equals the last applied stamp, checked on a
-  guard (`DELETE` access sharing read and delete) that keeps other writers out until the POSIX rename of the flushed
-  temporary commits; the stamp recorded is read through the renamed file's handle, never a later path query. A
-  rejected, unprocessed, deleted, or unreadable file, a file another program holds for writing or without
-  `FILE_SHARE_DELETE`, and a `--settings` fallback keep the patch in memory and return `S_FALSE` (never a rollback);
-  the caller logs `settings-persist-deferred` once per on-disk state through `TakeDeferredPersistNotice`, and an
-  applied load or a write clears a notice not yet taken. Seam-driven write tests compile with `REDXE_SETTINGS_TESTS`.
-- Cold invalid files are backed up and restored from the deployed template. Invalid live edits preserve both the
-  edited file and the last valid runtime configuration.
+- Keep `Settings/`, schema, parser, normative settings spec and Settings tests aligned. Never publish a setting
+  the running application cannot apply.
+- Follow [category-aware template coverage](../../../Specs/Core/Core_Settings.md#selection-storage-and-deployed-defaults)
+  using `RedXe/BundledPlugins.h`. Ordinary widgets appear in both templates, opt-in widgets in neither, Debug-only
+  widgets only in Debug, and services in both without requiring a placed widget. Do not add forbidden examples
+  to satisfy a blanket checklist.
+- Validate the complete candidate before replacing live state: types, bounds, duplicates, unknown members and
+  schema version. Preserve the source document, comments and BOM according to the owning contract. Loading is
+  read-only; a no-op persist must not rewrite the document.
+- Host persist merges a subset into the current instance and validates the complete result. Do not replace
+  unspecified members or rewrite authored syntax into the internal layout model. Persist only against the accepted
+  file identity while holding the contract's write-exclusion guard; record identity through the committed handle.
+  A conflict/deferred write keeps the runtime patch and external bytes intact, with the bounded notice policy.
+- Cold recovery backs up invalid bytes and installs the matching deployed template. Invalid live edits preserve
+  both the edited file and last valid runtime state. Explicit portable settings have their separate fallback rules.
+- Hidden self-tests parse deployed templates and keep writes in memory; they never touch normal user settings or
+  initialize its diagnostic log directory.
 
-## Live reload
+## Preserve live application
 
-- Watch the directory with Windows change notifications. Block indefinitely on stop/change handles; never poll.
-- The worker only coalesces and posts `SettingsWatcher::kSettingsChangedMessage`. JSON parsing, widgets, HWNDs, and
-  Direct3D remain on the UI thread.
-- Acknowledge the coalesced message before reading so a later edit can post again. Deduplicate applied and rejected
-  file stamps.
-- Inside the titled window's move/size loop the reload waits unacknowledged until `WM_EXITSIZEMOVE`; a valid candidate
-  that would rebuild the page of a minimized standard window waits, unmarked, until the restore. Both replay by
-  posting the message again (`ReplayDeferredSettingsReload`).
-- After a valid parse, reselect the page that was current when that page still exists (`PreserveActiveDashboardPage`)
-  before applying. Launch still starts on the first page; the active page is not written to the document. A live load
-  MUST NOT write the watched file. An invalid live load MUST NOT rewrite the editor file or the last-good document.
-  `OnSettingsChanged` / `ApplySettings` suppress document writes so collect-on-exit, first-visible pin import, and
-  other widget persist side effects cannot rewrite the file that just loaded. Formatting runs only on persist/save.
-- Before replacing widget references, shut down renderer device callbacks and native child containers. Reconfigure
-  widgets transactionally, rebuild the dashboard, and roll back the previous settings if apply fails.
-- Stop and join the watcher before destroying its target HWND.
+- Watch the directory and block on stop/change events. The worker only coalesces and posts notification; parsing,
+  widget changes, HWNDs and Direct3D remain on the owner thread. Stop/join the watcher before its target disappears.
+- Acknowledge before reading and deduplicate accepted/rejected stamps. Preserve move/size and minimized-window
+  deferral/replay, the active page when it survives, and the rule that live reload never writes the watched file.
+- Apply valid changes to the running window, including dock-kind transitions. Reconfigure transactionally and
+  roll back on apply failure. Suppress collect/persist side effects while adopting an external load.
 
-## Validation
-
-Run `Tests/SettingsTests`, both x64 Debug and Release hidden WARP tests, Release ARM64 compilation, and
-`.\validate-skills.ps1`. Confirm an interactive edit changes the dashboard without restart and an invalid edit leaves
-the previous dashboard running without periodic CPU wake-ups.
+Use `Test-Changes.ps1 -Explain` and affected suites while editing; PrePush/Full and the owning domain contract
+determine final qualification. Cover invalid load, external conflict, unchanged writes, deferred replay and rollback
+with independent file/runtime assertions. Live foreground acceptance requires agreement to the time; hidden WARP
+and metadata checks do not establish that gate.

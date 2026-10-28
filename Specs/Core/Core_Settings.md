@@ -1,7 +1,7 @@
 # RedXe settings contract
 
 Status: current normative product contract
-Last reviewed: 2026-09-28
+Last reviewed: 2026-10-28
 Owner: `SettingsStore`, `SettingsWatcher`, and UI-thread application orchestration
 
 ## Scope
@@ -48,16 +48,20 @@ The build output MUST contain both templates and `RedXe.settings.schema.json`. R
 `Specs/Settings.schema.json`. The hidden `--self-test` path MUST use the deployed template and MUST NOT touch or watch
 the user's settings directory. It MUST NOT create or write the diagnostic `Logs` directory.
 
-Both shipped templates MUST contain three pages: a representative low-resource startup composition, a denser gallery,
-and a `System` page that places one instance of every Process Viewer family widget. Every settings-visible plugin
-compiled into the product MUST have at least one effective widget
-instance in each template; a declaration that is never placed does not count. The one exception is the catalog's
-opt-in list (`kRedXeOptInBundledWidgetIds`, today only the GdiOrbit native-window example): those plugins MUST stay
-schema-accepted and documented but MUST NOT be declared or placed by either template, because a native child HWND
-forces composed presentation for the whole window. The host-owned compile-time bundled
-plugin catalog is the source of truth for this coverage. Automated template validation MUST iterate that catalog and
-fail when either template or the canonical schema omits an entry, or when a template places an opt-in plugin. Adding or removing a bundled plugin therefore
-requires updating the catalog, schema support, and both templates in the same change. Catalog plugin IDs and type IDs
+Both shipped templates MUST include a representative low-resource startup composition, a denser gallery,
+and a `System` page that places one instance of every Process Viewer family widget. Template coverage is determined
+by the host-owned compile-time catalog in `RedXe/BundledPlugins.h`:
+
+- Ordinary settings-visible widgets MUST have an effective instance in both templates; an unused declaration does not count.
+- `kRedXeOptInBundledWidgetIds` MUST remain schema-accepted and documented but MUST NOT be declared or placed in either
+  template. The GdiOrbit native-window example is opt-in because its child HWND forces composed presentation for the window.
+- `kRedXeDebugOnlyBundledWidgetIds` MUST remain schema-accepted in every build but MUST be declared and placed only in
+  the Debug template. Release MUST omit them; only Debug plugin builds construct them.
+- `kRedXeBundledServices` MUST have a `services` entry in both templates. A service does not require a placed widget.
+
+Automated template validation MUST iterate those catalogs and reject missing required examples, forbidden category
+placements, and missing schema support. Adding or removing a bundled plugin therefore requires updating the catalog,
+schema/parser support, the category-appropriate templates and user documentation together. Catalog plugin IDs and type IDs
 stay unique; module file names MAY repeat so several settings-visible widgets can share `ProcessViewer.dll`.
 
 ## Version 5 document

@@ -4,6 +4,8 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Correct category-aware widget/service template guidance and stale skill routes/matrix claims; route mutable layout/settings detail to its owning contracts, and add read-only package/reference checks with negative fixtures. These tooling checks do not establish model behavior or native product qualification.
+- Run skill validation and its behavioral tests on PowerShell 7 without Python/PyYAML; retain multiline descriptions and fenced examples, reject unsupported YAML explicitly, and remove interpreter discovery from tooling receipts.
 - Allow 20 minutes for hosted compiler provisioning and the complete independent tooling job after the measured 15-minute timeout; retain all test scopes and individual/native deadlines.
 - Bind hosted build and restore to the verified MSVC 14.52 installation's MSBuild, preserving strict compiler-family checks and local read-only behavior; cover stale ambient discovery and missing-MSBuild refusal.
 - Wait for the hosted Visual Studio GUI installer and use its explicit result before verifying MSVC 14.52; retain installer diagnostics and cover delayed completion, failures and strict tool/refusal checks without a real installation.

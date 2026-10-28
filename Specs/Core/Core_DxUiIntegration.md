@@ -211,7 +211,7 @@ Pushes to main and explicit workflow dispatch retain the full six-configuration 
 After the product tests, every leg runs the pinned library's `validate-build-matrix.ps1 -Root <checkout>`, which fails
 when a native project or the solution does not map all six configurations. It is a PowerShell script at API revision 4;
 the Python validator it replaced is gone.
-CI validates repository skill metadata with the repository-owned validator and pinned Python dependency before
+CI validates repository skill metadata with the repository-owned PowerShell validator before
 building. Clean runners require no developer-specific Codex installation or home-directory scripts.
 
 Rollback reverts the complete product adoption change, including adapter/build changes, and rebuilds/tests that
