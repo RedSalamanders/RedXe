@@ -552,7 +552,7 @@ void ExpireHeld() noexcept
                       KEY_QUERY_VALUE | KEY_SET_VALUE, key.addressof());
     if (status != ERROR_SUCCESS)
     {
-        return HRESULT_FROM_WIN32(status);
+        return HRESULT_FROM_WIN32(static_cast<DWORD>(status));
     }
     DWORD light = 1;
     if (option == 2)
@@ -575,7 +575,7 @@ void ExpireHeld() noexcept
         status = RegSetValueExW(key.get(), name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&light), sizeof(light));
         if (status != ERROR_SUCCESS)
         {
-            return HRESULT_FROM_WIN32(status);
+            return HRESULT_FROM_WIN32(static_cast<DWORD>(status));
         }
     }
     // SendNotifyMessage returns without waiting for every top-level window to handle the broadcast.
@@ -1134,6 +1134,7 @@ bool VisitMonitor(MonitorSearch& search, const MonitorCandidate* display) noexce
                   ContainsIgnoreCase(display->device, needle.data());
         break;
     }
+    case ::RedXeActions::MonitorSelector::Kind::All:
     default:
         break;
     }

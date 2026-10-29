@@ -220,8 +220,8 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
         // yyjson already validates UTF-8. JSON Schema lengths count Unicode scalar values, not encoded bytes.
         uint64_t scalarCount = 0;
         const std::string_view text{yyjson_get_str(value), yyjson_get_len(value)};
-        for (unsigned char byte : text)
-            if ((byte & 0xC0U) != 0x80U)
+        for (const char byte : text)
+            if ((static_cast<unsigned char>(byte) & 0xC0U) != 0x80U)
                 ++scalarCount;
         yyjson_val* minimum = yyjson_obj_get(schema, "minLength");
         yyjson_val* maximum = yyjson_obj_get(schema, "maxLength");
@@ -269,7 +269,7 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
         }
         if (expression != "^[A-Za-z0-9_-]+$" || text.empty())
             return false;
-        for (unsigned char byte : text)
+        for (const char byte : text)
             if (!((byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') || (byte >= '0' && byte <= '9') ||
                   byte == '_' || byte == '-'))
                 return false;
@@ -570,12 +570,17 @@ class SchemaCache final
     }
 
   private:
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
     struct Entry final
     {
         unique_contract_doc document;
         const char* pluginId = nullptr;
         yyjson_val* root = nullptr;
     };
+#pragma warning(pop)
 
     std::array<Entry, kRedXeBundledWidgets.size()> _entries{};
     size_t _count = 0;

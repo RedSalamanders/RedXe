@@ -1,6 +1,4 @@
-#include "../../Common/FailureReports.h"
-#include "../../Plugins/Logicon/Logicon.Tests.Contract.h"
-#include "../../Plugins/Weather/Weather.Tests.Contract.h"
+#include "Common/FailureReports.h"
 #include "DashboardHost.h"
 #include "DeskClock.Tests.Contract.h"
 #include "DisplayEnumeration.h"
@@ -18,6 +16,8 @@
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PluginHost.h"
 #include "PluginManager.h"
+#include "Plugins/Logicon/Logicon.Tests.Contract.h"
+#include "Plugins/Weather/Weather.Tests.Contract.h"
 #include "PointerCancellation.h"
 #include "ProcessViewer.Tests.Contract.h"
 #include "Renderer.h"
@@ -28,6 +28,7 @@
 #include "WheelNavigation.h"
 #include "WidgetRaise.h"
 #include "WindowCapture.h"
+#include <cstddef>
 
 #include <shellapi.h>
 #include <shellscalingapi.h>
@@ -119,6 +120,10 @@ struct PluginHostTestAccess final
         return finished && correct.load();
     }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
     struct StallProbe final
     {
         wil::unique_event_nothrow entered;
@@ -128,7 +133,12 @@ struct PluginHostTestAccess final
         // A responsive lane: RunDeviceWork also returns when the host signals its stopEvent.
         bool honorStop = false;
     };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
     class StalledService final : public RedXeComObject<StalledService, IRedXeService, IRedXeDeviceWorker>
     {
       public:
@@ -171,6 +181,7 @@ struct PluginHostTestAccess final
       private:
         StallProbe& _probe;
     };
+#pragma warning(pop)
 
     // Gives service slot `index` of `host` (the first by default) a started stalled service whose lane is inside
     // RunDeviceWork.
@@ -1861,7 +1872,7 @@ bool ScriptedTaskbarExists() noexcept
     size_t count = 0;
     (void)EnumThreadWindows(
         GetCurrentThreadId(),
-        [](HWND window, LPARAM context) -> BOOL
+        [](HWND window, LPARAM context) noexcept -> BOOL
         {
             std::array<wchar_t, 32> name{};
             if (GetClassNameW(window, name.data(), static_cast<int>(name.size())) > 0 &&
@@ -4205,6 +4216,10 @@ void TestDebugHostComposition(bool& success) noexcept
     window.PumpMessages();
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class PausedDataSink final : public RedXeComObject<PausedDataSink, IRedXeDataSink>
 {
   public:
@@ -4222,6 +4237,7 @@ class PausedDataSink final : public RedXeComObject<PausedDataSink, IRedXeDataSin
         return S_OK;
     }
 };
+#pragma warning(pop)
 
 void TestSubscriptionDrain(bool& success)
 {
@@ -4748,6 +4764,10 @@ void TestPageCallbackProbe(bool& success)
 
 // Wraps one placed GPU widget so a host test can fail its device or size callback on demand and count what the host
 // calls; everything else is forwarded. A failed call never reaches the wrapped widget, which keeps what it had.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class FaultInjectingGpuWidget final : public RedXeComObject<FaultInjectingGpuWidget, IRedXeGpuWidget>
 {
   public:
@@ -4787,6 +4807,7 @@ class FaultInjectingGpuWidget final : public RedXeComObject<FaultInjectingGpuWid
   private:
     wil::com_ptr_nothrow<IRedXeGpuWidget> _inner;
 };
+#pragma warning(pop)
 
 using GpuFaults = std::array<wil::com_ptr_nothrow<FaultInjectingGpuWidget>, 3>;
 
@@ -6077,6 +6098,10 @@ void TestWeatherPluginConstructs(bool& success) noexcept
 }
 
 // Stub network widget that stays inside RunNetworkWork until the host signals its cancel event.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class BlockingNetworkStub final : public IRedXeNetworkWidget
 {
   public:
@@ -6123,6 +6148,7 @@ class BlockingNetworkStub final : public IRedXeNetworkWidget
     std::atomic<bool> inside{false};
     bool cancelled = false;
 };
+#pragma warning(pop)
 
 void TestNetworkLane(bool& success) noexcept
 {
@@ -6382,6 +6408,10 @@ void TestQueuedInputAge(bool& success) noexcept
           success);
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 struct LaunchProbe final
 {
     wil::unique_event_nothrow entered;
@@ -6390,6 +6420,7 @@ struct LaunchProbe final
     std::atomic<DWORD> thread{0};
     std::atomic<int> apartment{-1};
 };
+#pragma warning(pop)
 
 LaunchProbe* g_launchProbe = nullptr;
 
@@ -7766,14 +7797,16 @@ void TestPageEdgeAffordancePolicy(bool& success) noexcept
     constexpr std::array geometryMessages{WM_NCCREATE,      WM_CREATE,           WM_NCDESTROY,  WM_MOVE,
                                           WM_SIZE,          WM_WINDOWPOSCHANGED, WM_DPICHANGED, WM_DISPLAYCHANGE,
                                           WM_SETTINGCHANGE, WM_STYLECHANGED};
-    for (const UINT message : geometryMessages)
+    for (const auto rawMessage : geometryMessages)
     {
+        const UINT message = static_cast<UINT>(rawMessage);
         Check(PageEdgeGeometryMayChange(message), L"Window/display geometry notifications invalidate edge cache.",
               success);
     }
     constexpr std::array stableMessages{WM_PAINT, WM_TIMER, WM_MOUSEMOVE, WM_KEYDOWN, WM_LBUTTONUP, WM_GETOBJECT};
-    for (const UINT message : stableMessages)
+    for (const auto rawMessage : stableMessages)
     {
+        const UINT message = static_cast<UINT>(rawMessage);
         Check(!PageEdgeGeometryMayChange(message), L"Ordinary frame/input messages preserve the edge cache.", success);
     }
     // A live multi-page dashboard in the middle of the document offers both directions.
@@ -8660,7 +8693,7 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
 }
 
 constexpr uint64_t kSoakPrivateGrowthBudget = 4ULL * 1024 * 1024;
-constexpr uint64_t kSoakWorkingSetGrowthBudget = 8ULL * 1024 * 1024;
+[[maybe_unused]] constexpr uint64_t kSoakWorkingSetGrowthBudget = 8ULL * 1024 * 1024;
 constexpr auto kClockSoakWarmup = std::chrono::seconds(20);
 
 [[nodiscard]] constexpr bool SoakGrowthWithinBudget(uint64_t before, uint64_t peak, uint64_t budget) noexcept

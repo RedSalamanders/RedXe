@@ -1,4 +1,4 @@
-#include "../../Plugins/WeatherLocation/LocationPolicy.h"
+#include "Plugins/WeatherLocation/LocationPolicy.h"
 
 #include <array>
 #include <cmath>

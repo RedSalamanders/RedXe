@@ -37,7 +37,7 @@ DWORD gRenderThread = 0;
 uint32_t gAllocations = 0;
 
 #if defined(_DEBUG)
-int __cdecl CountAllocation(int type, void*, size_t, int, long, const unsigned char*, int)
+int __cdecl CountAllocation(int type, void*, size_t, int, long, const unsigned char*, int) noexcept
 {
     if (type != _HOOK_FREE && GetCurrentThreadId() == gRenderThread)
         ++gAllocations;
@@ -57,6 +57,9 @@ int __cdecl CountAllocation(int type, void*, size_t, int, long, const unsigned c
 
 template <typename T> T Resolve(HMODULE module, const char* name) noexcept
 {
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     return reinterpret_cast<T>(GetProcAddress(module, name));
 }
 
@@ -860,6 +863,9 @@ HRESULT RenderTests(HMODULE module, RedXeCreateFn create, uint64_t now, bool str
             [&]() noexcept
             {
                 gRenderThread = 0;
+            // The CRT return type erases noexcept; restore the exact previous hook unchanged.
+            // Owner: RedXe test maintainers; review: 2027-01-31.
+#pragma warning(suppress : 5039)
                 _CrtSetAllocHook(oldHook);
             });
 #endif

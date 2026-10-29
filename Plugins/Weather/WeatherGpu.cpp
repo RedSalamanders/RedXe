@@ -149,6 +149,10 @@ std::atomic<bool> g_failNextGlyphPreparationForTest{false};
     return factory.CreateFontFace(faceType, 1, files, 0, DWRITE_FONT_SIMULATIONS_NONE, face.put());
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct DirectWriteSession final
 {
     wil::unique_hmodule module;
@@ -156,6 +160,7 @@ struct DirectWriteSession final
     wil::com_ptr_nothrow<IDWriteFontFace> face;
     wil::com_ptr_nothrow<IDWriteFontFace> iconFace;
 };
+#pragma warning(pop)
 
 [[nodiscard]] HRESULT OpenDirectWrite(DirectWriteSession& session) noexcept
 {
@@ -166,6 +171,9 @@ struct DirectWriteSession final
     }
     using DWriteCreateFactoryFn = HRESULT(WINAPI*)(DWRITE_FACTORY_TYPE, REFIID, IUnknown**);
     const auto createFactory =
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
         reinterpret_cast<DWriteCreateFactoryFn>(GetProcAddress(session.module.get(), "DWriteCreateFactory"));
     if (!createFactory)
     {
@@ -266,10 +274,12 @@ struct DirectWriteSession final
     }
     // Text cells scale from the 48 px base so a 96 px twin is an exact 2x raster with the same normalized metrics.
     const float textScale = cellF / static_cast<float>(kWeatherGlyphCell);
-    float emSize = centerInCell ? cellF * 0.78f
-                                : textScale * std::min(kGlyphEmSize, (static_cast<float>(kWeatherGlyphCell) - 4.0f) *
-                                                                         fontMetrics.designUnitsPerEm /
-                                                                         (fontMetrics.ascent + fontMetrics.descent));
+    float emSize =
+        centerInCell
+            ? cellF * 0.78f
+            : textScale *
+                  std::min(kGlyphEmSize, (static_cast<float>(kWeatherGlyphCell) - 4.0f) * fontMetrics.designUnitsPerEm /
+                                             static_cast<float>(fontMetrics.ascent + fontMetrics.descent));
     const float designScale = emSize / static_cast<float>(fontMetrics.designUnitsPerEm);
     float pixelAdvance = static_cast<float>(glyphMetrics.advanceWidth) * designScale;
     advance = centerInCell ? 1.0f : pixelAdvance / cellF;
@@ -306,8 +316,8 @@ struct DirectWriteSession final
             bounds.right <= cellEdge && bounds.bottom <= cellEdge && (!centerInCell || attempt != 0))
         {
             // Include one transparent texel to preserve antialiasing when filtering the cropped quad.
-            ink = {(bounds.left - 1) / cellF, (bounds.top - 1) / cellF, (inkWidth + 2) / cellF,
-                   (inkHeight + 2) / cellF};
+            ink = {static_cast<float>(bounds.left - 1) / cellF, static_cast<float>(bounds.top - 1) / cellF,
+                   (inkWidth + 2) / cellF, (inkHeight + 2) / cellF};
             advance = centerInCell ? 1.0f : pixelAdvance / cellF;
             return BlitGlyphAnalysis(*analysis, atlasX, atlasY, cell, atlasPixels);
         }
@@ -325,11 +335,11 @@ struct DirectWriteSession final
             const float shiftX =
                 (centerInCell ? (cellF - inkWidth) * 0.5f
                               : std::clamp(static_cast<float>(bounds.left), 2.0f, cellF - 2.0f - inkWidth)) -
-                bounds.left;
+                static_cast<float>(bounds.left);
             const float shiftY =
                 (centerInCell ? (cellF - inkHeight) * 0.5f
                               : std::clamp(static_cast<float>(bounds.top), 2.0f, cellF - 2.0f - inkHeight)) -
-                bounds.top;
+                static_cast<float>(bounds.top);
             baselineX += shiftX;
             baselineY += shiftY;
         }

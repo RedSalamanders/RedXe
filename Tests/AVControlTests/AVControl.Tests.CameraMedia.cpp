@@ -1,8 +1,8 @@
-#include "../../Common/PlugInterfaces/FactoryImpl.h"
 #include "Camera/CameraCapture.h"
 #include "Camera/CameraController.h"
 #include "Camera/CameraFrameChannel.h"
 #include "Camera/CameraMediaSource.h"
+#include "Common/PlugInterfaces/FactoryImpl.h"
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -30,6 +30,10 @@ void Check(bool value, const char* message)
     if (!value)
         throw std::runtime_error(message);
 }
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Frames final : public FrameProvider
 {
   public:
@@ -57,9 +61,17 @@ class Frames final : public FrameProvider
         return failed ? E_ACCESSDENIED : S_OK;
     }
 };
+#pragma warning(pop)
+
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Token final : public RedXeComObject<Token, IUnknown>
 {
 };
+#pragma warning(pop)
+
 wil::com_ptr_nothrow<IMFMediaEvent> Event(IMFMediaEventGenerator* source, MediaEventType expected)
 {
     const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -117,12 +129,22 @@ void CheckFrame(IMFSample* sample, BYTE luma, BYTE chroma)
 } // namespace
 namespace
 {
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 struct CaptureCounters final
 {
     std::atomic<uint32_t> opens{0}, closes{0}, frames{0};
     std::atomic<bool> active{false};
     std::atomic<HRESULT> failure{S_OK};
 };
+#pragma warning(pop)
+
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class SyntheticCapture final : public CaptureSession
 {
   public:
@@ -168,6 +190,8 @@ class SyntheticCapture final : public CaptureSession
     std::shared_ptr<CaptureCounters> _counts;
     CaptureReader _reader;
 };
+#pragma warning(pop)
+
 } // namespace
 uint32_t RunCameraControllerTests()
 {
@@ -496,9 +520,9 @@ uint32_t RunCameraChannelTests()
         for (UINT row = 0; row < FrameHeight * 3 / 2; ++row)
             for (LONG column = 0; column < pitch; ++column)
             {
-                const BYTE expected = live && column < static_cast<LONG>(FrameWidth) ? 201
-                                      : row < FrameHeight                            ? 16
-                                                                                     : 128;
+                const BYTE expected = live && column < static_cast<LONG>(FrameWidth) ? BYTE{201}
+                                      : row < FrameHeight                            ? BYTE{16}
+                                                                                     : BYTE{128};
                 correct = correct && output[static_cast<size_t>(row) * pitch + column] == expected;
             }
         Check(correct, "channel produces current image or fully neutral NV12 with cleared padding");

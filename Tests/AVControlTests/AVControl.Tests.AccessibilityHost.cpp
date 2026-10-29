@@ -1,6 +1,6 @@
-#include "../../RedXe/AccessibilityHost.h"
 #include "AccessibilityValidation.h"
 #include "PlugInterfaces/FactoryImpl.h"
+#include "RedXe/AccessibilityHost.h"
 #include <UIAutomation.h>
 #include <array>
 #include <limits>
@@ -12,6 +12,10 @@
 
 namespace
 {
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Fragment final : public RedXeComObject<Fragment, IRawElementProviderFragmentRoot, IRawElementProviderFragment>
 {
   public:
@@ -26,48 +30,54 @@ class Fragment final : public RedXeComObject<Fragment, IRawElementProviderFragme
         if (!result)
             return E_POINTER;
         *result = nullptr;
-        return alive ? QueryInterface(IID_PPV_ARGS(result)) : UIA_E_ELEMENTNOTAVAILABLE;
+        return alive ? QueryInterface(IID_PPV_ARGS(result)) : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     HRESULT STDMETHODCALLTYPE Navigate(NavigateDirection, IRawElementProviderFragment** result) noexcept override
     {
         if (!result)
             return E_POINTER;
         *result = nullptr;
-        return alive ? S_OK : UIA_E_ELEMENTNOTAVAILABLE;
+        return alive ? S_OK : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     HRESULT STDMETHODCALLTYPE GetRuntimeId(SAFEARRAY** result) noexcept override
     {
         if (!result)
             return E_POINTER;
         *result = nullptr;
-        return alive ? S_OK : UIA_E_ELEMENTNOTAVAILABLE;
+        return alive ? S_OK : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     HRESULT STDMETHODCALLTYPE get_BoundingRectangle(UiaRect* result) noexcept override
     {
         if (!result)
             return E_POINTER;
         *result = {};
-        return alive ? S_OK : UIA_E_ELEMENTNOTAVAILABLE;
+        return alive ? S_OK : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     HRESULT STDMETHODCALLTYPE GetEmbeddedFragmentRoots(SAFEARRAY** result) noexcept override
     {
         if (!result)
             return E_POINTER;
         *result = nullptr;
-        return alive ? S_OK : UIA_E_ELEMENTNOTAVAILABLE;
+        return alive ? S_OK : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     HRESULT STDMETHODCALLTYPE SetFocus() noexcept override
     {
-        return alive ? S_OK : UIA_E_ELEMENTNOTAVAILABLE;
+        return alive ? S_OK : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     HRESULT STDMETHODCALLTYPE get_FragmentRoot(IRawElementProviderFragmentRoot** result) noexcept override
     {
         if (!result)
             return E_POINTER;
         *result = nullptr;
-        return alive ? QueryInterface(IID_PPV_ARGS(result)) : UIA_E_ELEMENTNOTAVAILABLE;
+        return alive ? QueryInterface(IID_PPV_ARGS(result)) : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
 };
+#pragma warning(pop)
+
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class AccessibleWidget final : public RedXeComObject<AccessibleWidget, IRedXeAccessibilityWidget>
 {
   public:
@@ -124,6 +134,8 @@ class AccessibleWidget final : public RedXeComObject<AccessibleWidget, IRedXeAcc
         return S_OK;
     }
 };
+#pragma warning(pop)
+
 } // namespace
 
 uint32_t RunAccessibilityHostTests()

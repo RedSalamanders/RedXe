@@ -368,7 +368,7 @@ HRESULT DeviceSession::ResolveFeatureThroughSet(uint16_t featureId, HANDLE stopE
     {
         return result;
     }
-    const uint8_t setIndex = response.paramBytes != 0 ? response.params[0] : 0;
+    const uint8_t setIndex = response.paramBytes != 0 ? response.params[0] : uint8_t{0};
     if (setIndex == 0)
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
@@ -379,7 +379,7 @@ HRESULT DeviceSession::ResolveFeatureThroughSet(uint16_t featureId, HANDLE stopE
     {
         return result;
     }
-    const uint32_t count = response.paramBytes != 0 ? response.params[0] : 0;
+    const uint32_t count = response.paramBytes != 0 ? response.params[0] : uint8_t{0};
     for (uint32_t candidate = 1; candidate <= count && candidate <= 64; ++candidate)
     {
         uint8_t query[1] = {static_cast<uint8_t>(candidate)};

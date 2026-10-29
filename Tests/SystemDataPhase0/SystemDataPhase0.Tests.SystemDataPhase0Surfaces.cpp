@@ -1193,7 +1193,7 @@ void SpikeGpu()
     PrintText(L"gate_gpu_kmt", gate);
 }
 
-void CALLBACK OnIpInterfaceChange(PVOID, PMIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE) {}
+void CALLBACK OnIpInterfaceChange(PVOID, PMIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE) noexcept {}
 
 void SpikeNetwork()
 {

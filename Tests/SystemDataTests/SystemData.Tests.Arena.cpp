@@ -1,8 +1,8 @@
-#include "../../Plugins/SystemData/NativeQuery.h"
-#include "../../Plugins/SystemData/NtLayout.h"
-#include "../../Plugins/SystemData/SystemData.Tests.Contract.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
+#include "Plugins/SystemData/NativeQuery.h"
+#include "Plugins/SystemData/NtLayout.h"
+#include "Plugins/SystemData/SystemData.Tests.Contract.h"
 
 #include <algorithm>
 #include <array>

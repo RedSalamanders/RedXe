@@ -305,6 +305,8 @@ void DrawConditionIconIn(WeatherGpuResources& resources, WeatherDrawList& list, 
     case WeatherCondition::Wind:
         DrawWindMark(resources, list, x, y, size, red, green, blue);
         break;
+    case ::WeatherCondition::Cloudy:
+    case ::WeatherCondition::Unknown:
     default:
         DrawCloudOutline(list, x, y, size, red, green, blue);
         break;
@@ -400,6 +402,10 @@ void LogWeather(IRedXeHost* host, uint32_t level, const char* instanceId, const 
     (void)RedXeHostLog(host, level, kPluginId, instanceId, eventId, message, code);
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class WeatherWidget final
     : public RedXeComObject<WeatherWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget,
                             IRedXeNetworkWidget, IRedXeInteractiveWidget, IRedXePreparedGpuWidget>
@@ -722,8 +728,9 @@ class WeatherWidget final
             for (uint32_t index = 0; gTestNow.load(std::memory_order_relaxed) != 0 && index < list.Count(); ++index)
             {
                 const auto& rect = list.Data()[index].rect;
-                if (rect[0] < -0.1f || rect[1] < -0.1f || rect[0] + rect[2] > frame.widthPixels + 0.1f ||
-                    rect[1] + rect[3] > frame.heightPixels + 0.1f)
+                if (rect[0] < -0.1f || rect[1] < -0.1f ||
+                    rect[0] + rect[2] > static_cast<float>(frame.widthPixels) + 0.1f ||
+                    rect[1] + rect[3] > static_cast<float>(frame.heightPixels) + 0.1f)
                     ++overflow;
             }
             gLastOverflowCount.store(overflow, std::memory_order_relaxed);
@@ -1297,7 +1304,7 @@ class WeatherWidget final
                     WeatherCopyWide(L"Now", time.data(), time.size());
                 (void)WeatherFormatTemperature(hour.temperatureCelsius, _configuration.temperatureUnit, value.data(),
                                                static_cast<uint32_t>(value.size()));
-                const float x = left + column * columnWidth;
+                const float x = left + static_cast<float>(column) * columnWidth;
                 const auto centered = [&](const wchar_t* text, float textY, float size, float alpha) noexcept
                 {
                     const float measured = resources.MeasureText(text, WideCount(text), size);
@@ -1461,7 +1468,12 @@ class WeatherWidget final
     bool _pointerDown = false;
     bool _pagePan = false;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class WeatherProvider final : public RedXeComObject<WeatherProvider, IRedXeWidgetProvider>
 {
   public:
@@ -1534,6 +1546,7 @@ class WeatherProvider final : public RedXeComObject<WeatherProvider, IRedXeWidge
     WeatherConfiguration _configuration;
     IRedXeHost* _host = nullptr;
 };
+#pragma warning(pop)
 
 HRESULT CreateWeatherProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                               void** result) noexcept

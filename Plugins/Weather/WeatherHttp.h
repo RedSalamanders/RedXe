@@ -17,6 +17,10 @@ inline constexpr char kWeatherUserAgent[] =
 
 // Heap-owned body. Putting kWeatherMaximumBodyBytes on the network-worker stack overflows (0xC00000FD / __chkstk)
 // once FetchLive keeps more than one response live and WeatherHttpGet value-resets another.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct WeatherHttpResponse final
 {
     std::unique_ptr<char[]> body;
@@ -26,6 +30,7 @@ struct WeatherHttpResponse final
     uint32_t expiresDelayMilliseconds = 0;
     bool notModified = false;
 };
+#pragma warning(pop)
 
 static_assert(sizeof(WeatherHttpResponse) <= kWeatherHttpResponseMaximumBytes);
 

@@ -1,11 +1,11 @@
 #include "LogiconMonitor.h"
 
-#include "../ProcessViewer/ViewerGpu.h"
 #include "LogiconMonitorPixelShader.h"
 #include "LogiconMonitorVertexShader.h"
 #include "LogiconService.h"
 #include "PlugInterfaces/FactoryImpl.h"
 #include "PlugInterfaces/Widget.h"
+#include "Plugins/ProcessViewer/ViewerGpu.h"
 
 #include <algorithm>
 #include <array>
@@ -132,10 +132,12 @@ struct Layout final
 void PlaceChipRow(const Layout& layout, float y, Rect* chips, uint32_t count) noexcept
 {
     constexpr float gap = 6.0f;
-    const float chipWidth = std::max((layout.textWidth - (count - 1) * gap) / count, 40.0f);
+    const float chipWidth =
+        std::max((layout.textWidth - static_cast<float>(count - 1) * gap) / static_cast<float>(count), 40.0f);
     for (uint32_t index = 0; index < count; ++index)
     {
-        chips[index] = Rect{layout.textX + index * (chipWidth + gap), y, chipWidth, layout.metrics.chip};
+        chips[index] =
+            Rect{layout.textX + static_cast<float>(index) * (chipWidth + gap), y, chipWidth, layout.metrics.chip};
     }
 }
 
@@ -426,6 +428,10 @@ void AppendChip(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& me
     return dot ? dot + 1 : name;
 }
 
+// COM ownership already deletes copying; retain its implicit special-member semantics.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, IRedXeGpuWidget, IRedXePreparedGpuWidget,
                                                   IRedXeInteractiveWidget>
 {
@@ -1012,7 +1018,12 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     uint8_t _heldKind = 0xFF;
     uint8_t _heldIndex = 0;
 };
+#pragma warning(pop)
 
+// COM ownership already deletes copying/moving; retain those existing type traits.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class MonitorProvider final : public RedXeComObject<MonitorProvider, IRedXeWidgetProvider>
 {
   public:
@@ -1073,6 +1084,7 @@ class MonitorProvider final : public RedXeComObject<MonitorProvider, IRedXeWidge
   private:
     IRedXeHost* _host;
 };
+#pragma warning(pop)
 } // namespace
 
 uint32_t MonitorCpuFaceCopyBytesForTest() noexcept

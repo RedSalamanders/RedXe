@@ -323,6 +323,10 @@ The hosted action exports MSBUILD_EXE_PATH through GITHUB_ENV from the exact ins
 
 The hosted Windows tooling job has a 20-minute outer ceiling to include required MSVC provisioning and the complete independent tooling suite. Run 40513243075 used 8m45s in provisioning and reached the former 15-minute job limit while tooling was still running. All per-child/test limits, assertions, scopes and the 45-minute native-job ceiling are unchanged; timeout evidence remains a failed attempt, not a partial pass.
 
+The [native policy, console and dependency-path contract](Build_ConsoleAndPaths.md) owns /Wall without /WX, zero-warning acceptance, Debug/ASan symbols, Release-only ICF, common terminal results and verified short dependency folders.
+
+The native build-policy candidate locks DxUi API4 at `fa3de6c980f4d7d2700e44a82ad9e751cbebcdc3`. It preserves this consumer's existing API adoption while repairing native warning diagnostics and stable payload type identity under Release COMDAT folding. Restore and compile matching headers/archive from this exact lock. The indexed NativeBuildPolicyCoherence plan records outstanding product and desktop-focus qualification; this pin selection alone is not a green product receipt.
+
 ## Repository skill validation
 
 `validate-skills.ps1` uses the local `Build/SkillValidation.psm1` on PowerShell 7. No Python,

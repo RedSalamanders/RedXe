@@ -233,6 +233,7 @@ WeatherRgb WeatherConditionColor(WeatherCondition condition) noexcept
     case WeatherCondition::Fog:
     case WeatherCondition::Wind:
         return {138.0f / 255.0f, 148.0f / 255.0f, 156.0f / 255.0f};
+    case ::WeatherCondition::Unknown:
     default:
         return {168.0f / 255.0f, 176.0f / 255.0f, 184.0f / 255.0f};
     }
@@ -248,6 +249,7 @@ WeatherRgb WeatherAlertColor(WeatherAlertSeverity severity) noexcept
         return {240.0f / 255.0f, 122.0f / 255.0f, 32.0f / 255.0f};
     case WeatherAlertSeverity::Yellow:
         return {224.0f / 255.0f, 192.0f / 255.0f, 64.0f / 255.0f};
+    case ::WeatherAlertSeverity::None:
     default:
         return {0.92f, 0.92f, 0.94f};
     }
@@ -938,6 +940,7 @@ HRESULT WeatherParseAlerts(WeatherAlertRegion region, std::string_view json, Wea
         return WeatherParseEnvironmentCanadaAlerts(json, snapshot);
     case WeatherAlertRegion::HongKong:
         return WeatherParseHongKongWarnings(json, snapshot);
+    case ::WeatherAlertRegion::None:
     default:
         return S_FALSE;
     }
@@ -988,6 +991,7 @@ HRESULT WeatherBuildAlertUrl(WeatherAlertRegion region, std::string_view country
         written = snprintf(url, capacity,
                            "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=en");
         break;
+    case ::WeatherAlertRegion::None:
     default:
         return S_FALSE;
     }
@@ -1011,6 +1015,7 @@ const wchar_t* WeatherAlertProviderName(WeatherAlertProvider provider) noexcept
         return L"Environment Canada";
     case WeatherAlertProvider::HongKongObservatory:
         return L"Hong Kong Observatory";
+    case ::WeatherAlertProvider::None:
     default:
         return L"";
     }

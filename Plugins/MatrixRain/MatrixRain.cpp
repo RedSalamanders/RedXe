@@ -383,15 +383,6 @@ struct GridCache final
     float horizontalMargin = 0.0f;
 };
 
-[[nodiscard]] uint32_t Hash(uint32_t value) noexcept
-{
-    value ^= value >> 16U;
-    value *= 0x7FEB352DU;
-    value ^= value >> 15U;
-    value *= 0x846CA68BU;
-    return value ^ (value >> 16U);
-}
-
 [[nodiscard]] std::array<float, 4> ColorToFloat(uint32_t color) noexcept
 {
     constexpr float scale = 1.0f / 255.0f;
@@ -979,6 +970,10 @@ class MatrixRainDeviceResources final
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
 };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class MatrixRainWidget final
     : public RedXeComObject<MatrixRainWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget>
 {
@@ -1103,7 +1098,12 @@ class MatrixRainWidget final
     MatrixRainDeviceResources* _resources;
     std::atomic<bool>* _widgetClaim;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class MatrixRainProvider final : public RedXeComObject<MatrixRainProvider, IRedXeWidgetProvider>
 {
   public:
@@ -1182,6 +1182,7 @@ class MatrixRainProvider final : public RedXeComObject<MatrixRainProvider, IRedX
     std::atomic<bool> _widgetClaim{false};
     MatrixRainDeviceResources _resources;
 };
+#pragma warning(pop)
 
 static_assert(kMatrixRainGlyphAtlas.size() == kMatrixRainGlyphAtlasWidth * kMatrixRainGlyphAtlasHeight);
 static_assert(kMatrixRainGlyphAtlasWidth == 8U * kMatrixRainGlyphCellWidth &&

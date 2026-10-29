@@ -4,6 +4,19 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Record the validated build-policy matrix, preserved binary-size evidence, completed quiet performance study and explicit merge handoff; retain unresolved performance uncertainty and any hosted CI limits.
+- Record passing local x64 runtime qualification and ARM64 cross-builds for the common build policy, with immutable Release size evidence and remaining performance/CI gates explicit.
+- Record the current native profile and pinned-archive policy audit, qualified native builds and explicit remaining runtime, performance and integration gates.
+- Adopt the exact API4 DxUi maintenance commit qualified across six native builds, three ordinary x64 test profiles and three approved focus profiles; retain explicit product restore, build and runtime qualification gates.
+- Preserve an existing short DxUi source folder when its complete Git commit differs from the requested pin; refuse the conflict under the restore mutex and test that its commit, tracked contents and local evidence remain intact.
+- Clarify build guidance: leave `/WX` disabled and require every project-code warning to be fixed before the build validation gate can pass.
+- Scope the ARM64 volatile-model diagnostic to the isolated use-after-free detection fixture, retaining the real sanitizer failure, selected volatile model and ordinary warning policy.
+- Scope the MSVC ARM64 volatile-model notice to the deliberate isolated crash/sanitizer probe. Keep the selected volatile model, genuine crash/sanitizer detection and ordinary warnings unchanged.
+- Retain the working-set soak budget for ordinary profiles without an unused-constant warning in ASan, where that diagnostic budget is intentionally not used.
+- Lock DxUi API4 at fa3de6c980f4d7d2700e44a82ad9e751cbebcdc3 for the native warning/Release folding policy. Preserve the consumer API boundary and restore matching headers/archive through the normal entrypoint; complete product qualification is tracked by the indexed native policy plan.
+- Keep Debug allocation hooks non-throwing and annotate the CRT-erased previous-hook type only at restoration. Make Logicon monitor layout conversions explicit while preserving COM ownership traits, and retain the Release-only GPU-query helper without a Debug unused-function warning.
+- Make byte decoding, numeric drawing and HRESULT boundaries explicit for the zero-warning /Wall build; retain named-export and subclass ABI annotations at their reviewed call sites and remove unused private helpers. Native and runtime qualification remains tracked in the build-policy plan.
+- Unify native builds on /Wall without /WX and require zero diagnostics before accepting success; align Debug /ZI and ASan /Zi, enable Release-only /OPT:ICF, print green artifact/log links with quoted launch commands, and shorten consumer DxUi source/output folders while preserving complete collision-checked identities. Native qualification remains tracked in the active build-policy plan.
 - Keep four-space and tab-indented code from opening or closing Markdown fences over later links or unfinished instructions, with focused admission and valid-closer controls.
 - Distinguish line-leading triple-backtick inline code from fenced examples so later missing links and unfinished instructions stay visible to validation; retain valid tilde-fence info strings and add focused controls.
 - Preserve date-prefixed description prose while rejecting complete unquoted timestamp scalars, and keep isolated edits to the migrated metadata fixture in the independent tooling scope with retained shared-build fallback coverage.

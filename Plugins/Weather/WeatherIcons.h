@@ -47,6 +47,7 @@ inline constexpr wchar_t kWeatherIconGlyphs[] = {
         return kWeatherIconFog;
     case WeatherCondition::Wind:
         return kWeatherIconStrongWind;
+    case ::WeatherCondition::Unknown:
     default:
         return kWeatherIconNa;
     }

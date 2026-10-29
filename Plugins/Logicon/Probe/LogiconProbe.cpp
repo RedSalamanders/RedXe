@@ -10,9 +10,9 @@
 //                                          send one HID++ command to a feature id, print the answer, then echo
 //                                          input reports (default 10 s); for exploring 0x4610 on the dialpad
 
-#include "../LogiconHid.h"
-#include "../LogiconProtocol.h"
-#include "../LogiconRawInput.h"
+#include "Plugins/Logicon/LogiconHid.h"
+#include "Plugins/Logicon/LogiconProtocol.h"
+#include "Plugins/Logicon/LogiconRawInput.h"
 
 #include <array>
 #include <cstdio>
@@ -509,7 +509,7 @@ int Send(uint16_t productId, uint16_t featureId, uint8_t function, const uint8_t
     uint8_t lookup[3] = {static_cast<uint8_t>(featureId >> 8U), static_cast<uint8_t>(featureId & 0xFFU), 0x00};
     HRESULT result = device.Command(0x00, 0, lookup, sizeof(lookup), answer.data(),
                                     static_cast<uint32_t>(answer.size()), answerBytes);
-    const uint8_t index = SUCCEEDED(result) && answerBytes >= 5 ? answer[4] : 0;
+    const uint8_t index = SUCCEEDED(result) && answerBytes >= 5 ? answer[4] : uint8_t{0};
     std::wprintf(L"root getFeature(0x%04X) -> index 0x%02X (hr 0x%08X)\n", featureId, index,
                  static_cast<unsigned>(result));
     if (index == 0)

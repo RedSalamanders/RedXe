@@ -1,8 +1,8 @@
 #include "Weather.Tests.HttpCache.h"
 
-#include "../../Plugins/Weather/Weather.Tests.Contract.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
+#include "Plugins/Weather/Weather.Tests.Contract.h"
 
 #include <algorithm>
 #include <array>
@@ -35,6 +35,9 @@ constexpr char kUrl[] = "https://example.invalid/forecast";
 
 template <typename Function> Function Resolve(HMODULE module, const char* name) noexcept
 {
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     return reinterpret_cast<Function>(GetProcAddress(module, name));
 }
 
@@ -87,6 +90,10 @@ HRESULT __stdcall Legacy(const char*, uint32_t, const char** body, uint32_t* byt
     return S_OK;
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct Fixture final
 {
     explicit Fixture(HMODULE module)
@@ -149,6 +156,7 @@ struct Fixture final
     std::unique_ptr<char[]> body;
     wil::unique_handle cancel;
 };
+#pragma warning(pop)
 
 HRESULT BoundsAndExpiry(Fixture& fixture)
 {

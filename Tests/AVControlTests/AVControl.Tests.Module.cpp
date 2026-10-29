@@ -1,10 +1,10 @@
-#include "../../Common/PlugInterfaces/FactoryImpl.h"
-#include "../../Common/PlugInterfaces/Widget.h"
-#include "../../RedXe/AccessibilityHost.h"
 #include "AVControl.Tests.AccessibilityTestHelpers.h"
 #include "AVControl.Tests.Contract.h"
 #include "AVControlDiagnostics.h"
 #include "AVControlLayout.h"
+#include "Common/PlugInterfaces/FactoryImpl.h"
+#include "Common/PlugInterfaces/Widget.h"
+#include "RedXe/AccessibilityHost.h"
 #include <filesystem>
 #include <stdexcept>
 #include <thread>
@@ -27,6 +27,10 @@ void Check(bool condition, const char* description)
     if (!condition)
         throw std::runtime_error(description);
 }
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Host final : public RedXeComObject<Host, IRedXeHost>
 {
   public:
@@ -128,6 +132,8 @@ class Host final : public RedXeComObject<Host, IRedXeHost>
         }
     }
 };
+#pragma warning(pop)
+
 } // namespace
 uint32_t RunModuleTests()
 {
@@ -141,19 +147,40 @@ uint32_t RunModuleTests()
     wil::unique_hmodule module(
         LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32));
     Check(bool(module), "AV DLL loads with only its directory and System32 dependency search");
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     auto create = reinterpret_cast<RedXeCreateFn>(GetProcAddress(module.get(), kRedXeCreateExport));
     auto enumerate =
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
         reinterpret_cast<RedXeEnumeratePluginsFn>(GetProcAddress(module.get(), kRedXeEnumeratePluginsExport));
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     auto contract = reinterpret_cast<RedXeGetPluginSettingsContractFn>(
         GetProcAddress(module.get(), kRedXeGetPluginSettingsContractExport));
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     auto shutdown = reinterpret_cast<RedXePluginShutdownFn>(GetProcAddress(module.get(), kRedXePluginShutdownExport));
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     auto synthetic = reinterpret_cast<decltype(&RedXeAVControlUseSyntheticBackend)>(
         GetProcAddress(module.get(), "RedXeAVControlUseSyntheticBackend"));
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     auto snapshot = reinterpret_cast<decltype(&RedXeAVControlTestSnapshot)>(
         GetProcAddress(module.get(), "RedXeAVControlTestSnapshot"));
     Check(create && enumerate && contract && shutdown && synthetic && snapshot,
           "AV module exposes required factory and explicit synthetic fixture exports");
     Check(synthetic(TRUE) == S_OK, "DLL fixture explicitly selects synthetic devices before provider construction");
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     const auto probe = reinterpret_cast<AVControl::QueryProbeStatisticsFn>(
         GetProcAddress(module.get(), "RedXeAVControlQueryProbeStatistics"));
     AVControl::ProbeStatistics statistics;
@@ -260,6 +287,9 @@ uint32_t RunModuleTests()
               "a provider with no widgets releases its last shared model owner");
     }
     {
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
         const auto failAllocation = reinterpret_cast<decltype(&RedXeAVControlFailNextProviderAllocation)>(
             GetProcAddress(module.get(), "RedXeAVControlFailNextProviderAllocation"));
         auto coldState = std::make_unique<AVControl::Inventory>();

@@ -128,6 +128,10 @@ HRESULT ReadConfiguration(const RedXeFactoryOptions* options, Configuration& con
     return ParseConfiguration({serialized.get(), length}, configuration);
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class Widget final
     : public RedXeComObject<Widget, IRedXeWidget, IRedXeGpuWidget, IRedXePreparedGpuWidget, IRedXeInteractiveWidget,
                             IRedXeRaisedWidget, IRedXeKeyboardWidget, IRedXeTextInputWidget, IRedXeAccessibilityWidget>
@@ -590,6 +594,9 @@ class Widget final
                 }
             }
             break;
+        case ::AVControl::ViewCommandKind::SetCameraEnabled:
+        case ::AVControl::ViewCommandKind::SetLevel:
+        case ::AVControl::ViewCommandKind::SetMuted:
         default:
             (void)_runtime->Submit(command);
             break;
@@ -609,7 +616,12 @@ class Widget final
         return S_OK;
     }
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class Provider final : public RedXeComObject<Provider, IRedXeWidgetProvider>
 {
   public:
@@ -666,6 +678,8 @@ class Provider final : public RedXeComObject<Provider, IRedXeWidgetProvider>
     Configuration _configuration;
     uint32_t _backgroundRgb;
 };
+#pragma warning(pop)
+
 HRESULT CreateProvider(REFIID iid, const RedXeFactoryOptions* options, IRedXeHost* host, void** result) noexcept
 {
     if (iid != __uuidof(IRedXeWidgetProvider))

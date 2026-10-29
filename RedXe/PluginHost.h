@@ -311,6 +311,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     SRWLOCK _pendingSettingsLock = SRWLOCK_INIT;
     std::atomic<bool> _hasPendingSettings{false};
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
     struct ModuleSlot final
     {
         wil::unique_hmodule module;
@@ -321,6 +325,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         RedXePluginShutdownFn shutdown = nullptr;
         uint32_t capabilities = RedXePluginCapabilityNone;
     };
+#pragma warning(pop)
 
     // One registered action namespace (kRedXeBundledActionNamespaces) and what the host learned about it.
     struct PublisherSlot final
@@ -350,6 +355,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     };
     static_assert(sizeof(DataSetRuntime) == 24);
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
     struct ProviderRuntime final
     {
         const char* providerId = nullptr;
@@ -361,8 +370,14 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         // the source's external/subscription leases and borrowed collection/callback storage are quiescent.
         std::unique_ptr<DataSetRuntime[]> dataSets;
     };
+#pragma warning(pop)
+
     static_assert(sizeof(ProviderRuntime) == 48);
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
     struct WidgetStatusSlot final
     {
         std::array<char, kMaximumWidgetStatusIdBytes> instanceId{};
@@ -371,6 +386,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         uint32_t bindings = 0;
         bool used = false;
     };
+#pragma warning(pop)
+
     static_assert(sizeof(WidgetStatusSlot) <= 336);
     [[nodiscard]] uint32_t BoundWidgetStatus(uint64_t key) const noexcept;
     void ReleaseWidgetStatusBinding(uint64_t key) noexcept;
@@ -411,6 +428,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         bool used = false;
     };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
     struct ServiceSlot final
     {
         const RedXeBundledServiceSpec* spec = nullptr;
@@ -433,6 +454,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         // service-start-deferred was logged for the current tombstone.
         bool startDeferred = false;
     };
+#pragma warning(pop)
 
     [[nodiscard]] HRESULT LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;
     [[nodiscard]] HRESULT BindModule(const RedXeBundledPluginSpec& spec, ModuleSlot& slot) noexcept;

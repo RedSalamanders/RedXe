@@ -5,7 +5,7 @@ description: Apply the RedXe repository's modern C++ ownership, error-handling, 
 
 # Modern C++ for Windows
 
-- Compile as Unicode `stdcpplatest` with `/W4`, `/permissive-`, SDL checks, and warnings as errors.
+- Compile as Unicode `stdcpplatest` with `/Wall`, `/permissive-`, SDL checks, /WX disabled, and zero-warning build validation.
 - Prefer value types and deterministic RAII. Use `wil::com_ptr_nothrow<T>` for COM ownership in HRESULT-based code, WIL
   unique wrappers for Windows resources, and standard smart pointers for heap ownership. Apply the `wil-raii` skill.
 - Delete copying for unique resource owners. Make cleanup idempotent so partial initialization remains safe.

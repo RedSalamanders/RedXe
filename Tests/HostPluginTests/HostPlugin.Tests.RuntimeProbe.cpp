@@ -1,5 +1,5 @@
-#include "../../RedXe/PluginHost.h"
-#include "../../RedXe/RuntimeProbe.h"
+#include "RedXe/PluginHost.h"
+#include "RedXe/RuntimeProbe.h"
 #include <array>
 #include <filesystem>
 #include <fstream>

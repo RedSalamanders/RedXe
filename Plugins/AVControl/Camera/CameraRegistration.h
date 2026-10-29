@@ -7,6 +7,10 @@ namespace AVControl::Camera
 {
 // Per-user persistent software-camera identity. This object only manages the official virtual-device API;
 // physical capture remains in CaptureReader. Registration of the source DLL itself is an explicit installer step.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class VirtualCameraRoute final
 {
   public:
@@ -24,4 +28,6 @@ class VirtualCameraRoute final
     struct State;
     std::unique_ptr<State> _state;
 };
+#pragma warning(pop)
+
 } // namespace AVControl::Camera

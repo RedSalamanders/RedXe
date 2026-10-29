@@ -20,7 +20,7 @@ Use the WIL package from `vcpkg.json`. Do not add a second WIL copy or return to
 - Keep every resource under one explicit owner immediately after successful creation. Cleanup must remain safe after
   partial initialization.
 
-Wrap the WIL include locally because the project treats its own warnings as errors:
+Wrap the WIL include locally to isolate reviewed vendor diagnostics; owned code must pass zero-warning validation:
 
 ```cpp
 #pragma warning(push)

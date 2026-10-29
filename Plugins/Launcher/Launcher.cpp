@@ -237,6 +237,10 @@ bool CopyWide(const wchar_t* source, wchar_t* destination, size_t capacity) noex
                                 static_cast<int>(suffixLength), TRUE) == CSTR_EQUAL;
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct ShortcutRecord final
 {
     wchar_t target[kTargetCapacity]{};
@@ -252,13 +256,19 @@ struct ShortcutRecord final
     std::unique_ptr<uint8_t[]> bgra;
     uint32_t sourceEdge = 0;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct LauncherConfiguration final
 {
     uint32_t count = 0;
     LauncherIconSize iconSize = LauncherIconSize::Automatic;
     std::array<ShortcutRecord, kMaximumShortcuts> items{};
 };
+#pragma warning(pop)
 
 struct alignas(16) LauncherConstants final
 {
@@ -654,9 +664,17 @@ struct IconCacheKey final
 }
 
 // UI-thread-owned process cache. Retains only decoded pixels, never a Shell/COM/GDI/GPU owner or a worker.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class IconCache final
 {
   public:
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
     struct Entry final
     {
         IconCacheKey key{};
@@ -664,6 +682,7 @@ class IconCache final
         uint32_t sourceEdge = 0;
         bool valid = false;
     };
+#pragma warning(pop)
 
     [[nodiscard]] Entry* Find(const IconCacheKey& key) noexcept
     {
@@ -757,6 +776,8 @@ class IconCache final
     std::array<Entry, kIconCacheCapacity> _entries{};
     uint32_t _next = 0;
 };
+#pragma warning(pop)
+
 static_assert(sizeof(IconCache) < 24 * 1024);
 IconCache gIconCache;
 // UI synchronous activation and the single STA construction lane share the same bounded pixel cache. Never hold
@@ -904,6 +925,10 @@ void InvalidateIconCache(const wchar_t* target) noexcept
 
 // File metadata is fresh for this call, never synthesized or retained across refreshes. Shell parsing
 // still chooses the native folder/handler. Bind contexts own this object only during parent creation.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class ShellParentFileData final : public RedXeComObject<ShellParentFileData, IFileSystemBindData>
 {
   public:
@@ -925,6 +950,7 @@ class ShellParentFileData final : public RedXeComObject<ShellParentFileData, IFi
   private:
     WIN32_FIND_DATAW _found{};
 };
+#pragma warning(pop)
 
 [[nodiscard]] HRESULT CreateShellParentItem(const wchar_t* path, LauncherShellTimings* timings,
                                             LauncherShellParentFailure failure,
@@ -1856,13 +1882,22 @@ void CopyConfigurationIdentity(const LauncherConfiguration& source, LauncherConf
 }
 
 class LauncherWidget;
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 struct LauncherConstructionLifetime final
 {
     // Only the UI thread reads/writes owner. Run reads generation alone; it never borrows the widget or provider.
     LauncherWidget* owner = nullptr;
     std::atomic<uint64_t> generation{0};
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class LauncherConstructionWork final : public RedXeComObject<LauncherConstructionWork, IRedXeConstructionWork>
 {
   public:
@@ -1967,7 +2002,12 @@ class LauncherConstructionWork final : public RedXeComObject<LauncherConstructio
     uint64_t _generation;
     uint64_t _queuedTick;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class LauncherWidget final
     : public RedXeComObject<LauncherWidget, IRedXeWidget, IRedXeGpuWidget, IRedXePreparedGpuWidget,
                             IRedXeConstructionStateWidget, IRedXeInteractiveWidget, IRedXeRaisedWidget>
@@ -3088,6 +3128,7 @@ class LauncherWidget final
     bool _dragHighlight = false;
     bool _dirty = false;
 };
+#pragma warning(pop)
 
 void LauncherConstructionWork::Complete(HRESULT result) noexcept
 {
@@ -3095,6 +3136,10 @@ void LauncherConstructionWork::Complete(HRESULT result) noexcept
         _lifetime->owner->PublishConstruction(*this, result);
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class LauncherProvider final : public RedXeComObject<LauncherProvider, IRedXeWidgetProvider>
 {
   public:
@@ -3165,6 +3210,7 @@ class LauncherProvider final : public RedXeComObject<LauncherProvider, IRedXeWid
     uint32_t _backgroundRgb;
     IRedXeHost* _host = nullptr;
 };
+#pragma warning(pop)
 
 HRESULT CreateLauncherProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
                                void** result) noexcept

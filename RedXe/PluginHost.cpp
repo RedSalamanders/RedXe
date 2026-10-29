@@ -419,6 +419,10 @@ void SortDueDataSets(std::array<const char*, RedXeDataCollectMaximumDataSets>& i
 }
 } // namespace
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class PluginHost::DataProvider final : public RedXeComObject<PluginHost::DataProvider, IRedXeDataProvider>
 {
   public:
@@ -454,7 +458,12 @@ class PluginHost::DataProvider final : public RedXeComObject<PluginHost::DataPro
     PluginHost* _host;
     size_t _providerIndex;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class PluginHost::Subscription final : public RedXeComObject<PluginHost::Subscription, IRedXeDataSubscription>
 {
   public:
@@ -480,6 +489,7 @@ class PluginHost::Subscription final : public RedXeComObject<PluginHost::Subscri
     size_t _index;
     uint64_t _token;
 };
+#pragma warning(pop)
 
 PluginHost::~PluginHost()
 {
@@ -826,6 +836,9 @@ HRESULT PluginHost::QueryAvProbeStatistics(AVControl::ProbeStatistics& statistic
     const size_t index = FindBundledPluginIndex("builtin.av-control");
     if (index >= _modules.size() || !_modules[index].module)
         return S_FALSE;
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     const auto query = reinterpret_cast<AVControl::QueryProbeStatisticsFn>(
         GetProcAddress(_modules[index].module.get(), "RedXeAVControlQueryProbeStatistics"));
     return query ? query(&statistics) : E_NOINTERFACE;
@@ -1916,6 +1929,7 @@ HRESULT PluginHost::EnsurePublisherContract(PublisherSlot& slot) noexcept
         return HRESULT_FROM_WIN32(ERROR_NOT_READY);
     case ActionPublisherState::Unavailable:
         return HRESULT_FROM_WIN32(ERROR_NOT_READY);
+    case ::PluginHost::ActionPublisherState::Unresolved:
     default:
         break;
     }

@@ -1,5 +1,5 @@
-#include "../../RedXe/ControlWorkQueue.h"
 #include "PlugInterfaces/FactoryImpl.h"
+#include "RedXe/ControlWorkQueue.h"
 
 #include <atomic>
 #include <stdexcept>
@@ -13,6 +13,10 @@ void Check(bool value, const char* message)
     if (!value)
         throw std::runtime_error(message);
 }
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Work final : public RedXeComObject<Work, IRedXeControlWork>
 {
   public:
@@ -49,6 +53,8 @@ class Work final : public RedXeComObject<Work, IRedXeControlWork>
     bool completedOnOwner = true;
     HRESULT lastResult = E_PENDING;
 };
+#pragma warning(pop)
+
 } // namespace
 
 uint32_t RunControlWorkQueueTests()

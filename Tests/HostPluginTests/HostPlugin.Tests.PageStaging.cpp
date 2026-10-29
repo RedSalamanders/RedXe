@@ -1,4 +1,4 @@
-#include "../../RedXe/PluginManager.h"
+#include "RedXe/PluginManager.h"
 #include <chrono>
 #include <cstring>
 #include <filesystem>

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../Common/ProcessResources.h"
-#include "../Plugins/AVControl/AVControlDiagnostics.h"
+#include "Common/ProcessResources.h"
+#include "Plugins/AVControl/AVControlDiagnostics.h"
 #include <algorithm>
 #include <array>
 #include <chrono>

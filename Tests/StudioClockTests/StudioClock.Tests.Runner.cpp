@@ -1,4 +1,4 @@
-#include "../../Common/FailureReports.h"
+#include "Common/FailureReports.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
 #include "StudioClock.Tests.Contract.h"
@@ -612,7 +612,7 @@ void ValidateInterfacesAndScheduling(const Exports& exports)
 std::atomic<uint64_t> gRenderAllocationCount{0};
 std::atomic<DWORD> gRenderThreadId{0};
 
-int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*, int)
+int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*, int) noexcept
 {
     if (GetCurrentThreadId() == gRenderThreadId.load(std::memory_order_relaxed) && allocationType != _CRT_BLOCK)
     {
@@ -639,6 +639,9 @@ void ValidateAllocationFreeRender(IRedXeGpuWidget& widget, RenderTarget& target)
     {
         result = RenderOnly(widget, target);
     }
+    // The CRT return type erases noexcept; restore the exact previous hook unchanged.
+    // Owner: RedXe test maintainers; review: 2027-01-31.
+#pragma warning(suppress : 5039)
     (void)_CrtSetAllocHook(previousHook);
     gRenderThreadId.store(0, std::memory_order_relaxed);
     Expect(SUCCEEDED(result) && gRenderAllocationCount.load(std::memory_order_relaxed) == 0,

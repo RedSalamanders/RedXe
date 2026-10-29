@@ -1,14 +1,18 @@
 #pragma once
-#include "../../Common/PlugInterfaces/FactoryImpl.h"
-#include "../../Common/PlugInterfaces/Widget.h"
 #include "AVControlBroker.h"
 #include "AVControlView.h"
+#include "Common/PlugInterfaces/FactoryImpl.h"
+#include "Common/PlugInterfaces/Widget.h"
 #include <optional>
 
 namespace AVControl
 {
 // One per loaded AV module. Public methods/acknowledged state are UI-thread affine; Run alone owns the broker.
 // The host retains this object through its control completion and drains the lane before module shutdown.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class Coordinator final : public RedXeComObject<Coordinator, IRedXeControlWork>
 {
   public:
@@ -99,4 +103,6 @@ class Coordinator final : public RedXeComObject<Coordinator, IRedXeControlWork>
     [[nodiscard]] bool HasPending() noexcept;
     void Invalidate() noexcept;
 };
+#pragma warning(pop)
+
 } // namespace AVControl

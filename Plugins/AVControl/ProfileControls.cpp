@@ -475,7 +475,7 @@ void ProfileControls::Prepare(float width, float height)
     const bool editing = _mode == Mode::Editor;
     const float bodyWidth = width - 16;
     Bounds(_back, 8, 8, 48, 48);
-    Bounds(_title, 64, 8, bodyWidth - (editing && _editingIndex < _configuration.count ? 112 : 56), 48);
+    Bounds(_title, 64, 8, bodyWidth - (editing && _editingIndex < _configuration.count ? 112.0f : 56.0f), 48);
     _title->SetText(editing                      ? (width < 240 ? L"Edit" : L"Profile")
                     : _mode == Mode::Definitions ? (width < 320 ? L"Define" : L"Define profiles")
                                                  : L"Profiles");
@@ -506,7 +506,10 @@ void ProfileControls::Prepare(float width, float height)
         if (_pageCount > 1)
             available = height - 132;
         wchar_t title[64]{};
-        swprintf_s(title, width < 320 ? L"%u / %u" : L"Camera setup · %u / %u", _page + 1, _pageCount);
+        if (width < 320)
+            swprintf_s(title, L"%u / %u", _page + 1, _pageCount);
+        else
+            swprintf_s(title, L"Camera setup · %u / %u", _page + 1, _pageCount);
         _title->SetText(title);
         _title->SetAccessibleName(std::wstring(L"Camera setup, step ") + std::to_wstring(_page + 1) + L" of " +
                                   std::to_wstring(_pageCount));
@@ -533,12 +536,13 @@ void ProfileControls::Prepare(float width, float height)
             available = height - 132;
             perPage = paginate(available);
         }
-        const float fieldWidth = (bodyWidth - (columns - 1) * 16.0f) / columns;
-        const float rowHeight = (std::min)(88.0f, available / (std::max)(1U, perPage / columns));
+        const float fieldWidth = (bodyWidth - static_cast<float>(columns - 1) * 16.0f) / static_cast<float>(columns);
+        const float rowHeight = (std::min)(88.0f, available / static_cast<float>((std::max)(1U, perPage / columns)));
         for (uint32_t slot = 0; slot < perPage && _page * perPage + slot < fields; ++slot)
         {
             const uint32_t field = _page * perPage + slot;
-            const float x = 8 + (slot % columns) * (fieldWidth + 16), y = 56 + (slot / columns) * rowHeight;
+            const float x = 8 + static_cast<float>(slot % columns) * (fieldWidth + 16),
+                        y = 56 + static_cast<float>(slot / columns) * rowHeight;
             _fields[field]->SetVisible(true);
             _captions[field]->SetVisible(true);
             Bounds(_captions[field], x, y, fieldWidth, 20);
@@ -572,7 +576,7 @@ void ProfileControls::Prepare(float width, float height)
             if (index == _configuration.count)
             {
                 _cameraSetup->SetVisible(true);
-                Bounds(_cameraSetup, 8, 56 + slot * 56.0f, bodyWidth, 48);
+                Bounds(_cameraSetup, 8, 56 + static_cast<float>(slot) * 56.0f, bodyWidth, 48);
                 continue;
             }
             _profiles[index]->SetText((_mode == Mode::Definitions ? L"Edit · " : L"") +
@@ -580,7 +584,7 @@ void ProfileControls::Prepare(float width, float height)
             _profiles[index]->SetAccessibleName((_mode == Mode::Definitions ? L"Edit profile " : L"Apply profile ") +
                                                 Wide(_configuration.profiles[index].name.View()));
             _profiles[index]->SetVisible(true);
-            Bounds(_profiles[index], 8, 56 + slot * 56.0f, bodyWidth, 48);
+            Bounds(_profiles[index], 8, 56 + static_cast<float>(slot) * 56.0f, bodyWidth, 48);
         }
     }
     for (size_t i = 0; i < 3; ++i)

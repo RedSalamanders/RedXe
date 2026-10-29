@@ -1,5 +1,5 @@
 #include "Settings.Tests.FrameRate.h"
-#include "../../RedXe/Settings.h"
+#include "RedXe/Settings.h"
 
 #include <array>
 #include <cstdio>

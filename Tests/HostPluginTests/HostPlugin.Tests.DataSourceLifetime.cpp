@@ -95,6 +95,10 @@ void Require(bool condition, const char* message)
         throw std::runtime_error(message);
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 struct Gate final
 {
     wil::unique_event_nothrow entered{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
@@ -108,7 +112,12 @@ struct Gate final
             timedOut.store(true);
     }
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 struct SourceProbe final
 {
     Gate collection;
@@ -117,6 +126,7 @@ struct SourceProbe final
     std::atomic<uint32_t> destructions{0};
     bool pauseCollection = false;
 };
+#pragma warning(pop)
 
 constexpr RedXeDataColumnDescriptor kColumns[] = {
     {sizeof(RedXeDataColumnDescriptor), "value", L"Value", L"", RedXeDataValueTypeUInt64},
@@ -125,6 +135,10 @@ constexpr RedXeDataSetDescriptor kDataSets[] = {
     {sizeof(RedXeDataSetDescriptor), "cpu.summary", L"CPU", L"Controlled source", kColumns, 1, 1, 1000, 0},
 };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class ControlledSource final : public RedXeComObject<ControlledSource, IRedXeDataSource>
 {
   public:
@@ -183,7 +197,12 @@ class ControlledSource final : public RedXeComObject<ControlledSource, IRedXeDat
     std::array<const RedXeDataSnapshot*, 1> _snapshots{&_snapshot};
     RedXeDataCollectResult _result{};
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class ControlledSink final : public RedXeComObject<ControlledSink, IRedXeDataSink>
 {
   public:
@@ -211,6 +230,7 @@ class ControlledSink final : public RedXeComObject<ControlledSink, IRedXeDataSin
     Gate* _callbackGate;
     const char* _dataSetId;
 };
+#pragma warning(pop)
 
 wil::com_ptr_nothrow<IRedXeDataProvider> Provider(PluginHost& host)
 {

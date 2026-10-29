@@ -41,6 +41,10 @@ bool DecodeCameraId(const DeviceId& id, std::array<wchar_t, MaximumDeviceIdBytes
            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
                                result.data(), static_cast<int>(result.size() - 1)) > 0;
 }
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class PhysicalCapture final : public Camera::CaptureSession
 {
   public:
@@ -61,7 +65,13 @@ class PhysicalCapture final : public Camera::CaptureSession
   private:
     Camera::CaptureReader _reader;
 };
+#pragma warning(pop)
+
 } // namespace
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct WindowsCameraBackend::State final
 {
     Camera::VirtualCameraRoute route;
@@ -241,6 +251,8 @@ struct WindowsCameraBackend::State final
         }
     }
 };
+#pragma warning(pop)
+
 WindowsCameraBackend::WindowsCameraBackend() : _state(std::make_unique<State>()) {}
 WindowsCameraBackend::~WindowsCameraBackend() = default;
 void WindowsCameraBackend::SetPreferences(const DevicePreferences<MaximumCameras>& preferences) noexcept

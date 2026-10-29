@@ -1,9 +1,9 @@
-#include "../../Common/FailureReports.h"
-#include "../../Plugins/DeskClock/DeskClock.Tests.Contract.h"
+#include "Common/FailureReports.h"
 #include "DeskClockReferencePixelShader.h"
 #include "DeskClockReferenceVertexShader.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Widget.h"
+#include "Plugins/DeskClock/DeskClock.Tests.Contract.h"
 
 #include <array>
 #include <atomic>
@@ -41,7 +41,7 @@ uint64_t gOriginalDrawPixelChecks = 0;
 uint64_t gGpuWorkChecks = 0;
 
 #if defined(_DEBUG)
-int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*, int)
+int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*, int) noexcept
 {
     if (allocationType != _HOOK_FREE && GetCurrentThreadId() == gRenderThread.load(std::memory_order_relaxed))
     {
@@ -53,6 +53,9 @@ int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, 
 
 template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, const char* name) noexcept
 {
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     return reinterpret_cast<Function>(GetProcAddress(module, name));
 }
 
@@ -740,6 +743,9 @@ struct PixelBounds final
             break;
         }
     }
+    // The CRT return type erases noexcept; restore the exact previous hook unchanged.
+    // Owner: RedXe test maintainers; review: 2027-01-31.
+#pragma warning(suppress : 5039)
     (void)_CrtSetAllocHook(previous);
     gRenderThread.store(0, std::memory_order_relaxed);
     if (FAILED(result))
@@ -759,8 +765,8 @@ struct PixelBounds final
     return S_OK;
 }
 
-[[nodiscard]] HRESULT WaitForQuery(ID3D11DeviceContext& context, ID3D11Query& query, void* data,
-                                   uint32_t dataBytes) noexcept
+[[nodiscard, maybe_unused]] HRESULT WaitForQuery(ID3D11DeviceContext& context, ID3D11Query& query, void* data,
+                                                 uint32_t dataBytes) noexcept
 {
     for (uint32_t attempt = 0; attempt < 100'000; ++attempt)
     {
@@ -1618,7 +1624,7 @@ struct PixelBounds final
         }
         if (SUCCEEDED(result))
         {
-            std::wprintf(L"Clock submission probe backend=%ls adapter=%ls luid=%08X-%08X.\n",
+            std::wprintf(L"Clock submission probe backend=%ls adapter=%ls luid=%08X-%08lX.\n",
                          driver == D3D_DRIVER_TYPE_WARP ? L"WARP" : L"default hardware", description.Description,
                          static_cast<unsigned int>(description.AdapterLuid.HighPart), description.AdapterLuid.LowPart);
         }

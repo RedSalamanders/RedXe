@@ -1,11 +1,11 @@
-#include "../../Common/FailureReports.h"
-#include "../../Plugins/Launcher/Launcher.Tests.Contract.h"
-#include "../../Plugins/Launcher/LauncherPaging.h"
-#include "../../Plugins/Launcher/LauncherShellPath.h"
+#include "Common/FailureReports.h"
 #include "Launcher.Tests.GlyphBatch.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
 #include "PlugInterfaces/Widget.h"
+#include "Plugins/Launcher/Launcher.Tests.Contract.h"
+#include "Plugins/Launcher/LauncherPaging.h"
+#include "Plugins/Launcher/LauncherShellPath.h"
 
 #include <algorithm>
 #include <array>
@@ -50,7 +50,7 @@ std::atomic<uint64_t> gRenderAllocations{0};
 std::atomic<DWORD> gRenderThread{0};
 
 #if defined(_DEBUG)
-int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*, int)
+int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*, int) noexcept
 {
     if (allocationType != _HOOK_FREE && GetCurrentThreadId() == gRenderThread.load(std::memory_order_relaxed))
     {
@@ -62,6 +62,9 @@ int __cdecl CountRenderAllocation(int allocationType, void*, size_t, int, long, 
 
 template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, const char* name) noexcept
 {
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     return reinterpret_cast<Function>(GetProcAddress(module, name));
 }
 
@@ -272,6 +275,10 @@ class TestHost final : public IRedXeHost, public IRedXeSettingsQueue
     std::string persistJson;
 };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class TestShellIconExtractor final : public IExtractIconW
 {
   public:
@@ -400,6 +407,7 @@ class TestShellIconExtractor final : public IExtractIconW
     bool unterminatedShield = false;
     bool unterminatedLocation = false;
 };
+#pragma warning(pop)
 
 [[nodiscard]] HRESULT ValidateSingleShellIcon(LauncherTestShellHandlerFn extract) noexcept
 {
@@ -468,7 +476,7 @@ class TestShellIconExtractor final : public IExtractIconW
     {
         const bool completed = (timings.completedMask & (1U << index)) != 0;
         if (completed != (timings.phaseCalls[index] != 0) ||
-            (!completed && (timings.phaseTicks[index] || timings.phaseResults[index])))
+            (!completed && (timings.phaseTicks[index] != 0 || timings.phaseResults[index] != S_OK)))
             return false;
         measured += timings.phaseTicks[index];
     }
@@ -549,7 +557,7 @@ class TestShellIconExtractor final : public IExtractIconW
     LauncherShellTimings timings{sizeof(LauncherShellTimings)};
     TestShellIconExtractor extractor;
     extractor.allowShieldCheck = true;
-    const UINT baseFlags = GIL_PERINSTANCE | (opaque ? GIL_NOTFILENAME : 0);
+    const UINT baseFlags = GIL_PERINSTANCE | (opaque ? GIL_NOTFILENAME : 0u);
     extractor.locationFlags = baseFlags;
     if (FAILED(extractor.Initialize()) || control(1, &diagnostics) != S_OK || diagnostics.allocatedBytes ||
         diagnostics.residentCount || diagnostics.capacity != 8 || control(0, nullptr) != E_POINTER ||
@@ -1242,7 +1250,8 @@ struct RenderTarget final
     if (!folder)
         return HRESULT_FROM_WIN32(GetLastError());
     DWORD returned = 0;
-    return DeviceIoControl(folder.get(), FSCTL_SET_REPARSE_POINT, &data, 8 + data.bytes, nullptr, 0, &returned, nullptr)
+    return DeviceIoControl(folder.get(), FSCTL_SET_REPARSE_POINT, &data, 8u + data.bytes, nullptr, 0, &returned,
+                           nullptr)
                ? S_OK
                : HRESULT_FROM_WIN32(GetLastError());
 }
@@ -2541,6 +2550,10 @@ struct RenderTarget final
     return S_OK;
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4626)
 class TextureLifetime final : public IUnknown
 {
   public:
@@ -2579,6 +2592,8 @@ class TextureLifetime final : public IUnknown
     std::atomic<uint32_t>& _live;
     ULONG _references = 1;
 };
+#pragma warning(pop)
+
 constexpr GUID kTextureLifetimeId{0x5A1D99B2, 0x79BA, 0x4E60, {0x89, 0x11, 0xA5, 0xC0, 0x1B, 0x38, 0x14, 0x11}};
 [[nodiscard]] HRESULT BoundIconTexture(RenderTarget& target, wil::com_ptr_nothrow<ID3D11Texture2D>& texture) noexcept
 {

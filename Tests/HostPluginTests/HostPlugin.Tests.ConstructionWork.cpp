@@ -1,8 +1,8 @@
-#include "../../RedXe/ConstructionWorkQueue.h"
-#include "../../RedXe/DashboardHost.h"
-#include "../../RedXe/PluginHost.h"
-#include "../../RedXe/Renderer.h"
 #include "PlugInterfaces/FactoryImpl.h"
+#include "RedXe/ConstructionWorkQueue.h"
+#include "RedXe/DashboardHost.h"
+#include "RedXe/PluginHost.h"
+#include "RedXe/Renderer.h"
 
 #include <atomic>
 #include <iostream>
@@ -40,12 +40,22 @@ struct PluginHostConstructionTestAccess final
 
 namespace
 {
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 struct Lifetime final
 {
     DWORD owner = GetCurrentThreadId();
     std::atomic<uint32_t> destroyed{0};
     std::atomic<bool> releasedOnOwner{true};
 };
+#pragma warning(pop)
+
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class Construction final : public RedXeComObject<Construction, IRedXeConstructionWork>
 {
   public:
@@ -105,6 +115,8 @@ class Construction final : public RedXeComObject<Construction, IRedXeConstructio
   private:
     Lifetime* _lifetime;
 };
+#pragma warning(pop)
+
 wil::com_ptr_nothrow<Construction> MakeConstruction(Lifetime* lifetime = nullptr)
 {
     wil::com_ptr_nothrow<Construction> result;
@@ -245,13 +257,19 @@ void TestConstructionWork(bool& success) noexcept
               L"final job releases and their owned storage occur on the owner thread");
 
         {
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
             struct DelayedNotify final
             {
                 wil::unique_event_nothrow entered;
                 wil::unique_event_nothrow release;
                 wil::unique_event_nothrow delivered;
                 wil::unique_event_nothrow notification;
-            } delayed;
+            }
+#pragma warning(pop)
+            delayed;
             THROW_IF_FAILED(delayed.entered.create());
             THROW_IF_FAILED(delayed.release.create(wil::EventOptions::ManualReset));
             THROW_IF_FAILED(delayed.delivered.create());

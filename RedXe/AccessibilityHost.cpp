@@ -87,7 +87,7 @@ struct AccessibilityHost::State final
         if (!Ready())
             return UIA_E_ELEMENTNOTAVAILABLE;
         if (direction == NavigateDirection_Parent)
-            return root ? root->QueryInterface(IID_PPV_ARGS(result)) : UIA_E_ELEMENTNOTAVAILABLE;
+            return root ? root->QueryInterface(IID_PPV_ARGS(result)) : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
         const bool reverse = direction == NavigateDirection_PreviousSibling || direction == NavigateDirection_LastChild;
         const bool child = direction == NavigateDirection_FirstChild || direction == NavigateDirection_LastChild;
         if (!child && direction != NavigateDirection_NextSibling && direction != NavigateDirection_PreviousSibling)
@@ -101,6 +101,10 @@ struct AccessibilityHost::State final
     }
 };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 struct AccessibilityHost::Site final : RedXeComObject<Site, IRedXeAccessibilitySite>
 {
     Site(const std::shared_ptr<State>& state, size_t index, uint64_t identity) noexcept
@@ -134,7 +138,7 @@ struct AccessibilityHost::Site final : RedXeComObject<Site, IRedXeAccessibilityS
     HRESULT STDMETHODCALLTYPE RequestFocus() noexcept override
     {
         const auto active = state.lock();
-        return active ? active->Queue(index, identity, true) : UIA_E_ELEMENTNOTAVAILABLE;
+        return active ? active->Queue(index, identity, true) : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     void STDMETHODCALLTYPE ActionCompleted() noexcept override
     {
@@ -142,7 +146,12 @@ struct AccessibilityHost::Site final : RedXeComObject<Site, IRedXeAccessibilityS
             (void)active->Queue(index, identity, false);
     }
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 struct AccessibilityHost::Root final
     : RedXeComObject<Root, IRawElementProviderSimple, IRawElementProviderFragment, IRawElementProviderFragmentRoot>
 {
@@ -161,7 +170,7 @@ struct AccessibilityHost::Root final
         if (!result)
             return E_POINTER;
         *result = nullptr;
-        return state->Ready() ? S_OK : UIA_E_ELEMENTNOTAVAILABLE;
+        return state->Ready() ? S_OK : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     HRESULT STDMETHODCALLTYPE GetPropertyValue(PROPERTYID id, VARIANT* result) noexcept override
     {
@@ -205,7 +214,8 @@ struct AccessibilityHost::Root final
         if (!result)
             return E_POINTER;
         *result = nullptr;
-        return state->Ready() ? UiaHostProviderFromHwnd(state->window, result) : UIA_E_ELEMENTNOTAVAILABLE;
+        return state->Ready() ? UiaHostProviderFromHwnd(state->window, result)
+                              : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     HRESULT STDMETHODCALLTYPE Navigate(NavigateDirection direction,
                                        IRawElementProviderFragment** result) noexcept override
@@ -224,7 +234,7 @@ struct AccessibilityHost::Root final
         if (!result)
             return E_POINTER;
         *result = nullptr; // The HWND host provider supplies the root runtime ID.
-        return state->Ready() ? S_OK : UIA_E_ELEMENTNOTAVAILABLE;
+        return state->Ready() ? S_OK : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     HRESULT STDMETHODCALLTYPE get_BoundingRectangle(UiaRect* result) noexcept override
     {
@@ -246,7 +256,7 @@ struct AccessibilityHost::Root final
         if (!result)
             return E_POINTER;
         *result = nullptr; // Widget providers are direct fragment children, not HWND-hosted nested fragments.
-        return state->Ready() ? S_OK : UIA_E_ELEMENTNOTAVAILABLE;
+        return state->Ready() ? S_OK : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     HRESULT STDMETHODCALLTYPE SetFocus() noexcept override
     {
@@ -264,7 +274,7 @@ struct AccessibilityHost::Root final
         if (!result)
             return E_POINTER;
         *result = nullptr;
-        return state->Ready() ? QueryInterface(IID_PPV_ARGS(result)) : UIA_E_ELEMENTNOTAVAILABLE;
+        return state->Ready() ? QueryInterface(IID_PPV_ARGS(result)) : static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     }
     HRESULT STDMETHODCALLTYPE ElementProviderFromPoint(double x, double y,
                                                        IRawElementProviderFragment** result) noexcept override
@@ -308,6 +318,7 @@ struct AccessibilityHost::Root final
         return S_OK;
     }
 };
+#pragma warning(pop)
 
 HRESULT AccessibilityHost::Create(HWND window, std::unique_ptr<AccessibilityHost>& result) noexcept
 {

@@ -214,6 +214,25 @@ try {
         Assert-CleanRestore $repair $commit "the restore that replaced $state is the clean checkout of the commit"
     }
 
+    # --- A short source locator preserves another complete source identity ---
+    $shortSource = Join-Path $testRoot ('short-conflict/source/' + $commit.Substring(0, 16))
+    Invoke-Git clone -q --no-hardlinks $fixture $shortSource | Out-Null
+    [IO.File]::AppendAllText((Join-Path $shortSource 'README.md'), "another complete identity`n")
+    Invoke-Git -C $shortSource -c user.name=fixture -c user.email=fixture@example.invalid commit -q -a -m 'conflicting source identity' | Out-Null
+    $conflictingCommit = ((Invoke-Git -C $shortSource rev-parse HEAD) -join '').Trim()
+    $preserved = Join-Path $shortSource 'keep-local-evidence.txt'
+    [IO.File]::WriteAllText($preserved, 'preserve this source and local evidence')
+    $beforeReadme = [IO.File]::ReadAllText((Join-Path $shortSource 'README.md'))
+    Assert-Throws {
+        Restore-RedXeDxUiSource -Repository 'https://github.com/RedSalamanders/DxUi' -Commit $commit -Destination $shortSource -CloneFrom $fixture
+    } 'shortened source identity conflict' 'a short source locator refuses another complete commit identity'
+    Assert-That ((((Invoke-Git -C $shortSource rev-parse HEAD) -join '').Trim() -ceq $conflictingCommit) -and
+        [IO.File]::ReadAllText((Join-Path $shortSource 'README.md')) -ceq $beforeReadme -and
+        [IO.File]::ReadAllText($preserved) -ceq 'preserve this source and local evidence') `
+        'the refused short source conflict preserves its commit, tracked contents and local evidence'
+    Assert-That (@(Get-ChildItem -LiteralPath (Split-Path -Parent $shortSource) -Force | Where-Object Name -like '~*').Count -eq 0) `
+        'the refused short source conflict creates no replacement clone'
+
     # --- A failed restore leaves nothing behind ---
     $missingCommit = 'e' * 40
     $failed = Join-Path $testRoot "failures/source/$missingCommit"
@@ -487,7 +506,7 @@ try {
     Assert-That ((Get-RedXeDxUiCloneSource -RepoRoot $productRoot -Commit ('b' * 40)) -eq '') 'a sibling without the commit is not used'
     $pinRestore = Restore-RedXeDxUiPin -RepoRoot $productRoot
     Assert-That ($pinRestore.Source -ieq (Get-RedXeDxUiSourcePath -RepoRoot $productRoot -Commit $siblingCommit)) 'the pin restores under .build/dependencies/DxUi/source/<commit>'
-    Assert-That ([IO.File]::Exists((Join-Path (Get-RedXeDxUiDependencyRoot -RepoRoot $productRoot) "leases/source.$siblingCommit"))) `
+    Assert-That ([IO.File]::Exists((Join-Path (Get-RedXeDxUiDependencyRoot -RepoRoot $productRoot) "leases/source.$($siblingCommit.Substring(0,16))"))) `
         'the pin restore renews the lease of the source it returns'
     Assert-That ([IO.File]::Exists((Join-Path $pinRestore.Source 'capabilities.json')) -and -not [IO.Directory]::Exists((Join-Path $pinRestore.Source 'Specs'))) `
         'the pin restore is the sparse checkout'

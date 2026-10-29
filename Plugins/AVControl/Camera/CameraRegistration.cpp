@@ -42,6 +42,10 @@ HRESULT CurrentOwner(std::wstring& result) noexcept
     }
 }
 } // namespace
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct VirtualCameraRoute::State final
 {
     wil::unique_hmodule module;
@@ -67,6 +71,8 @@ struct VirtualCameraRoute::State final
         return S_OK;
     }
 };
+#pragma warning(pop)
+
 VirtualCameraRoute::VirtualCameraRoute() : _state(std::make_unique<State>()) {}
 VirtualCameraRoute::~VirtualCameraRoute()
 {
@@ -81,7 +87,7 @@ HRESULT VirtualCameraRoute::ProbeInstalledSource() noexcept
     const LSTATUS status = RegGetValueW(HKEY_LOCAL_MACHINE, SourceKey, nullptr, RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,
                                         nullptr, registered.data(), &bytes);
     if (status != ERROR_SUCCESS)
-        return HRESULT_FROM_WIN32(status);
+        return HRESULT_FROM_WIN32(static_cast<DWORD>(status));
     wil::unique_cotaskmem_string programFiles;
     RETURN_IF_FAILED(SHGetKnownFolderPath(FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, nullptr, programFiles.put()));
     try

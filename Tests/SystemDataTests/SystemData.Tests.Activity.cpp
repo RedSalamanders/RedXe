@@ -1,5 +1,5 @@
-#include "../../Plugins/SystemData/NativeQuery.h"
-#include "../../Plugins/SystemData/SystemData.Tests.Contract.h"
+#include "Plugins/SystemData/NativeQuery.h"
+#include "Plugins/SystemData/SystemData.Tests.Contract.h"
 
 #include <algorithm>
 #include <array>

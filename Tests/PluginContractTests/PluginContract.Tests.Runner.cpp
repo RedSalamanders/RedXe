@@ -1,4 +1,4 @@
-#include "../../Common/FailureReports.h"
+#include "Common/FailureReports.h"
 #include "PlugInterfaces/Data.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
@@ -871,6 +871,9 @@ struct MatrixRenderTarget final
             break;
         }
     }
+    // The CRT return type erases noexcept; restore the exact previous hook unchanged.
+    // Owner: RedXe test maintainers; review: 2027-01-31.
+#pragma warning(suppress : 5039)
     (void)_CrtSetAllocHook(previousHook);
     gMatrixRenderThreadId.store(0, std::memory_order_relaxed);
     if (FAILED(renderResult))

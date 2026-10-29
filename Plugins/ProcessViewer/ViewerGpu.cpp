@@ -83,12 +83,17 @@ std::atomic<bool> g_failNextGlyphPreparationForTest{false};
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 struct DirectWriteSession final
 {
     wil::unique_hmodule module;
     wil::com_ptr_nothrow<IDWriteFactory> factory;
     wil::com_ptr_nothrow<IDWriteFontFace> face;
 };
+#pragma warning(pop)
 
 [[nodiscard]] HRESULT OpenDirectWrite(DirectWriteSession& session) noexcept
 {
@@ -99,6 +104,9 @@ struct DirectWriteSession final
     }
     using DWriteCreateFactoryFn = HRESULT(WINAPI*)(DWRITE_FACTORY_TYPE, REFIID, IUnknown**);
     const auto createFactory =
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
         reinterpret_cast<DWriteCreateFactoryFn>(GetProcAddress(session.module.get(), "DWriteCreateFactory"));
     if (!createFactory)
     {

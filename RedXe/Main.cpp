@@ -1,6 +1,6 @@
-#include "../Common/FailureReports.h"
 #include "Application.h"
 #include "CommandLine.h"
+#include "Common/FailureReports.h"
 #include "CrashHandler.h"
 #include "DockOptions.h"
 #include "MonitorDiagnostics.h"
@@ -155,7 +155,8 @@ void EmitCommandLineText(const std::wstring& text, bool error, bool quiet) noexc
         OutputDebugStringW(text.c_str());
         return;
     }
-    MessageBoxW(nullptr, text.c_str(), L"RedXe command line", MB_OK | (error ? MB_ICONERROR : MB_ICONINFORMATION));
+    MessageBoxW(nullptr, text.c_str(), L"RedXe command line",
+                static_cast<UINT>(MB_OK | (error ? MB_ICONERROR : MB_ICONINFORMATION)));
 }
 
 // A switch with a missing or invalid value (exit 2): a message box for a person; an unattended run

@@ -104,7 +104,7 @@ HRESULT BridgeServer::Listen(bool first) noexcept
     SECURITY_ATTRIBUTES attributes{sizeof(attributes), _security.get(), FALSE};
     _listener.reset(CreateNamedPipeW(
         _identity.pipeName.c_str(),
-        PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
+        PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : DWORD{0}),
         PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
         static_cast<DWORD>(MaximumConsumers + 1), sizeof(BridgeHello), sizeof(BridgeHello), 0, &attributes));
     if (!_listener)

@@ -54,6 +54,7 @@ const wchar_t* AvailabilityText(Availability value) noexcept
         return L"Busy";
     case Availability::Unsupported:
         return L"N/A";
+    case ::AVControl::Availability::Failed:
     default:
         return L"Error";
     }
@@ -64,6 +65,10 @@ bool CanRetryCamera(const CameraState& state) noexcept
            (state.availability == Availability::AccessDenied || state.availability == Availability::Busy ||
             state.availability == Availability::Failed);
 }
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class ViewSurface final : public DxUi::Panel
 {
   public:
@@ -77,8 +82,14 @@ class ViewSurface final : public DxUi::Panel
         DxUi::Panel::Paint(host);
     }
 };
+#pragma warning(pop)
+
 // Preserve the card presentation and command callback while exposing the retained Toggle pattern. Only a
 // confirmed backend snapshot changes checked state; pointer, keyboard and UIA activation never flip it locally.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class ConfirmedToggle final : public DxUi::Toggle
 {
   public:
@@ -99,13 +110,21 @@ class ConfirmedToggle final : public DxUi::Toggle
         return DxUi::Button::OnMnemonic(host);
     }
 };
+#pragma warning(pop)
+
 // Leading slider icons must receive the same mute command as the device cards. Labels do not hit-test, so this
 // paints nothing and sits behind the glyph/value as the 48 DIP touch target.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class LevelMuteButton final : public DxUi::Button
 {
   public:
     void Paint(DxUi::ControlHost&) const override {}
 };
+#pragma warning(pop)
+
 } // namespace
 
 HRESULT LiveView::Attach(std::shared_ptr<DxUi::GraphicsDevice> graphics, ViewCallbacks callbacks) noexcept
@@ -214,12 +233,17 @@ void LiveView::ApplyTheme()
     theme.highContrast = (_appearance.flags & RedXeAppearanceHighContrast) != 0;
     // The opaque view surface is the dashboard background so the AV tile matches its neighbours; cards and
     // controls keep the palette's raised surfaces. High contrast keeps the system window color below.
-    theme.windowBackground = D2D1::ColorF(((_backgroundRgb >> 16) & 255) / 255.0f,
-                                          ((_backgroundRgb >> 8) & 255) / 255.0f, (_backgroundRgb & 255) / 255.0f);
+    theme.windowBackground = D2D1::ColorF(static_cast<float>((_backgroundRgb >> 16) & 255) / 255.0f,
+                                          static_cast<float>((_backgroundRgb >> 8) & 255) / 255.0f,
+                                          static_cast<float>(_backgroundRgb & 255) / 255.0f);
     if (theme.highContrast)
     {
         const auto color = [](uint32_t argb) noexcept
-        { return D2D1::ColorF(((argb >> 16) & 255) / 255.0f, ((argb >> 8) & 255) / 255.0f, (argb & 255) / 255.0f); };
+        {
+            return D2D1::ColorF(static_cast<float>((argb >> 16) & 255) / 255.0f,
+                                static_cast<float>((argb >> 8) & 255) / 255.0f,
+                                static_cast<float>(argb & 255) / 255.0f);
+        };
         const auto window = color(_appearance.window), text = color(_appearance.windowText);
         const auto selected = color(_appearance.highlight), selectedText = color(_appearance.highlightText);
         const auto button = color(_appearance.button), buttonText = color(_appearance.buttonText);
@@ -298,7 +322,8 @@ void LiveView::SetState(const ConfirmedState& state, std::wstring_view profileNa
 
 void LiveView::Arrange()
 {
-    _livePanel->SetBounds(D2D1::RectF(0, 0, _width * 96.0f / _dpi, _height * 96.0f / _dpi));
+    _livePanel->SetBounds(D2D1::RectF(0, 0, static_cast<float>(_width) * 96.0f / static_cast<float>(_dpi),
+                                      static_cast<float>(_height) * 96.0f / static_cast<float>(_dpi)));
     const bool usable = _layout.density != Density::Unusable;
     const bool minimal = _layout.density == Density::Minimal;
     const bool fluent = _view.Controls().HasFluentIconFont();
@@ -457,7 +482,8 @@ HRESULT LiveView::Prepare(uint32_t width, uint32_t height, float dpi) noexcept
             _width = width;
             _height = height;
             _dpi = dpi;
-            _layout = LayoutLive(width * 96.0f / dpi, height * 96.0f / dpi);
+            _layout = LayoutLive(static_cast<float>(width) * 96.0f / static_cast<float>(dpi),
+                                 static_cast<float>(height) * 96.0f / static_cast<float>(dpi));
             Arrange();
             _modelDirty = true;
         }
@@ -499,7 +525,8 @@ HRESULT LiveView::Prepare(uint32_t width, uint32_t height, float dpi) noexcept
                     _retainedProfile.reset();
                 }
             }
-            _profileControls->Prepare(width * 96.0f / dpi, height * 96.0f / dpi);
+            _profileControls->Prepare(static_cast<float>(width) * 96.0f / static_cast<float>(dpi),
+                                      static_cast<float>(height) * 96.0f / static_cast<float>(dpi));
             if (_profileFocusPending || !_view.Controls().GetFocusControl())
             {
                 _view.Controls().SetFocusControl(_profileControls->InitialFocus());
@@ -605,7 +632,8 @@ HRESULT LiveView::HitText(uint64_t revision, float x, float y, uint32_t& index) 
     if (!_ready || !_visible)
         return S_FALSE;
     size_t acp = 0;
-    const HRESULT hr = _view.HitTestTextInput(revision, {x * 96 / _dpi, y * 96 / _dpi}, acp);
+    const HRESULT hr =
+        _view.HitTestTextInput(revision, {x * 96 / static_cast<float>(_dpi), y * 96 / static_cast<float>(_dpi)}, acp);
     if (hr == S_OK)
     {
         if (acp > kRedXeMaximumTextUnits)

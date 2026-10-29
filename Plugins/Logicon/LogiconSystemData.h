@@ -46,6 +46,10 @@ class SystemValuesListener
     ~SystemValuesListener() = default;
 };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class SystemDataFeed final : public RedXeComObject<SystemDataFeed, IRedXeDataSink>
 {
   public:
@@ -90,4 +94,6 @@ class SystemDataFeed final : public RedXeComObject<SystemDataFeed, IRedXeDataSin
     SystemValues _values{};
     bool _active = false;
 };
+#pragma warning(pop)
+
 } // namespace Logicon

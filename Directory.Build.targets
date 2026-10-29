@@ -82,4 +82,5 @@
   <Target Name="ValidateMsvcToolsVersion" BeforeTargets="PrepareForBuild" Condition="'$(MSBuildProjectExtension)'=='.vcxproj'">
     <Error Condition="!$([System.String]::Copy('$(VCToolsVersion)').StartsWith('$(RequiredMsvcToolsVersion).'))" Text="This project requires MSVC build tools $(RequiredMsvcToolsVersion).x; selected $(VCToolsVersion). Install and select the required default C++ toolset." />
   </Target>
+  <Import Project="$(MSBuildThisFileDirectory)Build/NativeBuildPolicy.targets" />
 </Project>

@@ -1397,18 +1397,36 @@ struct SourceLogicalStorage final
     std::array<RedXeDataValue, kRedXeMaximumLogicalProcessors * kCpuLogicalColumnCount> _cpuLogicalValues{};
     std::array<RedXeDataRow, kRedXeMaximumLogicalProcessors> _cpuLogicalRows{};
 };
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 struct SourceNetStorage final
 {
     RedXeNetStorageState _netStorage{};
 };
+#pragma warning(pop)
+
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 struct SourceGpuStorage final
 {
     RedXeGpuState _gpu{};
 };
+#pragma warning(pop)
+
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 struct SourcePowerStorage final
 {
     RedXePowerState _power{};
 };
+#pragma warning(pop)
+
 struct SourceStatusStorage final
 {
     std::array<RedXeDataValue, kStatusMaximumRows * kStatusColumnCount> _statusValues{};
@@ -1785,6 +1803,10 @@ std::atomic<uint32_t> gSourceGpuOwners{0};
 std::atomic<uint32_t> gSourceNetOwners{0};
 std::atomic<uint32_t> gSourcePowerOwners{0};
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDataSource, IRedXeSystemDataTestSource>
 {
   public:
@@ -4710,6 +4732,7 @@ class SystemDataSource final : public RedXeComObject<SystemDataSource, IRedXeDat
     RedXeDataSnapshot _npuProcessSnapshot{};
     RedXeDataSnapshot _securitySnapshot{};
 };
+#pragma warning(pop)
 
 static_assert(sizeof(SystemDataSource) <= kSourceControlRegionBytes);
 

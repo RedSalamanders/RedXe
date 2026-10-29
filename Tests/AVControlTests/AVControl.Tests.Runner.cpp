@@ -1,6 +1,6 @@
-#include "../../Common/FailureReports.h"
 #include "AVControlLayout.h"
 #include "AVControlModel.h"
+#include "Common/FailureReports.h"
 
 #include <array>
 #include <atomic>

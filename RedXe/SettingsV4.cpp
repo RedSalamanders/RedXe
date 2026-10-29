@@ -1,16 +1,16 @@
 #include "Settings.h"
 
-#include "../Plugins/5H4D3R5/ShadersSettings.h"
-#include "../Plugins/AVControl/AVControlModel.h"
-#include "../Plugins/AVControl/AVControlSettings.h"
-#include "../Plugins/Actions/Zoom/ZoomSettings.h"
-#include "../Plugins/Launcher/LauncherBindings.h"
-#include "../Plugins/Launcher/LauncherPaging.h"
-#include "../Plugins/Logicon/LogiconSettings.h"
-#include "../Plugins/StudioClock/StudioClockSettings.h"
 #include "BundledPlugins.h"
 #include "HostActionCatalog.h"
 #include "PlugInterfaces/Factory.h"
+#include "Plugins/5H4D3R5/ShadersSettings.h"
+#include "Plugins/AVControl/AVControlModel.h"
+#include "Plugins/AVControl/AVControlSettings.h"
+#include "Plugins/Actions/Zoom/ZoomSettings.h"
+#include "Plugins/Launcher/LauncherBindings.h"
+#include "Plugins/Launcher/LauncherPaging.h"
+#include "Plugins/Logicon/LogiconSettings.h"
+#include "Plugins/StudioClock/StudioClockSettings.h"
 #include "SettingsJsonText.h"
 
 #include <array>
@@ -38,8 +38,6 @@ using unique_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjs
 using unique_mut_doc = wil::unique_any<yyjson_mut_doc*, decltype(&yyjson_mut_doc_free), yyjson_mut_doc_free>;
 using unique_json = wil::unique_any<char*, decltype(&free), free>;
 
-constexpr char kTrianglePlugin[] = "builtin.rotating-triangle";
-constexpr char kGdiPlugin[] = "builtin.gdi-orbit";
 constexpr char kMatrixPlugin[] = "builtin.matrix-rain";
 constexpr char kProcessViewerPlugin[] = "builtin.process-viewer";
 constexpr char kNetworkMeterPlugin[] = "builtin.network-meter";
@@ -69,8 +67,9 @@ struct Declaration final
 [[nodiscard]] size_t Utf8CodePointCount(std::string_view text) noexcept
 {
     size_t count = 0;
-    for (const unsigned char value : text)
+    for (const char rawByte : text)
     {
+        const auto value = static_cast<unsigned char>(rawByte);
         if ((value & 0xC0U) != 0x80U)
             ++count;
     }

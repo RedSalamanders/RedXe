@@ -103,8 +103,10 @@ struct Fixture final
             // Sample inside the card, excluding its border and neighboring background.
             for (uint32_t y = 0; y < height; ++y)
                 for (uint32_t x = 0; x < width; ++x)
-                    if (x > expected.bounds.x + 8 && x < expected.bounds.x + expected.bounds.width - 8 &&
-                        y > expected.bounds.y + 8 && y < expected.bounds.y + expected.bounds.height - 8)
+                    if (static_cast<float>(x) > expected.bounds.x + 8 &&
+                        static_cast<float>(x) < expected.bounds.x + expected.bounds.width - 8 &&
+                        static_cast<float>(y) > expected.bounds.y + 8 &&
+                        static_cast<float>(y) < expected.bounds.y + expected.bounds.height - 8)
                     {
                         uint32_t pixel = 0;
                         memcpy(&pixel, pixels.data() + (size_t(y) * width + x) * 4, sizeof(pixel));
@@ -475,7 +477,7 @@ uint32_t RunNativeViewTests()
     Check(microphoneToggle && microphoneToggle->IsChecked(),
           "retained toggle state reports the confirmed microphone mute");
     if (view.Controls().HasFluentIconFont())
-        Check(FindLabel(view.Controls().GetRoot(), std::wstring(1, L'\uF781')),
+        Check(FindLabel(view.Controls().GetRoot(), std::wstring(1, L'\uF781')) != nullptr,
               "muted microphone uses the mic-off glyph");
     Check(!FindLabel(view.Controls().GetRoot(), std::wstring(1, L'\uF403')),
           "camera never uses the video-off glyph that missing-font boxes");
@@ -530,7 +532,7 @@ uint32_t RunNativeViewTests()
     view.Pointer({DxUi::PointerAction::Up, slider.x + slider.width * .8f, y});
     Check(commands.count == count, "AV external level notification cancels stale draft");
     Hr(view.Prepare(640, 360, 96), "AV confirmed change prepare");
-    const float grabX = slider.x + 12.0f + (slider.width - 24.0f) * state.output.level / 100.0f;
+    const float grabX = slider.x + 12.0f + (slider.width - 24.0f) * static_cast<float>(state.output.level) / 100.0f;
     Check(view.Pointer({DxUi::PointerAction::Down, grabX + 8.0f, y + 16.0f}),
           "AV accepts an off-center finger grab without seeking");
     ++state.microphone.levelRevision;

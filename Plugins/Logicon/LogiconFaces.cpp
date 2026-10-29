@@ -91,7 +91,7 @@ void FillRect(uint32_t* bgra, int left, int top, int right, int bottom, uint32_t
 
 wchar_t FluentGlyphFromName(const char* name, uint32_t bytes) noexcept
 {
-    return name && bytes != 0 ? RedXeActions::FluentGlyphFromName(std::string_view(name, bytes)) : 0;
+    return name && bytes != 0 ? RedXeActions::FluentGlyphFromName(std::string_view(name, bytes)) : wchar_t{0};
 }
 
 uint32_t FluentGlyphNameCount() noexcept
@@ -155,6 +155,9 @@ HRESULT FaceRenderer::Initialize() noexcept
     }
     using DWriteCreateFactoryFn = HRESULT(WINAPI*)(DWRITE_FACTORY_TYPE, REFIID, IUnknown**);
     const auto createFactory =
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
         reinterpret_cast<DWriteCreateFactoryFn>(GetProcAddress(_dwriteModule.get(), "DWriteCreateFactory"));
     if (!createFactory)
     {

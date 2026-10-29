@@ -300,7 +300,7 @@ and must not write to the user's normal crash directory.
   titled windows use its destination position and recalculate the outer frame for the exact DPI-adjusted client
   canvas.
 - Do not render from `WM_PAINT`; this real-time app renders from the idle side of the message loop.
-- Keep `/W4`, `/permissive-`, SDL checks, and warnings-as-errors green for project code.
+- Keep `/Wall`, `/permissive-`, SDL checks, and zero-warning validation with /WX disabled green for project code.
 - Prefer targeted local warning suppression only when an SDK or tool header requires it, with a reason beside it.
 - Treat `yyjson_val*` and strings returned by yyjson as borrowed from their document. Use WIL RAII for documents and
   copy dynamic strings into mutable documents.
@@ -321,3 +321,12 @@ Run `Tools/Test-Changelog.ps1` while editing. Before PrePush and final handoff, 
 merge/rebase that introduces fragments, run `Tools/Fold-Changelog.ps1` and then `Tools/Fold-Changelog.ps1 -Check`,
 even for one fragment. Include the generated changelog and fragment removals in the current change; do not wait
 for release batches or a separate cleanup PR. Validation is read-only; `-WhatIf` previews folding without writes.
+
+## Shared native build policy (2026-10-28)
+
+Use /Wall with /WX disabled in every first-party profile. A build is accepted
+only with zero warnings and zero errors; fix actionable diagnostics rather than
+adding blanket suppressions. Ordinary Debug uses /ZI, ASan Debug uses /Zi.
+Release explicitly enables /OPT:ICF; Debug/ASan explicitly disable it.
+Follow Specs/Build/Build_ConsoleAndPaths.md for the common green result, safe
+terminal launch links and short dependency folders with full identity checking.

@@ -11,6 +11,10 @@
 
 // One lazy auto-reset, one-shot timer, only for the optional continuous cap. DXGI readiness is acquired once before
 // this wait and retained across message/diagnostic interruptions; it must never be polled during this wait.
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class ContinuousFrameWait final
 {
   public:
@@ -65,4 +69,6 @@ class ContinuousFrameWait final
   private:
     wil::unique_handle _timer;
 };
+#pragma warning(pop)
+
 static_assert(sizeof(ContinuousFrameWait) == sizeof(HANDLE));

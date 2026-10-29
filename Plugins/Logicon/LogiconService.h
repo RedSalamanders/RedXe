@@ -141,6 +141,10 @@ struct MonitorSnapshot final
     SystemValues system{};
 };
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626)
 class LogiconService final : public RedXeComObject<LogiconService, IRedXeService, IRedXeDeviceWorker, IRedXeActionPack>,
                              public SystemValuesListener
 {
@@ -320,4 +324,6 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     uint32_t _brightnessOverride = 0;
     uint64_t _publishedHash = 0;
 };
+#pragma warning(pop)
+
 } // namespace Logicon

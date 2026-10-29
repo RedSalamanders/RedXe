@@ -1,5 +1,5 @@
-#include "../../Common/FailureReports.h"
 #include "Actions/ActionTargets.h"
+#include "Common/FailureReports.h"
 #include "PlugInterfaces/Action.h"
 #include "PlugInterfaces/Factory.h"
 #include "PlugInterfaces/Host.h"
@@ -121,6 +121,9 @@ class TestHost final : public IRedXeHost
 
 template <typename Function> Function Resolve(HMODULE module, const char* name) noexcept
 {
+// Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
+// Owner: RedXe maintainers; review: 2027-01-31.
+#pragma warning(suppress : 4191)
     return reinterpret_cast<Function>(GetProcAddress(module, name));
 }
 

@@ -260,6 +260,7 @@ LRESULT TrayIcon::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM
         case TrayIconAction::ShowMenu:
             ShowMenu(POINT{GET_X_LPARAM(wParam), GET_Y_LPARAM(wParam)});
             break;
+        case ::TrayIconAction::None:
         default:
             break;
         }

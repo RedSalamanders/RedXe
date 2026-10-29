@@ -222,6 +222,10 @@ class TriangleDeviceResources final
     return hash;
 }
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class RotatingTriangleWidget final
     : public RedXeComObject<RotatingTriangleWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget>
 {
@@ -328,7 +332,12 @@ class RotatingTriangleWidget final
     float _phase;
     uint32_t _colorOffset;
 };
+#pragma warning(pop)
 
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class RotatingTriangleProvider final : public RedXeComObject<RotatingTriangleProvider, IRedXeWidgetProvider>
 {
   public:
@@ -389,6 +398,7 @@ class RotatingTriangleProvider final : public RedXeComObject<RotatingTrianglePro
   private:
     TriangleDeviceResources _resources;
 };
+#pragma warning(pop)
 
 HRESULT CreateRotatingTriangleProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
                                        void** result) noexcept

@@ -63,6 +63,10 @@ const Endpoint* Find(const Inventory& inventory, DeviceKind kind, const DeviceId
             return &endpoints[i];
     return nullptr;
 }
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class Notifications final : public RedXeComObject<Notifications, IMMNotificationClient>
 {
   public:
@@ -117,11 +121,17 @@ class Notifications final : public RedXeComObject<Notifications, IMMNotification
     }
 
   private:
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
     struct Binding final
     {
         DeviceId id;
         std::atomic<uint64_t> revision{0};
     };
+#pragma warning(pop)
+
     std::array<Binding, MaximumOutputs + MaximumInputs> _devices;
     SRWLOCK _deviceLock = SRWLOCK_INIT;
     HANDLE _event;
@@ -143,6 +153,12 @@ class Notifications final : public RedXeComObject<Notifications, IMMNotification
         return S_OK;
     }
 };
+#pragma warning(pop)
+
+// Existing identity/RAII/reference traits intentionally delete these implicit operations.
+// Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
+#pragma warning(push)
+#pragma warning(disable : 4625 4626 5026 5027)
 class VolumeNotifications final : public RedXeComObject<VolumeNotifications, IAudioEndpointVolumeCallback>
 {
   public:
@@ -160,6 +176,8 @@ class VolumeNotifications final : public RedXeComObject<VolumeNotifications, IAu
   private:
     HANDLE _event;
 };
+#pragma warning(pop)
+
 } // namespace
 struct WindowsAudioBackend::State final
 {
@@ -434,7 +452,8 @@ struct WindowsAudioBackend::State final
                 break;
             }
             return mute ? volume->SetMute(command.value != 0, &OwnVolumeContext)
-                        : volume->SetMasterVolumeLevelScalar(command.value / 100.0f, &OwnVolumeContext);
+                        : volume->SetMasterVolumeLevelScalar(static_cast<float>(command.value) / 100.0f,
+                                                             &OwnVolumeContext);
         }
         if (command.operation == BrokerOperation::SetDefault)
         {

@@ -59,6 +59,7 @@ inline constexpr std::array<const char*, 8> kSettingsKeys{
 
 [[nodiscard]] constexpr bool IsValidGlowPercent(uint64_t value) noexcept
 {
-    return value >= kMinimumGlowPercent && value <= kMaximumGlowPercent;
+    static_assert(kMinimumGlowPercent == 0);
+    return value <= kMaximumGlowPercent;
 }
 } // namespace StudioClock
