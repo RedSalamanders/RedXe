@@ -257,6 +257,15 @@ function Restore-RedXeDxUiSource {
             return $false
         }
         if (Test-Path -LiteralPath $Destination) {
+            # A short locator cannot authorize replacing another complete source identity.
+            # Keep legacy repair behavior for unfinished restores and explicitly named full-hash fixtures.
+            if ([IO.Path]::GetFileName($Destination.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)) -cmatch '^[0-9a-f]{16}$') {
+                $existing = @(& git -C $Destination rev-parse --show-cdup HEAD 2>$null)
+                if ($LASTEXITCODE -eq 0 -and $existing.Count -eq 2 -and -not $existing[0] -and
+                    $existing[1] -cmatch '^[0-9a-f]{40}$' -and $existing[1] -cne $Commit) {
+                    throw "DxUi shortened source identity conflict at '$Destination': existing $($existing[1]), requested $Commit. Existing contents were preserved."
+                }
+            }
             Write-Warning "The DxUi source at '$Destination' is not a clean checkout of $Commit; it is removed and restored again."
             try { Remove-Item -LiteralPath $Destination -Recurse -Force -ErrorAction Stop }
             catch {

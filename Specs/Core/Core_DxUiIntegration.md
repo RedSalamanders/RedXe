@@ -22,13 +22,16 @@ use the library's Python tools or private window messages (see Host bridges), an
 `validate-build-matrix.ps1`.
 
 `build.ps1` runs `vcpkg-install.ps1` and then `restore-dxui.ps1` for the selected platform, and both restore the pin
-through `Build/DxUiRestore.psm1`. Restore clones that exact commit under `.build/dependencies/DxUi/source/<commit>`, from
+through `Build/DxUiRestore.psm1`. Restore clones that exact commit under `.build/dependencies/DxUi/source/<first-16-commit-hex>`, from
 a sibling `DxUi` checkout that holds it and otherwise from the canonical repository, and checks it out detached.
 - An existing source folder counts as restored only when it is the clean checkout of the pinned commit: the top of its
   own Git working tree, at that commit, with nothing changed or added. A folder whose `.git` is incomplete is no
   repository, and Git would answer for the product checkout around it, so the top level is checked first. Any other
-  folder MUST be removed, Git's read-only pack files included, and restored again: an interrupted or failed restore, an
-  unfinished deletion, another commit or an edited file repairs itself on the next run. Callers receive the source only
+  incomplete folder or edited checkout of the same commit is removed, Git's read-only pack files included, and restored
+  again. A 16-character source locator that already holds its own Git checkout at another complete commit MUST fail
+  without deleting or resetting it, including local evidence. The conflict check runs while holding the destination's
+  restore mutex and before replacement work. Legacy explicitly named full-commit destinations retain their repair
+  behavior. Callers receive the source only
   after that check, so `vcpkg-install.ps1` never imports DxUi's helpers from an unverified folder.
 - A restore MUST be published whole or not at all. The clone, the sparse checkout, the detached checkout and origin are
   made in a temporary sibling, checked as above and then renamed into place. Its name, `~` and up to eight hex digits,

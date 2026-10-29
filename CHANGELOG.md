@@ -4,6 +4,8 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Adopt the exact API4 DxUi maintenance commit qualified across six native builds, three ordinary x64 test profiles and three approved focus profiles; retain explicit product restore, build and runtime qualification gates.
+- Preserve an existing short DxUi source folder when its complete Git commit differs from the requested pin; refuse the conflict under the restore mutex and test that its commit, tracked contents and local evidence remain intact.
 - Clarify build guidance: leave `/WX` disabled and require every project-code warning to be fixed before the build validation gate can pass.
 - Scope the ARM64 volatile-model diagnostic to the isolated use-after-free detection fixture, retaining the real sanitizer failure, selected volatile model and ordinary warning policy.
 - Scope the MSVC ARM64 volatile-model notice to the deliberate isolated crash/sanitizer probe. Keep the selected volatile model, genuine crash/sanitizer detection and ordinary warnings unchanged.
