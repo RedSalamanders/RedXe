@@ -63,11 +63,10 @@ if ($Clean -and $Run) {
 
 # Use one compiler host for dependency identity, restore, compilation and provenance.
 Import-Module (Join-Path $PSScriptRoot 'Build/DxUiRestore.psm1') -Force -ErrorAction Stop
-$previousToolArchitecture=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
+$compilerHost = Enter-RedXeCompilerHost
+# Captured now: a module that re-imports DxUiRestore with -Force (DxUiProvenance does) removes this script's copy.
+$exitCompilerHost = Get-Command Exit-RedXeCompilerHost
 try {
-    if ($null -eq $previousToolArchitecture) {
-        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',(Get-RedXeDefaultCompilerHost),'Process')
-    }
 $repoRoot = Split-Path -Parent $PSCommandPath
 $solutionPath = Join-Path $repoRoot 'RedXe.sln'
 $executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
@@ -174,9 +173,5 @@ else {
 }
 
 } finally {
-    if ($null -eq $previousToolArchitecture) {
-        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',[System.Management.Automation.Language.NullString]::Value,'Process')
-    } else {
-        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',$previousToolArchitecture,'Process')
-    }
+    & $exitCompilerHost -State $compilerHost
 }

@@ -19,6 +19,10 @@ ARM64/
 __pycache__/
 *.pyc
 
+# Changes workflow fold lease and staged changelog, removed when a fold finishes
+/.changelog-fold.lock
+/.changelog-*.tmp
+
 # Codex projectless scratch/deliverables
 work/
 outputs/

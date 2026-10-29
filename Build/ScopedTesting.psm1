@@ -102,6 +102,11 @@ function Read-ScopedTestManifest {
     if (@($names | Sort-Object -Unique).Count -ne $names.Count -or @($names | Where-Object { $_ -notmatch '^[A-Za-z][A-Za-z0-9.-]*$' }).Count) { throw 'Invalid or duplicate test scopes.' }
     foreach ($rule in $manifest.rules) {
         foreach ($name in $rule.scopes) { if ($name -ne '*' -and $name -notin $names) { throw "Rule selects unknown scope '$name'." } }
+        # An exclusive rule is an isolated exception for one exact path, never a prefix-wide exclusion.
+        if ($rule.PSObject.Properties['exclusive']) {
+            if ($rule.exclusive -isnot [bool]) { throw "Rule '$($rule.pattern)' has an exclusive flag that is not true or false." }
+            if ($rule.exclusive -and $rule.pattern -match '[*?]') { throw "Exclusive rule '$($rule.pattern)' must name one exact path, not a pattern." }
+        }
     }
     foreach ($job in $manifest.prCoverage) {
         # Each entry is one PR check. One that names a profile runs that profile only; one that names none (the tooling
@@ -153,21 +158,17 @@ function Get-ScopedTestPlan {
     if (-not $Scopes.Count -and -not $Full) {
         foreach ($path in $ChangedPaths) {
             if ($path -match '(^/|(^|/)\.\.(/|$)|:|\\)') { throw "Expected a repository-relative Git path: $path" }
-            # These independent skill checks cannot change a compiled/runtime input. Keep the exact
-            # allowlist narrow; shared Build/ScopedTesting and unknown Build files retain full fallback.
-            if ($path -cin @('Build/SkillPackageIntegrity.psm1', 'Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1', 'Tests/BuildProcessTests/SkillValidation.Tests.ps1')) {
-                if ('BuildProcess' -cnotin $names) { throw 'Package tooling requires the BuildProcess scope' }
-                [void]$selected.Add('BuildProcess')
-                $reasons.Add([pscustomobject]@{path=$path; scopes=@('BuildProcess'); reason='independent skill validation tooling'})
-                continue
-            }
-            if ($path -match '\.md$') {
+            $matched = @($Manifest.rules | Where-Object { Test-ScopedPattern $path $_.pattern })
+            # An exclusive rule names one exact path (a rule flag Read-ScopedTestManifest enforces). Its match replaces every
+            # broader rule and the prose shortcut, so an independent tooling input is not widened by the directory around it.
+            $exclusive = @($matched | Where-Object { $_.PSObject.Properties['exclusive'] -and $_.exclusive })
+            if ($exclusive.Count) { $matched = $exclusive }
+            elseif ($path -match '\.md$') {
                 $targets = @($Manifest.scopes | Where-Object { -not $_.native } | ForEach-Object name)
                 foreach ($name in $targets) { [void]$selected.Add($name) }
                 $reasons.Add([pscustomobject]@{path=$path; scopes=$targets; reason='documentation/skill validation; no native test input'})
                 continue
             }
-            $matched = @($Manifest.rules | Where-Object { Test-ScopedPattern $path $_.pattern })
             if ($matched.Count) {
                 foreach ($rule in $matched) {
                     $targets = if ('*' -in $rule.scopes) { $names } else { @($rule.scopes) }

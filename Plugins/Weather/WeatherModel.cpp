@@ -1,6 +1,7 @@
 #include "WeatherModel.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <charconv>
 #include <cmath>
@@ -1065,6 +1066,10 @@ uint32_t WeatherFormatWind(float metersPerSecond, WeatherWindUnit unit, wchar_t*
 
 namespace
 {
+// WeatherSetTestTimeZone's zone; production always converts with the active zone.
+DYNAMIC_TIME_ZONE_INFORMATION gTestTimeZone{};
+std::atomic<bool> gUseTestTimeZone{false};
+
 [[nodiscard]] bool FileTimeToLocalSystem(uint64_t fileTime100ns, SYSTEMTIME& local) noexcept
 {
     if (fileTime100ns == 0)
@@ -1078,7 +1083,9 @@ namespace
         return false;
     }
     // Use the timestamp's daylight-saving rule, rather than the current date's UTC bias.
-    return SystemTimeToTzSpecificLocalTimeEx(nullptr, &universal, &local) != FALSE;
+    const DYNAMIC_TIME_ZONE_INFORMATION* zone =
+        gUseTestTimeZone.load(std::memory_order_acquire) ? &gTestTimeZone : nullptr;
+    return SystemTimeToTzSpecificLocalTimeEx(zone, &universal, &local) != FALSE;
 }
 [[nodiscard]] uint32_t CivilDayNumber(const SYSTEMTIME& local) noexcept
 {
@@ -1120,6 +1127,34 @@ uint32_t WeatherFormatClock(uint64_t fileTime100ns, wchar_t* text, uint32_t capa
     }
     const int written = swprintf_s(text, capacity, L"%02u:%02u", local.wHour, local.wMinute);
     return written > 0 ? static_cast<uint32_t>(written) : 0;
+}
+
+HRESULT WeatherSetTestTimeZone(const wchar_t* timeZoneKeyName) noexcept
+{
+    gUseTestTimeZone.store(false, std::memory_order_release);
+    if (!timeZoneKeyName || timeZoneKeyName[0] == L'\0')
+    {
+        return S_OK;
+    }
+    DYNAMIC_TIME_ZONE_INFORMATION zone{};
+    for (DWORD index = 0;; ++index)
+    {
+        const DWORD status = EnumDynamicTimeZoneInformation(index, &zone);
+        if (status == ERROR_NO_MORE_ITEMS)
+        {
+            return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+        }
+        if (status != ERROR_SUCCESS)
+        {
+            return HRESULT_FROM_WIN32(status);
+        }
+        if (_wcsicmp(zone.TimeZoneKeyName, timeZoneKeyName) == 0)
+        {
+            gTestTimeZone = zone;
+            gUseTestTimeZone.store(true, std::memory_order_release);
+            return S_OK;
+        }
+    }
 }
 
 bool WeatherSameLocalDay(uint64_t first, uint64_t second) noexcept

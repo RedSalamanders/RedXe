@@ -50,7 +50,19 @@ $cases = @(
     @{Name='alias refused'; Text=$prefix.Replace('description: valid','description: *anchor')+'Read.'; Valid=$false},
     @{Name='malformed quote'; Text=$prefix.Replace('description: valid',"description: 'unclosed")+'Read.'; Valid=$false},
     @{Name='bad JSON escape'; Text=$prefix.Replace('description: valid','description: "bad\q"')+'Read.'; Valid=$false},
-    @{Name='invalid indentation'; Text=$prefix.Replace('description: valid',"description: |`n one space")+'Read.'; Valid=$false}
+    @{Name='invalid indentation'; Text=$prefix.Replace('description: valid',"description: |`n one space")+'Read.'; Valid=$false},
+    # An unclosed fence is a problem that names its line, and the text after it is still checked.
+    @{Name='unclosed backtick fence'; Text=$prefix+'```text'+"`nexample"; Valid=$false; Expect='SKILL.md:5: unclosed code fence'},
+    @{Name='unclosed tilde fence'; Text=$prefix+"~~~~`nexample"; Valid=$false; Expect='SKILL.md:5: unclosed code fence'},
+    @{Name='unclosed fence names its own line'; Text=$prefix+"Intro.`n`n"+'```text'+"`nexample"; Valid=$false; Expect='SKILL.md:7: unclosed code fence'},
+    @{Name='unclosed fence line follows multi-line front matter'; Text="---`nname: example-skill`ndescription: >-`n  Folded`n  text.`n---`n"+'```'+"`nexample"; Valid=$false; Expect='SKILL.md:7: unclosed code fence'},
+    @{Name='unclosed fence in CRLF text'; Text=($prefix+'```text'+"`nexample").Replace("`n","`r`n"); Valid=$false; Expect='SKILL.md:5: unclosed code fence'},
+    @{Name='shorter closing marker leaves a fence unclosed'; Text=$prefix+'````text'+"`nexample`n"+'```'; Valid=$false; Expect='SKILL.md:5: unclosed code fence'},
+    @{Name='placeholder after an unclosed fence is still reported'; Text=$prefix+'```text'+"`nexample`n[TODO: finish]"; Valid=$false; Expect=@('SKILL.md:5: unclosed code fence','unfinished instructions')},
+    @{Name='fence closed by a longer marker'; Text=$prefix+'```text'+"`n[TODO: example]`n"+'`````'; Valid=$true},
+    @{Name='fences in sequence'; Text=$prefix+'```text'+"`nexample`n"+'```'+"`ntext`n~~~`n[TODO: example]`n~~~"; Valid=$true},
+    @{Name='line-leading inline code is not an unclosed fence'; Text=$prefix+'```literal```'+"`nRead."; Valid=$true},
+    @{Name='indented marker is not an unclosed fence'; Text=$prefix+'    ```'+"`nRead."; Valid=$true}
 )
 foreach ($typed in @('123','true','yes','null','2026-10-28','2026-10-28T09:00:00Z','2026-10-28 9:00:00 +02:30','2026-10-28t09:00:00.25-08:00','1.5','0x10','.inf','off')) {
     $cases += @{Name="typed $typed"; Text=$prefix.Replace('description: valid',"description: $typed")+'Read.'; Valid=$false}
@@ -73,6 +85,9 @@ foreach ($block in @(
 foreach ($case in $cases) {
     $problem = Get-SkillValidationProblem -FolderName 'example-skill' -Text $case.Text
     if ((-not $problem) -ne $case.Valid) { throw "Skill fixture '$($case.Name)' expected valid=$($case.Valid): $problem" }
+    foreach ($expected in @(if ($case.ContainsKey('Expect')) { $case.Expect })) {
+        if (-not $problem.Contains($expected)) { throw "Skill fixture '$($case.Name)' reported '$problem' instead of '$expected'" }
+    }
     $passed++
 }
 $fixture = Join-Path $repository ('.build/SkillValidation-' + [guid]::NewGuid().ToString('N'))
@@ -106,6 +121,67 @@ try {
         $directory=Join-Path $fixture $relative
         if ([IO.Directory]::Exists($directory)) {[IO.Directory]::Delete($directory)}
     }
+}
+# File-level controls. A module function sees the global error preference, not this script's, so each call runs under
+# PowerShell's default one: the corpus recipe in Build_SkillPackages.md does not set Stop either.
+$fixtureParent = Join-Path $repository '.build'
+$fileFixture = Join-Path $fixtureParent ('SkillValidation-files-' + [guid]::NewGuid().ToString('N'))
+$utf8 = [Text.UTF8Encoding]::new($false)
+function Write-SkillBytes([string]$Folder, [byte[]]$Bytes) {
+    $directory = Join-Path $fileFixture ".agents/skills/$Folder"
+    [void][IO.Directory]::CreateDirectory($directory)
+    [IO.File]::WriteAllBytes((Join-Path $directory 'SKILL.md'), $Bytes)
+}
+function Get-SkillFailure([string]$Root) {
+    $previous = $global:ErrorActionPreference
+    $global:ErrorActionPreference = 'Continue'
+    try { [void](Test-RepositorySkills -Root $Root 6>$null); return '' }
+    catch [System.Management.Automation.RuntimeException] { return $_.Exception.Message }
+    finally { $global:ErrorActionPreference = $previous }
+}
+try {
+    $valid = $utf8.GetBytes($prefix + 'Read.')
+    $little = [Text.UnicodeEncoding]::new($false, $true)
+    $big = [Text.UnicodeEncoding]::new($true, $true)
+    foreach ($encoding in @(
+        @{Name='UTF-8 byte order mark'; Bytes=[byte[]](@(0xEF,0xBB,0xBF) + $valid); Expect='expected UTF-8 without a byte order mark'},
+        @{Name='UTF-16 little endian'; Bytes=[byte[]]($little.GetPreamble() + $little.GetBytes($prefix + 'Read.')); Expect='UTF-16 or UTF-32 byte order mark'},
+        @{Name='UTF-16 big endian'; Bytes=[byte[]]($big.GetPreamble() + $big.GetBytes($prefix + 'Read.')); Expect='UTF-16 or UTF-32 byte order mark'},
+        @{Name='UTF-16 without a byte order mark'; Bytes=[Text.UnicodeEncoding]::new($false, $false).GetBytes($prefix + 'Read.'); Expect='NUL bytes'},
+        @{Name='invalid UTF-8'; Bytes=[byte[]](@($valid) + @(0xC3, 0x28)); Expect='invalid bytes'}
+    )) {
+        Write-SkillBytes 'example-skill' $encoding.Bytes
+        $message = Get-SkillFailure $fileFixture
+        if ($message -notlike '*example-skill: *SKILL.md: *' -or -not $message.Contains($encoding.Expect)) { throw "Aggregate did not reject $($encoding.Name) and name its file: $message" }
+        # Positive control: the same skill as plain UTF-8 passes.
+        Write-SkillBytes 'example-skill' $valid
+        if (Get-SkillFailure $fileFixture) { throw "Aggregate rejected plain UTF-8 after $($encoding.Name)" }
+        $passed += 2
+    }
+    # An unreadable skill after a valid one is a failure that names its file; the valid skill's text is never reused for it.
+    Write-SkillBytes 'aaa-valid' ($utf8.GetBytes($prefix.Replace('example-skill', 'aaa-valid') + 'Read.'))
+    Write-SkillBytes 'zzz-unreadable' ([byte[]](0xC3, 0x28))
+    $message = Get-SkillFailure $fileFixture
+    if ($message -notlike '*zzz-unreadable: *zzz-unreadable*SKILL.md: expected UTF-8 but found invalid bytes*' -or $message.Contains('aaa-valid')) { throw "An unreadable skill was not reported by file: $message" }
+    Remove-Item -LiteralPath (Join-Path $fileFixture '.agents/skills/zzz-unreadable') -Recurse -Force
+    if (Get-SkillFailure $fileFixture) { throw 'The valid skills failed once the unreadable one was removed' }
+    $passed += 2
+    # A relative root is the caller's PowerShell location; Set-Location leaves the process directory alone.
+    $process = [Environment]::CurrentDirectory
+    Push-Location $fixtureParent
+    try {
+        [Environment]::CurrentDirectory = $repository
+        if ((Test-RepositorySkills -Root (Split-Path $fileFixture -Leaf) 6>$null) -ne 2) { throw 'A relative root was not resolved against the PowerShell location' }
+        # Negative control: the process directory holds a package, the PowerShell location does not.
+        [Environment]::CurrentDirectory = $fileFixture
+        $message = Get-SkillFailure '.'
+        if ($message -notlike '*repository skill directory was not found*') { throw "A relative root followed the process directory: $message" }
+    } finally { [Environment]::CurrentDirectory = $process; Pop-Location }
+    $passed += 2
+} finally {
+    $resolved = [IO.Path]::GetFullPath($fileFixture)
+    if (-not $resolved.StartsWith([IO.Path]::GetFullPath($fixtureParent) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Refused fixture cleanup outside the repository .build directory' }
+    if ([IO.Directory]::Exists($resolved)) { Remove-Item -LiteralPath $resolved -Recurse -Force }
 }
 & {
     function Get-Command {

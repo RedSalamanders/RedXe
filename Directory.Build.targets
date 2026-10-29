@@ -1,12 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
-  <ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and '$(Configuration)'=='Release' and ('$(WholeProgramOptimization)'=='true' or '$(WholeProgramOptimization)'=='FASTLTCG')">
-    <Link>
-      <!-- v145's incremental LTCG reused inlined member offsets after a private host layout change.
-           Keep whole-program optimization, but generate every linked function from the current objects. -->
-      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
-    </Link>
-  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='ASan Debug'">
     <ClCompile>
       <EnableASAN>true</EnableASAN>
@@ -75,6 +68,8 @@
     </ClCompile>
     <Link>
       <OptimizeReferences>true</OptimizeReferences>
+      <!-- v145's incremental LTCG reused inlined member offsets after a private host layout change.
+           Keep whole-program optimization, but generate every linked function from the current objects. -->
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
     <Lib><LinkTimeCodeGeneration>true</LinkTimeCodeGeneration></Lib>

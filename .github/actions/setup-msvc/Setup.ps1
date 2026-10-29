@@ -3,7 +3,10 @@
 .PARAMETER VerifyOnly Read-only local verification; never downloads or installs software.
 #>
 [CmdletBinding()]
-param([ValidateSet('x64','ARM64')][string]$Platform='x64',[switch]$VerifyOnly)
+param([ValidateSet('x64','ARM64')][string]$Platform='x64',[switch]$VerifyOnly,
+    # Below the 20-minute tooling job ceiling, so a stalled installer fails this step with its logs instead of the job
+    # timing out first and discarding them.
+    [ValidateRange(1,3600)][int]$InstallerTimeoutSeconds=900)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
@@ -47,7 +50,7 @@ if(-not $selected){
         Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value ('artifact_id='+[IO.Path]::GetFileName($scratch))
     }
     $installer=Join-Path $scratch 'vs_BuildTools.exe'
-    Invoke-WebRequest 'https://aka.ms/vs/18/insiders/vs_buildtools.exe' -OutFile $installer
+    Invoke-WebRequest 'https://aka.ms/vs/18/insiders/vs_buildtools.exe' -OutFile $installer -TimeoutSec 300 -MaximumRetryCount 3 -RetryIntervalSec 15
     $signature=Get-AuthenticodeSignature -LiteralPath $installer
     if($signature.Status-ne 'Valid'-or $signature.SignerCertificate.Subject-notmatch 'O=Microsoft Corporation(?:,|$)'){throw 'The Visual Studio bootstrapper does not have a valid Microsoft signature.'}
     $installRoot=Join-Path $env:RUNNER_TEMP ('VS-Msvc-'+$required)
@@ -63,11 +66,19 @@ if(-not $selected){
     $stderr=Join-Path $scratch 'bootstrapper.stderr.log'
     Write-Host "Provisioning required MSVC $required at '$installRoot'; bootstrapper output: $scratch"
     # Windows GUI applications launched with & can return before completion and leave
-    # LASTEXITCODE unset/stale. Both the bootstrapper's --wait and PowerShell's -Wait
-    # are required; use the owned process result, never ambient native-command state.
+    # LASTEXITCODE unset/stale. The bootstrapper's --wait and a bounded wait on the owned
+    # process are both required; use its result, never ambient native-command state.
     $installerStarted=Get-Date
-    $process=Start-Process -FilePath $installer -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-    try {$installerExit=$process.ExitCode}finally{$process.Dispose()}
+    $process=Start-Process -FilePath $installer -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    try {
+        $null=$process.Handle # Keeps the exit code readable after the process ends.
+        if($process.WaitForExit($InstallerTimeoutSeconds*1000)){$installerExit=$process.ExitCode}
+        else {
+            # Only this owned bootstrapper tree is ended; the logs below are still collected.
+            $process.Kill($true)
+            $installerExit="timeout after $InstallerTimeoutSeconds s"
+        }
+    }finally{$process.Dispose()}
     Write-Host "Visual Studio bootstrapper exit code: $installerExit"
     foreach($log in @($stdout,$stderr)){
         if(Test-Path -LiteralPath $log){Get-Content -LiteralPath $log -Tail 40 | Write-Host}

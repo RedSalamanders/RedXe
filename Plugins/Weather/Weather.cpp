@@ -1794,6 +1794,11 @@ extern "C" void __stdcall RedXeWeatherSetTestTime(uint64_t now) noexcept
     gTestNow.store(now, std::memory_order_relaxed);
 }
 
+extern "C" HRESULT __stdcall RedXeWeatherSetTestTimeZone(const wchar_t* timeZoneKeyName) noexcept
+{
+    return WeatherSetTestTimeZone(timeZoneKeyName);
+}
+
 extern "C" void __stdcall RedXeWeatherSetTestServices(WeatherHttpTestResponseFn response, uint32_t helperMode) noexcept
 {
     WeatherHttpSetTestResponse(response);

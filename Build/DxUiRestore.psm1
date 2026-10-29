@@ -494,6 +494,52 @@ function Get-RedXeDefaultCompilerHost {
     }
 }
 
+function Enter-RedXeCompilerHost {
+    <# Selects the native OS compiler host for this process unless the caller already chose one, and returns the caller's
+       value for Exit-RedXeCompilerHost. build.ps1 and restore-dxui.ps1 bracket all their identity, restore and build work
+       with the pair, so dependency identity, restore, compilation and provenance use one host. #>
+    [CmdletBinding()]
+    param()
+    $previous = [Environment]::GetEnvironmentVariable('PreferredToolArchitecture', 'Process')
+    # PowerShell's $null reaches .NET as an empty value, which MSBuild reads as unset too.
+    if ([string]::IsNullOrWhiteSpace($previous)) {
+        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture', (Get-RedXeDefaultCompilerHost), 'Process')
+    }
+    [pscustomobject]@{ Previous = $previous }
+}
+
+function Exit-RedXeCompilerHost {
+    <# Restores the caller's selection that Enter-RedXeCompilerHost returned, after success and failure alike. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [psobject] $State)
+    if ($null -eq $State.Previous) {
+        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture', [System.Management.Automation.Language.NullString]::Value, 'Process')
+    }
+    else {
+        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture', $State.Previous, 'Process')
+    }
+}
+
+function Get-RedXeRequiredMsvcFamily {
+    <# The MSVC family (major.minor) that Directory.Build.props requires, as its ValidateMsvcToolsVersion target reads it. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $RepoRoot)
+    [xml] $policy = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot 'Directory.Build.props')
+    $node = $policy.SelectSingleNode('/Project/PropertyGroup/RequiredMsvcToolsVersion')
+    $family = if ($node) { [string] $node.InnerText } else { '' }
+    if ($family -notmatch '^\d+\.\d+$') {
+        throw "Directory.Build.props does not name a required MSVC family (RequiredMsvcToolsVersion '$family')."
+    }
+    $family
+}
+
+function Test-RedXeMsvcFamily {
+    <# Whether a full MSVC tools version (14.52.37025) belongs to the required family (14.52); 14.520.x and 14.5.x do not. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Required, [AllowEmptyString()] [AllowNull()] [string] $Version)
+    ([string] $Version).StartsWith($Required + '.', [StringComparison]::Ordinal)
+}
+
 function Find-RedXeMSBuild {
     <# The MSBuild the build runs: MSBUILD_EXE_PATH when that file exists, then msbuild.exe on PATH (a Developer PowerShell's), then
        the first x64 MSBuild of an installation vswhere reports, then a scan of the Visual Studio folders. build.ps1 hands its
@@ -561,4 +607,5 @@ function Get-RedXeVisualStudioInstallation {
 
 Export-ModuleMember -Function Read-RedXeDxUiLock, Get-RedXeDxUiSupportedApiRevision, Get-RedXeDxUiDependencyRoot, Get-RedXeDxUiSourcePath,
     Get-RedXeDxUiOutputRoot, Get-RedXeDxUiCloneSource, Restore-RedXeDxUiSource, Restore-RedXeDxUiPin, Update-RedXeDxUiLease,
-    Remove-RedXeDxUiSupersededRestores, Get-RedXeDefaultCompilerHost, Find-RedXeMSBuild, Get-RedXeVisualStudioInstallation
+    Remove-RedXeDxUiSupersededRestores, Get-RedXeDefaultCompilerHost, Enter-RedXeCompilerHost, Exit-RedXeCompilerHost,
+    Get-RedXeRequiredMsvcFamily, Test-RedXeMsvcFamily, Find-RedXeMSBuild, Get-RedXeVisualStudioInstallation

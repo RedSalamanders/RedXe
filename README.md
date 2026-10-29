@@ -12,9 +12,12 @@ multi-resolution Windows icon live under `RedXe/assets/`.
 
 ## Start
 
-Prerequisites: Visual Studio 2026 (18.x) with **Desktop development with C++**, Windows 11 SDK 10.0.26100, and Git for
-Windows. Opening `.vsconfig` in Visual Studio offers the required workload. The project intentionally matches the
-`v145` toolchain and pinned-vcpkg model used by the RedSalamander reference.
+Prerequisites: Visual Studio 2026 **Insiders** (18.x) whose default MSVC build tools are **14.52.x** (toolset `v145`;
+every build refuses another compiler family), Windows 11 SDK 10.0.26100, PowerShell 7 for the scripts, and Git for
+Windows. Importing `.vsconfig` in the Visual Studio Installer adds **Desktop development with C++** and every component
+the builds use: the 14.52 x64 and ARM64 tools, AddressSanitizer and Clang/LLVM. A Visual Studio build needs no
+PowerShell 7. `.\.github\actions\setup-msvc\Setup.ps1 -VerifyOnly` checks an installation without changing it. The
+project intentionally matches the `v145` toolchain and pinned-vcpkg model used by the RedSalamander reference.
 
 ```powershell
 # Debug x64 build
@@ -57,8 +60,9 @@ obligations are described in [the testing guide](Tests/README.md).
 ## Package and release
 
 ```powershell
-# Portable ZIP for this machine's architecture, stamped 1.0.<commit count of HEAD>, smoke-tested from a clean extraction
-.\package.ps1 -Platform x64                          # -> .build\packages\RedXe-1.0.<n>-x64-Portable.zip (+ .sha256)
+# Portable ZIP for this machine's architecture, stamped 1.0.<commit count of HEAD>, smoke-tested from a clean extraction,
+# and a Symbols ZIP holding the exact PDBs of the binaries it ships
+.\package.ps1 -Platform x64                          # -> .build\packages\RedXe-1.0.<n>-x64-{Portable,Symbols}.zip (+ .sha256)
 .\package.ps1 -Platform ARM64 -SkipBuild             # package an existing Release output
 .\package.ps1 -Platform x64 -BuildNumber 42          # explicit build number
 
@@ -75,7 +79,10 @@ build of commit 86 on main and the release of that commit are both `1.0.86`.
 Releases are cut by the **Release** workflow (`Actions > Release > Run workflow`): it builds and tests Release on the
 x64 and ARM64 runners, packages both, publishes `v1.0.<commit count>` with checksums, and hands off to **Publish to
 winget**, which validates the manifest, install-tests it through the real `RedXe` alias on a clean runner, and opens
-the `microsoft/winget-pkgs` pull request (needs the `WINGET_TOKEN` secret and public release assets).
+the `microsoft/winget-pkgs` pull request (needs the `WINGET_TOKEN` secret and public release assets). Each release
+carries, next to each portable ZIP, a `RedXe-1.0.<n>-<platform>-Symbols.zip` with the exact PDBs of the binaries that
+ZIP ships and nothing else: the optimized Release binaries cannot be read in a crash dump
+(`%LOCALAPPDATA%\RedXe\Crashes`) without them.
 [`Specs/Build/Build_Packaging.md`](Specs/Build/Build_Packaging.md) is the contract.
 
 Open `RedXe.sln` for IDE development. Binaries are written to:
@@ -194,7 +201,7 @@ SIL OFL 1.1. The browser-only Zoom action plugin uses no Zoom SDK.
 
 ## Recording changes
 
-Follow the [Changes workflow](Changes/README.md): validate while editing, then fold before PrePush/final handoff and immediately after integration, even for one fragment.
+Follow the [Changes workflow](Changes/README.md): each change adds one fragment under `Changes/` and never edits `CHANGELOG.md`; after merges, `Tools/Submit-ChangelogFold.ps1` folds the fragments on `main` through a pull request of its own.
 
 Builds require the default MSVC **14.52.x** tools (v145). Release uses /Gy /GL and final /OPT:REF /LTCG; archive and final-link tools must match exactly. The build contract documents the preserved API pin, explicit archive forwarding and policy-specific output identity.
 

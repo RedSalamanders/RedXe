@@ -6,11 +6,10 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Build/DxUiPaths.psm1') -Scope Local -ErrorAction Stop
 # Use one compiler host for dependency identity, restore, compilation and provenance.
 Import-Module (Join-Path $PSScriptRoot 'Build/DxUiRestore.psm1') -Force -ErrorAction Stop
-$previousToolArchitecture=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
+$compilerHost = Enter-RedXeCompilerHost
+# Captured now: a module that re-imports DxUiRestore with -Force removes this script's copy of the module.
+$exitCompilerHost = Get-Command Exit-RedXeCompilerHost
 try {
-    if ($null -eq $previousToolArchitecture) {
-        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',(Get-RedXeDefaultCompilerHost),'Process')
-    }
 # The lock, the verified sparse long-path restore of its exact commit, the sibling-checkout rule, the folder names and the MSBuild
 # the build runs live in one module, which build.ps1 and vcpkg-install.ps1 use too: vcpkg-install.ps1 imports the pinned source's
 # Visual Studio and vcpkg helpers.
@@ -23,21 +22,11 @@ $dependencyRoot = Get-RedXeDxUiDependencyRoot -RepoRoot $PSScriptRoot
 # Run on its own, the script identifies the MSBuild build.ps1 would pass, so the identity does not depend on which ran last.
 if (-not $MSBuildPath) { $MSBuildPath = Find-RedXeMSBuild }
 Import-Module (Join-Path $source 'Tools/ConsumerBuild.psm1') -Force
-# The old pinned probe evaluates the library alone. Match the product's ARM64 host default
-# while preserving every caller environment value even when probing throws.
-$callerCompilerHost=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
-try {
-    if($Platform-eq 'ARM64' -and [string]::IsNullOrWhiteSpace($callerCompilerHost)){
-        $env:PreferredToolArchitecture=if([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()-eq 'Arm64'){'arm64'}else{'x64'}
-    }
-    $buildIdentity=Get-DxUiConsumerBuildIdentity -DxUiRoot $source -MSBuildPath $MSBuildPath -Platform $Platform
-} finally {
-    [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',$callerCompilerHost,'Process')
-}
+# The pinned probe evaluates the library alone, under the compiler host selected above for the whole restore.
+$buildIdentity=Get-DxUiConsumerBuildIdentity -DxUiRoot $source -MSBuildPath $MSBuildPath -Platform $Platform
 # A changed compiler policy owns a separate writable archive output, even when the API/source pin stays unchanged.
-[xml]$msvcPolicy = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'Directory.Build.props')
-$requiredTools = $msvcPolicy.SelectSingleNode('/Project/PropertyGroup/RequiredMsvcToolsVersion').InnerText
-if (-not ([string]$buildIdentity.Identity.vcToolsVersion).StartsWith($requiredTools + '.', [StringComparison]::Ordinal)) {
+$requiredTools = Get-RedXeRequiredMsvcFamily -RepoRoot $PSScriptRoot
+if (-not (Test-RedXeMsvcFamily -Required $requiredTools -Version $buildIdentity.Identity.vcToolsVersion)) {
     throw "This product requires MSVC $requiredTools.x; selected $($buildIdentity.Identity.vcToolsVersion)."
 }
 $policyIdentity = [ordered]@{}
@@ -100,9 +89,5 @@ if ($CheckUpdates) {
 Write-Host "DxUi restored at exact pin $($pin.commit); sibling checkout unchanged."
 
 } finally {
-    if ($null -eq $previousToolArchitecture) {
-        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',[System.Management.Automation.Language.NullString]::Value,'Process')
-    } else {
-        [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',$previousToolArchitecture,'Process')
-    }
+    & $exitCompilerHost -State $compilerHost
 }

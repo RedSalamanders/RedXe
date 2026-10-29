@@ -652,9 +652,9 @@ $helpTitle = ($helpText -split '\r?\n', 2)[0]
 if (-not $helpTitle.Contains([string] [char] 0x2014)) {
     throw "RedXe.exe --help did not reach its log as the UTF-8 it writes: its title line lost U+2014: $helpLog"
 }
-foreach ($switch in @('--help', '--settings', '--warp', '--dock', '--dock-mode', '--dock-thickness', '--dock-reserve',
-        '--dock-peek', '--screenshot', '--page', '--widget', '--after', '--probe', '--self-test', '--crash-test',
-        '--crash-test-stack-overflow', '--crash-test-directory', 'Exit codes:')) {
+foreach ($switch in @('--help', '--redmonitor', '--settings', '--warp', '--dock', '--dock-mode', '--dock-thickness',
+        '--dock-reserve', '--dock-peek', '--screenshot', '--page', '--widget', '--after', '--probe', '--self-test',
+        '--crash-test', '--crash-test-stack-overflow', '--crash-test-directory', '--redmonitor-probe', 'Exit codes:')) {
     if ($helpText -notmatch [regex]::Escape($switch)) {
         throw "RedXe.exe --help does not mention $switch."
     }
@@ -685,6 +685,42 @@ foreach ($case in @(
         -TimeoutSeconds 60 -LogPath $unattendedLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
     if ($unattendedExit -ne 2 -or -not (Select-String -LiteralPath $unattendedLog -SimpleMatch $case.Usage)) {
         throw "RedXe.exe $($case.Arguments -join ' ') exited with code $unattendedExit without its usage on the redirected output: $unattendedLog"
+    }
+}
+# --redmonitor and --redmonitor-probe end the run alone on the line (Core_RedMonitorIntegration.md): beside another
+# switch they exit 2 with their usage; without an installed viewer --redmonitor exits 1 naming where it looked; without
+# a listener the probe exits 2 after its 2-second wait. A case that would start an installed viewer or feed a running
+# one is skipped and says so. Each run is bounded, so a message box fails the step instead of hanging it.
+Write-Host 'Running RedMonitor command-line check...' -ForegroundColor Cyan
+$installedViewers = @(
+    (Join-Path $env:LOCALAPPDATA 'Programs\RedMonitor\RedMonitor.exe'),
+    (Join-Path $env:ProgramFiles 'RedMonitor\RedMonitor.exe')) | Where-Object { Test-Path -LiteralPath $_ }
+$runningViewer = $null
+$viewerRunning = [Threading.Mutex]::TryOpenExisting('Local\RedSalamanderMonitor_Instance', [ref] $runningViewer)
+if ($runningViewer) { $runningViewer.Dispose() }
+$monitorCases = @(
+    @{ Arguments = @('--redmonitor', '--warp'); Exit = 2; Text = 'Use --redmonitor by itself.' },
+    @{ Arguments = @('--redmonitor-probe', '--warp'); Exit = 2; Text = 'Use --redmonitor-probe by itself.' })
+if ($installedViewers) {
+    Write-Host "SKIP --redmonitor without a viewer: $($installedViewers -join ', ') exists" -ForegroundColor Yellow
+}
+else {
+    $monitorCases += @{ Arguments = @('--redmonitor'); Exit = 1; Text = 'RedMonitor is not installed: no Release RedMonitor.exe in %LocalAppData%\Programs\RedMonitor or %ProgramFiles%\RedMonitor.' }
+}
+if ($viewerRunning) {
+    Write-Host 'SKIP --redmonitor-probe without a listener: a RedMonitor instance is running' -ForegroundColor Yellow
+}
+else {
+    $monitorCases += @{ Arguments = @('--redmonitor-probe'); Exit = 2; Text = $null }
+}
+$monitorCase = 0
+foreach ($case in $monitorCases) {
+    $monitorCase++
+    $monitorLog = Join-Path $evidence.Path "RedXe.redmonitor-$monitorCase.log"
+    $monitorExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments $case.Arguments -WorkingDirectory $repoRoot `
+        -TimeoutSeconds 60 -LogPath $monitorLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+    if ($monitorExit -ne $case.Exit -or ($case.Text -and -not (Select-String -LiteralPath $monitorLog -SimpleMatch $case.Text))) {
+        throw "RedXe.exe $($case.Arguments -join ' ') exited with code $monitorExit instead of $($case.Exit), or without its text on the redirected output: $monitorLog"
     }
 }
 
@@ -803,7 +839,16 @@ Invoke-RedXeCrashTest -CrashArgument '--crash-test-stack-overflow' -ExpectedExce
 
 
 }
-Write-Host "All $($Suites.Count) requested scopes passed." -ForegroundColor Green
 $runPassed = $true
-} finally { Complete-TestRunEvidence -Run $evidence -Passed $runPassed }
+} finally {
+    # The record is completed before any verdict is printed. After a failed run a record that cannot be completed is only
+    # warned about: an exception thrown from a finally block would replace the failure in flight, which must stay the
+    # error the run ends with. After a passed run the completion error fails the run.
+    try { Complete-TestRunEvidence -Run $evidence -Passed $runPassed }
+    catch {
+        if ($runPassed) { throw }
+        Write-Warning "Run evidence at $($evidence.Directory) was not completed: $($_.Exception.Message)"
+    }
+}
+Write-Host "All $($Suites.Count) requested scopes passed." -ForegroundColor Green
 exit 0

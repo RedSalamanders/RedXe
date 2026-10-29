@@ -222,10 +222,32 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             EmitCommandLineText(message, true, unattended);
             return 2;
         }
-        if (HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::RedMonitor)))
+        // --redmonitor and --redmonitor-probe end the run alone on the line, before settings, plugins or windows exist
+        // (Core_RedMonitorIntegration.md). The probe is RedMonitor's unattended cross-application test: never a box.
+        for (const RedXeSwitch monitorSwitch : {RedXeSwitch::RedMonitor, RedXeSwitch::RedMonitorProbe})
         {
-            EmitCommandLineText(L"Use --redmonitor by itself.\n", true, unattended);
-            return 2;
+            const wchar_t* const name = RedXeSwitchName(monitorSwitch);
+            if (!HasArgument(arguments.get(), argumentCount, name))
+            {
+                continue;
+            }
+            const bool probe = monitorSwitch == RedXeSwitch::RedMonitorProbe;
+            if (argumentCount != 2)
+            {
+                EmitCommandLineText(std::wstring{L"Use "} + name + L" by itself.\n", true, unattended || probe);
+                return 2;
+            }
+            if (probe)
+            {
+                return MonitorDiagnostics::RunProbe();
+            }
+            const unsigned long launch = MonitorDiagnostics::LaunchViewer();
+            if (launch != ERROR_SUCCESS)
+            {
+                EmitCommandLineText(MonitorDiagnostics::DescribeLaunchFailure(launch), true, unattended);
+                return 1;
+            }
+            return 0;
         }
     }
     catch (...)
@@ -339,6 +361,12 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         CrashHandler::TriggerCrashTest();
     }
 
+    if (argumentCount == 1)
+    {
+        // Only a bare start may open the optional Debug viewer; help, tests, probes and every switch never do.
+        MonitorDiagnostics::QueueOptionalDebugViewerLaunch();
+    }
+
     int exitCode = 1;
     {
         const std::unique_ptr<Application> application{new (std::nothrow) Application(instance, forceWarp)};
@@ -446,12 +474,9 @@ int RunWithCrashBoundary(HINSTANCE instance, int showCommand) noexcept
 }
 } // namespace
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int showCommand)
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
 {
     MonitorDiagnostics::Initialize();
-    const int monitorCommand = MonitorDiagnostics::HandleCommand(command ? command : L"");
-    if (monitorCommand >= 0)
-        return monitorCommand;
     CrashHandler::Install();
     return RunWithCrashBoundary(instance, showCommand);
 }

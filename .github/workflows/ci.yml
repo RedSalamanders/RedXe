@@ -7,8 +7,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: redxe-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a pull request supersedes its running check. Every push to main (and each dispatch) gets a group of
+  # its own and always runs to completion: release.yml requires the push run of the exact released commit.
+  group: redxe-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   tooling:
     runs-on: windows-2025-vs2026
@@ -18,6 +20,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          # This commit and its first parent: the changelog check compares the change with HEAD^1.
+          fetch-depth: 2
+      - name: Changelog changes are fragments or exact folds
+        shell: pwsh
+        run: ./Tools/Test-Changelog.ps1 -Base HEAD^1
       - name: Prepare required MSVC 14.52 tools
         uses: ./.github/actions/setup-msvc
         with:

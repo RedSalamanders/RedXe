@@ -159,43 +159,76 @@ foreach($readOnly in @($true,$false)){
     }finally{$process.Dispose()}
 }
 Write-Host 'PASS CI toolchain verification and missing-family/local-install refusal controls.'
-# Execute the actual restore probe guard with a controlled identity provider; never restore
-# a dependency or change a checkout. Both normal and exceptional paths must restore the caller.
-$restoreTokens=$null;$restoreErrors=$null
-$restoreAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $Root 'restore-dxui.ps1'),[ref]$restoreTokens,[ref]$restoreErrors)
-if($restoreErrors.Count){throw 'Restore script has syntax errors.'}
-$identityGuards=@($restoreAst.FindAll({param($node)
-    $node -is [Management.Automation.Language.TryStatementAst] -and @($node.Body.Statements|Where-Object {
-        $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
-        $_.Left.Extent.Text -ceq '$buildIdentity' -and
-        $_.Right.Extent.Text -match '^Get-DxUiConsumerBuildIdentity(?:\s|$)'
-    }).Count -eq 1
-},$true))
-if($identityGuards.Count-ne 1){throw 'Expected one environment-guarded identity probe.'}
-$guard=[scriptblock]::Create($identityGuards[0].Extent.Text)
-& {
-    function Get-DxUiConsumerBuildIdentity {
-        param($DxUiRoot,$MSBuildPath,$Platform)
-        if($failIdentity){throw 'controlled identity failure'}
-        [pscustomobject]@{Identity=[pscustomobject]@{preferredToolArchitecture=$env:PreferredToolArchitecture}}
+# build.ps1 and restore-dxui.ps1 select the compiler host only through the shared pair: the native OS host unless the
+# caller chose one, with the caller's value restored after success and failure. Never restores or builds anything.
+Import-Module (Join-Path $Root 'Build/DxUiRestore.psm1') -Force
+$nativeHost=Get-RedXeDefaultCompilerHost
+$original=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
+# $null alone reaches .NET as an empty value; NullString removes the variable.
+function Set-CallerCompilerHost($Value){[Environment]::SetEnvironmentVariable('PreferredToolArchitecture',$(if($null-eq $Value){[Management.Automation.Language.NullString]::Value}else{$Value}),'Process')}
+try{
+    foreach($case in @(@{caller=$null;fail=$false},@{caller='';fail=$false},@{caller='x64';fail=$false},@{caller='x86';fail=$false},@{caller=$null;fail=$true},@{caller='x86';fail=$true})){
+        Set-CallerCompilerHost $case.caller
+        $selected=$null;$caught=$false
+        try{
+            $state=Enter-RedXeCompilerHost
+            try{
+                $selected=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
+                if($case.fail){throw 'controlled build failure'}
+            }finally{Exit-RedXeCompilerHost -State $state}
+        }catch{if($_.Exception.Message-cne 'controlled build failure'){throw};$caught=$true}
+        if($caught-ne $case.fail){throw 'A build failure was hidden or invented.'}
+        $wanted=if($case.caller){$case.caller}else{$nativeHost}
+        if($selected-cne $wanted){throw "Caller '$($case.caller)' built with compiler host '$selected' instead of '$wanted'."}
+        $after=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
+        if(($null-eq $case.caller-and $null-ne $after)-or ($null-ne $case.caller-and $after-cne $case.caller)){throw "The caller compiler-host selection '$($case.caller)' was not restored (now '$after')."}
     }
-    $original=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')
-    try{
-        foreach($case in @(@{platform='ARM64';caller=$null;fail=$false},@{platform='ARM64';caller='x64';fail=$false},@{platform='x64';caller='x86';fail=$false},@{platform='ARM64';caller=$null;fail=$true})){
-            [Environment]::SetEnvironmentVariable('PreferredToolArchitecture',$case.caller,'Process')
-            $callerCompilerHost=[Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process');$beforeProbe=$callerCompilerHost;$Platform=$case.platform;$failIdentity=$case.fail
-            $source='fixture';$MSBuildPath='fixture';$caught=$false
-            try{. $guard}catch{if($_.Exception.Message-cne 'controlled identity failure'){throw};$caught=$true}
-            if($caught-ne $case.fail){throw 'Identity failure was hidden or invented.'}
-            if([Environment]::GetEnvironmentVariable('PreferredToolArchitecture','Process')-cne $beforeProbe){throw 'Identity probing changed the caller environment.'}
-            if(-not $case.fail){
-                $wanted=if($case.platform-eq 'ARM64'-and -not $case.caller){if([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()-eq 'Arm64'){'arm64'}else{'x64'}}else{$case.caller}
-                if($buildIdentity.Identity.preferredToolArchitecture-cne $wanted){throw 'Identity probe used the wrong compiler host.'}
-            }
-        }
-    }finally{[Environment]::SetEnvironmentVariable('PreferredToolArchitecture',$original,'Process')}
+}finally{Set-CallerCompilerHost $original}
+foreach($script in @('build.ps1','restore-dxui.ps1')){
+    $scriptTokens=$null;$scriptErrors=$null
+    $scriptAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $Root $script),[ref]$scriptTokens,[ref]$scriptErrors)
+    if($scriptErrors.Count){throw "$script has syntax errors."}
+    $enter=@($scriptAst.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Enter-RedXeCompilerHost'},$true))
+    # The restore is captured when the host is selected: a module re-importing DxUiRestore with -Force removes the
+    # script's copy before its finally block runs.
+    $capture=@($scriptAst.FindAll({param($node)$node -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $node.Left.Extent.Text -ceq '$exitCompilerHost' -and $node.Right.Extent.Text -ceq 'Get-Command Exit-RedXeCompilerHost'},$true))
+    $restore=@($scriptAst.FindAll({param($node)$node -is [Management.Automation.Language.TryStatementAst] -and $node.Finally -and
+        $node.Finally.Extent.Text.Contains('& $exitCompilerHost -State $compilerHost')},$true))
+    if($enter.Count-ne 1-or $capture.Count-ne 1-or $restore.Count-ne 1){throw "$script must select the compiler host once, capture its restore and run it in one finally block."}
+    if($scriptAst.Extent.Text -match "SetEnvironmentVariable\(\s*'PreferredToolArchitecture'|\`$env:PreferredToolArchitecture\s*="){throw "$script sets the compiler host outside the shared pair."}
 }
-Write-Host 'PASS actual restore identity probe host selection and caller environment restoration on success/failure.'
+Write-Host 'PASS compiler-host selection and caller restoration on success/failure; build.ps1 and restore-dxui.ps1 use only the shared pair.'
+# Every family guard reads the one RequiredMsvcToolsVersion and refuses another compiler family.
+if((Get-RedXeRequiredMsvcFamily -RepoRoot $Root)-notmatch '^\d+\.\d+$'){throw 'The required MSVC family is not major.minor.'}
+$familyFixture=Join-Path $scratch 'required-family'
+[void][IO.Directory]::CreateDirectory($familyFixture)
+foreach($bad in @('','14','14.52.1','latest')){
+    [IO.File]::WriteAllText((Join-Path $familyFixture 'Directory.Build.props'),"<Project><PropertyGroup><RequiredMsvcToolsVersion>$bad</RequiredMsvcToolsVersion></PropertyGroup></Project>")
+    $rejected=$false
+    try{[void](Get-RedXeRequiredMsvcFamily -RepoRoot $familyFixture)}catch{if($_.Exception.Message-notmatch 'does not name a required MSVC family'){throw};$rejected=$true}
+    if(-not $rejected){throw "A malformed required family '$bad' was accepted."}
+}
+$required=Get-RedXeRequiredMsvcFamily -RepoRoot $Root
+foreach($case in @(@{version="$required.37025";ok=$true},@{version="$required.1.2";ok=$true},@{version="${required}0.1";ok=$false},@{version=($required -replace '\.\d+$','.5')+'.1';ok=$false},@{version=$required;ok=$false},@{version='';ok=$false})){
+    if((Test-RedXeMsvcFamily -Required $required -Version $case.version)-ne $case.ok){throw "The shared family check misjudged '$($case.version)' against $required."}
+}
+# restore-dxui.ps1 and vcpkg-install.ps1 judge the selected compiler with the same policy read and predicate.
+foreach($script in @('restore-dxui.ps1','vcpkg-install.ps1')){
+    $text=[IO.File]::ReadAllText((Join-Path $Root $script))
+    if(([regex]::Matches($text,'Get-RedXeRequiredMsvcFamily')).Count-ne 1-or ([regex]::Matches($text,'Test-RedXeMsvcFamily')).Count-ne 1-or $text.Contains('RequiredMsvcToolsVersion')){
+        throw "$script must read the required family and judge the compiler only through the shared module."
+    }
+}
+$wrongFamily=($required -replace '\d+$',{[int]$_.Value-1})+'.37000'
+$familyResult=@(& $msbuild $first '/nologo' '/v:minimal' '/t:ValidateMsvcToolsVersion' '/p:Configuration=Release' '/p:Platform=x64' "/p:VCToolsVersion=$wrongFamily" 2>&1)
+if($LASTEXITCODE-eq 0-or ($familyResult -join "`n")-notmatch "requires MSVC build tools $([regex]::Escape($required))\.x; selected $([regex]::Escape($wrongFamily))"){
+    throw "ValidateMsvcToolsVersion accepted MSVC $wrongFamily`: $($familyResult -join ' ')"
+}
+$global:LASTEXITCODE=0
+$familyResult=@(& $msbuild $first '/nologo' '/v:minimal' '/t:ValidateMsvcToolsVersion' '/p:Configuration=Release' '/p:Platform=x64' "/p:VCToolsVersion=$required.37025" 2>&1)
+if($LASTEXITCODE-ne 0){throw "ValidateMsvcToolsVersion refused the required family $required`: $($familyResult -join ' ')"}
+Write-Host "PASS required MSVC $required family: malformed policy and MSVC $wrongFamily refused, $required.x accepted by the MSBuild guard."
 
 # Independently broken real metadata must not pass because LTO settings are valid.
 foreach($control in @(

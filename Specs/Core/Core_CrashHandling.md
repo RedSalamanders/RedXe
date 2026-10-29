@@ -62,6 +62,9 @@ architecture, and a bounded call stack of at most 64 current-thread frames. Ever
 address. Module, symbol, source-file, and line details are best-effort and MUST be included when the System32 DbgHelp
 library can resolve them from the executable directory. Symbol handling MUST NOT use a network symbol path, prompt,
 or retry. Failure to create the text report MUST NOT prevent minidump marker commit or process termination.
+The portable package ships no PDBs, so a user's report names modules and addresses only. Each GitHub release
+publishes `RedXe-<version>-<platform>-Symbols.zip` with the exact PDBs of its shipped binaries
+([Build_Packaging.md](../Build/Build_Packaging.md)); a developer symbolizes a returned minidump with it.
 
 Crash artifacts remain local. RedXe MUST NOT upload, transmit, or automatically delete minidumps or call-stack
 reports. A minidump can contain fragments of process memory, while a report contains executable addresses and local

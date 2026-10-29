@@ -143,6 +143,9 @@ extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherBuildTestLocatio
                                                                                            char* url,
                                                                                            uint32_t capacity) noexcept;
 extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherSetTestTime(uint64_t now) noexcept;
+// Forecast times convert in this Windows time zone (registry key name); null restores the active zone.
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherSetTestTimeZone(
+    const wchar_t* timeZoneKeyName) noexcept;
 extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherSetTestServices(WeatherHttpTestResponseFn response,
                                                                              uint32_t helperMode) noexcept;
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherTestLocationHelper(HANDLE cancelEvent,
@@ -166,5 +169,6 @@ inline constexpr char kWeatherAlertRegionForCountryExport[] = "RedXeWeatherAlert
 inline constexpr char kWeatherTryAutomaticLocationExport[] = "RedXeWeatherTryAutomaticLocation";
 inline constexpr char kWeatherProbeHttpGetOnSmallStackExport[] = "RedXeWeatherProbeHttpGetOnSmallStack";
 inline constexpr char kWeatherBuildTestLocationSearchUrlExport[] = "RedXeWeatherBuildTestLocationSearchUrl";
+inline constexpr char kWeatherSetTestTimeZoneExport[] = "RedXeWeatherSetTestTimeZone";
 
 #undef REDXE_WEATHER_TEST_API
