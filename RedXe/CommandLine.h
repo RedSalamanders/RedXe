@@ -31,6 +31,7 @@ enum class RedXeSwitch : uint8_t
     CrashTest,
     CrashTestStackOverflow,
     CrashTestDirectory,
+    RedMonitorProbe,
     Count,
 };
 
@@ -69,7 +70,8 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
     RedXeCommandLineSwitch{RedXeSwitch::Help, L"--help", L"-h, /?, -?", RedXeSwitchValue::None, nullptr,
                            L"Show this text and exit.", L"General", true},
     RedXeCommandLineSwitch{RedXeSwitch::RedMonitor, L"--redmonitor", nullptr, RedXeSwitchValue::None, nullptr,
-                           L"Open the separately installed Release RedMonitor helper and exit (1 if unavailable).",
+                           L"Start the separately installed Release RedMonitor viewer and exit: 0 when it runs, 1 "
+                           L"with what is missing or failed. Use it alone.",
                            L"General", true},
     RedXeCommandLineSwitch{RedXeSwitch::Settings, L"--settings", nullptr, RedXeSwitchValue::Separate, L"<path>",
                            L"Use one portable settings file instead of the one under %LocalAppData%\\RedXe\\Settings; "
@@ -116,6 +118,11 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
     RedXeCommandLineSwitch{RedXeSwitch::CrashTestDirectory, L"--crash-test-directory", nullptr,
                            RedXeSwitchValue::Joined, L"<directory>",
                            L"Where a test crash writes its dump instead of the user's crash folder.", L"Diagnostics"},
+    RedXeCommandLineSwitch{
+        RedXeSwitch::RedMonitorProbe, L"--redmonitor-probe", nullptr, RedXeSwitchValue::None, nullptr,
+        L"Wait up to 2 seconds for a RedMonitor listener, send RedMonitor's test messages, and exit: "
+        L"0 sent, 1 no provider, 2 no listener. Use it alone.",
+        L"Diagnostics", true},
 };
 
 inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General", L"Dock", L"Screenshot",

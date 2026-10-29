@@ -93,6 +93,10 @@ The native ABI and host services are owned by `Plugins_API.md`. Resource require
 - Group days and format clocks using the computer's local civil date/time, including across UTC midnight. Apply
   the time-zone and daylight-saving rules for each forecast timestamp, independently of the current season.
   All twelve months have exact civil-hour/day-label round-trip regression coverage in the active system zone.
+  Because that zone may observe no daylight saving (hosted runners use UTC), the same production conversion is
+  also checked in two fixed zones with opposite seasons, W. Europe and AUS Eastern, through the test-only
+  `RedXeWeatherSetTestTimeZone` export: winter and summer clocks, both minutes of each 2026 transition, and a
+  local day that differs from the UTC day. Production always converts with the active zone.
   The first
   day's min/max covers available samples. Show that range once in Today; daily rows start with a future local day.
 - The location owns its line. The header shows large light-gray temperature, an outline condition icon centered in

@@ -22,10 +22,14 @@ function Get-RunValue([string] $Root) {
     return $null
 }
 
-function Reject([string] $Scenario, [scriptblock] $Action) {
-    $rejected = $false
-    try { & $Action } catch { $rejected = $true }
-    if (-not $rejected) { throw "Accepted: $Scenario" }
+# -Naming lists text the failure message must contain (the binary or file a failure has to name).
+function Reject([string] $Scenario, [scriptblock] $Action, [string[]] $Naming = @()) {
+    $message = $null
+    try { & $Action } catch { $message = $_.Exception.Message }
+    if ($null -eq $message) { throw "Accepted: $Scenario" }
+    foreach ($fragment in $Naming) {
+        if (-not $message.Contains($fragment)) { throw "Rejected $Scenario without naming '$fragment': $message" }
+    }
     Write-Host "PASS rejects $Scenario"
 }
 
@@ -89,6 +93,204 @@ try {
     Reject 'an incomplete CRT directory' { Get-RedXeVcRuntimeDirectory -Platform ARM64 -SearchRoots @($redist) }
     Reject 'a host without the redistributable' { Get-RedXeVcRuntimeDirectory -Platform x64 -SearchRoots @((Join-Path $fixture 'nothing')) }
     Write-Host 'PASS CRT discovery'
+
+    # RedMonitor notice: the vendored licence is the whole RedSalamander licence file, hash-pinned (read here, never
+    # written). The package carries only its MIT section, found exactly once.
+    $redMonitorLicense = Join-Path $repo 'ThirdParty\RedMonitor\LICENSE.txt'
+    $redMonitorText = [IO.File]::ReadAllText($redMonitorLicense).Replace("`r`n", "`n")
+    $notice = Get-RedXeRedMonitorLicenseNotice -LicensePath $redMonitorLicense
+    if (-not $notice.StartsWith("MIT License`n`nCopyright (c) ") -or -not $notice.EndsWith("SOFTWARE.`n") -or $notice.Contains("`r")) { throw 'The RedMonitor notice has the wrong shape.' }
+    foreach ($needle in @('Permission is hereby granted, free of charge', 'The above copyright notice and this permission notice shall be included', 'THE SOFTWARE IS PROVIDED "AS IS"')) {
+        if (-not $notice.Contains($needle)) { throw "The RedMonitor notice lacks '$needle'." }
+    }
+    if ([regex]::Matches($notice, '(?m)^Copyright \(c\) ').Count -ne 1) { throw 'The RedMonitor notice must hold exactly one copyright line.' }
+    foreach ($foreign in @('Third-Party', '7-Zip', 'unRAR', 'LibRaw', 'FTXUI', 'pe-parse', 'OpenSSL', 'Dracula')) {
+        if ($notice.Contains($foreign)) { throw "The RedMonitor notice carries the notice of a component RedXe does not ship: $foreign" }
+    }
+    if (-not $redMonitorText.Contains($notice)) { throw 'The RedMonitor notice is not a verbatim section of the vendored licence.' }
+    $noticeFixtures = Join-Path $fixture 'redmonitor-license'
+    [void](New-Item -ItemType Directory -Path $noticeFixtures)
+    $crlfLicense = Join-Path $noticeFixtures 'crlf-with-bom.txt'
+    [IO.File]::WriteAllText($crlfLicense, $redMonitorText.Replace("`n", "`r`n"), [Text.UTF8Encoding]::new($true))
+    if ((Get-RedXeRedMonitorLicenseNotice -LicensePath $crlfLicense) -cne $notice) { throw 'The RedMonitor notice depends on the line endings or a byte order mark.' }
+    $lackingLicense = Join-Path $noticeFixtures 'lacking.txt'
+    [IO.File]::WriteAllText($lackingLicense, "### curl`n`nPermission to use, copy, modify, and distribute this software for any purpose`nwith or without fee is hereby granted.`n")
+    Reject 'a vendored licence without the MIT section' { Get-RedXeRedMonitorLicenseNotice -LicensePath $lackingLicense } -Naming @('exactly once', 'occurs 0 times', $lackingLicense)
+    $truncatedLicense = Join-Path $noticeFixtures 'truncated.txt'
+    [IO.File]::WriteAllText($truncatedLicense, $notice.Substring(0, $notice.IndexOf('THE SOFTWARE IS PROVIDED')) + "`n## Third-Party Licenses`n")
+    Reject 'a vendored licence whose MIT section lost its warranty paragraph' { Get-RedXeRedMonitorLicenseNotice -LicensePath $truncatedLicense } -Naming @('exactly once', 'occurs 0 times')
+    $twiceLicense = Join-Path $noticeFixtures 'twice.txt'
+    [IO.File]::WriteAllText($twiceLicense, $notice + "`n" + $redMonitorText)
+    Reject 'a vendored licence with two MIT sections' { Get-RedXeRedMonitorLicenseNotice -LicensePath $twiceLicense } -Naming @('exactly once', 'occurs 2 times')
+    Reject 'a missing vendored licence' { Get-RedXeRedMonitorLicenseNotice -LicensePath (Join-Path $noticeFixtures 'absent.txt') } -Naming @('missing', 'absent.txt')
+    # The smoke check of a built package: the shipped file is the MIT section and nothing else.
+    $packagedNotice = Join-Path $noticeFixtures 'RedMonitor-LICENSE.txt'
+    [IO.File]::WriteAllText($packagedNotice, $notice, [Text.UTF8Encoding]::new($false))
+    Assert-RedXeRedMonitorLicenseNotice -Path $packagedNotice
+    Reject 'the whole vendored licence as the packaged RedMonitor notice' { Assert-RedXeRedMonitorLicenseNotice -Path $redMonitorLicense } -Naming @('only the MIT licence section')
+    Write-Host 'PASS RedMonitor notice extraction'
+
+    # Symbols ZIP: a fake Release output (tiny stand-in .exe/.dll/.pdb files), a fake package listing, and a fake
+    # bundled-plugin catalog. No real build, PDB, or package is involved.
+    $symbolRepo = Join-Path $fixture 'symbol-repo'
+    [void](New-Item -ItemType Directory -Path (Join-Path $symbolRepo 'RedXe') -Force)
+    Set-Content -LiteralPath (Join-Path $symbolRepo 'RedXe\BundledPlugins.h') -Value @(
+        'RedXeBundledPluginSpec{"builtin.alpha", L"Alpha.dll"},',
+        'RedXeBundledPluginSpec{"builtin.beta", L"Beta.dll"},')
+    $linked = [datetime]::new(2026, 10, 29, 12, 0, 0, [DateTimeKind]::Utc)
+    $runtimeDlls = @('msvcp140.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
+    # First-party: the executables, the catalogued plugins, the helpers, and one extra shipped tool (LogiconProbe.exe).
+    $firstPartyBinaries = @('RedXe.exe', 'RedXeLauncher.exe', 'Plugins/Alpha.dll', 'Plugins/Beta.dll', 'Plugins/AVControlBroker.exe', 'Plugins/AVControlCamera.dll',
+        'Plugins/AVControlCameraSetup.exe', 'Plugins/WeatherLocation.exe', 'Plugins/LogiconProbe.exe')
+    # Built elsewhere: vcpkg DLLs copied into the output (DLLs only), shipped with no PDB.
+    $thirdPartyBinaries = @('yyjson.dll', 'Plugins/yyjson.dll', 'Plugins/libcurl.dll', 'Plugins/z.dll')
+    $expectedPdbs = @('Plugins/AVControlBroker.pdb', 'Plugins/AVControlCamera.pdb', 'Plugins/AVControlCameraSetup.pdb', 'Plugins/Alpha.pdb', 'Plugins/Beta.pdb',
+        'Plugins/LogiconProbe.pdb', 'Plugins/WeatherLocation.pdb', 'RedXe.pdb', 'RedXeLauncher.pdb')
+    $symbolListing = $firstPartyBinaries + $thirdPartyBinaries + $runtimeDlls + @($runtimeDlls | ForEach-Object { "Plugins/$_" }) +
+        @('LICENSE.txt', 'README.txt', 'Settings/RedXe.settings.json', 'Plugins/weathericons-regular-webfont.ttf', 'Plugins/OFL.txt')
+    function New-FakeFile([string] $Path, [string] $Content, [datetime] $WhenUtc) {
+        [void](New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force)
+        [IO.File]::WriteAllText($Path, $Content)
+        [IO.File]::SetLastWriteTimeUtc($Path, $WhenUtc)
+    }
+    # The PDB lands a few milliseconds after its image, as the linker's do. The Visual C++ runtime is not in the
+    # build output at all; it is copied into the package from the redistributable.
+    function New-SymbolOutput([string] $Name) {
+        $output = Join-Path $fixture $Name
+        foreach ($entry in $firstPartyBinaries) {
+            $path = Join-Path $output $entry.Replace('/', '\')
+            New-FakeFile $path "binary $entry" $linked
+            New-FakeFile ([IO.Path]::ChangeExtension($path, '.pdb')) "pdb $entry" $linked.AddMilliseconds(4)
+        }
+        foreach ($entry in $thirdPartyBinaries) { New-FakeFile (Join-Path $output $entry.Replace('/', '\')) "third-party $entry" $linked.AddDays(-30) }
+        # Build products no package ships: a test executable with its PDB, and a PDB whose binary is not shipped.
+        New-FakeFile (Join-Path $output 'SettingsTests.exe') 'test binary' $linked
+        New-FakeFile (Join-Path $output 'SettingsTests.pdb') 'test pdb' $linked
+        New-FakeFile (Join-Path $output 'Plugins\Unshipped.pdb') 'unshipped pdb' $linked
+        return $output
+    }
+    $symbolOutput = New-SymbolOutput 'symbol-output'
+    $symbolPackages = Join-Path $fixture 'symbol-packages'
+    $symbols = New-RedXeSymbolArchive -RepoRoot $symbolRepo -Version '1.0.42' -Platform x64 -PackageEntries $symbolListing -BuildOutput $symbolOutput -OutputDirectory $symbolPackages
+    if ((Get-RedXeSymbolArchiveName -Version '1.0.42' -Platform ARM64) -cne 'RedXe-1.0.42-ARM64-Symbols.zip') { throw 'Symbols ZIP name (ARM64).' }
+    if ($symbols.ZipPath -cne (Join-Path $symbolPackages 'RedXe-1.0.42-x64-Symbols.zip') -or -not (Test-Path -LiteralPath $symbols.ZipPath -PathType Leaf)) { throw "Symbols ZIP name or location: $($symbols.ZipPath)" }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $symbolZip = [IO.Compression.ZipFile]::OpenRead($symbols.ZipPath)
+    try {
+        $zipNames = @($symbolZip.Entries | ForEach-Object { $_.FullName })
+        if ((@($zipNames | Sort-Object) -join '|') -cne (@($expectedPdbs | Sort-Object) -join '|')) { throw "The symbols ZIP must hold exactly the shipped first-party PDBs, but holds: $($zipNames -join ', ')" }
+        if ((@($symbols.Entries | Sort-Object) -join '|') -cne (@($expectedPdbs | Sort-Object) -join '|')) { throw "The symbols result lists the wrong entries: $($symbols.Entries -join ', ')" }
+        foreach ($zipEntry in $symbolZip.Entries) {
+            $reader = [IO.StreamReader]::new($zipEntry.Open())
+            try { $pdbContent = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $owner = @($firstPartyBinaries | Where-Object { ($_ -replace '\.(exe|dll)$', '.pdb') -ceq $zipEntry.FullName })
+            if ($owner.Count -ne 1 -or $pdbContent -cne "pdb $($owner[0])") { throw "Symbols ZIP entry $($zipEntry.FullName) is not the PDB of its binary." }
+        }
+    } finally { $symbolZip.Dispose() }
+    Write-Host 'PASS symbols ZIP holds exactly the first-party PDBs at the package paths'
+    # The Visual C++ runtime and the vcpkg DLLs ship without a PDB: they are left out, not an error.
+    $expectedExcluded = $thirdPartyBinaries + $runtimeDlls + @($runtimeDlls | ForEach-Object { "Plugins/$_" })
+    if ((@($symbols.Excluded | Sort-Object) -join '|') -cne (@($expectedExcluded | Sort-Object) -join '|')) { throw "Unexpected binaries without a PDB: $($symbols.Excluded -join ', ')" }
+    Write-Host 'PASS runtime and third-party DLLs are excluded'
+
+    # The sidecar is the portable ZIP's, byte for byte in form: "<lowercase sha256> *<name>", LF, no byte order mark.
+    $portableStandIn = Join-Path $symbolPackages (Get-RedXePackageName -Version '1.0.42' -Platform x64)
+    [IO.File]::WriteAllText($portableStandIn, 'stand-in for the portable ZIP')
+    $portableChecksum = Write-RedXePackageChecksum -Path $portableStandIn
+    foreach ($sidecar in @(@{ Zip = $portableStandIn; Sidecar = $portableChecksum.Sha256Path }, @{ Zip = $symbols.ZipPath; Sidecar = $symbols.Sha256Path })) {
+        $zipLeaf = Split-Path -Leaf $sidecar.Zip
+        $sidecarHash = (Get-FileHash -LiteralPath $sidecar.Zip -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($sidecar.Sidecar -cne "$($sidecar.Zip).sha256") { throw "Sidecar path for ${zipLeaf}: $($sidecar.Sidecar)" }
+        $sidecarText = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($sidecar.Sidecar))
+        if ($sidecarText -cne "$sidecarHash *$zipLeaf`n" -or $sidecarText -cnotmatch '^[0-9a-f]{64} \*RedXe-1\.0\.42-x64-(Portable|Symbols)\.zip\n$') { throw "Sidecar form for ${zipLeaf}: '$sidecarText'" }
+        # The check release.yml applies to every released ZIP.
+        if ((Get-Content -LiteralPath $sidecar.Sidecar -Raw).Trim() -ne "$sidecarHash *$zipLeaf") { throw "release.yml would reject the sidecar of $zipLeaf." }
+    }
+    if ($symbols.Sha256 -cne (Get-FileHash -LiteralPath $symbols.ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'The symbols result carries the wrong hash.' }
+    Write-Host 'PASS symbols sidecar has the portable sidecar form'
+
+    # A first-party binary without its PDB fails, naming the binary, and leaves no ZIP or sidecar behind, not even the
+    # leftovers of an earlier run (they would pair PDBs of one build with the binaries of another).
+    foreach ($victim in @('Plugins/Beta.dll', 'RedXe.exe')) {
+        $tag = $victim -replace '[^A-Za-z]', ''
+        $brokenOutput = New-SymbolOutput "symbol-output-missing-$tag"
+        Remove-Item -LiteralPath ([IO.Path]::ChangeExtension((Join-Path $brokenOutput $victim.Replace('/', '\')), '.pdb'))
+        $failedPackages = Join-Path $fixture "symbol-packages-missing-$tag"
+        [void](New-Item -ItemType Directory -Path $failedPackages)
+        $earlierZip = Join-Path $failedPackages 'RedXe-1.0.42-x64-Symbols.zip'
+        [IO.File]::WriteAllText($earlierZip, 'left by an earlier run')
+        [IO.File]::WriteAllText("$earlierZip.sha256", 'left by an earlier run')
+        Reject "a missing PDB for $victim" {
+            New-RedXeSymbolArchive -RepoRoot $symbolRepo -Version '1.0.42' -Platform x64 -PackageEntries $symbolListing -BuildOutput $brokenOutput -OutputDirectory $failedPackages
+        } -Naming @("'$victim'", 'No PDB for the first-party binary')
+        if (@(Get-ChildItem -LiteralPath $failedPackages -Force).Count -ne 0) { throw "A failed symbols run left files behind: $((Get-ChildItem -LiteralPath $failedPackages -Force).Name -join ', ')" }
+    }
+    # A shipped tool that neither the plugin catalog nor the helper list requires (LogiconProbe.exe) is archived when it
+    # has a PDB and, like any other binary without one, left out when it has none.
+    $probeOutput = New-SymbolOutput 'symbol-output-probe'
+    Remove-Item -LiteralPath (Join-Path $probeOutput 'Plugins\LogiconProbe.pdb')
+    $withoutProbe = New-RedXeSymbolArchive -RepoRoot $symbolRepo -Version '1.0.42' -Platform x64 -PackageEntries $symbolListing -BuildOutput $probeOutput -OutputDirectory (Join-Path $fixture 'symbol-packages-probe')
+    if ($withoutProbe.Entries -ccontains 'Plugins/LogiconProbe.pdb' -or $withoutProbe.Excluded -cnotcontains 'Plugins/LogiconProbe.exe' -or $withoutProbe.Entries.Count -ne $expectedPdbs.Count - 1) { throw 'An unrequired binary without a PDB must be left out.' }
+    $noBinary = New-SymbolOutput 'symbol-output-binary-missing'
+    Remove-Item -LiteralPath (Join-Path $noBinary 'Plugins\Alpha.dll')
+    Reject 'a PDB whose shipped binary is not in the output' {
+        New-RedXeSymbolArchive -RepoRoot $symbolRepo -Version '1.0.42' -Platform x64 -PackageEntries $symbolListing -BuildOutput $noBinary -OutputDirectory (Join-Path $fixture 'symbol-packages-binary-missing')
+    } -Naming @('Plugins/Alpha.dll', 'cannot be matched')
+    Reject 'a package that lists no binary with a PDB' {
+        New-RedXeSymbolArchive -RepoRoot $symbolRepo -Version '1.0.42' -Platform x64 -PackageEntries @('LICENSE.txt', 'msvcp140.dll') -BuildOutput $symbolOutput -OutputDirectory (Join-Path $fixture 'symbol-packages-empty')
+    } -Naming @('nothing to archive')
+
+    # A PDB older than its binary is not the PDB of that link; one within the linker's own skew is.
+    $staleOutput = New-SymbolOutput 'symbol-output-stale'
+    $stalePdb = Join-Path $staleOutput 'Plugins\Alpha.pdb'
+    [IO.File]::SetLastWriteTimeUtc($stalePdb, $linked.AddMinutes(-10))
+    Reject 'a PDB older than its binary' {
+        New-RedXeSymbolArchive -RepoRoot $symbolRepo -Version '1.0.42' -Platform x64 -PackageEntries $symbolListing -BuildOutput $staleOutput -OutputDirectory (Join-Path $fixture 'symbol-packages-stale')
+    } -Naming @("'Plugins/Alpha.dll'", 'older than the binary')
+    [IO.File]::SetLastWriteTimeUtc($stalePdb, $linked.AddSeconds(-1))
+    $skewed = New-RedXeSymbolArchive -RepoRoot $symbolRepo -Version '1.0.42' -Platform x64 -PackageEntries $symbolListing -BuildOutput $staleOutput -OutputDirectory (Join-Path $fixture 'symbol-packages-skew')
+    if ($skewed.Entries -cnotcontains 'Plugins/Alpha.pdb') { throw 'A PDB within the linker skew of its binary must be accepted.' }
+    Write-Host 'PASS missing and stale PDBs fail naming the binary'
+
+    # The real catalog and required-entry rules: a package listing of every required entry, with a PDB for each
+    # first-party binary (and none for the CRT and vcpkg DLLs), archives exactly those PDBs.
+    $realRequired = Get-RedXePackageRequiredEntries -RepoRoot $repo
+    $realOutput = Join-Path $fixture 'symbol-output-real'
+    $notBuiltHere = $runtimeDlls + @('libcurl.dll', 'yyjson.dll')
+    $realExpected = [Collections.Generic.List[string]]::new()
+    foreach ($entry in @($realRequired | Where-Object { $_ -match '\.(exe|dll)$' })) {
+        $leaf = Split-Path -Leaf $entry
+        if ($runtimeDlls -notcontains $leaf) { New-FakeFile (Join-Path $realOutput $entry.Replace('/', '\')) "binary $entry" $linked }
+        if ($notBuiltHere -notcontains $leaf) {
+            $pdbEntry = $entry -replace '\.(exe|dll)$', '.pdb'
+            New-FakeFile (Join-Path $realOutput $pdbEntry.Replace('/', '\')) "pdb $entry" $linked
+            $realExpected.Add($pdbEntry)
+        }
+    }
+    $realSymbols = New-RedXeSymbolArchive -RepoRoot $repo -Version '1.0.42' -Platform x64 -PackageEntries $realRequired -BuildOutput $realOutput -OutputDirectory (Join-Path $fixture 'symbol-packages-real')
+    if ((@($realSymbols.Entries | Sort-Object) -join '|') -cne (@($realExpected | Sort-Object) -join '|')) { throw "The real required set archived: $($realSymbols.Entries -join ', ')" }
+    foreach ($pdb in @('RedXe.pdb', 'RedXeLauncher.pdb', 'Plugins/MatrixRain.pdb', 'Plugins/zoom.action.pdb', 'Plugins/AVControlCamera.pdb', 'Plugins/WeatherLocation.pdb')) {
+        if ($realSymbols.Entries -cnotcontains $pdb) { throw "The real required set lacks $pdb." }
+    }
+    Write-Host 'PASS symbols ZIP covers the real required first-party set'
+
+    # What a built package cannot show here, because no real build exists in this suite: package.ps1 writes the ZIP,
+    # both ZIPs write their sidecar through one writer, and the package carries and re-checks the RedMonitor notice.
+    $wiring = @(
+        @{ Function = 'New-RedXePortablePackage'; Calls = 'Write-RedXePackageChecksum' },
+        @{ Function = 'New-RedXeSymbolArchive'; Calls = 'Write-RedXePackageChecksum' },
+        @{ Function = 'New-RedXePortablePackage'; Calls = 'Get-RedXeRedMonitorLicenseNotice' },
+        @{ Function = 'Test-RedXePortablePackage'; Calls = 'Assert-RedXeRedMonitorLicenseNotice' })
+    foreach ($check in $wiring) {
+        $calls = @((Get-Command $check.Function).ScriptBlock.Ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq $check.Calls }, $true))
+        if ($calls.Count -ne 1) { throw "$($check.Function) must call $($check.Calls) exactly once (found $($calls.Count))." }
+    }
+    $parseTokens = $null
+    $parseErrors = $null
+    $packageScript = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'package.ps1'), [ref] $parseTokens, [ref] $parseErrors)
+    $symbolCalls = @($packageScript.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'New-RedXeSymbolArchive' }, $true))
+    if ($parseErrors.Count -ne 0 -or $symbolCalls.Count -ne 1) { throw 'package.ps1 must write the symbols ZIP through New-RedXeSymbolArchive.' }
+    Write-Host 'PASS package.ps1 and the package smoke are wired to the symbols ZIP and the RedMonitor notice'
 
     # Winget manifest: exact asset names, both architectures, deterministic ReleaseDate, no placeholder left.
     $packages = Join-Path $fixture 'packages'

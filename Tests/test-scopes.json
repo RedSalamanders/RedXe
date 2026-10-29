@@ -328,7 +328,16 @@
       "scopes": [
         "BuildProcess"
       ],
-      "reason": "skill validation tooling"
+      "reason": "independent skill validation tooling",
+      "exclusive": true
+    },
+    {
+      "pattern": "Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1",
+      "scopes": [
+        "BuildProcess"
+      ],
+      "reason": "independent skill validation tooling",
+      "exclusive": true
     },
     {
       "pattern": ".agents/**",
@@ -349,7 +358,24 @@
       "scopes": [
         "BuildProcess"
       ],
-      "reason": "skill validation tooling"
+      "reason": "independent skill validation tooling",
+      "exclusive": true
+    },
+    {
+      "pattern": "Build/SkillPackageIntegrity.psm1",
+      "scopes": [
+        "BuildProcess"
+      ],
+      "reason": "independent skill validation tooling",
+      "exclusive": true
+    },
+    {
+      "pattern": "Build/SkillText.psm1",
+      "scopes": [
+        "BuildProcess"
+      ],
+      "reason": "independent skill validation tooling",
+      "exclusive": true
     }
   ],
   "toolingCommands": [
@@ -385,5 +411,5 @@
       ]
     }
   ],
-  "prWorkflowDigest": "f3037906f886b309ccb4af14925037be99f8a60ff2946600846d28e658a59eaf"
+  "prWorkflowDigest": "a7be4509580bbd62a61f3a691ef758d18fe395822af2fbe6358b9aa2d6154e2a"
 }

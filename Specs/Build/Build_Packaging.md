@@ -1,15 +1,16 @@
 # RedXe packaging, release, and winget contract
 
 Status: current normative repository contract
-Last reviewed: 2026-10-07
+Last reviewed: 2026-10-29
 Owner: `package.ps1`, `winget-manifest.ps1`, `Build/Versioning.psm1`, `Build/Package.psm1`, `Build/Winget.psm1`,
 `Installer/`, `RedXeLauncher/`, `.github/workflows/release.yml`, `.github/workflows/winget-release.yml`
 
 ## Scope
 
-This contract owns the product version stamp, the portable ZIP package and its clean-extraction smoke, the installer
-that ships inside the package, the command-alias launcher, the release workflow, and winget publication. Build output
-selection and the running-target preflight remain in [`Build_Process.md`](Build_Process.md).
+This contract owns the product version stamp, the portable ZIP package and its clean-extraction smoke, the symbols ZIP
+released beside it, the installer that ships inside the package, the command-alias launcher, the release workflow, and
+winget publication. Build output selection and the running-target preflight remain in
+[`Build_Process.md`](Build_Process.md).
 
 ## Version
 
@@ -57,7 +58,9 @@ that link resolves app-local DLLs and `GetModuleFileNameW` against the link's di
 ## Portable ZIP (`package.ps1`, `Build/Package.psm1`)
 
 `package.ps1 -Platform <x64|ARM64> -BuildNumber <n>` builds Release (unless `-SkipBuild`) and writes
-`.build/packages/RedXe-<version>-<Platform>-Portable.zip` plus a `.sha256` sidecar (`<hash> *<name>`).
+`.build/packages/RedXe-<version>-<Platform>-Portable.zip` plus a `.sha256` sidecar (`<hash> *<name>`: lowercase SHA-256,
+one space, `*`, the file name, and a line feed, UTF-8 without a byte order mark). It then writes the
+[symbols ZIP](#symbols-zip) beside it.
 
 The package MUST contain, with forward-slash entry names and no directory entries outside these roots:
 
@@ -71,6 +74,7 @@ The package MUST contain, with forward-slash entry names and no directory entrie
 | `Install-RedXe.ps1`, `install.cmd`, `uninstall.cmd` | `Installer/` |
 | `README.txt` | generated with the version and platform |
 | `LICENSE.txt` | repository root (required) |
+| `RedMonitor-LICENSE.txt` | the MIT section of `ThirdParty/RedMonitor/LICENSE.txt`, extracted at package time (required) |
 
 - Every DLL named in `RedXe/BundledPlugins.h`, the AV Control helpers (`AVControlBroker.exe`,
   `AVControlCamera.dll`, `AVControlCameraSetup.exe`), `WeatherLocation.exe`, `libcurl.dll`, `Plugins/yyjson.dll`,
@@ -80,12 +84,52 @@ The package MUST contain, with forward-slash entry names and no directory entrie
   `zoom.action.dll` opens Zoom's web join page and meeting invites in the default browser; it ships no Zoom SDK.
 - Both `RedXe.exe` and `RedXeLauncher.exe` MUST be Release images of the target architecture stamped with the
   package version; a Debug or mismatched stamp fails packaging.
+- `RedMonitor-LICENSE.txt` is the RedMonitor client's MIT notice and nothing else. The vendored
+  `ThirdParty/RedMonitor/LICENSE.txt` is hash-pinned and is the whole RedSalamander licence, which also carries the
+  notices of components RedXe does not ship (7-Zip, unRAR, LibRaw, FTXUI, pe-parse, and others), so it is never copied
+  as is and never edited. `Get-RedXeRedMonitorLicenseNotice` extracts the MIT section: the `MIT License` heading, its
+  copyright line, and the permission, condition, and warranty paragraphs, verbatim, with LF line endings and one final
+  line feed whatever the checkout's line endings. Packaging fails with a message naming the file unless that section
+  occurs exactly once, so a restructured vendored file stops the build instead of shipping other text. Interim: a
+  vendored file that is only the client's MIT text satisfies the same extraction.
 - The package is never written until the clean-extraction smoke accepts a staged copy: the archive is expanded into
-  a fresh directory, its entry list is checked against the rules above, and when the host can run the platform
+  a fresh directory, its entry list is checked against the rules above, the packaged `RedMonitor-LICENSE.txt` is
+  checked to be exactly the MIT section, and when the host can run the platform
   (`x64` on x64/ARM64 Windows, `ARM64` only on ARM64 Windows) the packaged `RedXe.exe --self-test --warp` MUST exit
   0 and `RedXeLauncher.exe --help` MUST exit 0 with the help text. Both run through `Invoke-RedXeStreamingProcess`
   with a time budget (fifteen and two minutes) and a log under `.build/logs/`, which outlives the extraction; the
   extraction is removed afterwards.
+
+## Symbols ZIP
+
+Release images are optimized and link-time code generated (`/GL`, `/LTCG`, `/OPT:REF`, `/OPT:ICF`), so a minidump
+that RedXe wrote under `%LocalAppData%\RedXe\Crashes` can be symbolized only with the exact PDBs of the build that
+produced the binaries, and the portable ZIP carries no PDB. `package.ps1` therefore also writes
+`.build/packages/RedXe-<version>-<Platform>-Symbols.zip` beside the portable ZIP (`New-RedXeSymbolArchive`), with a
+`.sha256` sidecar in exactly the same form (`Write-RedXePackageChecksum` writes both).
+
+- It holds the PDB of every first-party executable and DLL that the portable ZIP lists, and nothing else: no
+  test-executable PDBs, no other build products, no README or manifest. Entry names use forward slashes and the portable
+  ZIP's layout (`RedXe.pdb`, `RedXeLauncher.pdb`, `Plugins/MatrixRain.pdb`, ...), so extracting it over an extracted
+  package puts each PDB beside its module.
+- A PDB is selected by base name from the same `.build/<Platform>/Release/` output the package was built from: the
+  package entry `Plugins/X.dll` takes `Plugins/X.pdb` from the same folder. Shipped binaries that this repository does
+  not build have no PDB there and are left out: the Visual C++ runtime DLLs and the vcpkg DLLs (`libcurl.dll`,
+  `yyjson.dll`, and the zlib DLL), which the build copies without their PDBs. Any other shipped executable or DLL
+  (for example `Plugins/LogiconProbe.exe`) contributes its PDB when it has one.
+- Packaging fails, naming the binary, when a required first-party binary has no PDB: `RedXe.exe`, `RedXeLauncher.exe`,
+  every DLL named in `RedXe/BundledPlugins.h`, and `AVControlBroker.exe`, `AVControlCamera.dll`,
+  `AVControlCameraSetup.exe`, and `WeatherLocation.exe`. It also fails when a PDB's binary is not in that output, when a
+  PDB is older than its binary by more than two seconds (the linker commits the two within milliseconds of each other,
+  in either order, so a larger gap means the PDB was not written by the link that produced the binary), and when no
+  PDB is found at all.
+- The ZIP is staged under a temporary name, its entry names and sizes are read back against the selection, and only then
+  is it moved into place. A failed run leaves neither the ZIP nor its sidecar, including those of an earlier run, so a
+  symbols ZIP never sits beside the portable ZIP of another build.
+- The ZIP exists to symbolize crash dumps of that release. The release publishes it per built platform and records it
+  in `checksums.sha256` (see the release workflow below); because it is cut from the job output the portable ZIP was
+  cut from, its PDBs match the released binaries exactly. To use it, extract it and add the extracted folder and its
+  `Plugins` subfolder to the debugger's symbol path.
 
 ## In-package installer (`Installer/Install-RedXe.ps1`)
 
@@ -114,9 +158,12 @@ works without changing the execution policy) and on PowerShell 7, per user, with
   in isolation; they are not user-facing.
 
 `Tests/BuildProcessTests/PackagingTests.ps1` (run by `test.ps1`) MUST cover version parsing, the required and
-forbidden entry rules, CRT discovery, manifest generation, and an install/upgrade/remove round-trip of a synthetic
-package under both PowerShell hosts against scratch locations. It MUST leave no registry key, shortcut, or folder
-behind.
+forbidden entry rules, CRT discovery, the RedMonitor notice extraction (the real vendored file read-only, and fixtures
+that lack or repeat the MIT section), the symbols ZIP, manifest generation, and an install/upgrade/remove round-trip of
+a synthetic package under both PowerShell hosts against scratch locations. The symbols ZIP is covered from a fake
+Release output, a fake package listing, and a fake plugin catalog, with no real build: the exact PDBs and their paths,
+the runtime DLLs left out, a missing or stale PDB failing with the binary named, no leftover ZIP after a failure, and
+the sidecar form shared with the portable ZIP. It MUST leave no registry key, shortcut, or folder behind.
 
 ## Winget manifest (`winget-manifest.ps1`, `Build/Winget.psm1`)
 
@@ -148,11 +195,13 @@ ref before resolving a version, because the commit count is monotonic only along
    once, and published assets are never replaced. Releasing again means merging a new commit to `main`.
 2. `build` runs `test.ps1 -Full -SkipTooling -Configuration Release -Platform <P> -BuildNumber <n>` then
    `package.ps1 -Platform <P> -BuildNumber <n> -SkipBuild` natively on `windows-2025-vs2026` (x64) and
-   `windows-11-vs2026-arm` (ARM64, unless `build_arm64` is off), and uploads the ZIP and its sidecar. The job
-   passes `-SkipTooling` because the profile-independent PowerShell tooling suite already passed in the `tooling` job of the push run that `version` requires.
-3. `release` requires the exact expected asset set, verifies each sidecar hash, writes `checksums.sha256`, and
-   creates the GitHub release `v<version>` at the workflow commit with generated notes. A missing or partial matrix
-   never becomes a release.
+   `windows-11-vs2026-arm` (ARM64, unless `build_arm64` is off), and uploads the portable ZIP, the symbols ZIP, and
+   their sidecars as one `package-<Platform>` artifact. The job passes `-SkipTooling` because the profile-independent
+   PowerShell tooling suite already passed in the `tooling` job of the push run that `version` requires.
+3. `release` requires the exact expected asset set, which is `RedXe-<version>-<Platform>-Portable.zip` and
+   `RedXe-<version>-<Platform>-Symbols.zip` for each built platform and nothing else, verifies each sidecar hash,
+   writes `checksums.sha256` with a line for every asset, and creates the GitHub release `v<version>` at the workflow
+   commit with generated notes. A missing or partial matrix, or a missing symbols ZIP, never becomes a release.
 4. `winget` calls `winget-release.yml` with `submit: true` when `publish_winget` and `build_arm64` are both on. An
    x64-only release is published on GitHub but never submitted, because the manifest lists both architectures.
 
@@ -165,9 +214,11 @@ concurrency group. On `windows-latest`:
 
 1. Checks out the release tag so the templates match the released product.
 2. Reads the release through the GitHub API, requires both portable assets, downloads them, records the release
-   date, and verifies each asset is downloadable **without credentials**. winget-pkgs and every winget client fetch
-   `InstallerUrl` anonymously, so a private repository fails here with an explicit message instead of failing later
-   in the community repository; the repository (at least its releases) must be public before publication.
+   date, and verifies each asset is downloadable **without credentials**. Assets are selected by their exact portable
+   names, so the symbols ZIPs and `checksums.sha256` beside them never reach the manifest. winget-pkgs and every
+   winget client fetch `InstallerUrl` anonymously, so a private repository fails here with an explicit message
+   instead of failing later in the community repository; the repository (at least its releases) must be public before
+   publication.
 3. Runs `winget-manifest.ps1` (generation plus `winget validate`).
 4. Enables `LocalManifestFiles`, runs `winget install --manifest`, runs
    `%LocalAppData%\Microsoft\WinGet\Links\RedXe.exe --help` and `--self-test --warp` through the alias winget
@@ -195,11 +246,11 @@ Changes to this contract require:
 
 ```powershell
 .\test.ps1 -Full -Configuration Debug -Platform x64    # includes the launcher checks and PackagingTests.ps1
-.\package.ps1 -Platform x64 -BuildNumber 1
+.\package.ps1 -Platform x64 -BuildNumber 1             # the portable ZIP and the symbols ZIP, each with its sidecar
 .\winget-manifest.ps1 -Version 1.0.1 -Arm64ZipPath <an ARM64 package or a copy for local validation>
 ```
 
 and, for workflow changes, one `Release` run with `publish_winget` off followed by a manual `Publish to winget`
 run with `submit` off against that release.
 
-RedMonitor is installed independently. Application packages include its client MIT notice and no viewer executable, runtime, satellite or theme payload. Normal builds verify only the pinned local header/license; see [RedMonitor integration](../Core/Core_RedMonitorIntegration.md).
+RedMonitor is installed independently. Application packages include its client MIT notice (`RedMonitor-LICENSE.txt`, the MIT section of the pinned licence file, as described above) and no viewer executable, runtime, satellite or theme payload. Normal builds verify only the pinned local header/license; see [RedMonitor integration](../Core/Core_RedMonitorIntegration.md).

@@ -101,7 +101,7 @@ Before closing specification or skill changes:
 Also run the build and runtime checks named by each modified domain spec. Generated reports and build products belong
 under `.build/`, never under `Specs/` or `docs/`.
 
-The [Changes workflow](Core/Core_Changes.md) owns fragment format, validation and immediate folding before PrePush/final handoff and after integration.
+The [Changes workflow](Core/Core_Changes.md) owns fragment format, validation and the fold of merged fragments into `CHANGELOG.md` on the default branch through a pull request of its own.
 
 [RedMonitor integration](Core/Core_RedMonitorIntegration.md) owns the optional diagnostic client, SDK pin and viewer command.
 

@@ -2099,8 +2099,8 @@ constexpr std::string_view kRepresentative = R"json(
         for (const RedXeCommandLineSwitch& entry : kRedXeCommandLineSwitches)
         {
             const bool endsOnItsOwn = entry.id == RedXeSwitch::Help || entry.id == RedXeSwitch::RedMonitor ||
-                                      entry.id == RedXeSwitch::Screenshot || entry.id == RedXeSwitch::SelfTest ||
-                                      entry.id == RedXeSwitch::CrashTest ||
+                                      entry.id == RedXeSwitch::RedMonitorProbe || entry.id == RedXeSwitch::Screenshot ||
+                                      entry.id == RedXeSwitch::SelfTest || entry.id == RedXeSwitch::CrashTest ||
                                       entry.id == RedXeSwitch::CrashTestStackOverflow;
             if (entry.launcherWaitForExit != endsOnItsOwn)
             {

@@ -269,6 +269,73 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         return FAILED(result) ? result : kTestFailure;
     }
 
+    // The active zone above may observe no daylight saving at all (hosted runners use UTC). Two fixed zones with
+    // opposite seasons prove each timestamp's own rule through the production conversion: both minutes of every 2026
+    // transition, and a Sydney local day that differs from the UTC day.
+    const auto setTimeZone =
+        Resolve<decltype(&RedXeWeatherSetTestTimeZone)>(module.get(), kWeatherSetTestTimeZoneExport);
+    if (!setTimeZone)
+    {
+        shutdown();
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    }
+    struct ZoneCase final
+    {
+        const wchar_t* zone;
+        const char* time;
+        const char* now;
+        const wchar_t* clock;
+        const wchar_t* day;
+    };
+    static constexpr wchar_t kEurope[] = L"W. Europe Standard Time";
+    static constexpr wchar_t kSydney[] = L"AUS Eastern Standard Time";
+    constexpr ZoneCase zoneCases[]{
+        {kEurope, "2026-01-04T06:11:00Z", "2026-01-04T06:11:00Z", L"07:11", L"Today"},
+        {kEurope, "2026-07-04T05:11:00Z", "2026-07-04T05:11:00Z", L"07:11", L"Today"},
+        {kEurope, "2026-03-29T00:59:00Z", "2026-03-29T00:59:00Z", L"01:59", L"Today"},
+        {kEurope, "2026-03-29T01:00:00Z", "2026-03-29T01:00:00Z", L"03:00", L"Today"},
+        {kEurope, "2026-10-25T00:59:00Z", "2026-10-25T00:59:00Z", L"02:59", L"Today"},
+        {kEurope, "2026-10-25T01:00:00Z", "2026-10-25T01:00:00Z", L"02:00", L"Today"},
+        {kSydney, "2026-01-04T20:11:00Z", "2026-01-04T20:11:00Z", L"07:11", L"Today"},
+        {kSydney, "2026-07-04T21:11:00Z", "2026-07-04T21:11:00Z", L"07:11", L"Today"},
+        {kSydney, "2026-04-04T15:59:00Z", "2026-04-04T15:59:00Z", L"02:59", L"Today"},
+        {kSydney, "2026-04-04T16:00:00Z", "2026-04-04T16:00:00Z", L"02:00", L"Today"},
+        {kSydney, "2026-10-03T15:59:00Z", "2026-10-03T15:59:00Z", L"01:59", L"Today"},
+        {kSydney, "2026-10-03T16:00:00Z", "2026-10-03T16:00:00Z", L"03:00", L"Today"},
+        // 00:30 and 23:00 on 5 January in Sydney fall on different UTC days; the label follows the local day.
+        {kSydney, "2026-01-05T12:00:00Z", "2026-01-04T13:30:00Z", L"23:00", L"Today"},
+        {kSydney, "2026-01-05T13:30:00Z", "2026-01-04T13:30:00Z", L"00:30", L"Tomorrow"},
+    };
+    for (const ZoneCase& zoneCase : zoneCases)
+    {
+        uint64_t time = 0;
+        uint64_t now = 0;
+        result = setTimeZone(zoneCase.zone);
+        if (SUCCEEDED(result))
+            result = parseIso(zoneCase.time, &time);
+        if (SUCCEEDED(result))
+            result = parseIso(zoneCase.now, &now);
+        if (SUCCEEDED(result))
+            result = formatClockDay(time, now, clock.data(), static_cast<uint32_t>(clock.size()), day.data(),
+                                    static_cast<uint32_t>(day.size()));
+        if (FAILED(result) || std::wcscmp(clock.data(), zoneCase.clock) != 0 ||
+            std::wcscmp(day.data(), zoneCase.day) != 0)
+        {
+            std::wprintf(L"Weather %s clock/day mismatch at %hs: %s %s, expected %s %s\n", zoneCase.zone, zoneCase.time,
+                         clock.data(), day.data(), zoneCase.clock, zoneCase.day);
+            (void)setTimeZone(nullptr);
+            shutdown();
+            return FAILED(result) ? result : kTestFailure;
+        }
+    }
+    if (setTimeZone(L"No Such Time Zone") != HRESULT_FROM_WIN32(ERROR_NOT_FOUND) || FAILED(setTimeZone(nullptr)))
+    {
+        std::wprintf(L"Weather test time zone did not refuse an unknown zone or restore the active one.\n");
+        (void)setTimeZone(nullptr);
+        shutdown();
+        return kTestFailure;
+    }
+
     result = RunWeatherHttpCacheTests(module.get());
     if (SUCCEEDED(result))
         result = RunWeatherRegressionTests(module.get());

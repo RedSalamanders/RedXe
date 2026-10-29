@@ -1,7 +1,8 @@
 name: Release
 
-# Builds and tests Release for x64 and ARM64 on the native runners, packages each into the portable ZIP, publishes
-# a GitHub release v<major>.<minor>.<commit count>, and hands the release to the winget publication workflow.
+# Builds and tests Release for x64 and ARM64 on the native runners, packages each into the portable ZIP and a symbols
+# ZIP (the exact PDBs of the shipped binaries, for symbolizing crash dumps), publishes a GitHub release
+# v<major>.<minor>.<commit count>, and hands the release to the winget publication workflow.
 # Specs/Build/Build_Packaging.md owns this contract.
 
 "on":
@@ -130,19 +131,24 @@ jobs:
           ./test.ps1 -Full -SkipTooling -Configuration Release -Platform '${{ matrix.platform }}' -BuildNumber ${{ needs.version.outputs.build_number }}
           if ($LASTEXITCODE -ne 0) { throw 'Release tests failed.' }
 
-      - name: Package portable ZIP
+      - name: Package portable ZIP and symbols ZIP
         shell: pwsh
+        # package.ps1 writes both ZIPs from this job's Release output and fails, naming the binary, when a first-party
+        # binary has no PDB or a stale one, so the symbols published below always match the binaries in the portable ZIP.
         run: |
           ./package.ps1 -Platform '${{ matrix.platform }}' -BuildNumber ${{ needs.version.outputs.build_number }} -SkipBuild
           if ($LASTEXITCODE -ne 0) { throw 'Packaging failed.' }
 
-      - name: Upload package
+      - name: Upload package and symbols
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          # One artifact per platform keeps the portable ZIP and its symbols together; the release job downloads package-*.
           name: package-${{ matrix.platform }}
           path: |
             .build/packages/RedXe-${{ needs.version.outputs.version }}-${{ matrix.platform }}-Portable.zip
             .build/packages/RedXe-${{ needs.version.outputs.version }}-${{ matrix.platform }}-Portable.zip.sha256
+            .build/packages/RedXe-${{ needs.version.outputs.version }}-${{ matrix.platform }}-Symbols.zip
+            .build/packages/RedXe-${{ needs.version.outputs.version }}-${{ matrix.platform }}-Symbols.zip.sha256
           if-no-files-found: error
           retention-days: 3
 
@@ -184,7 +190,11 @@ jobs:
           Import-Module (Join-Path $env:GITHUB_WORKSPACE 'Build\Package.psm1') -Force
           $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
           $platforms = if ($env:BUILD_ARM64 -eq 'true') { @('x64', 'ARM64') } else { @('x64') }
-          $expected = foreach ($platform in $platforms) { Get-RedXePackageName -Version $env:VERSION -Platform $platform }
+          # Per built platform: the portable ZIP and the symbols ZIP, each verified against its sidecar below.
+          $expected = foreach ($platform in $platforms) {
+            Get-RedXePackageName -Version $env:VERSION -Platform $platform
+            Get-RedXeSymbolArchiveName -Version $env:VERSION -Platform $platform
+          }
           $lines = foreach ($name in $expected) {
             $zip = Join-Path $artifacts $name
             if (-not (Test-Path -LiteralPath $zip -PathType Leaf) -or (Get-Item -LiteralPath $zip).Length -eq 0) { throw "Release asset missing or empty: $name" }

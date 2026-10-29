@@ -2,10 +2,8 @@
 <Project>
   <PropertyGroup>
     <RequiredMsvcToolsVersion>14.52</RequiredMsvcToolsVersion>
-    <!-- ARM64 SystemData exceeds the 32-bit compiler-host heap under MSVC 14.52. -->
-    <PreferredToolArchitecture Condition="'$(Platform)'=='ARM64' and '$(PreferredToolArchitecture)'=='' and ('$(PROCESSOR_ARCHITECTURE)'=='ARM64' or '$(PROCESSOR_ARCHITEW6432)'=='ARM64')">arm64</PreferredToolArchitecture>
-    <PreferredToolArchitecture Condition="'$(Platform)'=='ARM64' and '$(PreferredToolArchitecture)'==''">x64</PreferredToolArchitecture>
     <SolutionDir Condition="'$(SolutionDir)'==''">$(MSBuildThisFileDirectory)</SolutionDir>
+    <!-- The native OS compiler host for every platform: ARM64 SystemData exceeds the 32-bit host's heap under MSVC 14.52. -->
     <PreferredToolArchitecture Condition="'$(PreferredToolArchitecture)'=='' and ('$(PROCESSOR_ARCHITECTURE)'=='ARM64' or '$(PROCESSOR_ARCHITEW6432)'=='ARM64')">arm64</PreferredToolArchitecture>
     <PreferredToolArchitecture Condition="'$(PreferredToolArchitecture)'=='' and ('$(PROCESSOR_ARCHITECTURE)'=='AMD64' or '$(PROCESSOR_ARCHITEW6432)'=='AMD64')">x64</PreferredToolArchitecture>
     <RedXeBuildRoot>$(MSBuildThisFileDirectory).build\</RedXeBuildRoot>

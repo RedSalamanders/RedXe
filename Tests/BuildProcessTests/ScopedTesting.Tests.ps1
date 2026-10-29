@@ -85,12 +85,53 @@ try {
     }
     Run-Case 'unmapped executable input widens to every scope' {$plan=Get-ScopedTestPlan $manifest @('Unknown/new.cpp');Assert-Scope $plan.full 'Fallback was narrowed'}
     Run-Case 'isolated skill package checks select only tooling without narrowing shared build policy' {
-        foreach($path in @('Build/SkillPackageIntegrity.psm1','Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1','Tests/BuildProcessTests/SkillValidation.Tests.ps1')) {
+        foreach($path in @('Build/SkillPackageIntegrity.psm1','Build/SkillText.psm1','Build/SkillValidation.psm1','Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1','Tests/BuildProcessTests/SkillValidation.Tests.ps1')) {
             $plan=Get-ScopedTestPlan $manifest @($path)
             Assert-Scope (($plan.scopes -join ',') -ceq 'BuildProcess') "Independent package input widened coverage: $path"
+            Assert-Scope (@($manifest.rules | Where-Object {$_.pattern -ceq $path -and $_.PSObject.Properties['exclusive'] -and $_.exclusive}).Count -eq 1) "The exception for $path is not one exclusive manifest rule"
         }
+        # The exception is the rule's exact path, not its directory: a sibling still gets the broader build/process rule.
+        $sibling=Get-ScopedTestPlan $manifest @('Tests/BuildProcessTests/UnlistedFixture.Tests.ps1')
+        Assert-Scope ('Packaging' -in $sibling.scopes -and 'BuildProcess' -in $sibling.scopes -and -not $sibling.full) "A sibling of the isolated fixtures lost the broader rule: $($sibling.scopes -join ',')"
         foreach($path in @('Build/ScopedTesting.psm1','Build/UnknownNewBuildPolicy.psm1')) {
             Assert-Scope ((Get-ScopedTestPlan $manifest @($path)).full) "Shared/unknown Build policy lost conservative coverage: $path"
+        }
+    }
+    Run-Case 'an exclusive rule replaces every broader rule for its exact path only' {
+        $synthetic=[pscustomobject]@{
+            scopes=@('A','B','C' | ForEach-Object {[pscustomobject]@{name=$_;native=$false}})
+            rules=@(
+                [pscustomobject]@{pattern='Dir/**';scopes=@('A','B');reason='broad directory rule'},
+                [pscustomobject]@{pattern='Dir/isolated.ps1';scopes=@('C');reason='isolated tooling';exclusive=$true},
+                [pscustomobject]@{pattern='Dir/additive.ps1';scopes=@('C');reason='additive exact rule'},
+                [pscustomobject]@{pattern='Dir/isolated.md';scopes=@('C');reason='isolated prose';exclusive=$true}
+            )
+        }
+        function Get-Selected([string]$Path) {(Get-ScopedTestPlan $synthetic @($Path)).scopes -join ','}
+        Assert-Scope ((Get-Selected 'Dir/isolated.ps1') -ceq 'C') 'An exclusive rule did not replace the broader directory rule'
+        Assert-Scope ((Get-Selected 'Dir/sibling.ps1') -ceq 'A,B') 'A sibling of an exclusive path lost the broader directory rule'
+        Assert-Scope ((Get-Selected 'Dir/nested/isolated.ps1') -ceq 'A,B') 'An exclusive rule matched a nested path'
+        Assert-Scope ((Get-Selected 'Dir/additive.ps1') -ceq 'A,B,C') 'An exact rule without the flag must add to the broader rules'
+        Assert-Scope ((Get-Selected 'Dir/isolated.md') -ceq 'C') 'An exclusive rule did not outrank the prose shortcut'
+        Assert-Scope ((Get-Selected 'Dir/other.md') -ceq 'A,B,C') 'Prose without an exclusive rule lost the documentation shortcut'
+        $plan=Get-ScopedTestPlan $synthetic @('Dir/isolated.ps1')
+        Assert-Scope ($plan.reasons.Count -eq 1 -and $plan.reasons[0].reason -ceq 'isolated tooling') 'The exclusive rule is not the recorded reason'
+    }
+    Run-Case 'the manifest accepts an exclusive flag only as a boolean on an exact path' {
+        $root=Join-Path $fixture 'exclusive-manifest'
+        $write={param($rule) Write-Fixture (Join-Path $root 'Tests/test-scopes.json') ('{"version":1,"scopes":[{"name":"A","native":false,"reuse":true}],"rules":['+$rule+'],"prCoverage":[]}')}
+        foreach($valid in @('{"pattern":"Dir/exact.ps1","scopes":["A"],"reason":"r","exclusive":true}','{"pattern":"Dir/**","scopes":["A"],"reason":"r","exclusive":false}','{"pattern":"Dir/**","scopes":["A"],"reason":"r"}')) {
+            & $write $valid
+            Assert-Scope (@((Read-ScopedTestManifest $root).rules).Count -eq 1) "A valid rule was refused: $valid"
+        }
+        foreach($invalid in @(
+            @{Rule='{"pattern":"Dir/**","scopes":["A"],"reason":"r","exclusive":true}';Message='*must name one exact path*'},
+            @{Rule='{"pattern":"Dir/?.ps1","scopes":["A"],"reason":"r","exclusive":true}';Message='*must name one exact path*'},
+            @{Rule='{"pattern":"Dir/exact.ps1","scopes":["A"],"reason":"r","exclusive":"yes"}';Message='*not true or false*'}
+        )) {
+            & $write $invalid.Rule
+            $message='';try {Read-ScopedTestManifest $root | Out-Null} catch [System.Management.Automation.RuntimeException] {$message=$_.Exception.Message}
+            Assert-Scope ($message -like $invalid.Message) "An invalid exclusive flag was accepted: $($invalid.Rule) ($message)"
         }
     }
     Run-Case 'executable schema changes are never mistaken for prose' {$plan=Get-ScopedTestPlan $manifest @('Specs/Unmapped.schema.json');Assert-Scope $plan.full 'Schema was ignored'}
@@ -470,7 +511,7 @@ try {
         $sandbox=Join-Path $fixture 'runner'
         Write-Fixture (Join-Path $sandbox '.gitignore') '.build/'
         Copy-Item -LiteralPath (Join-Path $repository 'Test-Changes.ps1') -Destination (Join-Path $sandbox 'Test-Changes.ps1')
-        foreach ($relative in @('Tools/Fold-Changelog.ps1','Tools/Modules/Documentation/Changelog.psm1')) {
+        foreach ($relative in @('Tools/Fold-Changelog.ps1','Tools/Test-Changelog.ps1','Tools/Modules/Documentation/Changelog.psm1')) {
             Write-Fixture (Join-Path $sandbox $relative) ([IO.File]::ReadAllText((Join-Path $repository $relative)))
         }
         Write-Fixture (Join-Path $sandbox 'Changes/README.md') '# Changelog fragments'

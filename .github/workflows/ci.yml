@@ -7,8 +7,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: redxe-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a pull request supersedes its running check. Every push to main (and each dispatch) gets a group of
+  # its own and always runs to completion: release.yml requires the push run of the exact released commit.
+  group: redxe-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   tooling:
     runs-on: windows-2025-vs2026
@@ -18,6 +20,15 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          # A pull request needs its merge commit and first parent; a push needs the history back to the tip it replaced. The
+          # strings matter: a bare 0 is falsy, so "push && 0 || 2" would give every push a two-commit checkout.
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
+      - name: Changelog changes are fragments or exact folds
+        shell: pwsh
+        env:
+          # A pull request's merge commit compares with its first parent; a push compares with the tip it replaced.
+          CHANGELOG_BASE: ${{ github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000' && github.event.before || 'HEAD^1' }}
+        run: ./Tools/Test-Changelog.ps1 -Base $env:CHANGELOG_BASE
       - name: Prepare required MSVC 14.52 tools
         uses: ./.github/actions/setup-msvc
         with:

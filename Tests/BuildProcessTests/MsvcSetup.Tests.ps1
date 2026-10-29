@@ -31,6 +31,11 @@ class FakeInstaller {
             return 0;
         }
         File.WriteAllLines(Path.Combine(root,"arguments.txt"),args);
+        string hang=Environment.GetEnvironmentVariable("DXUI_FIXTURE_HANG_MS");
+        if (!String.IsNullOrEmpty(hang)) {
+            File.WriteAllText(Path.Combine(Environment.GetEnvironmentVariable("TEMP"),"dd_fixture.log"),"fixture installer detail");
+            Thread.Sleep(Int32.Parse(hang));
+        }
         Thread.Sleep(400);
         string version=Environment.GetEnvironmentVariable("DXUI_FIXTURE_VERSION");
         if (!String.IsNullOrEmpty(version))
@@ -49,7 +54,7 @@ if($LASTEXITCODE-ne 0){throw 'Cannot compile the fake GUI bootstrapper.'}
 $fakeDiscoveryExecutable=Join-Path $packet 'FakeDiscovery.exe'
 & (Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe') /nologo /target:exe /out:$fakeDiscoveryExecutable $source
 if($LASTEXITCODE-ne 0){throw 'Cannot compile the console discovery fixture.'}
-function Invoke-SetupFixture([string]$Name,[int]$ExitCode=0,[string]$Version='14.52.37025',[switch]$Ready,[switch]$VerifyOnly,[switch]$Local,[switch]$BadSignature,[string]$Missing=''){
+function Invoke-SetupFixture([string]$Name,[int]$ExitCode=0,[string]$Version='14.52.37025',[switch]$Ready,[switch]$VerifyOnly,[switch]$Local,[switch]$BadSignature,[string]$Missing='',[int]$HangMilliseconds=0,[int]$TimeoutSeconds=0){
     $fixture=Join-Path $packet $Name
     $script=Join-Path $fixture '.github/actions/setup-msvc/Setup.ps1'
     [void][IO.Directory]::CreateDirectory((Split-Path $script))
@@ -72,11 +77,12 @@ function Invoke-SetupFixture([string]$Name,[int]$ExitCode=0,[string]$Version='14
 param([switch]$VerifyOnly)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
-function Invoke-WebRequest {param($Uri,$OutFile) Copy-Item $env:DXUI_FAKE_INSTALLER $OutFile;[IO.File]::WriteAllText((Join-Path $env:DXUI_SETUP_FIXTURE 'downloaded.txt'),$Uri)}
+function Invoke-WebRequest {param($Uri,$OutFile,$TimeoutSec,$MaximumRetryCount,$RetryIntervalSec) Copy-Item $env:DXUI_FAKE_INSTALLER $OutFile;[IO.File]::WriteAllText((Join-Path $env:DXUI_SETUP_FIXTURE 'downloaded.txt'),$Uri);[IO.File]::WriteAllText((Join-Path $env:DXUI_SETUP_FIXTURE 'download-policy.txt'),"$TimeoutSec|$MaximumRetryCount|$RetryIntervalSec")}
 function Get-AuthenticodeSignature {param($LiteralPath) [pscustomobject]@{Status=$env:DXUI_FIXTURE_SIGNATURE;SignerCertificate=[pscustomobject]@{Subject='CN=Microsoft Corporation, O=Microsoft Corporation, C=US'}}}
 # Success starts with LASTEXITCODE unset, as on hosted CI. Failure has stale success.
 if($env:DXUI_FIXTURE_EXIT-ne '0'){$global:LASTEXITCODE=0}
-& (Join-Path $PSScriptRoot '.github/actions/setup-msvc/Setup.ps1') -Platform x64 -VerifyOnly:$VerifyOnly
+$budget=@{};if($env:DXUI_FIXTURE_TIMEOUT){$budget.InstallerTimeoutSeconds=[int]$env:DXUI_FIXTURE_TIMEOUT}
+& (Join-Path $PSScriptRoot '.github/actions/setup-msvc/Setup.ps1') -Platform x64 -VerifyOnly:$VerifyOnly @budget
 '@)
     $start=[Diagnostics.ProcessStartInfo]::new('pwsh')
     $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
@@ -85,6 +91,8 @@ if($env:DXUI_FIXTURE_EXIT-ne '0'){$global:LASTEXITCODE=0}
     $start.Environment['DXUI_SETUP_FIXTURE']=$fixture;$start.Environment['DXUI_FAKE_INSTALLER']=$fake
     $start.Environment['DXUI_FIXTURE_VERSION']=$Version;$start.Environment['DXUI_FIXTURE_EXIT']=[string]$ExitCode
     $start.Environment['DXUI_FIXTURE_SIGNATURE']=if($BadSignature){'NotSigned'}else{'Valid'}
+    if($HangMilliseconds){$start.Environment['DXUI_FIXTURE_HANG_MS']=[string]$HangMilliseconds}
+    if($TimeoutSeconds){$start.Environment['DXUI_FIXTURE_TIMEOUT']=[string]$TimeoutSeconds}
     $start.Environment['ProgramFiles(x86)']=Join-Path $fixture 'Program Files'
     $start.Environment['GITHUB_ACTIONS']=if($Local){'false'}else{'true'}
     $start.Environment['RUNNER_ENVIRONMENT']='github-hosted';$start.Environment['RUNNER_TEMP']=Join-Path $fixture 'runner temp with spaces'
@@ -114,6 +122,15 @@ Invoke-TestCase 'delayed GUI success waits and preserves install path with space
     $index=[Array]::IndexOf($arguments,'--installPath')
     Assert-Equal (Join-Path $result.Root 'runner temp with spaces/VS-Msvc-14.52') $arguments[$index+1] 'install path remains one argument'
     Assert-Contains $arguments '--wait' 'bootstrapper waits for its installer'
+    Assert-Equal '300|3|15' ([IO.File]::ReadAllText((Join-Path $result.Root 'download-policy.txt'))) 'the bootstrapper download is bounded and retried'
+}
+Invoke-TestCase 'stalled GUI installer is ended within its budget and keeps its logs' {
+    $result=Invoke-SetupFixture 'stalled' -HangMilliseconds 60000 -TimeoutSeconds 2
+    Assert-True ($result.Exit-ne 0 -and $result.Text-match 'VS provisioning failed: timeout after 2 s') $result.Text
+    Assert-True (-not(Test-Path (Join-Path $result.Root 'completed.txt'))) 'the stalled installer was ended before it completed'
+    $output=[IO.File]::ReadAllLines((Join-Path $result.Root 'github-output.txt'))
+    $logs=($output|Where-Object {$_-like 'installer_logs=*'}).Substring('installer_logs='.Length)
+    Assert-True (Test-Path (Join-Path $logs 'dd_fixture.log')) 'detailed installer log archived after the timeout'
 }
 Invoke-TestCase 'reboot-required success is accepted only after exact tools verify' {
     $result=Invoke-SetupFixture 'reboot' -ExitCode 3010

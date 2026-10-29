@@ -8,11 +8,12 @@ Full immutable RedSalamanders/RedMonitor commit reviewed for adoption.
 .PARAMETER RepositoryRoot
 Consumer repository to update. Review and commit the resulting header/license/lock together.
 #>
+#Requires -Version 7.0
 [CmdletBinding(SupportsShouldProcess)]
 param([Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$Commit,[string]$RepositoryRoot=$PSScriptRoot)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
-$root=[IO.Path]::GetFullPath($RepositoryRoot)
+$root=[IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RepositoryRoot)).TrimEnd('\','/')
 $files=@('include/RedMonitor/Client.h','LICENSE.txt')
 $payload=@(foreach($path in $files){
     $response=& gh api "repos/RedSalamanders/RedMonitor/contents/$($path)?ref=$Commit"
@@ -24,8 +25,11 @@ $payload=@(foreach($path in $files){
 })
 if([Text.Encoding]::UTF8.GetString($payload[0].bytes) -notmatch 'kApiRevision\s*=\s*1\s*;'){throw 'Unsupported RedMonitor client API.'}
 $vendor=Join-Path $root 'ThirdParty/RedMonitor'
+# Links inside the checkout are refused up to and including the root, as Verify-RedMonitorClient.ps1 does; folders
+# above the root are the user's choice of clone location.
 for($current=[IO.DirectoryInfo]::new($vendor);$current;$current=$current.Parent){
-    if($current.Exists -and ($current.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Reparse client update destination.'}
+    if($current.Exists -and ($current.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw "Reparse client update destination: $($current.FullName)"}
+    if([string]::Equals($current.FullName.TrimEnd('\','/'),$root,[StringComparison]::OrdinalIgnoreCase)){break}
 }
 if(-not $PSCmdlet.ShouldProcess($vendor,"Update client at $Commit")){return}
 foreach($file in $payload){

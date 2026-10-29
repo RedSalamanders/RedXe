@@ -195,6 +195,10 @@ bool WeatherCopyNarrow(std::string_view source, char* destination, size_t capaci
 [[nodiscard]] uint32_t WeatherFormatWind(float metersPerSecond, WeatherWindUnit unit, wchar_t* text,
                                          uint32_t capacity) noexcept;
 [[nodiscard]] uint32_t WeatherFormatClock(uint64_t fileTime100ns, wchar_t* text, uint32_t capacity) noexcept;
+// Test-only: convert forecast times in the named Windows time zone (its registry key name, such as
+// "W. Europe Standard Time") instead of the active one; null or empty restores the active zone. Change it only while
+// nothing formats times; ERROR_NOT_FOUND names no installed zone.
+[[nodiscard]] HRESULT WeatherSetTestTimeZone(const wchar_t* timeZoneKeyName) noexcept;
 [[nodiscard]] uint32_t WeatherFormatForecastDay(uint64_t fileTime100ns, uint64_t nowFileTime100ns,
                                                 uint32_t fallbackIndex, wchar_t* text, uint32_t capacity) noexcept;
 [[nodiscard]] uint32_t WeatherClampRefreshMilliseconds(uint32_t milliseconds) noexcept;

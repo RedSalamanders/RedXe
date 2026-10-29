@@ -8,7 +8,8 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 ## Requirements
 
 - Windows 10 or Windows 11
-- Visual Studio 2026 (18.x), toolset `v145`, with the Desktop development with C++ workload
+- Visual Studio 2026 Insiders (18.x) whose default MSVC build tools are 14.52.x (toolset `v145`), with the components
+  in `.vsconfig`; `.github/actions/setup-msvc/Setup.ps1 -VerifyOnly` checks an installation read-only
 - Windows 11 SDK 10.0.26100
 - MSVC in `stdcpplatest` mode
 - Unicode Win32 APIs
@@ -129,6 +130,9 @@ Common/Actions/
   ActionTargets.*  Shared target grammars (paths, chords, points, monitors, windows, meetings) compiled into the host and every publisher
   WindowSelector.* Top-level window selection
   FluentGlyphNames.h, GlyphIcon.*  Segoe Fluent Icons name table and DirectWrite glyph rasterization shared by Logicon faces and Launcher tiles
+Common/
+  MonitorDiagnostics.* RedXe's only RedMonitor adapter: ETW provider, log-level mapping, --redmonitor launch and --redmonitor-probe
+ThirdParty/RedMonitor/ Hash-pinned RedMonitor client header and licence (Dependencies/RedMonitor.lock.json; Verify-/Update-RedMonitorClient.ps1)
 Plugins/
   RotatingTriangle/ First bundled widget-provider DLL
   GdiOrbit/         Double-buffered GDI window-widget DLL
@@ -178,11 +182,18 @@ Tests/
   BuildProcessTests/   Build preflight and the bounded process helper, DxUi provenance/restore/update, the scoped-test planner and receipts, and packaging (version, ZIP rules, winget manifest, in-package installer round-trip)
 Build/
   Versioning.psm1   major.minor from Common/Version.h plus the caller's build number
-  Package.psm1      Portable ZIP staging rules, CRT bundling, and the clean-extraction smoke
+  Package.psm1      Portable ZIP and release symbols ZIP staging rules, CRT bundling, and the clean-extraction smoke
   Winget.psm1       Manifest generation from Installer/winget/templates and `winget validate`
   DxUiRestore.psm1  The DxUi pin: lock, verified sparse restore, leases and superseded-restore cleanup, and the MSBuild the build runs
   ScopedTesting.psm1 Scope planner behind Test-Changes.ps1: Git change discovery, scope rules, evidence identity and receipts, PR delegation
   StreamingProcess.psm1 Child-process runner of build.ps1, test.ps1 and the package smoke: one argument quoter, streamed log, budget in a kill-on-close job
+  TestRunEvidence.psm1 Per-run evidence directories: pinned handles, 128-bit file identities, create-only records (Build_TestRunEvidence.md)
+  SkillValidation.psm1, SkillPackageIntegrity.psm1, SkillText.psm1 Skill metadata grammar, package/reference checks, and their shared strict reads and Markdown fence/code-span grammar (validate-skills.ps1)
+  RedMonitor.props  Pinned RedMonitor client include path and the RequirePinnedRedMonitorClient build gate
+Tools/
+  Test-Changelog.ps1, Fold-Changelog.ps1, Submit-ChangelogFold.ps1 Shared Changes workflow (Core_Changes.md): validate, fold, and fold main through a pull request
+  Test-ChangelogWorkflow.ps1 That workflow's shared behaviour suite
+.github/actions/setup-msvc/ Hosted verification and bounded provisioning of the required MSVC 14.52 tools
 Settings/
   RedXe-debug.settings.json  Shipped Debug default
   RedXe.settings.json        Shipped Release default
@@ -317,10 +328,10 @@ The user's accepted workflow replaces unconditional full-test iteration. Use `Te
 
 Record each change as one dated Markdown fragment under `Changes/`; follow [Changes/README.md](Changes/README.md)
 and [Specs/Core/Core_Changes.md](Specs/Core/Core_Changes.md). Do not hand-edit generated `CHANGELOG.md` entries.
-Run `Tools/Test-Changelog.ps1` while editing. Before PrePush and final handoff, and immediately after every
-merge/rebase that introduces fragments, run `Tools/Fold-Changelog.ps1` and then `Tools/Fold-Changelog.ps1 -Check`,
-even for one fragment. Include the generated changelog and fragment removals in the current change; do not wait
-for release batches or a separate cleanup PR. Validation is read-only; `-WhatIf` previews folding without writes.
+Keep the fragment in the change: never fold it in a feature change and never edit `CHANGELOG.md`. Fragments are
+folded on `main` after merge by `Tools/Submit-ChangelogFold.ps1`, which opens a fold pull request of its own. Run
+`Tools/Test-Changelog.ps1` while editing; PrePush and CI run it with `-Base`, which refuses any `CHANGELOG.md` change
+that is not an exact fold of fragments already on `main`. Validation is read-only.
 
 ## Shared native build policy (2026-10-28)
 

@@ -4,6 +4,9 @@
 # Kept local so validation does not depend on another checkout or an unpinned module.
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
+# A module function sees the global preference, not its caller's, so a failure must be terminating here.
+$ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'SkillText.psm1') -Force
 
 function ConvertFrom-SkillScalar {
     param([AllowEmptyString()][string]$Value)
@@ -118,21 +121,23 @@ function Get-SkillValidationProblem {
     if ($description.TrimStart().StartsWith('[TODO:', [StringComparison]::Ordinal)) { return 'unfinished description' }
     $body = $match.Groups['body'].Value
     if (-not $body.Trim()) { return 'empty skill instructions' }
-    $fence = $null
-    foreach ($line in $body -split "`n") {
-        $marker = [regex]::Match($line, '^ {0,3}(?:(?:[-+*]|\d+[.)])[ \t]+)?(?<fence>`{3,}|~{3,})(?<rest>.*)$')
-        if ($marker.Success -and ($null -ne $fence -or $marker.Groups['fence'].Value[0] -cne '`' -or -not $marker.Groups['rest'].Value.Contains('`'))) {
-            $token = $marker.Groups['fence'].Value
-            if ($null -eq $fence) { $fence = $token }
-            elseif ($token[0] -ceq $fence[0] -and $token.Length -ge $fence.Length -and -not $marker.Groups['rest'].Value.Trim()) { $fence = $null }
-        } elseif ($null -eq $fence -and $line -cmatch '\A[ ]{0,3}\[TODO:[^\n]*\][ \t]*\z') { return 'unfinished instructions' }
+    # Fenced examples may hold placeholders; an unclosed fence is reported and the text after it is still checked.
+    $fence = Get-MarkdownFence $body
+    $problems = [Collections.Generic.List[string]]::new()
+    $frontMatterLines = $normalized.Substring(0, $match.Groups['body'].Index).Split("`n").Length - 1
+    foreach ($open in $fence.Unclosed) { $problems.Add("SKILL.md:$($frontMatterLines + $open.Line): unclosed code fence (opened with $($open.Token))") }
+    for ($i = 0; $i -lt $fence.Lines.Length; $i++) {
+        if (-not $fence.Hidden[$i] -and $fence.Lines[$i] -cmatch '\A[ ]{0,3}\[TODO:[^\n]*\][ \t]*\z') { $problems.Add('unfinished instructions'); break }
     }
+    if ($problems.Count) { return $problems -join '; ' }
     return $null
 }
 
 function Test-RepositorySkills {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Root)
+    # A relative root means the caller's PowerShell location, which .NET file APIs do not follow.
+    $Root = $PSCmdlet.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
     $skillRoot = Join-Path $Root '.agents/skills'
     if (-not [IO.Directory]::Exists($skillRoot)) { throw "The repository skill directory was not found: $skillRoot" }
     $folders = @(Get-ChildItem -LiteralPath $skillRoot -Directory -Force | Sort-Object Name)
@@ -140,7 +145,12 @@ function Test-RepositorySkills {
     $failures = [Collections.Generic.List[string]]::new()
     foreach ($folder in $folders) {
         $path = Join-Path $folder.FullName 'SKILL.md'
-        $text = if ([IO.File]::Exists($path)) { [IO.File]::ReadAllText($path, [Text.UTF8Encoding]::new($false, $true)) } else { $null }
+        # A skill that cannot be read is a failure that names its file, never the previous skill's text.
+        try { $text = if ([IO.File]::Exists($path)) { Read-SkillText $path -RejectByteOrderMark } else { $null } }
+        catch [System.Management.Automation.RuntimeException] {
+            $failures.Add("$($folder.Name): $([IO.Path]::GetRelativePath($Root, $path)): $($_.Exception.Message)")
+            continue
+        }
         $problem = Get-SkillValidationProblem -FolderName $folder.Name -Text $text
         if ($problem) { $failures.Add("$($folder.Name): $problem") }
         else { Write-Host "Validated $($folder.Name)" }

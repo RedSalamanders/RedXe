@@ -165,7 +165,7 @@ The bar collapses to a thin line until you rest the pointer on it. Its `thicknes
 
 | Switch | Meaning |
 | --- | --- |
-| `--redmonitor` | Open the separately installed production RedMonitor helper and exit (0 if available, 1 if absent or launch fails). Use this switch alone. See [Diagnostics](Diagnostics.md). |
+| `--redmonitor` | Start the separately installed Release RedMonitor viewer and exit: 0 when it runs (or already ran), 1 with a message naming the folders searched or the reason the launch failed. Use this switch alone. See [Diagnostics](Diagnostics.md). |
 | `--settings <path>` | Use one portable settings file instead of the one under `%LocalAppData%\RedXe\Settings`; its `Logs` folder sits beside it. |
 | `--warp` | Render on the Microsoft Basic Render Driver (WARP) instead of the GPU. |
 | `--dock <edge>[@<monitor>]` | Run as a bar on that screen edge; see [Dock](#dock) for `--dock-mode`, `--dock-thickness`, `--dock-reserve`, and `--dock-peek`. |
@@ -173,6 +173,7 @@ The bar collapses to a thin line until you rest the pointer on it. Its `thicknes
 | `--self-test` | Hidden startup validation with the deployed template; exits 0 when the host works and 6 when a check fails, which it names on stderr. |
 | `--probe[=seconds]` | Write a resource sample to the normal JSONL log every 1–3600 seconds (default 5). The dashboard keeps running; close it normally when finished. Ignored by `--self-test`. |
 | `--crash-test`, `--crash-test-stack-overflow`, `--crash-test-directory=<dir>` | Raise a test crash and choose where its dump goes (used by `test.ps1`). |
+| `--redmonitor-probe` | Wait up to 2 seconds for a RedMonitor listener, send two test messages, and exit: 0 sent, 1 no ETW provider, 2 no listener. Use this switch alone; RedMonitor's cross-application test runs it. |
 
 Exit codes: 0 ok, 1 settings, 2 command line or window, 3 plugins, 5 graphics, 7 settings watcher, 8 screenshot capture. With `--self-test`: 6 a failed check, 3 a failed runtime check of a Debug build, 4 any other `abort()`, each reported on stderr. The self-test keeps no log file, so it writes the warnings and errors RedXe would log to stderr too, one JSON line each: a failed check then comes with what explains it, such as a plugin DLL that could not be loaded.
 
