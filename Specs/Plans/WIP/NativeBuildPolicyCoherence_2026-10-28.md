@@ -14,12 +14,13 @@ Five repositories implement the same policy without implicitly advancing DxUi pi
 
 - [x] Preserve the pre-change effective-profile audit and isolate changes from concurrent tooling work.
 - [x] Restore RedTilde ARM64 through its normal entrypoint and pass the required policy/lease checks.
-- [ ] Enforce and negatively test the common compiler/debug/linker policy in every supported native profile and pinned archive.
-- [x] Unify green zero-warning build results, diagnostic/log links and opt-in terminal executable hyperlinks, preserving plain text and existing build/run semantics.
+- [x] Enforce and negatively test the common compiler/debug/linker policy in every supported native profile and pinned archive.
+- [x] Unify green zero-warning build results, diagnostic/log links and automatic terminal executable hyperlinks where supported, preserving plain text and existing build/run semantics.
 - [x] Shorten source-commit and output-fingerprint folders to 16 hex characters with full identity validation and collision refusal; retain existing data without cleanup.
 - [x] Update source discovery, direct helper builds, provenance, test fixtures and dependency identities together.
 - [x] Publish zero-warning guidance and normative build/path/terminal contracts, with meaningful tooling tests.
-- [ ] Execute affected tests, evaluated profiles, required native builds and applicable runtime qualification; retain every failed result and distinguish cross-builds from runtime tests.
+- [x] Execute affected tests, evaluated profiles, required native builds and applicable local x64 runtime qualification; retain every failed result and distinguish ARM64 cross-builds from runtime tests.
+- [x] Freeze matching Release artifacts, report before/after image sizes and collect the prespecified quiet paired performance measurements; retain inconclusive outcomes.
 - [ ] Fold/check the changelog; validate formatting/specs/tooling and close this plan only after all required gates pass.
 
 ## Decisions and limits
@@ -52,3 +53,37 @@ the final product native/runtime matrix must include this repair alongside the q
 The first focused restore run passed the new preservation fixture, then correctly failed when its final real-pin
 check found no SDK restored in this integration checkout. That failed receipt is retained; normal restore of the
 new qualified pin precedes the complete retry.
+
+
+## Local qualification checkpoint, 2026-10-29
+
+The current five-repository audit passes 504 native profiles and 73,502 evaluated setting groups. All four consumers
+pass their 24 required pinned-archive profiles; the additional Tilde lease profiles and negative controls pass.
+Exact source identities, raw metadata and field differences are retained under the task's final-audit-20261029
+evidence. Ordinary Debug and ASan formats remain separate from the recorded RedSalamander Full Embedded recovery mode.
+
+The exact 616104 API4 SDK passes six native builds, 57 ordinary suite executions and three focus profiles with restoration. Product 47fb restores both architectures, passes six native builds and the complete source-restore suite. Product source 47fb0491 passes all three Full profiles, each with all 16 scopes; log identities are indexed in Xe-47fb-Full-three-verified1.json. Quiet measurements and final closeout remain pending. A controlled original/candidate Git comparison proves source-conflict preservation.
+
+
+## Merge handoff, 2026-10-29
+
+The developer explicitly requested merging all five repositories after the pending gates were identified.
+This is an integration decision with the following recorded qualification limits; it does not change any test
+verdict or establish complete production qualification. Focus-taking tests remain paused by the developer.
+
+The prespecified quiet study completed once, without a selected repeat. Its native images and receipts remain
+bound to the earlier source recorded in the evidence; these final handoff edits affect documentation only.
+Baseline and candidate use the same discovered MSVC 14.52 toolchain; the comparison covers the complete change,
+rather than isolating a compiler-version or individual-flag effect. Nonsignificance is not proof of equivalence.
+
+| Scenario / metric | Baseline median | Candidate median | Paired change | Finding |
+| --- | ---: | ---: | ---: | --- |
+| Default / cpuUsPerCollection | 58349.6 | 58227.55 | -0.5431% | inconclusive - unstable controls |
+| Default / wallUsPerCollection | 61201.8 | 59041 | -3.5493% | inconclusive - unstable controls |
+
+Native samples, collection plan, machine-activity observations, preserved receipts and statistical analysis:
+`
+E:\RedXe.Perf\build-policy-evidence-20261028\studies\RedXe\20261029T192248-e5f0199a31c140b5add43f0c920c2122
+`.
+
+All candidate CI checks passed at native source `47fb0491139f2670ede8f759b8ee305b8e85bf22`. Local six-profile builds and three Full runtime profiles passed. The remaining performance uncertainty above is retained.

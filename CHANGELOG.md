@@ -4,6 +4,9 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Record the validated build-policy matrix, preserved binary-size evidence, completed quiet performance study and explicit merge handoff; retain unresolved performance uncertainty and any hosted CI limits.
+- Record passing local x64 runtime qualification and ARM64 cross-builds for the common build policy, with immutable Release size evidence and remaining performance/CI gates explicit.
+- Record the current native profile and pinned-archive policy audit, qualified native builds and explicit remaining runtime, performance and integration gates.
 - Adopt the exact API4 DxUi maintenance commit qualified across six native builds, three ordinary x64 test profiles and three approved focus profiles; retain explicit product restore, build and runtime qualification gates.
 - Preserve an existing short DxUi source folder when its complete Git commit differs from the requested pin; refuse the conflict under the restore mutex and test that its commit, tracked contents and local evidence remain intact.
 - Clarify build guidance: leave `/WX` disabled and require every project-code warning to be fixed before the build validation gate can pass.
