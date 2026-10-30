@@ -2943,6 +2943,11 @@ int ReportSuiteFailure(const wchar_t* suite, HRESULT result) noexcept
 int wmain(int argumentCount, wchar_t** arguments)
 {
     RedXeFailureReports::RouteAwayFromDialogs();
+    // Use the suite's real Release failure path; Debug CRT assertions are a separate diagnostic.
+    if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--ci-assertion-probe")
+    {
+        return ReportSuiteFailure(L"CI_ASSERTION_PROBE", E_FAIL);
+    }
     // The failure-report self-test, reached only through --failure-report-self-test, which test.ps1 runs: a failed
     // runtime check must end the run with its whole report and exit code 3, never wait on a dialog. The report carries
     // a character above U+00FF, as a source path under such a user or folder name does, and must not stop there.

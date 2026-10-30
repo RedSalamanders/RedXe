@@ -19,7 +19,7 @@ function New-RedXeDxUiUpdateRequest {
         param([string] $Route)
         if ($Route -eq 'commits/main') { return [pscustomobject]@{ sha = $Candidate } }
         if ($Route -eq "compare/$Current...$Candidate") { return [pscustomobject]@{ status = 'ahead' } }
-        if ($Route -like 'actions/workflows/ci.yml/runs*') {
+        if ($Route -like 'actions/workflows/qualify.yml/runs*') {
             return [pscustomobject]@{ workflow_runs = @([pscustomobject]@{ head_sha = $Candidate; status = 'completed'; conclusion = $Conclusion }) }
         }
         if ($Route -eq "contents/capabilities.json?ref=$Candidate") {

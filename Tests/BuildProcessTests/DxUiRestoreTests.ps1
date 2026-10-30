@@ -573,9 +573,9 @@ try {
         'build.ps1 gives vcpkg-install.ps1 the MSBuild it runs, so vcpkg builds with that installation'
     Assert-That ($buildScript.Contains('$msbuild = Find-RedXeMSBuild') -and $buildScript -notmatch 'function Find-MSBuild') `
         'build.ps1 resolves MSBuild through the shared module'
-    $workflow = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci.yml') -Raw
+    $workflow = Get-Content -LiteralPath (Join-Path $repoRoot 'Tools/Invoke-ProjectCi.ps1') -Raw
     Assert-That ($workflow.Contains('Read-RedXeDxUiLock') -and $workflow.Contains('Get-RedXeDxUiSourcePath') -and $workflow -notmatch 'dependencies/DxUi/source') `
-        'CI runs the pinned matrix validator from the lock and the source path the shared module gives, not from its own copy of them'
+        'The main adapter runs the pinned matrix validator from the canonical lock and restored source path'
 }
 finally {
     $env:GIT_CONFIG_GLOBAL = $savedGitConfigGlobal

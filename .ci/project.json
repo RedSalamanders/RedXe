@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "1",
+  "repository": "RedSalamanders/RedXe",
+  "engine": {
+    "repository": "RedSalamanders/.github",
+    "ref": "8c71ee11478f9a3840c7c5a4bfc00203e1128b99"
+  },
+  "kind": "application",
+  "adapter": "Tools/Invoke-ProjectCi.ps1",
+  "include": [
+    "Tests/Fixtures/**"
+  ],
+  "exclude": [
+    "**/*.md",
+    "Specs/Plans/**",
+    "Specs/TestRuns/**",
+    "Specs/Mockups/**",
+    "Measurements/**",
+    "docs/**",
+    "Changes/**",
+    "legacy/**",
+    ".agents/**",
+    ".claude/**",
+    ".vscode/**",
+    ".github/ISSUE_TEMPLATE/**",
+    ".github/dependabot.yml",
+    ".github/CODEOWNERS"
+  ],
+  "formatRoots": [
+    "Common",
+    "Plugins",
+    "RedXe",
+    "RedXeLauncher",
+    "Tests"
+  ],
+  "formatExclude": [],
+  "versionBase": "1.0",
+  "winget": {
+    "identifier": "RedSalamanders.RedXe",
+    "executable": "RedXeLauncher.exe",
+    "alias": "redxe",
+    "license": "MIT",
+    "minimumOSVersion": "10.0.19041.0"
+  }
+}
