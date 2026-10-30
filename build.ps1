@@ -29,6 +29,8 @@ Maximum MSBuild worker count. Zero uses MSBuild's default.
 .PARAMETER BuildNumber
 Third version component stamped into every version resource (Common/Version.h supplies major.minor). Default 0
 means the commit count of HEAD (git rev-list --count), the same number the release workflow uses. Range 0..65535.
+.PARAMETER ProductionOnly
+Build only shipping Release targets and record production provenance without standalone test modules.
 #>
 [CmdletBinding()]
 param(
@@ -169,7 +171,7 @@ if (-not $Clean) {
         throw "Build succeeded but the expected executable was not found: $executable"
     }
     Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1') -Force
-    $provenance=Write-RedXeDxUiProvenance -RepoRoot $repoRoot -Platform $Platform -Configuration $Configuration
+    $provenance=Write-RedXeDxUiProvenance -RepoRoot $repoRoot -Platform $Platform -Configuration $Configuration -ProductionOnly:$ProductionOnly
     Write-Host "DxUi module provenance: $provenance" -ForegroundColor DarkGray
     Write-NativeBuildResult -Project RedXe -Platform $Platform -Configuration $Configuration -LogPath $logPath -Artifacts @($executable) -Executable $executable -Duration $nativeEntryElapsed.Elapsed
     if ($Run) {

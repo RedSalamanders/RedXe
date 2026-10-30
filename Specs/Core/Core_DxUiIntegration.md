@@ -272,3 +272,5 @@ failure must expose its own assertion message in addition to its exit code. Hidd
 A failed runtime check in a Debug-family test ends the process with its report and exit code 3, never a dialog, and
 an `abort()` that no such check reported ends it with a line saying so and exit code 4
 ([`Build_Process.md`](../Build/Build_Process.md)).
+
+Per-module provenance records an explicit test-enabled or production-only build role. Test validation retains the complete host/plugin/test consumer closure. Production Release validates only the shipping host and AV Control consumers; a test-role record cannot authorize packaging, and a production record cannot satisfy a test request. Each selected module still names and hashes its actual pinned DxUi archive/link command and output bytes.

@@ -1,0 +1,1 @@
+- Bind DxUi provenance to the test or production role so shipping builds do not require unbuilt test modules, and refuse cross-role output during tests or packaging.

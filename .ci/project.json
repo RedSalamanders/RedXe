@@ -4,7 +4,7 @@
   "repository": "RedSalamanders/RedXe",
   "engine": {
     "repository": "RedSalamanders/.github",
-    "ref": "633e127f13408d294bb6bdd338bfceac721b109a"
+    "ref": "c3c778cabd81dbf85b95f1dc4cec64b3b0eac12c"
   },
   "kind": "application",
   "adapter": "Tools/Invoke-ProjectCi.ps1",
@@ -41,6 +41,16 @@
     "executable": "RedXeLauncher.exe",
     "alias": "redxe",
     "license": "MIT",
-    "minimumOSVersion": "10.0.19041.0"
+    "minimumOSVersion": "10.0.19041.0",
+    "smokeTests": [
+      {
+        "timeoutSeconds": 300,
+        "command": "redxe",
+        "arguments": [
+          "--self-test",
+          "--warp"
+        ]
+      }
+    ]
   }
 }

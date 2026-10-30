@@ -13,7 +13,7 @@ try {
         Set-Content -LiteralPath $path -Value "fixture $name"
         @{path=$name;sha256=(Get-FileHash -LiteralPath $path).Hash}
     }
-    $record=@{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=4;platform='x64';configuration='Debug';modules=@($modules)}
+    $record=@{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=4;platform='x64';configuration='Debug';buildRole='test-enabled';modules=@($modules)}
     function Write-Record { $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fixture 'DxUi.provenance.json') }
     function Reject([string]$Scenario) {
         $rejected=$false
@@ -23,6 +23,19 @@ try {
     }
     Write-Record
     Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Debug
+    $record.configuration='Release';$record.buildRole='production-only';$record.modules=@($modules[0],$modules[1]);Write-Record
+    Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Release -ProductionOnly
+    Write-Host 'PASS production provenance accepts the two shipping modules without an unbuilt test executable'
+    $message=''
+    try{Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Release}catch{$message=$_.Exception.Message}
+    if($message -notlike '*build role*'){throw 'A production record qualified a test-enabled request.'}
+    Write-Host 'PASS production provenance cannot qualify test-enabled validation'
+    $record.buildRole='test-enabled';$record.modules=@($modules);Write-Record
+    $message=''
+    try{Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Release -ProductionOnly}catch{$message=$_.Exception.Message}
+    if($message -notlike '*build role*'){throw 'A test-enabled record qualified production packaging.'}
+    Write-Host 'PASS test-enabled provenance cannot qualify production packaging'
+    $record.configuration='Debug';Write-Record
     $record.repository='https://example.invalid/fork'; Write-Record; Reject 'wrong repository'
     $record.repository='https://github.com/RedSalamanders/DxUi'
     $record.platform='ARM64'; Write-Record; Reject 'wrong platform'
