@@ -69,4 +69,8 @@ that all six native product pipelines passed.
 
 The adapter retains Full noninteractive regression, plugin/host/WARP/crash scopes, the AV resource fixture and independent compiler tooling. Counts in normal-suites.json are selected/executed scope counts; individual logs remain authoritative. The Release probe exercises ReportSuiteFailure directly, independently of the intentionally Debug-only CRT report self-test. ProductionOnly excludes standalone Tests projects; package.ps1 -SkipBuild retains runtime/import closure, launcher smoke and the optional symbols ZIP. winget targets RedXeLauncher.exe.
 
+## Emergency PR merge
 
+An organization owner may explicitly bypass PR merge checks during a recorded emergency through the GitHub PR override or gh pr merge --admin --match-head-commit FULL_SHA. Record the reason, blocked checks, exact reviewed head, rollback and follow-up in the PR and merge commit. The default-branch ruleset uses OrganizationAdmin with pull_request bypass; automation receives no bypass permission and direct/force pushes stay protected. Failed checks remain their actual results, and normal main qualification still runs. Production ZIP/SDK and publication requirements remain unchanged.
+
+Follow the common [emergency merge runbook](https://github.com/RedSalamanders/.github/blob/main/Specs/EmergencyMerge.md), including the reason file and exact-head CLI procedure. No emergency merge is an ordinary fallback after a failed merge attempt. Account restrictions must be resolved before enabling the ruleset; the pending RedPrism/RedTilde public visibility change remains the owner's operation.
