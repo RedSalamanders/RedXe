@@ -31,6 +31,8 @@ jobs:
       head: ${{ steps.pr.outputs.head }}
       base: ${{ steps.pr.outputs.base }}
       check_id: ${{ steps.pr.outputs.check_id }}
+      codeql_id: ${{ steps.pr.outputs.codeql_id }}
+      dependency_id: ${{ steps.pr.outputs.dependency_id }}
     steps:
       - name: Enable long Windows checkout paths
         if: runner.os == 'Windows'
@@ -39,7 +41,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: RedSalamanders/.github
-          ref: 8c71ee11478f9a3840c7c5a4bfc00203e1128b99
+          ref: fcf723f54140eabb69ef5017c32c971deb117ada
           path: .ci-engine
           persist-credentials: false
       - id: pr
@@ -52,15 +54,28 @@ jobs:
   checks:
     needs: resolve
     if: always() && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && needs.resolve.result == 'success'))
-    uses: RedSalamanders/.github/.github/workflows/pr.yml@8c71ee11478f9a3840c7c5a4bfc00203e1128b99
+    uses: RedSalamanders/.github/.github/workflows/pr.yml@fcf723f54140eabb69ef5017c32c971deb117ada
     with:
-      engine_ref: 8c71ee11478f9a3840c7c5a4bfc00203e1128b99
+      engine_ref: fcf723f54140eabb69ef5017c32c971deb117ada
       head: ${{ github.event.pull_request.head.sha || needs.resolve.outputs.head }}
       base: ${{ github.event.pull_request.base.sha || needs.resolve.outputs.base }}
     permissions:
       contents: read
+  security-recheck:
+    needs: resolve
+    if: github.event_name == 'workflow_dispatch' && needs.resolve.result == 'success'
+    uses: RedSalamanders/.github/.github/workflows/security.yml@fcf723f54140eabb69ef5017c32c971deb117ada
+    with:
+      engine_ref: fcf723f54140eabb69ef5017c32c971deb117ada
+      head: ${{ needs.resolve.outputs.head }}
+      base: ${{ needs.resolve.outputs.base }}
+      pr_number: ${{ inputs.pr_number }}
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
   report:
-    needs: [resolve, checks]
+    needs: [resolve, checks, security-recheck]
     if: always() && github.event_name == 'workflow_dispatch' && needs.resolve.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -75,7 +90,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: RedSalamanders/.github
-          ref: 8c71ee11478f9a3840c7c5a4bfc00203e1128b99
+          ref: fcf723f54140eabb69ef5017c32c971deb117ada
           path: .ci-engine
           persist-credentials: false
       - shell: pwsh
@@ -83,12 +98,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CI_CHECK_ID: ${{ needs.resolve.outputs.check_id }}
           CI_RESULT: ${{ needs.checks.result }}
-        run: ./.ci-engine/Tools/Complete-PrCheck.ps1 -CheckId $env:CI_CHECK_ID -Result $env:CI_RESULT
+          CODEQL_CHECK_ID: ${{ needs.resolve.outputs.codeql_id }}
+          DEPENDENCY_CHECK_ID: ${{ needs.resolve.outputs.dependency_id }}
+          CODEQL_RESULT: ${{ needs.security-recheck.outputs.codeql_result || 'failure' }}
+          DEPENDENCY_RESULT: ${{ needs.security-recheck.outputs.dependency_result || 'failure' }}
+        run: |
+          # Complete every exact-head check even when another check fails.
+          $failed = $false
+          foreach ($check in @(
+            @{Id=$env:CI_CHECK_ID;Kind='CI';Result=$env:CI_RESULT},
+            @{Id=$env:CODEQL_CHECK_ID;Kind='CodeQL';Result=$env:CODEQL_RESULT},
+            @{Id=$env:DEPENDENCY_CHECK_ID;Kind='Dependency';Result=$env:DEPENDENCY_RESULT}
+          )) {
+            try { ./.ci-engine/Tools/Complete-PrCheck.ps1 -CheckId $check.Id -Kind $check.Kind -Result $check.Result }
+            catch { Write-Host $_.Exception.Message; $failed = $true }
+          }
+          if ($failed) { throw 'One or more compiler-free PR rechecks failed.' }
   coordinate:
     if: github.event_name == 'push'
-    uses: RedSalamanders/.github/.github/workflows/coordinate.yml@8c71ee11478f9a3840c7c5a4bfc00203e1128b99
+    uses: RedSalamanders/.github/.github/workflows/coordinate.yml@fcf723f54140eabb69ef5017c32c971deb117ada
     with:
-      engine_ref: 8c71ee11478f9a3840c7c5a4bfc00203e1128b99
+      engine_ref: fcf723f54140eabb69ef5017c32c971deb117ada
     permissions:
       contents: read
       statuses: write
