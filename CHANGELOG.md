@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Upgrade the shared CI engine to v1.0.3, fixing manual formatter staging and distinct artifact/publication outputs. Preserve failed pilot receipts and require fresh native qualification for the new engine identity.
 - Introduce the pinned organization CI adapter: compiler-free PR feedback, quiet-window main admission, native Release test-to-production gates, ZIP qualification and explicit publication. Preserve canonical project test, dependency, toolchain and evidence contracts; hosted rollout acceptance remains in progress.
 - Check Weather's per-timestamp daylight-saving conversion in fixed W. Europe and AUS Eastern zones through a test-only zone override, so the regression also fails on UTC hosts. The checks cover winter and summer clocks, both minutes of each 2026 transition, and a Sydney local day that differs from the UTC day. Production still converts with the active zone, and an unknown zone name is refused. `WeatherTests.exe` passes on x64 Debug.
 - `test.ps1` now completes the run's evidence record before it prints its verdict: when completion fails after a passed
