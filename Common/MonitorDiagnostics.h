@@ -20,6 +20,8 @@ void WriteUtf8(RedXeLogLevel level, std::string_view text) noexcept;
 // `--redmonitor-probe`: wait up to 2 seconds for a listener, then send RedMonitor's cross-application test messages
 // from the calling (main) thread. Exit 0 sent, 1 no provider, 2 no listener or a rejected write.
 [[nodiscard]] int RunProbe() noexcept;
+// The one line `--redmonitor-probe` prints for RunProbe's exit code.
+[[nodiscard]] const wchar_t* DescribeProbeResult(int exitCode) noexcept;
 // Bare Debug startup only: start an installed viewer on a thread-pool worker without waiting. Release does nothing.
 void QueueOptionalDebugViewerLaunch() noexcept;
 } // namespace MonitorDiagnostics

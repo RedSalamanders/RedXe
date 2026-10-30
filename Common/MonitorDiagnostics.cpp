@@ -64,7 +64,8 @@ std::wstring MonitorDiagnostics::DescribeLaunchFailure(unsigned long error)
     {
         // Client.h discovery: only these two production Release images, never PATH or a build output.
         return L"RedMonitor is not installed: no Release RedMonitor.exe in %LocalAppData%\\Programs\\RedMonitor or "
-               L"%ProgramFiles%\\RedMonitor. Install it from https://github.com/RedSalamanders/RedMonitor.\n";
+               L"%ProgramFiles%\\RedMonitor. Install it from https://github.com/RedSalamanders/RedMonitor/releases, or "
+               L"build its package from that repository until it publishes one.\n";
     }
     std::wstring text = L"RedMonitor could not be started";
     wchar_t* reason = nullptr;
@@ -98,6 +99,18 @@ int MonitorDiagnostics::RunProbe() noexcept
                        ERROR_SUCCESS
                ? 0
                : 2;
+}
+const wchar_t* MonitorDiagnostics::DescribeProbeResult(int exitCode) noexcept
+{
+    switch (exitCode)
+    {
+    case 0:
+        return L"RedMonitor probe: a listener received the test messages.\n";
+    case 1:
+        return L"RedMonitor probe: the RedMonitor ETW provider could not be registered.\n";
+    default:
+        return L"RedMonitor probe: no RedMonitor listener within 2 seconds, or ETW refused a test message.\n";
+    }
 }
 void MonitorDiagnostics::QueueOptionalDebugViewerLaunch() noexcept
 {

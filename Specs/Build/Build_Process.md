@@ -327,7 +327,7 @@ The hosted Windows tooling job has a 20-minute outer ceiling to include required
 
 The [native policy, console and dependency-path contract](Build_ConsoleAndPaths.md) owns /Wall without /WX, zero-warning acceptance, Debug/ASan symbols, Release-only ICF, common terminal results and verified short dependency folders.
 
-The native build-policy candidate locks DxUi API4 at `fa3de6c980f4d7d2700e44a82ad9e751cbebcdc3`. It preserves this consumer's existing API adoption while repairing native warning diagnostics and stable payload type identity under Release COMDAT folding. Restore and compile matching headers/archive from this exact lock. The indexed NativeBuildPolicyCoherence plan records outstanding product and desktop-focus qualification; this pin selection alone is not a green product receipt.
+The native build policy adopted a DxUi API4 maintenance commit; `Dependencies/DxUi.lock.json` names it and is the only place a DxUi commit is recorded. It preserves this consumer's existing API adoption while repairing native warning diagnostics and stable payload type identity under Release COMDAT folding. Restore and compile matching headers/archive from that exact lock. The indexed NativeBuildPolicyCoherence plan records outstanding product and desktop-focus qualification; this pin selection alone is not a green product receipt.
 
 ## Repository skill validation
 

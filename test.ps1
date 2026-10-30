@@ -712,7 +712,7 @@ if ($viewerRunning) {
     Write-Host 'SKIP --redmonitor-probe without a listener: a RedMonitor instance is running' -ForegroundColor Yellow
 }
 else {
-    $monitorCases += @{ Arguments = @('--redmonitor-probe'); Exit = 2; Text = $null }
+    $monitorCases += @{ Arguments = @('--redmonitor-probe'); Exit = 2; Text = 'RedMonitor probe: no RedMonitor listener within 2 seconds' }
 }
 $monitorCase = 0
 foreach ($case in $monitorCases) {

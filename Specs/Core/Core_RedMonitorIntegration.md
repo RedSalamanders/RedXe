@@ -26,16 +26,17 @@ nonempty command line (including help, tests and probes) never auto-launch the h
 argv after the help and unknown-argument checks and before settings, plugins or windows exist. Either one
 beside any other argument is command-line error 2 (`Use <switch> by itself.`). Explicit --redmonitor
 launches an installed helper and exits 0, also when one already runs. Otherwise it exits 1 with text that
-names both searched folders, or the Win32 reason for a failed launch, through the command-line text route
-(console, redirected output, else a message box unless the run is unattended). Existing viewer lifetime and
+names both searched folders and RedMonitor's releases page, or the Win32 reason for a failed launch, through the
+command-line text route (console, redirected output, else a message box unless the run is unattended). Existing viewer lifetime and
 single-instance ownership remain independent; no consumer kills, waits for or upgrades it.
 
 `--redmonitor-probe` emits RedMonitor's synthetic Unicode Warning and copied UTF-8 Info diagnostics from the
 main thread after a bounded 2-second test-only readiness barrier. It creates no document/settings/window
 state and never shows a message box: exit 0 sent, 1 provider unavailable, 2 no listener or a rejected write.
+It prints one line naming that outcome to the console or redirected output (else the debugger output).
 RedMonitor's real cross-process transport test runs it against the actual application executable.
 test.ps1 covers both mixed-argument refusals, an absent viewer (skipped when either install folder holds
-RedMonitor.exe) and the probe without a listener (skipped while a RedMonitor instance runs).
+RedMonitor.exe) and the probe's no-listener exit and line (skipped while a RedMonitor instance runs).
 Offline verification controls exercise exact, missing, tampered, unsafe and reparse inputs with Git/network
 unavailable. App packages carry the client MIT notice and no viewer payload. Native platform, physical
 input/accessibility and paired performance gates remain separate.
