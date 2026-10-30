@@ -41,6 +41,7 @@ param(
     [switch] $Clean,
     [switch] $Rebuild,
     [switch] $Run,
+    [switch] $ProductionOnly,
 
     [ValidateRange(0, 256)]
     [int] $MaxCpuCount = 0,
@@ -51,6 +52,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($env:CI_NATIVE_BUILDS_DISABLED -eq 'true') { throw 'Native builds are forbidden in compiler-free PR checks.' }
 $nativeEntryElapsed = [Diagnostics.Stopwatch]::StartNew()
 Import-Module (Join-Path $PSScriptRoot 'Build/BuildConsole.psm1') -ErrorAction Stop
 
@@ -90,6 +92,15 @@ Assert-BuildOutputProcessNotRunning -ProcessName 'RedXe.exe' -ExpectedExecutable
 # vcpkg-install.ps1 and restore-dxui.ps1 resolve the same MSBuild when they run on their own.
 $msbuild = Find-RedXeMSBuild
 $target = if ($Clean) { 'Clean' } elseif ($Rebuild) { 'Rebuild' } else { 'Build' }
+if ($ProductionOnly) {
+    if ($Configuration -ne 'Release' -or $Clean) { throw 'ProductionOnly requires Release and cannot clean unrelated targets.' }
+    $productionTargets = @([regex]::Matches([IO.File]::ReadAllText($solutionPath),
+        'Project\("\{[^}]+\}"\)\s*=\s*"(?<name>[^"]+)",\s*"(?<path>[^"]+\.vcxproj)"') |
+        Where-Object { $_.Groups['path'].Value -notmatch '^Tests[\\/]' } |
+        ForEach-Object { $_.Groups['name'].Value })
+    if (-not $productionTargets.Count) { throw 'No production solution targets were selected.' }
+    $productionTargetArgument = (@($productionTargets | ForEach-Object { if ($Rebuild) { $_ + ':Rebuild' } else { $_ } }) -join ';')
+}
 $dependencyInstaller = Join-Path $repoRoot 'vcpkg-install.ps1'
 $operationStopwatch = [Diagnostics.Stopwatch]::StartNew()
 if (-not $Clean) {
@@ -103,7 +114,7 @@ if (-not $Clean) {
 $workerArgument = if ($MaxCpuCount -gt 0) { "/m:$MaxCpuCount" } else { '/m' }
 $arguments = @(
     $solutionPath,
-    "/t:$target",
+    $(if ($ProductionOnly) { "/t:$productionTargetArgument" } else { "/t:$target" }),
     "/p:Configuration=$Configuration",
     "/p:Platform=$Platform",
     "/p:RedXeBuildNumber=$BuildNumber",

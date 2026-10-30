@@ -1,91 +1,125 @@
-name: RedXe validation
+name: CI
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR to recheck after an explicit formatting commit
+        type: string
+        required: true
+      expected_head:
+        description: Exact new PR head SHA
+        type: string
+        required: true
 permissions:
   contents: read
 concurrency:
-  # A newer push to a pull request supersedes its running check. Every push to main (and each dispatch) gets a group of
-  # its own and always runs to completion: release.yml requires the push run of the exact released commit.
-  group: redxe-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event_name == 'push' && 'main-coordinator' || github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
 jobs:
-  tooling:
-    runs-on: windows-2025-vs2026
-    # Cold MSVC preparation took 8m45 before the independent tooling could start.
-    timeout-minutes: 20
+  resolve:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: write
+    outputs:
+      head: ${{ steps.pr.outputs.head }}
+      base: ${{ steps.pr.outputs.base }}
+      check_id: ${{ steps.pr.outputs.check_id }}
+      codeql_id: ${{ steps.pr.outputs.codeql_id }}
+      dependency_id: ${{ steps.pr.outputs.dependency_id }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-          # A pull request needs its merge commit and first parent; a push needs the history back to the tip it replaced. The
-          # strings matter: a bare 0 is falsy, so "push && 0 || 2" would give every push a two-commit checkout.
-          fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
-      - name: Changelog changes are fragments or exact folds
+      - name: Enable long Windows checkout paths
+        if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          # A pull request's merge commit compares with its first parent; a push compares with the tip it replaced.
-          CHANGELOG_BASE: ${{ github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000' && github.event.before || 'HEAD^1' }}
-        run: ./Tools/Test-Changelog.ps1 -Base $env:CHANGELOG_BASE
-      - name: Prepare required MSVC 14.52 tools
-        uses: ./.github/actions/setup-msvc
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          platform: x64
-      - shell: pwsh
-        run: |
-          ./Tests/BuildProcessTests/Invoke-ToolingTests.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'Independent tooling tests failed.' }
-  native:
-    strategy:
-      fail-fast: false
-      matrix:
-        # Pull requests run the fast, most informative leg (x64 Release, ~11 min). Pushes to main and manual
-        # dispatches run all six configurations; release.yml refuses to release a commit whose push run on main
-        # did not pass, so that full matrix is the release gate.
-        platform: ${{ fromJson(github.event_name == 'pull_request' && '["x64"]' || '["x64","ARM64"]') }}
-        configuration: ${{ fromJson(github.event_name == 'pull_request' && '["Release"]' || '["Debug","Release","ASan Debug"]') }}
-    runs-on: ${{ matrix.platform == 'ARM64' && 'windows-11-vs2026-arm' || 'windows-2025-vs2026' }}
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          # Full history so the version stamp is the real commit count, as in a release.
-          fetch-depth: 0
+          repository: RedSalamanders/.github
+          ref: fcf723f54140eabb69ef5017c32c971deb117ada
+          path: .ci-engine
           persist-credentials: false
-      - name: Prepare required MSVC 14.52 tools
-        uses: ./.github/actions/setup-msvc
-        with:
-          platform: ${{ matrix.platform }}
-      - name: Build and test the pinned product
+      - id: pr
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          ./test.ps1 -Full -SkipTooling -Configuration '${{ matrix.configuration }}' -Platform '${{ matrix.platform }}'
-          if ($LASTEXITCODE -ne 0) { throw 'Pinned product tests failed.' }
-          # The lock and the restored source's path are the restore module's, as for the build.
-          Import-Module ./Build/DxUiRestore.psm1
-          $source=Get-RedXeDxUiSourcePath -RepoRoot $PWD.Path -Commit (Read-RedXeDxUiLock -LockFile Dependencies/DxUi.lock.json).commit
-          # DxUi PR 30 replaced the pinned Tools/validate_build_matrix.py with this PowerShell script, which throws on a
-          # finding. It resolves -Root against the process directory, so pass the absolute checkout root.
-          & (Join-Path $source 'validate-build-matrix.ps1') -Root $PWD.Path
-          if (-not $?) { throw 'Native project matrix validation failed.' }
-      - name: Exercise native AV resource fixture
-        if: matrix.configuration != 'ASan Debug'
+          CI_PR: ${{ inputs.pr_number }}
+          CI_HEAD: ${{ inputs.expected_head }}
+        run: ./.ci-engine/Tools/Resolve-PrCheck.ps1 -PullRequest $env:CI_PR -ExpectedHead $env:CI_HEAD
+  checks:
+    needs: resolve
+    if: always() && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && needs.resolve.result == 'success'))
+    uses: RedSalamanders/.github/.github/workflows/pr.yml@fcf723f54140eabb69ef5017c32c971deb117ada
+    with:
+      engine_ref: fcf723f54140eabb69ef5017c32c971deb117ada
+      head: ${{ github.event.pull_request.head.sha || needs.resolve.outputs.head }}
+      base: ${{ github.event.pull_request.base.sha || needs.resolve.outputs.base }}
+    permissions:
+      contents: read
+  security-recheck:
+    needs: resolve
+    if: github.event_name == 'workflow_dispatch' && needs.resolve.result == 'success'
+    uses: RedSalamanders/.github/.github/workflows/security.yml@fcf723f54140eabb69ef5017c32c971deb117ada
+    with:
+      engine_ref: fcf723f54140eabb69ef5017c32c971deb117ada
+      head: ${{ needs.resolve.outputs.head }}
+      base: ${{ needs.resolve.outputs.base }}
+      pr_number: ${{ inputs.pr_number }}
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+  report:
+    needs: [resolve, checks, security-recheck]
+    if: always() && github.event_name == 'workflow_dispatch' && needs.resolve.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Enable long Windows checkout paths
+        if: runner.os == 'Windows'
         shell: pwsh
-        run: ./measure-av-views.ps1 -Configuration '${{ matrix.configuration }}' -SkipBuild -OutputPath .build/reports/av-native-views.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: redxe-${{ matrix.platform }}-${{ matrix.configuration }}
-          include-hidden-files: true
-          path: |
-            .build/logs/**
-            .build/evidence/test-runs/**
-            .build/reports/**
-            .build/test-artifacts/**
-            .build/${{ matrix.platform }}/${{ matrix.configuration }}/*.log
-            .build/${{ matrix.platform }}/${{ matrix.configuration }}/DxUi.provenance.json
-          retention-days: 14
+          repository: RedSalamanders/.github
+          ref: fcf723f54140eabb69ef5017c32c971deb117ada
+          path: .ci-engine
+          persist-credentials: false
+      - shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_CHECK_ID: ${{ needs.resolve.outputs.check_id }}
+          CI_RESULT: ${{ needs.checks.result }}
+          CODEQL_CHECK_ID: ${{ needs.resolve.outputs.codeql_id }}
+          DEPENDENCY_CHECK_ID: ${{ needs.resolve.outputs.dependency_id }}
+          CODEQL_RESULT: ${{ needs.security-recheck.outputs.codeql_result || 'failure' }}
+          DEPENDENCY_RESULT: ${{ needs.security-recheck.outputs.dependency_result || 'failure' }}
+        run: |
+          # Complete every exact-head check even when another check fails.
+          $failed = $false
+          foreach ($check in @(
+            @{Id=$env:CI_CHECK_ID;Kind='CI';Result=$env:CI_RESULT},
+            @{Id=$env:CODEQL_CHECK_ID;Kind='CodeQL';Result=$env:CODEQL_RESULT},
+            @{Id=$env:DEPENDENCY_CHECK_ID;Kind='Dependency';Result=$env:DEPENDENCY_RESULT}
+          )) {
+            try { ./.ci-engine/Tools/Complete-PrCheck.ps1 -CheckId $check.Id -Kind $check.Kind -Result $check.Result }
+            catch { Write-Host $_.Exception.Message; $failed = $true }
+          }
+          if ($failed) { throw 'One or more compiler-free PR rechecks failed.' }
+  coordinate:
+    if: github.event_name == 'push'
+    uses: RedSalamanders/.github/.github/workflows/coordinate.yml@fcf723f54140eabb69ef5017c32c971deb117ada
+    with:
+      engine_ref: fcf723f54140eabb69ef5017c32c971deb117ada
+    permissions:
+      contents: read
+      statuses: write
+      actions: write

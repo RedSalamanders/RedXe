@@ -839,6 +839,10 @@ Invoke-RedXeCrashTest -CrashArgument '--crash-test-stack-overflow' -ExpectedExce
 
 
 }
+Publish-TestRunEvidenceReceipt -Run $evidence -Name 'normal-suites.json' -Receipt ([ordered]@{
+    schemaVersion=1; platform=$Platform; configuration=$Configuration; passed=$true
+    countUnit='suite'; discovered=@($Suites); executed=@($Suites); filtered=$false
+})
 $runPassed = $true
 } finally {
     # The record is completed before any verdict is printed. After a failed run a record that cannot be completed is only

@@ -422,37 +422,29 @@ try {
         }
     }
 
-    Run-Case 'PR coverage of a profile is every scope its unconditional checks run, without an API dependency' {
-        $profile=@($manifest.prCoverage | Where-Object {$_.PSObject.Properties['platform']})[0]
-        $native=@(Get-ScopedPrCandidateScopes $manifest $profile.platform $profile.configuration)
-        Assert-Scope ($native.Count -eq $manifest.scopes.Count) 'Unconditional RedXe PR gate was incorrectly narrowed'
-        $debug=@(Get-ScopedPrCandidateScopes $manifest x64 Debug)
-        Assert-Scope ($debug.Count -eq 1 -and $debug[0] -eq 'BuildProcess') 'The tooling job was tied to the native PR profile'
-    }
-    Run-Case 'reviewed CI preserves full native coverage and separates independent tooling' {
-        $workflow=[IO.File]::ReadAllText((Join-Path $repository '.github/workflows/ci.yml')) -replace "`r`n","`n"
-        Assert-Scope ((Get-ScopedDigest $workflow) -ceq $manifest.prWorkflowDigest) 'CI contract digest is stale'
-        Assert-Scope ($workflow -match 'test.ps1 -Full -SkipTooling') 'CI accidentally uses affected iteration or repeats independent tooling'
-        # test.ps1 takes its suite names from the manifest and runs each in exactly one block: a scope without a block would
-        # pass without running anything, and a block outside the manifest would never be selected.
-        $blocks=@(Get-TestSuiteBlocks (Join-Path $repository 'test.ps1') | ForEach-Object Name)
-        foreach($scope in $manifest.scopes){Assert-Scope (@($blocks | Where-Object {$_ -ceq $scope.name}).Count -eq 1) "test.ps1 has no single block for scope $($scope.name)"}
-        foreach($block in $blocks){Assert-Scope ($block -cin $manifest.scopes.name) "test.ps1 runs a suite the manifest does not name: $block"}
-        $errors=$null;$tokens=$null;$ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repository 'test.ps1'),[ref]$tokens,[ref]$errors)
-        Assert-Scope ($null -eq ($ast.ParamBlock.Parameters | Where-Object {$_.Name.VariablePath.UserPath -eq 'Suites'}).DefaultValue) 'test.ps1 keeps its own copy of the suite list'
-        foreach($profile in $manifest.prCoverage){foreach($scope in $profile.scopes){Assert-Scope ($scope -in $manifest.scopes.name) "PR profile declares nonexistent scope $scope"}}
-        $native=@($manifest.prCoverage | Where-Object {$_.PSObject.Properties['platform']})
-        Assert-Scope ($native.Count -eq 1 -and $native[0].configuration -eq 'Release' -and $native[0].platform -eq 'x64' -and $native[0].check -ceq 'native (x64, Release)') 'RedXe PR coverage overclaimed'
-        Assert-Scope (-not (Compare-Object @($native[0].scopes) @($manifest.scopes | Where-Object {$_.native} | ForEach-Object name))) 'The x64 Release PR check does not cover exactly the native scopes'
-        $tooling=@($manifest.prCoverage | Where-Object {-not $_.PSObject.Properties['platform']})
-        Assert-Scope ($tooling.Count -eq 1 -and $tooling[0].check -ceq 'tooling' -and -not (Compare-Object @($tooling[0].scopes) @('BuildProcess'))) 'The tooling PR check does not cover exactly the tooling scope'
-        # A check's name is its job's: `native (x64, Release)` is the native job's matrix leg.
-        foreach($job in $manifest.prCoverage){Assert-Scope ($workflow -match ('(?m)^  '+[regex]::Escape(($job.check -split ' ')[0])+':')) "PR check $($job.check) is not a job of ci.yml"}
-        Assert-Scope ($workflow.Contains('./Tests/BuildProcessTests/Invoke-ToolingTests.ps1')) 'Independent tooling job missing'
-        foreach($file in Get-ChildItem (Join-Path $repository '.github/workflows') -Filter '*.yml') {
-            $text=[IO.File]::ReadAllText($file.FullName)
-            Assert-Scope ($text -notmatch 'setup-python|pip\s+install') "Routine CI unexpectedly provisions Python: $($file.Name)"
+    Run-Case 'compiler-free PRs delegate no native or compiler-dependent tooling obligations' {
+        foreach($platform in @('x64','ARM64')){
+            foreach($configuration in @('Debug','Release','ASan Debug')){
+                Assert-Scope (@(Get-ScopedPrCandidateScopes $manifest $platform $configuration).Count -eq 0) 'PR checks cannot satisfy native/tooling execution'
+            }
         }
+        Assert-Scope ($manifest.prCoverage.Count -eq 0) 'The manifest advertises compiler-dependent PR coverage'
+    }
+    Run-Case 'reviewed CI keeps PR coverage empty and normal native execution in the main adapter' {
+        Assert-Scope ((@($manifest.prCoverage)).Count -eq 0) 'Native PR coverage must remain empty'
+        $engine=Join-Path $repository '.ci-engine'
+        Import-Module (Join-Path $engine 'Tools/Modules/Ci.Project.psm1')
+        Import-Module (Join-Path $engine 'Tools/Modules/Ci.Policy.psm1')
+        $project=Read-CiProject $repository
+        Test-CiProjectConfiguration @{root=$repository;engineRoot=$engine;project=$project;development=$false}
+        $adapter=[IO.File]::ReadAllText((Join-Path $repository 'Tools/Invoke-ProjectCi.ps1'))
+        Assert-Scope ($adapter.Contains("Run 'test.ps1'") -and $adapter.Contains("'-Full','-SkipTooling','-SkipBuild'")) 'The normal batch lost Full native execution'
+        Assert-Scope ($adapter.Contains('Invoke-ToolingTests.ps1')) 'Compiler-dependent tooling lost its main owner'
+        Assert-Scope ($adapter.Contains('Get-CiSuiteEvidence')) 'Native suite execution must produce canonical fresh evidence'
+        Assert-Scope (@(Get-ScopedPrCoverage $repository $manifest x64 Release).Count -eq 0) 'Native qualification was delegated to a static PR check'
+        $blocks=@(Get-TestSuiteBlocks (Join-Path $repository 'test.ps1') | ForEach-Object Name)
+        foreach($scope in $manifest.scopes){Assert-Scope (@($blocks|Where-Object {$_ -ceq $scope.name}).Count -eq 1) "The normal native runner lost $($scope.name)"}
+        foreach($block in $blocks){Assert-Scope ($block -cin $manifest.scopes.name) "Unregistered native block $block"}
     }
     Run-Case 'every input of a project a suite runs selects that suite, and every rule matches a tracked path' {
         # A matched rule replaces the full fallback, so it must name every suite that builds its paths. Each suite's

@@ -381,35 +381,6 @@
   "toolingCommands": [
     "Tests/BuildProcessTests/Invoke-ToolingTests.ps1"
   ],
-  "prCoverage": [
-    {
-      "check": "tooling",
-      "scopes": [
-        "BuildProcess"
-      ]
-    },
-    {
-      "check": "native (x64, Release)",
-      "platform": "x64",
-      "configuration": "Release",
-      "scopes": [
-        "LauncherAlias",
-        "Packaging",
-        "PluginContract",
-        "AVControl",
-        "SystemData",
-        "SystemDataPhase0",
-        "StudioClock",
-        "DeskClock",
-        "Launcher",
-        "Weather",
-        "Logicon",
-        "Zoom",
-        "Settings",
-        "HostPlugin",
-        "HostSmoke"
-      ]
-    }
-  ],
-  "prWorkflowDigest": "a7be4509580bbd62a61f3a691ef758d18fe395822af2fbe6358b9aa2d6154e2a"
+  "prCoverage": [],
+  "prWorkflowDigest": "b316649debf6289ffeb89163bbacd95b678d8524ba35136ef9741786f9385186"
 }
