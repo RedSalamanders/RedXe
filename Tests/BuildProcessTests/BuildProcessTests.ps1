@@ -10,6 +10,8 @@ $presentationModulePath = Join-Path $repoRoot 'Build\BuildPresentation.psm1'
 $streamingModulePath = Join-Path $repoRoot 'Build\StreamingProcess.psm1'
 Import-Module $modulePath -Force -ErrorAction Stop
 Import-Module $presentationModulePath -Force -ErrorAction Stop
+# The zero-warning gate's grammar, which the presentation summary must match.
+Import-Module (Join-Path $repoRoot 'Build\BuildConsole.psm1') -ErrorAction Stop
 $streamingModule = Import-Module $streamingModulePath -Force -ErrorAction Stop -PassThru
 
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '.build'))
@@ -257,6 +259,50 @@ link : fatal error LNK1120: 1 unresolved externals
     if ($diagnosticSummary.WarningCount -ne 1 -or $diagnosticSummary.ErrorCount -ne 2) {
         throw ("Diagnostic summary mismatch: expected 1 warning and 2 errors; got {0} and {1}." -f `
             $diagnosticSummary.WarningCount, $diagnosticSummary.ErrorCount)
+    }
+
+    # The summary counts what the zero-warning gate counts, a warning without a code included, so it never prints a green
+    # "0 warning(s)" for a log the gate then refuses.
+    $codelessLogPath = Join-Path $presentationTestRoot 'codeless.log'
+    @'
+Z:\src\RedXe\Directory.Build.targets(12,5): warning : a target warning without a code [Z:\src\RedXe\Plugins\Weather\Weather.vcxproj]
+Z:\src\RedXe\Plugins\Launcher\Launcher.cpp(10,5): warning C4100: unreferenced parameter [Z:\src\RedXe\Plugins\Launcher\Launcher.vcxproj]
+  RedXe.vcxproj -> Z:\src\RedXe\.build\x64\Debug\RedXe.exe
+'@ | Set-Content -LiteralPath $codelessLogPath -Encoding UTF8
+    $codelessSummary = Get-RedXeBuildDiagnosticSummary -LogPath $codelessLogPath
+    $gateCounts = Get-NativeBuildDiagnostics -LogPath $codelessLogPath
+    if ($codelessSummary.WarningCount -ne 2 -or $gateCounts.WarningCount -ne 2 -or $codelessSummary.ErrorCount -ne 0) {
+        throw "The summary and the gate must both count the codeless warning: summary $($codelessSummary.WarningCount), gate $($gateCounts.WarningCount)."
+    }
+    # A refused build forgets the incremental state of exactly the projects its diagnostics name, so the next build compiles
+    # them again and warns again instead of skipping the files that warned.
+    $intermediate = Join-Path $presentationTestRoot 'Intermediate'
+    foreach ($project in @('Weather', 'Launcher', 'RedXe')) {
+        $tracking = Join-Path $intermediate "$project\$project.tlog"
+        [void](New-Item -ItemType Directory -Path $tracking -Force)
+        Set-Content -LiteralPath (Join-Path $tracking 'CL.read.1.tlog') -Value 'tracked'
+        Set-Content -LiteralPath (Join-Path $tracking 'link.write.1.tlog') -Value 'tracked'
+    }
+    $resetProjects = @(Reset-RedXeWarnedProjectTracking -LogPath $codelessLogPath -IntermediateRoot $intermediate)
+    if (($resetProjects -join ',') -cne 'Launcher,Weather' -or
+        @(Get-ChildItem -LiteralPath (Join-Path $intermediate 'Weather'), (Join-Path $intermediate 'Launcher') -Recurse -Filter '*.tlog' -File).Count -ne 0 -or
+        @(Get-ChildItem -LiteralPath (Join-Path $intermediate 'RedXe') -Recurse -Filter '*.tlog' -File).Count -ne 2) {
+        throw "A refused build must reset the tracking logs of Launcher and Weather only; reset: $($resetProjects -join ', ')."
+    }
+    # build.ps1 gates every build on zero diagnostics, resets the projects they name before it rethrows, and prints its green
+    # result only through Write-NativeBuildResult, which checks the log again.
+    $buildTokens = $null
+    $buildParseErrors = $null
+    $buildAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repoRoot 'build.ps1'), [ref] $buildTokens, [ref] $buildParseErrors)
+    $isCommand = { param([Management.Automation.Language.Ast] $Node, [string] $Name) $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -eq $Name }
+    $gates = @($buildAst.FindAll({ param($node) $node -is [Management.Automation.Language.TryStatementAst] -and $node.CatchClauses.Count -eq 1 -and
+                @($node.Body.FindAll({ param($inner) & $isCommand $inner 'Assert-NativeBuildDiagnostics' }, $true)).Count -eq 1 }, $true))
+    $gateCatch = if ($gates.Count -eq 1) { $gates[0].CatchClauses[0].Body } else { $null }
+    if ($buildParseErrors.Count -ne 0 -or $null -eq $gateCatch -or
+        @($gateCatch.FindAll({ param($inner) & $isCommand $inner 'Reset-RedXeWarnedProjectTracking' }, $true)).Count -ne 1 -or
+        @($gateCatch.FindAll({ param($inner) $inner -is [Management.Automation.Language.ThrowStatementAst] }, $true)).Count -ne 1 -or
+        @($buildAst.FindAll({ param($node) & $isCommand $node 'Write-NativeBuildResult' }, $true)).Count -ne 1) {
+        throw 'build.ps1 must gate on Assert-NativeBuildDiagnostics, reset the warned projects and rethrow, and print its result through Write-NativeBuildResult.'
     }
 
     # The emitter reports the arguments after its own path as the C runtime parsed the command line, which is how a

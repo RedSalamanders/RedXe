@@ -15,9 +15,9 @@ try {
     }
     $record=@{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=4;platform='x64';configuration='Debug';modules=@($modules)}
     function Write-Record { $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fixture 'DxUi.provenance.json') }
-    function Reject([string]$Scenario) {
+    function Reject([string]$Scenario, [switch]$ProductionOnly) {
         $rejected=$false
-        try { Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Debug } catch { $rejected=$true }
+        try { Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Debug -ProductionOnly:$ProductionOnly } catch { $rejected=$true }
         if (-not $rejected) { throw "Accepted stale provenance: $Scenario" }
         Write-Host "PASS provenance rejects $Scenario"
     }
@@ -36,6 +36,24 @@ try {
     # The check reads the lock as the restore does, so a lock the build refuses fails it too, even with a record that matches it.
     Write-Lock 3; $record.apiRevision=3; Write-Record; Reject 'a lock the restore refuses, even with a matching record'
     Write-Lock 4; $record.apiRevision=4; Write-Record
+    # A production-only build (build.ps1 -ProductionOnly, the CI production role) builds no Tests project, so its record lists
+    # the shipped modules only; each kind of record is accepted only as what it is.
+    if ((@(Get-RedXeDxUiProvenanceModules -ProductionOnly | ForEach-Object { $_.path }) -join ',') -cne 'RedXe.exe,Plugins/AVControl.dll' -or
+        (@(Get-RedXeDxUiProvenanceModules | ForEach-Object { $_.path }) -join ',') -cne 'RedXe.exe,Plugins/AVControl.dll,AVControlTests.exe') {
+        throw 'The provenance module lists are not the shipped modules, plus AVControlTests outside a production-only build.'
+    }
+    Reject 'a full record checked as production-only' -ProductionOnly
+    $record.modules=@($modules[0],$modules[1]); Write-Record
+    Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Debug -ProductionOnly
+    Write-Host 'PASS provenance accepts a production-only record of the shipped modules'
+    Reject 'a production-only record checked as a full build'
+    $record.modules=@($modules); Write-Record
+    $buildAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'build.ps1'),[ref]$null,[ref]$null)
+    $writes=@($buildAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-RedXeDxUiProvenance' }, $true))
+    if ($writes.Count -ne 1 -or @($writes[0].CommandElements | Where-Object { $_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'ProductionOnly' }).Count -ne 1) {
+        throw 'build.ps1 must tell the provenance writer whether the build is production-only.'
+    }
+    Write-Host 'PASS build.ps1 records a production-only build as one'
     Add-Content -LiteralPath (Join-Path $fixture 'Plugins/AVControl.dll') -Value 'replacement'
     Reject 'changed binary'
 

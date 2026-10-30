@@ -1,4 +1,5 @@
 <# .SYNOPSIS Restore the exact DxUi source pin (a sparse checkout, with Git long paths) and isolated build dependencies without modifying a sibling checkout. #>
+#Requires -Version 7.0
 [CmdletBinding()]
 param([ValidateSet('x64','ARM64')][string] $Platform = 'x64', [string] $MSBuildPath = '', [switch] $CheckUpdates)
 Set-StrictMode -Version Latest
@@ -41,10 +42,10 @@ $policyHasher = [Security.Cryptography.SHA256]::Create()
 try { $policyFingerprint = ([BitConverter]::ToString($policyHasher.ComputeHash([Text.Encoding]::UTF8.GetBytes(($policyIdentity | ConvertTo-Json -Depth 8 -Compress))))).Replace('-','').ToLowerInvariant() }
 finally { $policyHasher.Dispose() }
 $buildIdentity = [pscustomobject]@{ Fingerprint=$policyFingerprint; Identity=$policyIdentity }
-$output = Initialize-DxUiOutputRoot -DependencyRoot $dependencyRoot -BuildIdentity $buildIdentity
-# The root's lease is renewed before anything uses it, the source's was by Restore-RedXeDxUiPin: no removal of superseded
-# restores, this session's or another's, takes either for the lease window, even once another fingerprint's properties replace ours.
-Update-RedXeDxUiLease -RepoRoot $PSScriptRoot -Path $output
+# The root is leased before it is checked or created, as the source was by Restore-RedXeDxUiPin: no removal of superseded restores,
+# this session's or another's, takes either for the lease window, even once another fingerprint's properties replace ours. Its
+# marker is checked or written under the root's own mutex, so parallel restores of one new fingerprint all get it.
+$output = Initialize-RedXeDxUiOutputRoot -RepoRoot $PSScriptRoot -BuildIdentity $buildIdentity
 # DxUi's own vcpkg-install.ps1 takes no MSBuild: it builds DxUi's dependencies with the newest Visual Studio installation that has
 # MSBuild, which can differ from the build's (Core_DxUiIntegration.md).
 & (Join-Path $source 'vcpkg-install.ps1') -Platform $Platform -OutputRoot $output

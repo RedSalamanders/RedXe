@@ -450,7 +450,9 @@ try {
         ('a' * 16) = @{ Lease = $old; Folder = [DateTime]::UtcNow; Kept = '' }
         'notes' = @{ Kept = 'a restore never names a folder so' }
         "source/$pinned" = @{ Kept = 'it is the pinned commit' }
+        "source/$($pinned.Substring(0, 16))" = @{ Kept = 'it is the pinned commit under its 16-digit name' }
         "source/$('6' * 40)" = @{ Kept = '' }
+        "source/$('c' * 16)" = @{ Kept = '' }
         "source/$('d' * 40)" = @{ Lease = $recent; Kept = 'a restore of another pin leased it a day ago' }
         'source/~0123abcd' = @{ Kept = '' }
         'source/~89abcdef' = @{ Content = [DateTime]::UtcNow; Kept = 'a restore is writing it' }
@@ -495,6 +497,51 @@ try {
     $leasesKept = @(('7' * 16), ('b' * 16), "source.$('d' * 40)" | Sort-Object)
     Assert-That (($leasesLeft -join ',') -ceq ($leasesKept -join ',')) `
         "the leases in use stay, and the lease of a removed folder or of a folder gone for the window goes ($($leasesLeft -join ', '))"
+
+    # --- The output root of a build identity: leased first, then checked or created under its own mutex ---
+    $outputRepo = Join-Path $testRoot 'output-root/RedXe'
+    $outputDependencies = Get-RedXeDxUiDependencyRoot -RepoRoot $outputRepo
+    $modulePath = Join-Path $repoRoot 'Build/DxUiRestore.psm1'
+    $newIdentity = { param([string] $Fingerprint) [pscustomobject]@{ Fingerprint = $Fingerprint; Identity = [ordered]@{ toolset = 'v145'; vcToolsVersion = '14.52.1' } } }
+    # Restores of one new fingerprint that start together (parallel builds in one checkout) all get the root: without the mutex,
+    # every one but the first failed on the marker the first one wrote.
+    $failures = [Collections.Generic.List[string]]::new()
+    foreach ($digit in @('1', '2', '3', '4', '5')) {
+        $fingerprint = $digit * 64
+        $barrier = [Threading.Barrier]::new(8)
+        $results = @(1..8 | ForEach-Object -ThrottleLimit 8 -Parallel {
+            Import-Module $using:modulePath
+            $identity = [pscustomobject]@{ Fingerprint = $using:fingerprint; Identity = [ordered]@{ toolset = 'v145'; vcToolsVersion = '14.52.1' } }
+            [void]($using:barrier).SignalAndWait([TimeSpan]::FromSeconds(60))
+            try { Initialize-RedXeDxUiOutputRoot -RepoRoot $using:outputRepo -BuildIdentity $identity 6>$null }
+            catch { "FAILED: $($_.Exception.Message)" }
+        })
+        $barrier.Dispose()
+        $expected = [IO.Path]::GetFullPath((Get-RedXeDxUiOutputRoot -RepoRoot $outputRepo -Fingerprint $fingerprint))
+        foreach ($result in $results) { if ($result -ne $expected) { $failures.Add("$($digit * 16): $result") } }
+        if ($results.Count -ne 8 -or [IO.FileInfo]::new((Join-Path $expected 'DxUi.build-identity.json')).Length -eq 0) { $failures.Add("$($digit * 16): no complete marker") }
+    }
+    Assert-That ($failures.Count -eq 0) "eight restores of each of five new fingerprints that start together all get the root ($($failures -join '; '))"
+    # The lease comes first: a root that is refused is leased all the same.
+    $refused = [IO.Path]::GetFullPath((Join-Path $outputDependencies ('6' * 16)))
+    [void][IO.Directory]::CreateDirectory($refused)
+    [IO.File]::WriteAllText((Join-Path $refused 'vcpkg_installed.txt'), 'content without a marker')
+    Assert-Throws { Initialize-RedXeDxUiOutputRoot -RepoRoot $outputRepo -BuildIdentity (& $newIdentity ('6' * 64)) } ([regex]::Escape($refused) + '.*delete that folder') `
+        'a root holding content without a marker is refused, naming the folder and the way out'
+    $refusedLease = Join-Path $outputDependencies "leases/$('6' * 16)"
+    Assert-That ([IO.File]::Exists($refusedLease) -and [IO.File]::GetLastWriteTimeUtc($refusedLease) -gt [DateTime]::UtcNow.AddMinutes(-5)) `
+        'the root is leased before it is checked, so a refused root is leased too'
+    # A restore killed between creating and writing the marker leaves it empty in an otherwise empty root.
+    $interrupted = Join-Path $outputDependencies ('7' * 16)
+    [void][IO.Directory]::CreateDirectory($interrupted)
+    [IO.File]::WriteAllBytes((Join-Path $interrupted 'DxUi.build-identity.json'), [byte[]]::new(0))
+    [void](Initialize-RedXeDxUiOutputRoot -RepoRoot $outputRepo -BuildIdentity (& $newIdentity ('7' * 64)))
+    Assert-That ([IO.FileInfo]::new((Join-Path $interrupted 'DxUi.build-identity.json')).Length -gt 0) 'an empty marker alone in its root is written again'
+    $emptyBesideContent = [IO.Path]::GetFullPath((Join-Path $outputDependencies ('8' * 16)))
+    [void][IO.Directory]::CreateDirectory((Join-Path $emptyBesideContent 'vcpkg_installed'))
+    [IO.File]::WriteAllBytes((Join-Path $emptyBesideContent 'DxUi.build-identity.json'), [byte[]]::new(0))
+    Assert-Throws { Initialize-RedXeDxUiOutputRoot -RepoRoot $outputRepo -BuildIdentity (& $newIdentity ('8' * 64)) } ([regex]::Escape($emptyBesideContent) + '.*delete that folder') `
+        'an empty marker beside other content is refused, naming the folder'
 
     # --- The pin restore from a sibling checkout ---
     $productRoot = Join-Path $testRoot 'product-root/RedXe'
@@ -561,10 +608,10 @@ try {
     $propsWrite = $restoreScript.IndexOf('WriteAllText($propsPath')
     Assert-That ($propsWrite -gt 0 -and $restoreScript.IndexOf('Remove-RedXeDxUiSupersededRestores') -gt $propsWrite) `
         'restore-dxui.ps1 removes superseded restores only after its platform''s properties name the root it builds with'
-    $rootLease = $restoreScript.IndexOf('Update-RedXeDxUiLease -RepoRoot $PSScriptRoot -Path $output')
-    Assert-That ($rootLease -gt $restoreScript.IndexOf('$output = Get-RedXeDxUiOutputRoot') -and
-        $rootLease -lt $restoreScript.IndexOf("Join-Path `$source 'vcpkg-install.ps1'")) `
-        'restore-dxui.ps1 renews the output root''s lease before anything builds into it'
+    $rootInitialize = $restoreScript.IndexOf('$output = Initialize-RedXeDxUiOutputRoot -RepoRoot $PSScriptRoot')
+    Assert-That ($rootInitialize -gt 0 -and $rootInitialize -lt $restoreScript.IndexOf("Join-Path `$source 'vcpkg-install.ps1'") -and
+        -not $restoreScript.Contains('Initialize-DxUiOutputRoot ')) `
+        'restore-dxui.ps1 gets the output root, leased and checked under its mutex, before anything builds into it'
     $buildScript = Get-Content -LiteralPath (Join-Path $repoRoot 'build.ps1') -Raw
     $installerCall = $buildScript.IndexOf('& $dependencyInstaller')
     $restoreCall = $buildScript.IndexOf("restore-dxui.ps1')")

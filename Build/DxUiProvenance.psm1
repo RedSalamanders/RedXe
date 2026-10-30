@@ -4,12 +4,23 @@ Set-StrictMode -Version Latest
 # The lock, the source path and the output root's name are the restore's (DxUiRestore.psm1).
 Import-Module (Join-Path $PSScriptRoot 'DxUiRestore.psm1') -Force -ErrorAction Stop
 
+function Get-RedXeDxUiProvenanceModules {
+    <# The modules that link the DxUi archive, as the provenance record lists them: RedXe and AVControl, and AVControlTests
+       unless the build was production-only (build.ps1 -ProductionOnly builds no Tests project). #>
+    [CmdletBinding()]
+    param([switch] $ProductionOnly)
+    $modules=@(@{name='RedXe';path='RedXe.exe'},@{name='AVControl';path='Plugins/AVControl.dll'})
+    if (-not $ProductionOnly) { $modules+=@{name='AVControlTests';path='AVControlTests.exe'} }
+    return $modules
+}
+
 function Write-RedXeDxUiProvenance {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string] $RepoRoot,
         [Parameter(Mandatory)][ValidateSet('x64','ARM64')][string] $Platform,
-        [Parameter(Mandatory)][ValidateSet('Debug','Release','ASan Debug')][string] $Configuration
+        [Parameter(Mandatory)][ValidateSet('Debug','Release','ASan Debug')][string] $Configuration,
+        [switch] $ProductionOnly
     )
     $ErrorActionPreference='Stop'
     $lockFile=Join-Path $RepoRoot 'Dependencies/DxUi.lock.json'
@@ -32,7 +43,7 @@ function Write-RedXeDxUiProvenance {
     $source=Get-RedXeDxUiSourcePath -RepoRoot $RepoRoot -Commit $pin.commit
     & (Join-Path $source 'Tools/validate_consumer.ps1') -DxUiRoot $source -LockFile $lockFile
     $output=Join-Path $RepoRoot ".build/$Platform/$Configuration"
-    $modules=foreach ($module in @(@{name='RedXe';path='RedXe.exe'},@{name='AVControl';path='Plugins/AVControl.dll'},@{name='AVControlTests';path='AVControlTests.exe'})) {
+    $modules=foreach ($module in @(Get-RedXeDxUiProvenanceModules -ProductionOnly:$ProductionOnly)) {
         $tlog=Join-Path $RepoRoot ".build/Intermediate/$Platform/$Configuration/$($module.name)/$($module.name).tlog/link.command.1.tlog"
         $linkCommand=[IO.File]::ReadAllText($tlog)
         if ($linkCommand.IndexOf($archive.Replace('/','\'),[StringComparison]::OrdinalIgnoreCase) -lt 0) {
@@ -57,13 +68,14 @@ function Assert-RedXeDxUiProvenance {
         [Parameter(Mandatory)][string] $OutputRoot,
         [Parameter(Mandatory)][string] $LockFile,
         [Parameter(Mandatory)][ValidateSet('x64','ARM64')][string] $Platform,
-        [Parameter(Mandatory)][ValidateSet('Debug','Release','ASan Debug')][string] $Configuration
+        [Parameter(Mandatory)][ValidateSet('Debug','Release','ASan Debug')][string] $Configuration,
+        [switch] $ProductionOnly
     )
     $pin=Read-RedXeDxUiLock -LockFile $LockFile
     $record=Get-Content -Raw -LiteralPath (Join-Path $OutputRoot 'DxUi.provenance.json') | ConvertFrom-Json
     if ($record.repository -cne $pin.repository -or $record.commit -cne $pin.commit -or $record.apiRevision -ne $pin.apiRevision -or
         $record.platform -cne $Platform -or $record.configuration -cne $Configuration) { throw 'Stale DxUi product provenance.' }
-    $expected=@('RedXe.exe','Plugins/AVControl.dll','AVControlTests.exe')
+    $expected=@(Get-RedXeDxUiProvenanceModules -ProductionOnly:$ProductionOnly | ForEach-Object { $_.path })
     if (@($record.modules).Count -ne $expected.Count) { throw 'Incomplete DxUi module provenance.' }
     foreach ($name in $expected) {
         $entry=@($record.modules | Where-Object path -CEQ $name)
@@ -73,4 +85,4 @@ function Assert-RedXeDxUiProvenance {
     }
 }
 
-Export-ModuleMember -Function Write-RedXeDxUiProvenance, Assert-RedXeDxUiProvenance
+Export-ModuleMember -Function Get-RedXeDxUiProvenanceModules, Write-RedXeDxUiProvenance, Assert-RedXeDxUiProvenance
