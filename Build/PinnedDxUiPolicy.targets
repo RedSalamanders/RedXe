@@ -1,4 +1,0 @@
-<Project>
-  <Import Project="$(MSBuildThisFileDirectory)NativeBuildPolicy.targets"
-          Condition="'$(NativeBuildPolicyImported)'!='true'" />
-</Project>

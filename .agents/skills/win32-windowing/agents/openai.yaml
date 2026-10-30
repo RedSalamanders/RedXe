@@ -1,3 +1,0 @@
-interface:
-  display_name: "Win32 Windowing"
-  short_description: "Implement the native window and message lifecycle"

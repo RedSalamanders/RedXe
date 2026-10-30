@@ -1,3 +1,0 @@
-interface:
-  display_name: "Direct3D 11 Rendering"
-  short_description: "Implement and debug the Direct3D 11 renderer"
