@@ -3,7 +3,7 @@
 Status: current normative repository contract
 Last reviewed: 2026-10-29
 Owner: `package.ps1`, `winget-manifest.ps1`, `Build/Versioning.psm1`, `Build/Package.psm1`, `Build/Winget.psm1`,
-`Installer/`, `RedXeLauncher/`, `.github/workflows/release.yml`, `.github/workflows/winget-release.yml`
+`Installer/`, `RedXeLauncher/`, `.github/workflows/qualify.yml`, `.github/workflows/publish.yml`
 
 ## Scope
 
@@ -127,7 +127,7 @@ produced the binaries, and the portable ZIP carries no PDB. `package.ps1` theref
   is it moved into place. A failed run leaves neither the ZIP nor its sidecar, including those of an earlier run, so a
   symbols ZIP never sits beside the portable ZIP of another build.
 - The ZIP exists to symbolize crash dumps of that release. The release publishes it per built platform and records it
-  in `checksums.sha256` (see the release workflow below); because it is cut from the job output the portable ZIP was
+  in the qualified source-bound receipt (see manual promotion below); because it is cut from the job output the portable ZIP was
   cut from, its PDBs match the released binaries exactly. To use it, extract it and add the extracted folder and its
   `Plugins` subfolder to the debugger's symbol path.
 
@@ -183,62 +183,15 @@ the sidecar form shared with the portable ZIP. It MUST leave no registry key, sh
   carve-outs it lists: the CC BY-NC-SA 3.0 Shadertoy ports and the OFL Weather Icons font). The package always
   ships `LICENSE.txt`; a license change updates the file and the template together.
 
-## Release workflow (`.github/workflows/release.yml`)
+## Manual qualified-artifact promotion
 
-`workflow_dispatch` only, so every release is deliberate, and only from `main`: the `version` job rejects any other
-ref before resolving a version, because the commit count is monotonic only along the protected default branch.
+The current workflow is .github/workflows/publish.yml and the pinned organization engine, governed by [Build_UnifiedCI.md](Build_UnifiedCI.md). The removed release/winget workflow files are historical, not current entrypoints.
 
-1. `version` requires a successful `RedXe validation` push run for the exact commit (the six-configuration matrix
-   that ran when it reached `main`), waiting up to 45 minutes for one still in progress and failing when none
-   exists or it failed, then checks out the full history and resolves `major.minor.<commit count>` from `Common/Version.h` and
-   `git rev-list --count HEAD`. It fails when the tag `v<version>` already exists: a commit is released at most
-   once, and published assets are never replaced. Releasing again means merging a new commit to `main`.
-2. `build` runs `test.ps1 -Full -SkipTooling -Configuration Release -Platform <P> -BuildNumber <n>` then
-   `package.ps1 -Platform <P> -BuildNumber <n> -SkipBuild` natively on `windows-2025-vs2026` (x64) and
-   `windows-11-vs2026-arm` (ARM64, unless `build_arm64` is off), and uploads the portable ZIP, the symbols ZIP, and
-   their sidecars as one `package-<Platform>` artifact. The job passes `-SkipTooling` because the profile-independent
-   PowerShell tooling suite already passed in the `tooling` job of the push run that `version` requires.
-3. `release` requires the exact expected asset set, which is `RedXe-<version>-<Platform>-Portable.zip` and
-   `RedXe-<version>-<Platform>-Symbols.zip` for each built platform and nothing else, verifies each sidecar hash,
-   writes `checksums.sha256` with a line for every asset, and creates the GitHub release `v<version>` at the workflow
-   commit with generated notes. A missing or partial matrix, or a missing symbols ZIP, never becomes a release.
-4. `winget` calls `winget-release.yml` with `submit: true` when `publish_winget` and `build_arm64` are both on. An
-   x64-only release is published on GitHub but never submitted, because the manifest lists both architectures.
+An original successful main qualify.yml batch freezes source and version, executes test-enabled Release regressions on both native architectures, passes the global AND gate, and then builds production-only Release and both portable/symbol ZIPs. Publication never rebuilds, re-stamps or substitutes a failed/partial batch. Full Debug/ASan and other independent acceptance remain manual obligations.
 
-All third-party actions are pinned to full commit SHAs.
+The explicit main publication action defaults to Prepare. Release promotes only the retained ZIP bytes for the qualified version/source, verifies their hashes and anonymous URLs, and leaves existing conflicting tags/assets untouched. An identical retry revalidates/reuses its existing exact assets. A newer failed native input cannot borrow an older successful receipt; missing or expired proof requires a fresh explicit native batch.
 
-## Winget publication (`.github/workflows/winget-release.yml`)
-
-Reusable (`workflow_call`) and manual (`workflow_dispatch`, `submit` off by default). Serialized per version by
-concurrency group. On `windows-latest`:
-
-1. Checks out the release tag so the templates match the released product.
-2. Reads the release through the GitHub API, requires both portable assets, downloads them, records the release
-   date, and verifies each asset is downloadable **without credentials**. Assets are selected by their exact portable
-   names, so the symbols ZIPs and `checksums.sha256` beside them never reach the manifest. winget-pkgs and every
-   winget client fetch `InstallerUrl` anonymously, so a private repository fails here with an explicit message
-   instead of failing later in the community repository; the repository (at least its releases) must be public before
-   publication.
-3. Runs `winget-manifest.ps1` (generation plus `winget validate`).
-4. Enables `LocalManifestFiles`, runs `winget install --manifest`, runs
-   `%LocalAppData%\Microsoft\WinGet\Links\RedXe.exe --help` and `--self-test --warp` through the alias winget
-   created, and checks the Apps & features entry winget registered (`WinGetPackageIdentifier` equal to the package
-   identifier, `DisplayVersion` equal to the release version). The alias run is the end-to-end proof that the
-   launcher resolves the package root and RedXe loads its plugins from there; the registry check replaces
-   `winget list --id`, which correlates installed entries with a source and cannot see a package that is not
-   published yet. The package is always uninstalled afterwards by the same manifest, including after a failure.
-   Both alias runs MUST be bounded and logged: they go through the release's own `Invoke-RedXeStreamingProcess`
-   (`Build/StreamingProcess.psm1`, [`Build_Process.md`](Build_Process.md)) with budgets of two and five minutes, well
-   inside the step's fifteen, so a hung run is terminated with everything it started and named in the step's failure
-   instead of cancelled by the step timeout, and both streams reach the job log decoded as UTF-8. The module is the one
-   in the release tag the workflow checks out, so a release can be install-tested only when that tag's own
-   `Build/StreamingProcess.psm1` accepts the parameters the step passes (`-StandardOutputEncoding` and
-   `-StandardErrorEncoding` among them); `v1.0.102` has no such module.
-5. When submitting: installs the reviewed winget-create `1.12.8.0`, verifies its banner version, requires the
-   `WINGET_TOKEN` secret (a classic personal access token with `public_repo`; exposed only as
-   `WINGET_CREATE_GITHUB_TOKEN`, never on a command line), treats an already published version directory or an
-   already open pull request for the exact version as success without submitting, chooses `New package:` or
-   `Update:` for the title, runs `wingetcreate submit --no-open`, and reports the pull request URL.
+Winget publication uses the two portable ZIPs, the configured RedXeLauncher.exe alias target, immutable installer URLs/hashes, matching native install/alias/cleanup proof and the dedicated publication credential. Symbols ZIPs never become installer payloads. The product clean-extraction WARP/launcher diagnostics remain required before ZIP qualification; post-install launcher diagnostics retain the existing product-specific requirements. Actual release/submission remains an operator action.
 
 ## Validation
 
@@ -250,7 +203,8 @@ Changes to this contract require:
 .\winget-manifest.ps1 -Version 1.0.1 -Arm64ZipPath <an ARM64 package or a copy for local validation>
 ```
 
-and, for workflow changes, one `Release` run with `publish_winget` off followed by a manual `Publish to winget`
-run with `submit` off against that release.
+For workflow changes, retain exact two-architecture batch receipts, a successful Prepare and the required refusal controls. Public release and native winget install/submission qualification are separate manual operator actions; no local fixture or Prepare pass establishes those live outcomes.
 
 RedMonitor is installed independently. Application packages include its client MIT notice (`RedMonitor-LICENSE.txt`, the MIT section of the pinned licence file, as described above) and no viewer executable, runtime, satellite or theme payload. Normal builds verify only the pinned local header/license; see [RedMonitor integration](../Core/Core_RedMonitorIntegration.md).
+
+The canonical package entrypoint builds ProductionOnly Release. With -SkipBuild it requires matching production-only DxUi provenance for the shipping host/plugin modules; test-role or role-less output is refused. The existing clean-extraction product diagnostic smoke and ZIP/symbol contracts remain required.
