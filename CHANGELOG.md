@@ -4,6 +4,8 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Pin the common CI engine to v1.0.5: verify native portable winget registration, every installed command alias, declared smoke probes and owned cleanup; retain the compiler-free custom dependency status observer and recorded owner-only emergency PR merge route. Publication remains an explicit action requiring both matching native Release regression and production ZIP receipts.
+- Bind DxUi provenance to the test or production role so shipping builds do not require unbuilt test modules, and refuse cross-role output during tests or packaging.
 - Document the explicit organization-owner, PR-only emergency merge route with a recorded reason and exact-head match; preserve actual checks and native publication qualification.
 - Retain stdout/stderr and real exit codes for windowless hosted native commands through the common pinned CI engine v1.0.4.
 - Upgrade the shared CI engine to v1.0.3, fixing manual formatter staging and distinct artifact/publication outputs. Preserve failed pilot receipts and require fresh native qualification for the new engine identity.
