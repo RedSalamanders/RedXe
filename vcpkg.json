@@ -3,7 +3,7 @@
   "name": "redxe",
   "version-string": "0.1.0",
   "$comment": "builtin-baseline must be the same commit as vcpkg-tool.json. A newer baseline resolves ports the pinned versions database cannot load.",
-  "builtin-baseline": "9e593bb18ea69cc5095e012465dcd675a822ed0d",
+  "builtin-baseline": "9eec002df1cd109f8f104cd966a763daf9751489",
   "dependencies": [
     {
       "name": "wil",
@@ -16,7 +16,9 @@
     {
       "name": "curl",
       "default-features": false,
-      "features": ["ssl"]
+      "features": [
+        "ssl"
+      ]
     }
   ]
 }
