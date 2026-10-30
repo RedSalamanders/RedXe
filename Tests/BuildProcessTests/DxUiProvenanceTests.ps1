@@ -13,16 +13,29 @@ try {
         Set-Content -LiteralPath $path -Value "fixture $name"
         @{path=$name;sha256=(Get-FileHash -LiteralPath $path).Hash}
     }
-    $record=@{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=4;platform='x64';configuration='Debug';modules=@($modules)}
+    $record=@{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=4;platform='x64';configuration='Debug';buildRole='test-enabled';modules=@($modules)}
     function Write-Record { $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fixture 'DxUi.provenance.json') }
-    function Reject([string]$Scenario, [switch]$ProductionOnly) {
+    function Reject([string]$Scenario) {
         $rejected=$false
-        try { Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Debug -ProductionOnly:$ProductionOnly } catch { $rejected=$true }
+        try { Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Debug } catch { $rejected=$true }
         if (-not $rejected) { throw "Accepted stale provenance: $Scenario" }
         Write-Host "PASS provenance rejects $Scenario"
     }
     Write-Record
     Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Debug
+    $record.configuration='Release';$record.buildRole='production-only';$record.modules=@($modules[0],$modules[1]);Write-Record
+    Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Release -ProductionOnly
+    Write-Host 'PASS production provenance accepts the two shipping modules without an unbuilt test executable'
+    $message=''
+    try{Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Release}catch{$message=$_.Exception.Message}
+    if($message -notlike '*build role*'){throw 'A production record qualified a test-enabled request.'}
+    Write-Host 'PASS production provenance cannot qualify test-enabled validation'
+    $record.buildRole='test-enabled';$record.modules=@($modules);Write-Record
+    $message=''
+    try{Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Release -ProductionOnly}catch{$message=$_.Exception.Message}
+    if($message -notlike '*build role*'){throw 'A test-enabled record qualified production packaging.'}
+    Write-Host 'PASS test-enabled provenance cannot qualify production packaging'
+    $record.configuration='Debug';Write-Record
     $record.repository='https://example.invalid/fork'; Write-Record; Reject 'wrong repository'
     $record.repository='https://github.com/RedSalamanders/DxUi'
     $record.platform='ARM64'; Write-Record; Reject 'wrong platform'
@@ -36,18 +49,8 @@ try {
     # The check reads the lock as the restore does, so a lock the build refuses fails it too, even with a record that matches it.
     Write-Lock 3; $record.apiRevision=3; Write-Record; Reject 'a lock the restore refuses, even with a matching record'
     Write-Lock 4; $record.apiRevision=4; Write-Record
-    # A production-only build (build.ps1 -ProductionOnly, the CI production role) builds no Tests project, so its record lists
-    # the shipped modules only; each kind of record is accepted only as what it is.
-    if ((@(Get-RedXeDxUiProvenanceModules -ProductionOnly | ForEach-Object { $_.path }) -join ',') -cne 'RedXe.exe,Plugins/AVControl.dll' -or
-        (@(Get-RedXeDxUiProvenanceModules | ForEach-Object { $_.path }) -join ',') -cne 'RedXe.exe,Plugins/AVControl.dll,AVControlTests.exe') {
-        throw 'The provenance module lists are not the shipped modules, plus AVControlTests outside a production-only build.'
-    }
-    Reject 'a full record checked as production-only' -ProductionOnly
-    $record.modules=@($modules[0],$modules[1]); Write-Record
-    Assert-RedXeDxUiProvenance -OutputRoot $fixture -LockFile $lock -Platform x64 -Configuration Debug -ProductionOnly
-    Write-Host 'PASS provenance accepts a production-only record of the shipped modules'
-    Reject 'a production-only record checked as a full build'
-    $record.modules=@($modules); Write-Record
+    # build.ps1 -ProductionOnly (the CI production role) builds no Tests project, so it must ask the writer for that role's
+    # record, or the writer reads the link log of an AVControlTests.exe that was never built.
     $buildAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'build.ps1'),[ref]$null,[ref]$null)
     $writes=@($buildAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-RedXeDxUiProvenance' }, $true))
     if ($writes.Count -ne 1 -or @($writes[0].CommandElements | Where-Object { $_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'ProductionOnly' }).Count -ne 1) {

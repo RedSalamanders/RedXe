@@ -190,10 +190,7 @@ the architecture-matching sanitizer runtime. RedXe retains the default STL annot
 Restore writes separate resolved properties and evaluated identity files for each platform. The canonical imports
 preserve the chosen configuration and platform, and fail before compilation if the consumer's actual toolchain
 differs from the restored identity. Builds produce `DxUi.provenance.json` beside the application: exact source/API,
-public-header tree, archive hash, build identity and linked-module hashes for RedXe, AVControl and AVControlTests. A
-production-only build (`build.ps1 -ProductionOnly`, the CI production role) builds no Tests project, so its record lists
-RedXe and AVControl only (`Get-RedXeDxUiProvenanceModules`), and `Assert-RedXeDxUiProvenance -ProductionOnly` accepts
-only that list.
+public-header tree, archive hash, build identity and linked-module hashes for RedXe, AVControl and AVControlTests.
 The producer locates the archive through the resolved output root and verifies each actual linker command names
 it. It MUST refuse an output root other than the one the restored identity's fingerprint names, because the record would
 otherwise pair that identity with an archive another restore built. The comparison is of the complete paths, both
@@ -288,3 +285,5 @@ failure must expose its own assertion message in addition to its exit code. Hidd
 A failed runtime check in a Debug-family test ends the process with its report and exit code 3, never a dialog, and
 an `abort()` that no such check reported ends it with a line saying so and exit code 4
 ([`Build_Process.md`](../Build/Build_Process.md)).
+
+Per-module provenance records an explicit test-enabled or production-only build role. Test validation retains the complete host/plugin/test consumer closure. Production Release validates only the shipping host and AV Control consumers; a test-role record cannot authorize packaging, and a production record cannot satisfy a test request. Each selected module still names and hashes its actual pinned DxUi archive/link command and output bytes.

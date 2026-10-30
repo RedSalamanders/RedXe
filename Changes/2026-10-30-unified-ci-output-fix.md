@@ -1,1 +1,0 @@
-- Upgrade the shared CI engine to v1.0.3, fixing manual formatter staging and distinct artifact/publication outputs. Preserve failed pilot receipts and require fresh native qualification for the new engine identity.

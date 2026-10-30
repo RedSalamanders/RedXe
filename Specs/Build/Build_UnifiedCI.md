@@ -69,4 +69,16 @@ that all six native product pipelines passed.
 
 The adapter retains Full noninteractive regression, plugin/host/WARP/crash scopes, the AV resource fixture and independent compiler tooling. Counts in normal-suites.json are selected/executed scope counts; individual logs remain authoritative. The Release probe exercises ReportSuiteFailure directly, independently of the intentionally Debug-only CRT report self-test. ProductionOnly excludes standalone Tests projects; package.ps1 -SkipBuild retains runtime/import closure, launcher smoke and the optional symbols ZIP. winget targets RedXeLauncher.exe.
 
+## Emergency PR merge
 
+An organization owner may explicitly bypass PR merge checks during a recorded emergency through the GitHub PR override or gh pr merge --admin --match-head-commit FULL_SHA. Record the reason, blocked checks, exact reviewed head, rollback and follow-up in the PR and merge commit. The default-branch ruleset uses OrganizationAdmin with pull_request bypass; automation receives no bypass permission and direct/force pushes stay protected. Failed checks remain their actual results, and normal main qualification still runs. Production ZIP/SDK and publication requirements remain unchanged.
+
+Follow the common [emergency merge runbook](https://github.com/RedSalamanders/.github/blob/main/Specs/EmergencyMerge.md), including the reason file and exact-head CLI procedure. No emergency merge is an ordinary fallback after a failed merge attempt. Account restrictions must be resolved before enabling the ruleset; the pending RedPrism/RedTilde public visibility change remains the owner's operation.
+
+DxUi provenance binds the selected build role. Test-enabled builds require RedXe.exe, AVControl.dll and AVControlTests.exe; ProductionOnly requires the two shipping consumers and never demands an unbuilt test target. Cross-role provenance cannot qualify tests or packaging. package.ps1 builds ProductionOnly by default and -SkipBuild requires its source/pin/profile/module hashes. The shipped product diagnostic self-test remains available for clean-extraction smoke.
+
+The winget adapter declares a bounded installed RedXe alias --self-test --warp smoke in addition to the shared --help check for every alias. Native registry identity, exact target/version and actual manifest-based cleanup must pass on both architectures before submission. Source-correlated winget list is not the oracle for an unpublished version.
+
+## Dependency metadata coverage
+
+The organization's shared engine runs a weekly and explicit manual metadata observer across all six default branches. It inventories the coordinated engine SHA, vcpkg baseline/tool/floors/overrides and custom dependency locks, and reports available producer updates as advisories. It never restores or compiles native dependencies, edits pins or treats an upstream main commit as qualified. Missing/private or undeployed repositories remain explicit incomplete coverage. Built-in dependency review and security alerts retain their supported scopes; custom lock inventory is not a native/transitive vulnerability scan. See the common [dependency status contract](https://github.com/RedSalamanders/.github/blob/main/Specs/CI.md).

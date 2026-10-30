@@ -4,13 +4,10 @@ Set-StrictMode -Version Latest
 # The lock, the source path and the output root's name are the restore's (DxUiRestore.psm1).
 Import-Module (Join-Path $PSScriptRoot 'DxUiRestore.psm1') -Force -ErrorAction Stop
 
-function Get-RedXeDxUiProvenanceModules {
-    <# The modules that link the DxUi archive, as the provenance record lists them: RedXe and AVControl, and AVControlTests
-       unless the build was production-only (build.ps1 -ProductionOnly builds no Tests project). #>
-    [CmdletBinding()]
-    param([switch] $ProductionOnly)
+function Get-RedXeDxUiModuleDefinitions {
+    param([switch]$ProductionOnly)
     $modules=@(@{name='RedXe';path='RedXe.exe'},@{name='AVControl';path='Plugins/AVControl.dll'})
-    if (-not $ProductionOnly) { $modules+=@{name='AVControlTests';path='AVControlTests.exe'} }
+    if(-not $ProductionOnly){$modules+=@{name='AVControlTests';path='AVControlTests.exe'}}
     return $modules
 }
 
@@ -20,9 +17,10 @@ function Write-RedXeDxUiProvenance {
         [Parameter(Mandatory)][string] $RepoRoot,
         [Parameter(Mandatory)][ValidateSet('x64','ARM64')][string] $Platform,
         [Parameter(Mandatory)][ValidateSet('Debug','Release','ASan Debug')][string] $Configuration,
-        [switch] $ProductionOnly
+        [switch]$ProductionOnly
     )
     $ErrorActionPreference='Stop'
+    if($ProductionOnly -and $Configuration -ne 'Release'){throw 'Production provenance requires Release.'}
     $lockFile=Join-Path $RepoRoot 'Dependencies/DxUi.lock.json'
     $pin=Read-RedXeDxUiLock -LockFile $lockFile
     $dependencyRoot=Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot
@@ -43,7 +41,7 @@ function Write-RedXeDxUiProvenance {
     $source=Get-RedXeDxUiSourcePath -RepoRoot $RepoRoot -Commit $pin.commit
     & (Join-Path $source 'Tools/validate_consumer.ps1') -DxUiRoot $source -LockFile $lockFile
     $output=Join-Path $RepoRoot ".build/$Platform/$Configuration"
-    $modules=foreach ($module in @(Get-RedXeDxUiProvenanceModules -ProductionOnly:$ProductionOnly)) {
+    $modules=foreach ($module in @(Get-RedXeDxUiModuleDefinitions -ProductionOnly:$ProductionOnly)) {
         $tlog=Join-Path $RepoRoot ".build/Intermediate/$Platform/$Configuration/$($module.name)/$($module.name).tlog/link.command.1.tlog"
         $linkCommand=[IO.File]::ReadAllText($tlog)
         if ($linkCommand.IndexOf($archive.Replace('/','\'),[StringComparison]::OrdinalIgnoreCase) -lt 0) {
@@ -55,6 +53,7 @@ function Write-RedXeDxUiProvenance {
     $headers=(& git -C $source rev-parse HEAD:include).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the pinned public headers.' }
     $record=[ordered]@{repository=$pin.repository;commit=$pin.commit;apiRevision=$pin.apiRevision;platform=$Platform;configuration=$Configuration;
+        buildRole=$(if($ProductionOnly){'production-only'}else{'test-enabled'});
         publicHeadersGitTree=$headers;buildIdentity=$identity;archiveSha256=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash;modules=@($modules)}
     $path=Join-Path $output 'DxUi.provenance.json'
     $json=$record | ConvertTo-Json -Depth 7
@@ -69,13 +68,17 @@ function Assert-RedXeDxUiProvenance {
         [Parameter(Mandatory)][string] $LockFile,
         [Parameter(Mandatory)][ValidateSet('x64','ARM64')][string] $Platform,
         [Parameter(Mandatory)][ValidateSet('Debug','Release','ASan Debug')][string] $Configuration,
-        [switch] $ProductionOnly
+        [switch]$ProductionOnly
     )
     $pin=Read-RedXeDxUiLock -LockFile $LockFile
     $record=Get-Content -Raw -LiteralPath (Join-Path $OutputRoot 'DxUi.provenance.json') | ConvertFrom-Json
+    $role=if($ProductionOnly){'production-only'}else{'test-enabled'}
+    if(($ProductionOnly -and $Configuration -ne 'Release') -or -not $record.PSObject.Properties['buildRole'] -or $record.buildRole -cne $role){
+        throw 'Missing or mismatched DxUi build role; rebuild the requested test/production profile.'
+    }
     if ($record.repository -cne $pin.repository -or $record.commit -cne $pin.commit -or $record.apiRevision -ne $pin.apiRevision -or
         $record.platform -cne $Platform -or $record.configuration -cne $Configuration) { throw 'Stale DxUi product provenance.' }
-    $expected=@(Get-RedXeDxUiProvenanceModules -ProductionOnly:$ProductionOnly | ForEach-Object { $_.path })
+    $expected=@(Get-RedXeDxUiModuleDefinitions -ProductionOnly:$ProductionOnly | ForEach-Object path)
     if (@($record.modules).Count -ne $expected.Count) { throw 'Incomplete DxUi module provenance.' }
     foreach ($name in $expected) {
         $entry=@($record.modules | Where-Object path -CEQ $name)
@@ -85,4 +88,4 @@ function Assert-RedXeDxUiProvenance {
     }
 }
 
-Export-ModuleMember -Function Get-RedXeDxUiProvenanceModules, Write-RedXeDxUiProvenance, Assert-RedXeDxUiProvenance
+Export-ModuleMember -Function Write-RedXeDxUiProvenance, Assert-RedXeDxUiProvenance

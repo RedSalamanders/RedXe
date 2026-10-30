@@ -21,7 +21,7 @@ Third version component (Common/Version.h supplies major.minor). Default 0 means
 also what the release workflow stamps.
 
 .PARAMETER SkipBuild
-Package the existing .build/<Platform>/Release output, which must already be stamped with -BuildNumber.
+Package existing production-only Release output, with matching role provenance and -BuildNumber.
 
 .PARAMETER SkipExecution
 Validate the archive's contents only; do not start the packaged executables.
@@ -49,9 +49,11 @@ $repoRoot = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $repoRoot 'Build\Versioning.psm1') -Force
 $BuildNumber = Resolve-RedXeBuildNumber -RepoRoot $repoRoot -Requested $BuildNumber
 if (-not $SkipBuild) {
-    & (Join-Path $repoRoot 'build.ps1') -Configuration Release -Platform $Platform -BuildNumber $BuildNumber
+    & (Join-Path $repoRoot 'build.ps1') -Configuration Release -Platform $Platform -BuildNumber $BuildNumber -ProductionOnly
     if ($LASTEXITCODE -ne 0) { throw "Build entrypoint failed with exit code $LASTEXITCODE." }
 }
+Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1')
+Assert-RedXeDxUiProvenance -OutputRoot (Join-Path $repoRoot ".build/$Platform/Release") -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json') -Platform $Platform -Configuration Release -ProductionOnly
 
 Import-Module (Join-Path $repoRoot 'Build\Package.psm1') -Force
 Write-Host "Packaging Release | $Platform ..." -ForegroundColor Cyan
