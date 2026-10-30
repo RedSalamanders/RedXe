@@ -15,8 +15,8 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 - Unicode Win32 APIs
 - Debug, Release and ASan Debug project configurations on x64 and ARM64, including real sanitizer instrumentation
 - Git for the pinned vcpkg bootstrap
-- PowerShell 7 for `validate-skills.ps1` and the `BuildProcess` tooling suite of
-  `test.ps1` (`-SkipTooling` leaves that suite to the CI `tooling` job)
+- PowerShell 7 for every repository script: `build.ps1`, `test.ps1`, `package.ps1`, `restore-dxui.ps1`,
+  `vcpkg-install.ps1` and `validate-skills.ps1` declare `#Requires -Version 7.0`
 
 ## Drive-root output policy
 
@@ -182,9 +182,16 @@ Tests/
   BuildProcessTests/   Build preflight and the bounded process helper, DxUi provenance/restore/update, the scoped-test planner and receipts, and packaging (version, ZIP rules, winget manifest, in-package installer round-trip)
 Build/
   Versioning.psm1   major.minor from Common/Version.h plus the caller's build number
-  Package.psm1      Portable ZIP and release symbols ZIP staging rules, CRT bundling, and the clean-extraction smoke
+  Package.psm1      Portable ZIP and release symbols ZIP staging rules, CRT bundling from the build's own toolset, and the clean-extraction smoke
+  CameraPackage.psm1 PE machine probe and the AV Control camera package helpers shared with the packaging
   Winget.psm1       Manifest generation from Installer/winget/templates and `winget validate`
-  DxUiRestore.psm1  The DxUi pin: lock, verified sparse restore, leases and superseded-restore cleanup, and the MSBuild the build runs
+  DxUiRestore.psm1  The DxUi pin: lock, verified sparse restore, leases, the leased and locked output root, superseded-restore cleanup, and the MSBuild the build runs
+  DxUiPaths.psm1    16-hex DxUi source and output folder locators with full identity markers (shared with RedPrism and RedTilde)
+  DxUiProvenance.psm1, DxUiUpdate.psm1 The DxUi module provenance record the build writes, and Update-DxUi.ps1's pin update
+  RedXe.DxUi.props, RedXe.DxUi.targets, PinnedDxUiPolicy.targets The consumer import of the restored DxUi headers and archive, and the policy its archive is built with
+  NativeBuildPolicy.targets The shared /Wall without /WX, debug-format and Release ICF policy (five repositories)
+  BuildConsole.psm1 The shared zero-warning gate grammar and the green result with terminal links (five repositories)
+  BuildPresentation.psm1, BuildOutputProcess.psm1 build.ps1's banner, log, streamed colors, diagnostic summary and warned-project reset; the running-output check
   ScopedTesting.psm1 Scope planner behind Test-Changes.ps1: Git change discovery, scope rules, evidence identity and receipts, PR delegation
   StreamingProcess.psm1 Child-process runner of build.ps1, test.ps1 and the package smoke: one argument quoter, streamed log, budget in a kill-on-close job
   TestRunEvidence.psm1 Per-run evidence directories: pinned handles, 128-bit file identities, create-only records (Build_TestRunEvidence.md)

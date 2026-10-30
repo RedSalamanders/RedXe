@@ -85,6 +85,12 @@ hashes, SDK version/header/import-library hashes, CRT family and sanitizer annot
 `.build/dependencies/DxUi/<first 16 fingerprint hex digits>` so vcpkg's deepest tool paths stay under `MAX_PATH`; the
 full fingerprint stays in the identity file and the product provenance. Restore never checks out, resets, or edits a
 sibling `DxUi` working tree. A mismatched or dirty pin fails the consumer restore.
+`Initialize-RedXeDxUiOutputRoot` (`Build/DxUiRestore.psm1`) is the one way to that folder: it renews the folder's lease,
+then checks or creates it and its identity marker under the folder's own restore mutex, so restores of one new
+fingerprint that start together (parallel builds in one checkout) all use the folder instead of failing on the marker the
+first one writes. A marker left empty in an otherwise empty folder, which a restore killed between creating and writing
+it leaves, is written again. Any other refusal (content without a marker, another identity under the same 16 digits, an
+unreadable marker) names the folder and says to delete it when no build or restore is running.
 
 Compiler-host defaults follow the native Windows OS: x64 on x64 Windows and arm64 on ARM64 Windows,
 including emulated PowerShell. Build and standalone restore use one environment scope for identity,
@@ -98,12 +104,16 @@ Every pin bump, toolset or SDK update leaves the previous output root behind (fr
 `restore-dxui.ps1` MUST remove what earlier restores left and nothing uses: output roots that no
 `DxUi.resolved*.props` names, source clones of other commits, and temporary restore folders.
 - Only folders named the way RedXe's restores name them are candidates: 16- or 64-digit fingerprint roots, the older
-  `<commit>-api<n>-...` roots, `source/<commit>` and `source/~<hex>`. Nothing else under the folder is touched.
+  `<commit>-api<n>-...` roots, `source/<commit>` (40 digits, or the first 16 since the short folder names) and
+  `source/~<hex>`. Nothing else under the folder is touched. This is the separate cleanup policy that
+  `Build_ConsoleAndPaths.md` refers to: the move to 16-digit names deleted nothing itself, and a full-length folder it
+  left behind is removed like any other superseded restore, only after the lease window below.
 - A candidate used within the last seven days (the lease window) MUST be kept. Its last use is its lease,
   `.build/dependencies/DxUi/leases/<fingerprint>` for an output root and `leases/source.<commit>` for a source clone,
   which every `restore-dxui.ps1` run, and so the start of every `build.ps1` build, rewrites before it uses that folder:
-  the pin restore renews the source's lease before it checks the source, and the script renews the output root's before
-  DxUi's `vcpkg-install.ps1` builds into it. A folder without a lease (one an older restore left, a temporary clone)
+  the pin restore renews the source's lease before it checks the source, and `Initialize-RedXeDxUiOutputRoot` renews the
+  output root's before it checks or creates that root, so an old fingerprint's root revisited after its lease expired is
+  never removed between the check and DxUi's `vcpkg-install.ps1`. A folder without a lease (one an older restore left, a temporary clone)
   counts as used when it or anything in it was written within the window. The folder's own time never counts: a build
   that reuses a root reads it without writing its top level. The window is far longer than any build, so a root that
   another session still builds with stays after a restore for another fingerprint has replaced the properties that
@@ -129,8 +139,11 @@ included, while both platforms' roots, the pin's clone, a root and another pin's
 nothing in them changed for a month, a root without a lease whose content is recent, a temporary folder being written
 and a folder of another name stay. It also requires that a lease can be renewed before its folder exists and names
 only folders below the dependency root, that the leases of removed and long-gone folders go while those in use stay,
-that the pin restore renews its source's lease, and that `restore-dxui.ps1` renews the output root's lease before
-DxUi's dependencies build into it.
+that the pin restore renews its source's lease, and that `restore-dxui.ps1` gets the output root from
+`Initialize-RedXeDxUiOutputRoot` before DxUi's dependencies build into it. That function is checked directly: parallel
+first initializations of several new fingerprints all succeed, the lease is renewed even when the folder is refused, a
+lone empty marker is rewritten, and an empty marker beside other content is refused naming the folder. The pinned commit's
+16-digit source folder stays while another commit's 16-digit folder is removed.
 
 `vcpkg-install.ps1` builds the manifest packages with the Visual Studio installation and the default MSVC toolset that
 MSBuild compiles with, not the newest toolset vcpkg would find. The two differ when a newer toolset is installed beside

@@ -27,6 +27,7 @@ no Git work tree or comparison base to select from.
 .PARAMETER SkipTooling
 Leaves profile-independent tooling to the CI tooling job or selected BuildProcess scope.
 #>
+#Requires -Version 7.0
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release', 'ASan Debug')]
@@ -711,7 +712,7 @@ if ($viewerRunning) {
     Write-Host 'SKIP --redmonitor-probe without a listener: a RedMonitor instance is running' -ForegroundColor Yellow
 }
 else {
-    $monitorCases += @{ Arguments = @('--redmonitor-probe'); Exit = 2; Text = $null }
+    $monitorCases += @{ Arguments = @('--redmonitor-probe'); Exit = 2; Text = 'RedMonitor probe: no RedMonitor listener within 2 seconds' }
 }
 $monitorCase = 0
 foreach ($case in $monitorCases) {

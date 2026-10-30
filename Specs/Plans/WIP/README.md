@@ -1,7 +1,5 @@
 # Active plan index
 
-- **ACTIVE**: [Native build policy, terminal results and short DxUi paths](NativeBuildPolicyCoherence_2026-10-28.md). Shared /Wall without /WX, zero-warning validation, Debug/ASan symbols, Release-only ICF, terminal results and verified short dependency folders.
-
 Files in this directory are non-normative execution or decision records. Current requirements remain in the owning
 domain spec under `Specs/<Domain>/`.
 
@@ -10,6 +8,8 @@ Add every direct WIP plan to this table exactly once. Use `ACTIVE` for executabl
 
 | Plan | Status | Owning domain spec | Purpose |
 | --- | --- | --- | --- |
+| [`NativeBuildPolicyCoherence_2026-10-28.md`](NativeBuildPolicyCoherence_2026-10-28.md) | `ACTIVE` | `Specs/Build/Build_ConsoleAndPaths.md` and `Specs/Build/Build_Process.md` | Shared /Wall without /WX, zero-warning validation, Debug/ASan symbols, Release-only ICF, terminal results and verified short dependency folders. Merged; closes once the paused focus-taking tests and the remaining qualification gates its merge handoff names have passed. |
+| [`RedMonitor_Adoption_2026-10-23.md`](RedMonitor_Adoption_2026-10-23.md) | `ACTIVE` | `Specs/Core/Core_RedMonitorIntegration.md` | Pinned RedMonitor producer, optional viewer and consumer qualification. Open: physical input/accessibility, controlled performance and release gates, and a published RedMonitor release. |
 | [`ClockPrivateMemoryPeakInvestigation_2026-10-13.md`](ClockPrivateMemoryPeakInvestigation_2026-10-13.md) | `HOLD` | `Specs/Core/Core_PerformanceAndResources.md`, `Specs/Plugins/Plugins_API.md`, and `Specs/Build/Build_Process.md` | Owner-deferred Desk Clock private-growth study: ordinary five-minute 5.93/6.46 MiB and instrumented 6.49 MiB. Retains metrics, failures, seven loss-free heap cuts, region controls and the resumption checklist. Runtime P4.6 retains implementation history; merging the branch does not accept long memory qualification. |
 | [`MergedReviewFixes_2026-10-06.md`](MergedReviewFixes_2026-10-06.md) | `ACTIVE` | `Specs/Core/Core_Settings.md`, `Specs/UI/UI_XeneonDisplayWindowing.md`, `Specs/Plugins/Plugins_Zoom.md`, `Specs/Plugins/Plugins_Logicon.md`, `Specs/Plugins/Plugins_Actions.md`, `Specs/Plugins/Plugins_API.md`, `Specs/Plugins/Plugins_AVControl.md`, `Specs/Plugins/Plugins_Weather.md`, `Specs/UI/UI_Dashboard.md`, `Specs/Core/Core_PerformanceAndResources.md`, `Specs/Core/Core_CrashHandling.md`, `Specs/Core/Core_DxUiIntegration.md`, `Specs/Build/Build_Process.md`, and `Specs/Build/Build_Packaging.md` | Fixes from the review of PRs #21 to #32: two release blockers (v1.0.102 settings reset, release tooling), settings integrity, runtime exits and freezes, dock/tray/session lifecycle, Logicon/Zoom, tooling, simplifications, and drift. Decisions D1 to D9 resolved on 2026-10-07; D6 keeps the repository ruleset unchanged: local validation is the accepted merge gate for now. |
 | [`RFC_Plugins_AVControl.md`](RFC_Plugins_AVControl.md) | `HOLD` | `Specs/Plugins/Plugins_AVControl.md`, `Specs/Plugins/Plugins_API.md`, `Specs/UI/UI_Dashboard.md`, `Specs/Core/Core_Settings.md`, `Specs/Core/Core_PerformanceAndResources.md`, and `Specs/Core/Core_DxUiIntegration.md` | AV release gates: real IME/touch/screen-reader, matched text/UIA performance, G1 audio policy, G2 camera. Library extraction and the synthetic DxUi pin/adapters are Done. |
@@ -26,5 +26,3 @@ its row here.
 [DxUi adoption is complete](../Done/DxUiAdoption_2026-09-09.md) for the accepted local scope.
 Further ARM64 and ASan qualification is user-deferred and routed through RedSalamander's
 `DxUi_DeferredPlatformQualification_2026-09-13.md`; AV release gates retain their owner above.
-
-- [RedMonitor adoption](RedMonitor_Adoption_2026-10-23.md) — pinned producer, optional viewer and consumer qualification.

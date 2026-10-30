@@ -32,6 +32,7 @@ means the commit count of HEAD (git rev-list --count), the same number the relea
 .PARAMETER ProductionOnly
 Build only shipping Release targets and record production provenance without standalone test modules.
 #>
+#Requires -Version 7.0
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release', 'ASan Debug')]
@@ -165,7 +166,14 @@ if ($exitCode -ne 0) {
     throw "MSBuild failed with exit code $exitCode."
 }
 
-Assert-NativeBuildDiagnostics -LogPath $logPath
+# The zero-warning gate. /WX stays off, so a warning still writes its object file and tracking logs: every project a diagnostic
+# names forgets its incremental state, or an unchanged rerun would skip the file that warned and pass.
+try { Assert-NativeBuildDiagnostics -LogPath $logPath }
+catch {
+    $reset = @(Reset-RedXeWarnedProjectTracking -LogPath $logPath -IntermediateRoot (Join-Path $repoRoot ".build\Intermediate\$Platform\$Configuration"))
+    if ($reset.Count) { Write-Host "Compiled again by the next build until they build clean: $($reset -join ', ')" -ForegroundColor DarkYellow }
+    throw
+}
 if (-not $Clean) {
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
         throw "Build succeeded but the expected executable was not found: $executable"
@@ -175,7 +183,8 @@ if (-not $Clean) {
     Write-Host "DxUi module provenance: $provenance" -ForegroundColor DarkGray
     Write-NativeBuildResult -Project RedXe -Platform $Platform -Configuration $Configuration -LogPath $logPath -Artifacts @($executable) -Executable $executable -Duration $nativeEntryElapsed.Elapsed
     if ($Run) {
-        if ($Platform -ne 'x64' -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') {
+        # The OS, not this PowerShell process, decides: x64 PowerShell on ARM64 Windows runs the ARM64 build too.
+        if ($Platform -eq 'ARM64' -and [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [Runtime.InteropServices.Architecture]::Arm64) {
             throw 'This host cannot directly run the ARM64 build. Build it without -Run or run it on ARM64 Windows.'
         }
         Start-Process -FilePath $executable

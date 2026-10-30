@@ -70,7 +70,7 @@ The package MUST contain, with forward-slash entry names and no directory entrie
 | `DxUi.provenance.json` | build output, when present |
 | `Settings/RedXe.settings.json`, `Settings/RedXe-debug.settings.json`, `Settings/RedXe.settings.schema.json` | build output |
 | `Plugins/**` | build output `Plugins\`, minus build artifacts (`.pdb .lib .exp .ilk .iobj .ipdb .obj .log .tlog`) and `Plugins\ZoomSdk\` |
-| Visual C++ runtime DLLs | the newest installed `VC\Redist\MSVC\<v>\<arch>\Microsoft.VC*.CRT`, copied to the root and to `Plugins/` (the helper executables run as separate processes) |
+| Visual C++ runtime DLLs | the newest `VC\Redist\MSVC\<v>\<arch>\Microsoft.VC*.CRT` of the Visual Studio installation that holds the MSBuild the build runs (`Find-RedXeMSBuild`), never another installation's; copied to the root and to `Plugins/` (the helper executables run as separate processes). A CRT older than the required MSVC family (`RequiredMsvcToolsVersion`) fails packaging, because a CRT shipped beside the binaries must be at least as new as their compiler and hosted CI installs that compiler outside Program Files, next to an older stock Visual Studio |
 | `Install-RedXe.ps1`, `install.cmd`, `uninstall.cmd` | `Installer/` |
 | `README.txt` | generated with the version and platform |
 | `LICENSE.txt` | repository root (required) |

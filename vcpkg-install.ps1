@@ -24,6 +24,7 @@ Target platform: x64, ARM64, or All.
 .PARAMETER MSBuildPath
 The MSBuild the build runs; build.ps1 passes its own. vcpkg builds with the Visual Studio installation that holds it.
 #>
+#Requires -Version 7.0
 [CmdletBinding()]
 param(
     [ValidateSet('x64', 'ARM64', 'All')]

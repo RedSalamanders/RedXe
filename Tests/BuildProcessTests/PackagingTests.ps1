@@ -89,9 +89,33 @@ try {
     }
     if ((Get-RedXeVcRuntimeDirectory -Platform x64 -SearchRoots @($redist)) -notmatch '\\14\.51\.2\\x64\\') { throw 'Newest x64 CRT not selected.' }
     if ((Get-RedXeVcRuntimeDirectory -Platform ARM64 -SearchRoots @($redist)) -notmatch '\\14\.51\.2\\arm64\\') { throw 'ARM64 CRT not selected.' }
+    # A CRT older than the compiler family is never shipped beside the binaries it compiled.
+    Reject 'a CRT older than the required MSVC family' { Get-RedXeVcRuntimeDirectory -Platform x64 -SearchRoots @($redist) -MinimumVersion '14.52' } -Naming @('14.51.2', '14.52')
+    $matching = Join-Path $redist 'VC\Redist\MSVC\14.52.1\x64\Microsoft.VC145.CRT'
+    [void](New-Item -ItemType Directory -Path $matching -Force)
+    foreach ($name in @('msvcp140.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) { Set-Content -LiteralPath (Join-Path $matching $name) -Value 'x64' }
+    if ((Get-RedXeVcRuntimeDirectory -Platform x64 -SearchRoots @($redist) -MinimumVersion '14.52') -notmatch '\\14\.52\.1\\x64\\') { throw 'The CRT of the required family was not selected.' }
     Remove-Item -LiteralPath (Join-Path $redist 'VC\Redist\MSVC\14.51.2\arm64\Microsoft.VC145.CRT\vcruntime140_1.dll')
     Reject 'an incomplete CRT directory' { Get-RedXeVcRuntimeDirectory -Platform ARM64 -SearchRoots @($redist) }
     Reject 'a host without the redistributable' { Get-RedXeVcRuntimeDirectory -Platform x64 -SearchRoots @((Join-Path $fixture 'nothing')) }
+    # By default only the installation of the MSBuild the build runs is searched. Hosted CI installs the required toolset
+    # outside Program Files next to an older stock Visual Studio, whose CRT must not ship with the newer binaries; on this
+    # host Program Files may hold a newer CRT than the fixture, which the default must ignore as well.
+    $installation = Join-Path $fixture 'VS-Msvc'
+    $fixtureMSBuild = Join-Path $installation 'MSBuild\Current\Bin\amd64\MSBuild.exe'
+    [void](New-Item -ItemType Directory -Path (Split-Path -Parent $fixtureMSBuild) -Force)
+    [void](New-Item -ItemType Directory -Path (Join-Path $installation 'VC\Auxiliary\Build') -Force)
+    Set-Content -LiteralPath $fixtureMSBuild -Value 'fixture'
+    $installedCrt = Join-Path $installation 'VC\Redist\MSVC\14.52.3\x64\Microsoft.VC145.CRT'
+    [void](New-Item -ItemType Directory -Path $installedCrt -Force)
+    foreach ($name in @('msvcp140.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) { Set-Content -LiteralPath (Join-Path $installedCrt $name) -Value 'x64' }
+    $savedMSBuild = $env:MSBUILD_EXE_PATH
+    try {
+        $env:MSBUILD_EXE_PATH = $fixtureMSBuild
+        $selected = Get-RedXeVcRuntimeDirectory -Platform x64 -MinimumVersion '14.52'
+        if ($selected -ne $installedCrt) { throw "The default CRT search left the installation of the MSBuild the build runs: $selected" }
+    }
+    finally { $env:MSBUILD_EXE_PATH = $savedMSBuild }
     Write-Host 'PASS CRT discovery'
 
     # RedMonitor notice: the vendored licence is the whole RedSalamander licence file, hash-pinned (read here, never
@@ -275,11 +299,13 @@ try {
     Write-Host 'PASS symbols ZIP covers the real required first-party set'
 
     # What a built package cannot show here, because no real build exists in this suite: package.ps1 writes the ZIP,
-    # both ZIPs write their sidecar through one writer, and the package carries and re-checks the RedMonitor notice.
+    # both ZIPs write their sidecar through one writer, the package carries and re-checks the RedMonitor notice, and its
+    # CRT is held to the required MSVC family.
     $wiring = @(
         @{ Function = 'New-RedXePortablePackage'; Calls = 'Write-RedXePackageChecksum' },
         @{ Function = 'New-RedXeSymbolArchive'; Calls = 'Write-RedXePackageChecksum' },
         @{ Function = 'New-RedXePortablePackage'; Calls = 'Get-RedXeRedMonitorLicenseNotice' },
+        @{ Function = 'New-RedXePortablePackage'; Calls = 'Get-RedXeRequiredMsvcFamily' },
         @{ Function = 'Test-RedXePortablePackage'; Calls = 'Assert-RedXeRedMonitorLicenseNotice' })
     foreach ($check in $wiring) {
         $calls = @((Get-Command $check.Function).ScriptBlock.Ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq $check.Calls }, $true))

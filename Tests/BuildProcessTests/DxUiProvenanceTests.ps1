@@ -49,6 +49,14 @@ try {
     # The check reads the lock as the restore does, so a lock the build refuses fails it too, even with a record that matches it.
     Write-Lock 3; $record.apiRevision=3; Write-Record; Reject 'a lock the restore refuses, even with a matching record'
     Write-Lock 4; $record.apiRevision=4; Write-Record
+    # build.ps1 -ProductionOnly (the CI production role) builds no Tests project, so it must ask the writer for that role's
+    # record, or the writer reads the link log of an AVControlTests.exe that was never built.
+    $buildAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'build.ps1'),[ref]$null,[ref]$null)
+    $writes=@($buildAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-RedXeDxUiProvenance' }, $true))
+    if ($writes.Count -ne 1 -or @($writes[0].CommandElements | Where-Object { $_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'ProductionOnly' }).Count -ne 1) {
+        throw 'build.ps1 must tell the provenance writer whether the build is production-only.'
+    }
+    Write-Host 'PASS build.ps1 records a production-only build as one'
     Add-Content -LiteralPath (Join-Path $fixture 'Plugins/AVControl.dll') -Value 'replacement'
     Reject 'changed binary'
 

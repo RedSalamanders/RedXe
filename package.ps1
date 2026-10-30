@@ -29,6 +29,7 @@ Validate the archive's contents only; do not start the packaged executables.
 .EXAMPLE
 .\package.ps1 -Platform x64 -BuildNumber 42
 #>
+#Requires -Version 7.0
 [CmdletBinding()]
 param(
     [ValidateSet('x64', 'ARM64')]

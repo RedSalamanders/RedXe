@@ -382,6 +382,37 @@ function Update-RedXeDxUiLease {
     finally { Exit-RedXeDxUiLock -Lock $lock }
 }
 
+function Initialize-RedXeDxUiOutputRoot {
+    <# Returns the output root of BuildIdentity (Get-RedXeDxUiOutputRoot) once it is leased and holds that identity's verified marker
+       (Initialize-DxUiOutputRoot), for restore-dxui.ps1 to build DxUi's dependencies into.
+       - The lease is renewed first, so no removal of superseded restores takes the root between the check and the use, even an
+         older fingerprint's root revisited after its lease expired.
+       - The check, the creation and the marker run under the root's own mutex: restores of one new fingerprint that start
+         together (parallel builds in one checkout) all get the root instead of failing on the marker the first one writes.
+       - A marker that is empty in a root holding nothing else is what a restore killed between creating and writing it leaves,
+         and it is written again. Any other refusal names the root, which a person deletes when no build or restore runs. #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string] $RepoRoot,
+        [Parameter(Mandatory)] $BuildIdentity
+    )
+    $output = [IO.Path]::GetFullPath((Get-RedXeDxUiOutputRoot -RepoRoot $RepoRoot -Fingerprint $BuildIdentity.Fingerprint))
+    Update-RedXeDxUiLease -RepoRoot $RepoRoot -Path $output
+    $lock = Enter-RedXeDxUiLock -Path $output -Purpose "the identity check of the DxUi output root '$output'"
+    try {
+        $marker = Join-Path $output 'DxUi.build-identity.json'
+        if ([IO.File]::Exists($marker) -and [IO.FileInfo]::new($marker).Length -eq 0 -and
+            @([IO.Directory]::EnumerateFileSystemEntries($output)).Count -eq 1) {
+            [IO.File]::Delete($marker)
+        }
+        try { $initialized = Initialize-DxUiOutputRoot -DependencyRoot (Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot) -BuildIdentity $BuildIdentity }
+        catch { throw "The DxUi output root '$output' cannot be used ($($_.Exception.Message)). If no build or restore is running, delete that folder and run again." }
+        if ($initialized -ne $output) { throw "The DxUi output root locators disagree: '$initialized' and '$output'." }
+        return $output
+    }
+    finally { Exit-RedXeDxUiLock -Lock $lock }
+}
+
 function Test-RedXeDxUiUsedSince {
     <# Whether Folder was used at Since or later: by its lease when it has one; otherwise (a folder an older restore left, a
        temporary clone) when it or anything in it was written since. An entry that cannot be read counts as a use. #>
@@ -607,5 +638,6 @@ function Get-RedXeVisualStudioInstallation {
 
 Export-ModuleMember -Function Read-RedXeDxUiLock, Get-RedXeDxUiSupportedApiRevision, Get-RedXeDxUiDependencyRoot, Get-RedXeDxUiSourcePath,
     Get-RedXeDxUiOutputRoot, Get-RedXeDxUiCloneSource, Restore-RedXeDxUiSource, Restore-RedXeDxUiPin, Update-RedXeDxUiLease,
+    Initialize-RedXeDxUiOutputRoot,
     Remove-RedXeDxUiSupersededRestores, Get-RedXeDefaultCompilerHost, Enter-RedXeCompilerHost, Exit-RedXeCompilerHost,
     Get-RedXeRequiredMsvcFamily, Test-RedXeMsvcFamily, Find-RedXeMSBuild, Get-RedXeVisualStudioInstallation

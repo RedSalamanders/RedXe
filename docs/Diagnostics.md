@@ -11,7 +11,8 @@ Start RedMonitor separately, or use RedXe.exe --redmonitor. A bare Debug launch 
 installed Release helper asynchronously. Release apps, help, tests and probes never auto-start it.
 The application keeps working when no viewer is installed or ETW permissions prevent collection.
 `--redmonitor` exits 1 when no Release viewer is installed or it cannot start, and says which folders it
-searched or why the launch failed: on the console it was started from, or in a message box without one.
+searched and where to get RedMonitor, or why the launch failed: on the console it was started from, or in a
+message box without one.
 When the viewer is already running, RedXe leaves that instance as it is and exits 0.
 
 Ordinary RedXe builds compile only the pinned Client.h and verify local hashes; they never rebuild or

@@ -1,5 +1,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# The zero-warning gate's diagnostic grammar (the build console contract the other repositories share). Without -Force: a
+# nested forced import would remove the copy build.ps1 imported for itself.
+Import-Module (Join-Path $PSScriptRoot 'BuildConsole.psm1')
 
 function Get-RedXeEnvironmentMap {
     $environment = @{}
@@ -350,48 +353,45 @@ function Write-RedXeBuildStreamingLine {
     }
 }
 
-function Test-RedXeBuildDiagnosticLine {
-    param(
-        [Parameter(Mandatory)]
-        [AllowEmptyString()]
-        [string] $Line,
-
-        [Parameter(Mandatory)]
-        [ValidateSet('Warning', 'Error')]
-        [string] $Kind
-    )
-
-    $diagnosticCode = '[A-Z]+[A-Z0-9]*\d[A-Z0-9]*'
-    if ($Kind -eq 'Warning') {
-        return $Line -match "(?i):\s+warning\s+$diagnosticCode\s*:"
-    }
-    return $Line -match "(?i):\s+(?:fatal\s+)?error\s+$diagnosticCode\s*:"
-}
-
 function Get-RedXeBuildDiagnosticSummary {
+    <# The log's warning and error counts in the zero-warning gate's own grammar (BuildConsole's Get-NativeBuildDiagnostics), so
+       the summary line never reports a count the gate then contradicts, such as a warning without a code. #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [string] $LogPath
     )
 
-    $resolvedLogPath = [IO.Path]::GetFullPath($LogPath)
-    $warningCount = 0
-    $errorCount = 0
-    foreach ($line in [IO.File]::ReadLines($resolvedLogPath)) {
-        if (Test-RedXeBuildDiagnosticLine -Line $line -Kind Warning) {
-            ++$warningCount
-        }
-        if (Test-RedXeBuildDiagnosticLine -Line $line -Kind Error) {
-            ++$errorCount
-        }
-    }
+    return Get-NativeBuildDiagnostics -LogPath $LogPath
+}
 
-    return [pscustomobject]@{
-        LogPath = $resolvedLogPath
-        WarningCount = $warningCount
-        ErrorCount = $errorCount
+function Reset-RedXeWarnedProjectTracking {
+    <# Deletes the MSBuild tracking logs of every project a diagnostic line of LogPath names ([...\<project>.vcxproj] at its end)
+       under IntermediateRoot (.build\Intermediate\<Platform>\<Configuration>), and returns those projects. /WX stays off, so a
+       warning still writes its object file and tracking logs, and an unchanged rerun would skip that source file and pass the
+       zero-warning gate; without its tracking logs the project compiles and links again, and warns again, until it builds clean. #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string] $LogPath,
+
+        [Parameter(Mandatory)]
+        [string] $IntermediateRoot
+    )
+
+    $projects = [Collections.Generic.SortedSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($line in [IO.File]::ReadLines([IO.Path]::GetFullPath($LogPath))) {
+        $match = [regex]::Match($line, '(?i)\b(?:warning|error)\b.*\[(?<project>[^\[\]]+\.vcxproj)\]\s*$')
+        if ($match.Success) {
+            [void]$projects.Add([IO.Path]::GetFileNameWithoutExtension($match.Groups['project'].Value))
+        }
     }
+    foreach ($project in $projects) {
+        foreach ($tracking in @(Get-ChildItem -LiteralPath (Join-Path $IntermediateRoot $project) -Filter '*.tlog' -Directory -ErrorAction SilentlyContinue)) {
+            Get-ChildItem -LiteralPath $tracking.FullName -Filter '*.tlog' -File | Remove-Item -Force
+        }
+    }
+    return @($projects)
 }
 
 function Write-RedXeBuildDiagnosticSummary {
@@ -440,5 +440,6 @@ Export-ModuleMember -Function @(
     'Write-RedXeBuildStreamingLine',
     'Get-RedXeBuildDiagnosticSummary',
     'Write-RedXeBuildDiagnosticSummary',
+    'Reset-RedXeWarnedProjectTracking',
     'Format-RedXeBuildDuration'
 )

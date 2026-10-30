@@ -239,7 +239,9 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             }
             if (probe)
             {
-                return MonitorDiagnostics::RunProbe();
+                const int probeExit = MonitorDiagnostics::RunProbe();
+                EmitCommandLineText(MonitorDiagnostics::DescribeProbeResult(probeExit), probeExit != 0, true);
+                return probeExit;
             }
             const unsigned long launch = MonitorDiagnostics::LaunchViewer();
             if (launch != ERROR_SUCCESS)
