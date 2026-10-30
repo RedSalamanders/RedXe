@@ -6,6 +6,8 @@ Import-Module (Join-Path $PSScriptRoot "CameraPackage.psm1") -Force
 # The bounded child runner for the package smoke. Without -Force: a nested forced import would remove the copy that
 # test.ps1 imported for itself.
 Import-Module (Join-Path $PSScriptRoot "StreamingProcess.psm1")
+# The MSBuild the build runs, its Visual Studio installation and the required MSVC family, for the CRT the package ships.
+Import-Module (Join-Path $PSScriptRoot "DxUiRestore.psm1")
 
 # Portable ZIP packaging. See Specs/Build/Build_Packaging.md for the contract this module implements.
 
@@ -130,14 +132,19 @@ function Get-RedXePackageForbiddenPatterns {
 
 <#
 .SYNOPSIS
-The newest installed Visual C++ redistributable CRT directory for the target architecture.
+The newest Visual C++ redistributable CRT directory for the target architecture, by default from the Visual Studio
+installation that holds the MSBuild the build runs.
+.DESCRIPTION
+A CRT shipped beside the binaries must be at least as new as the toolset that compiled them. Hosted CI installs the
+required toolset outside Program Files, next to an older stock Visual Studio, so the default searches only the installation
+of Find-RedXeMSBuild, the MSBuild build.ps1 compiles with, never every installed Visual Studio. -MinimumVersion refuses an
+older CRT.
 #>
 function Get-RedXeVcRuntimeDirectory {
-    param([Parameter(Mandatory)][ValidateSet('x64', 'ARM64')][string] $Platform, [string[]] $SearchRoots)
+    param([Parameter(Mandatory)][ValidateSet('x64', 'ARM64')][string] $Platform, [string[]] $SearchRoots, [version] $MinimumVersion)
     $architecture = if ($Platform -eq 'ARM64') { 'arm64' } else { 'x64' }
     if (-not $SearchRoots) {
-        $SearchRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ } |
-            ForEach-Object { Join-Path $_ 'Microsoft Visual Studio' } | Where-Object { Test-Path -LiteralPath $_ }
+        $SearchRoots = @(Get-RedXeVisualStudioInstallation -MSBuildPath (Find-RedXeMSBuild))
     }
     $pattern = '\\VC\\Redist\\MSVC\\(?<version>[^\\]+)\\' + $architecture + '\\Microsoft\.VC\d+\.CRT$'
     $candidates = foreach ($root in $SearchRoots) {
@@ -152,6 +159,9 @@ function Get-RedXeVcRuntimeDirectory {
     $best = @($candidates | Sort-Object Version, Directory -Descending | Select-Object -First 1)
     if ($best.Count -eq 0) {
         throw "No Visual C++ redistributable CRT directory for $Platform was found under $($SearchRoots -join '; '). Install the MSVC v145 $Platform build tools."
+    }
+    if ($MinimumVersion -and $best[0].Version -lt $MinimumVersion) {
+        throw "The Visual C++ redistributable CRT for $Platform under $($SearchRoots -join '; ') is $($best[0].Version), older than the MSVC $MinimumVersion toolset that compiles RedXe: a CRT shipped beside the binaries must be at least as new as their compiler. Install the MSVC $MinimumVersion $Platform build tools in that Visual Studio installation."
     }
     foreach ($name in $script:PackageVcRuntimeRequired) {
         if (-not (Test-Path -LiteralPath (Join-Path $best[0].Directory $name) -PathType Leaf)) { throw "Required CRT DLL $name is missing from $($best[0].Directory)." }
@@ -278,7 +288,8 @@ function New-RedXePortablePackage {
             Copy-RedXePackageFile $file.FullName (Join-Path $staging "Plugins\$relative")
         }
 
-        $crt = Get-RedXeVcRuntimeDirectory -Platform $Platform -SearchRoots $VcRuntimeSearchRoots
+        $crt = Get-RedXeVcRuntimeDirectory -Platform $Platform -SearchRoots $VcRuntimeSearchRoots `
+            -MinimumVersion ([version](Get-RedXeRequiredMsvcFamily -RepoRoot $RepoRoot))
         foreach ($dll in Get-ChildItem -LiteralPath $crt -File -Filter '*.dll') {
             Copy-RedXePackageFile $dll.FullName (Join-Path $staging $dll.Name)
             Copy-RedXePackageFile $dll.FullName (Join-Path $staging "Plugins\$($dll.Name)")
