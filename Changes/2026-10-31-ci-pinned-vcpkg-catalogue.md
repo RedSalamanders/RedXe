@@ -1,0 +1,1 @@
+- Restore the independently pinned ports catalogue for vcpkg version resolution while preserving the executable pin, dependency floors and platform-private package roots. Verify dirty/foreign refusal, immutable pins, caller environment and deep port paths; native x64/ARM64 qualification remains required.
