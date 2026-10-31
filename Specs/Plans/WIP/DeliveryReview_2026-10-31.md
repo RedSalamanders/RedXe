@@ -3,11 +3,13 @@
 Status: not started
 Date: 2026-10-31
 
-This plan is a non-normative execution record. It does not change product behavior. The index marks it
-`ACTIVE` because the work is executable; nothing in the checklist has been started.
+This plan is a non-normative evidence annex. It does not change product behavior. The executable ship
+list is [`DeliveryRedTeam_2026-10-31.md`](DeliveryRedTeam_2026-10-31.md). Keep the DX-2, P1, and P2
+sections here for line numbers and the catalog sentence; tick those boxes on the red-team plan.
 
-No RedXe product blocker or high defect exists on `origin/main`. The menu defect is in the pinned DxUi
-library. RedXe's own C++ had no high defect.
+No RedXe product C++ High exists on `origin/main`. The menu defect is in the pinned DxUi library.
+Two pipeline Highs (engine AND-gate, production-receipt leftovers) are on the red-team plan and must
+close before this tip is called qualified.
 
 ## Baseline
 
@@ -237,8 +239,10 @@ These are closed. Do not reopen them as work items.
 ## Closeout
 
 DX-2, P1, and P2 can finish independently. P3 stays a standing limit on the RedMonitor plan. When the
-three implementation items are done, their durable wording is in the owning contracts, and the RedMonitor
-gates are still open there, move this file to `Specs/Plans/Done/` and remove its index row.
+red-team P0 items and P1-3 are done, their durable wording is in the owning contracts, and the
+RedMonitor gates are still open there, move this file and
+[`DeliveryRedTeam_2026-10-31.md`](DeliveryRedTeam_2026-10-31.md) to `Specs/Plans/Done/` and remove
+both index rows. Do not close this annex while the red-team ship list is still `ACTIVE`.
 
 P1's usage sentence is the `docs/` edit. Do not copy the rest of this review into `docs/`. The
 implementing RedXe change adds its own `Changes/` fragment under `Specs/Core/Core_Changes.md`. This
