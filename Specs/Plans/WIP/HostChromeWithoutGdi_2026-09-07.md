@@ -112,6 +112,13 @@ Receipts: `.build/receipts/2026-09-07-host-chrome.md`.
 Open: PresentMon `PresentMode` on Matrix Focus and Gallery. Everything else in this plan is done; close it once that
 capture exists or the owner decides the receipt is not required.
 
+2026-11-01: `UI_Dashboard.md` and `Core_PerformanceAndResources.md` already require Direct3D host chrome and no
+chrome HWND. The sentence in Goal that specs forbid Direct3D chrome is the 7 September starting point, not the
+current contract. PresentMon is this plan's C8 receipt. It is not a sentence in `UI_Dashboard.md`. `Application.cpp`
+still calls `SetLayeredWindowAttributes` for the layered-child probe (the C5 self-test), so the C2 wording "no such
+call" is broader than the landed chrome removal. `BeginPaint`, `CreateSolidBrush`, `SetWindowRgn`, and
+`PaintRaiseOverlay` are absent.
+
 ## Excluded
 
 - Porting GdiOrbit to a GPU widget (it stays the native-window example).

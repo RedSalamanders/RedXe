@@ -1,6 +1,6 @@
 # Plugin-dashboard remaining closeout
 
-Status: `ACTIVE` — remaining host validation and unresolved architecture gates after the local metrics catalog
+Status: `DECISION` — host rows and architecture gates are unresolved. No implementation is selected from this file.
 Created: 2026-09-02
 Owner: plugin services, local system acquisition, settings migration, and interactive window content
 
