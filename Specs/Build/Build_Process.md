@@ -38,6 +38,16 @@ Studio folders. `build.ps1` passes its choice to both scripts as `-MSBuildPath`;
 one. The vcpkg overlay triplets and the DxUi identity files therefore do not depend on which entrypoint ran last
 ([`Core_DxUiIntegration.md`](../Core/Core_DxUiIntegration.md)).
 
+`Build/VcpkgRestore.psm1` owns product vcpkg source restoration. `vcpkg-tool.json` selects the executable checkout
+at `.build/vcpkg-tool`; the independent manifest `builtin-baseline` selects `.build/vcpkg-registry`, including its
+versions database, ports and stock triplets. Both roles require full nonzero commits, the declared repository,
+clean managed clones and verified final HEADs. Existing dirty, foreign, non-clone or reparse paths fail without
+resetting or removing their contents. The catalogue clone has independent Git objects; restoration changes neither
+pin nor caller environment. `vcpkg-install.ps1` MUST pass `--vcpkg-root` explicitly because an executable located in
+a valid checkout takes precedence over VCPKG_ROOT. Toolset overlays come from the selected catalogue and retain
+the same MSBuild/SDK/CRT/platform policy. `VcpkgRestore.Tests.ps1` covers distinct pins, available port metadata,
+warm restoration, preserved source/environment, dirty and foreign refusal, invalid identities and long port paths.
+
 ## Output and validation
 
 Routine repository validators and their regression tests require PowerShell 7 and no Python or external YAML module.
@@ -56,10 +66,11 @@ The application and plugin output directories each have one sanitizer-runtime st
 entrypoint requires an isolated use-after-free to produce the sanitizer's diagnostic; an ordinary crash is
 not successful detection. ARM64 runtime tests require native ARM64 execution.
 
-The native CI matrix runs the full product test gate (`test.ps1 -Full -SkipTooling`) for all six configurations on every
-push to `main` and on manual dispatch; a pull request runs only the x64 Release leg, so PR feedback stays fast. The full matrix
-(ASan and ARM64 included) is the release gate: the release workflow refuses a commit whose validation push run on
-`main` has not succeeded (see [`Build_Packaging.md`](Build_Packaging.md)). DxUi is public:
+Hosted CI follows [Build_UnifiedCI](Build_UnifiedCI.md): PR checks are compiler-free. After five quiet minutes on main,
+native x64 and ARM64 test-enabled Release builds must execute `test.ps1 -Full -SkipTooling` and active assertion probes
+before either production Release/ZIP job starts. Debug, ASan and extended qualification remain explicit manual
+obligations; no scheduled native build replaces them. Publication requires the retained qualified artifact identity,
+not a PR check or a new build (see [`Build_Packaging.md`](Build_Packaging.md)). DxUi is public:
 HTTPS source restore requires no personal token or repository/organization secret. The advisory API check
 uses the automatic read-only job token in CI and works anonymously locally. API unavailability or rate
 limiting produces an advisory notice and leaves the exact pin unchanged.

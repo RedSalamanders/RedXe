@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "name": "redxe",
   "version-string": "0.1.0",
-  "$comment": "builtin-baseline must be the same commit as vcpkg-tool.json. A newer baseline resolves ports the pinned versions database cannot load.",
+  "$comment": "vcpkg-tool.json pins the executable checkout. builtin-baseline independently pins the ports catalogue selected through --vcpkg-root; neither pin is changed by restore.",
   "builtin-baseline": "9eec002df1cd109f8f104cd966a763daf9751489",
   "dependencies": [
     {

@@ -95,8 +95,9 @@ Open `RedXe.sln` for IDE development. Binaries are written to:
 ```
 
 The first command-line build clones and bootstraps the vcpkg commit pinned in `vcpkg-tool.json`, then installs the
-manifest from `vcpkg.json`. That manifest's `builtin-baseline` MUST be the same commit so the versions database can
-resolve every port. All tool, package, download, and installed state stays under `.build`. x64 and ARM64 use
+manifest from `vcpkg.json`. Its independent `builtin-baseline` supplies `.build/vcpkg-registry`, while the executable
+stays at `.build/vcpkg-tool`. Restore verifies both full Git identities and passes the catalogue with `--vcpkg-root`
+so a newer requested port is resolved from the intended versions database. Neither pin is changed. All tool, package, download, and installed state stays under `.build`. x64 and ARM64 use
 separate install roots so their manifest metadata cannot purge one another. vcpkg builds the packages with the Visual
 Studio installation and default MSVC toolset that MSBuild compiles with, through an overlay triplet it writes under
 `.build\vcpkg-triplets`; the script first fetches the pinned DxUi source, only for the helpers that pin the toolset.
