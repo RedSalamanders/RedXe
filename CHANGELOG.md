@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Restore the independently pinned ports catalogue for vcpkg version resolution while preserving the executable pin, dependency floors and platform-private package roots. Verify dirty/foreign refusal, immutable pins, caller environment and deep port paths; native x64/ARM64 qualification remains required.
 - Adopt shared CI v1.0.6: DxUi SDK ZIPs stay internal with no publication workflow; application publication remains manual and artifact-only. Document the organization token route and separate implementation closeout from source-bound hosted acceptance; no product or winget publication is performed.
 - `--redmonitor-probe` prints one line naming its outcome on the console or redirected output, and still never shows
   a box. Without RedMonitor installed, `--redmonitor` now points at RedMonitor's releases page, and at building its
