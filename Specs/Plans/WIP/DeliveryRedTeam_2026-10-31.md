@@ -53,7 +53,7 @@ window. P3 stays open.
 - [ ] P2-2. VcpkgRestore serializes like DxUi restore and names a half-clone recovery.
 - [ ] P2-3. `Invoke-ToolingTests.ps1` fails when the folder has a suite the allowlist omitted.
 - [ ] P2-4. TestRunEvidence sets `Closed` only after `completed.json` readback; NTFS rename is not a tautology.
-- [ ] P2-5. Docs and tree drift: add `VcpkgRestore.psm1` to the `AGENTS.md` Build tree (`RedMonitor.props` is already listed), replace the `release.yml` clause in `Build_Process.md` line 333, and stop `CaptureNativeArtifacts` hunting `DxUi.*.exe` names. The skill TODO scan already skips fenced lines.
+- [ ] P2-5. Docs and tree drift: add `VcpkgRestore.psm1` to the `AGENTS.md` Build tree (`RedMonitor.props` is already listed), replace the `release.yml` clause in `Build_Process.md` line 333, stop `CaptureNativeArtifacts` hunting `DxUi.*.exe` names, and reconcile the skill TODO scan's multiline code-span mismatch.
 - [ ] P2-6. Document the DxUi pin-bump provenance hazard: current pin has no `NativeBuildPolicy`.
 - [ ] P2-7. Automatic admission binds the coordinator’s own successful quiet wait (engine).
 - [ ] P2-8. setup-msvc Authenticode-only plus `vswhere -latest` after an isolated install (engine).
@@ -293,7 +293,7 @@ hard-link case on non-NTFS.
 
 - `AGENTS.md` Build tree already lists `RedMonitor.props` (confirmed 2026-11-01). Add `Build/VcpkgRestore.psm1`. The file exists; the tree omits it.
 - `Build_Process.md` line 333 still names `release.yml` inside the `ci.yml` cancellation sentence. `Build_Packaging.md` says that workflow was removed. Replace the `release.yml` clause with the current `qualify.yml` / `publish.yml` path. Re-read the line before editing; it is not a separate `release.yml` paragraph.
-- SkillValidation already skips fenced lines (`Build/SkillValidation.psm1`, `Get-MarkdownFence`). `Get-MarkdownProse` exists and is used by package integrity. No code change for this bullet unless `Build_SkillPackages.md` should describe that scan.
+- SkillValidation skips fenced lines (`Build/SkillValidation.psm1`, `Get-MarkdownFence`) but still scans raw whole lines outside fences. A whole-line `[TODO: example]` inside a matching multiline code span is incorrectly rejected. Keep reconciliation open: scan `Get-MarkdownProse`, already used by package integrity, or explicitly narrow `Build_SkillPackages.md` to describe fence-only detection.
 - `Save-TestRunNativeArtifacts` in `Build/TestRunEvidence.psm1` still matches `DxUi.(ControlTests|EmbeddedTests|FoundationTests|InteractiveLease).exe`. Drop that match or match RedXe test process names.
 
 ### P2-6. Pin-bump provenance hazard
