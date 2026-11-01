@@ -311,11 +311,12 @@ named. The last box asks for your confirmation instead of a run.
   `restoreLogoOnExit` true (the keypad shows the Logi splash) and false. The rest of that bullet (every action, key
   pages, brightness and the measured per-report write time) belongs to the same receipt. Rows: `logicon-zoom#4`,
   `logicon-zoom#13`, `logicon-zoom#14`, `logicon-zoom#15`, `logicon-zoom#16`.
-- [ ] **The release workflow end to end, at the next intentional release.** Never dispatch `release.yml` to test it:
-  every dispatch creates a GitHub release. At that release `version` finds the successful push run of the commit, each
-  `build` leg runs `test.ps1 -Full -SkipTooling` without Python and uploads its ZIP, and `release` publishes `v<version>`
-  with `checksums.sha256` (`Build_Packaging.md` "Release workflow"); `winget` follows when `publish_winget` and
-  `build_arm64` are on. Rows: `alignment#1`, `scoped-testing#0`, `tests#16`.
+- [ ] **The next intentional publication, end to end.** `release.yml` and `winget-release.yml` are gone.
+  `Build_Packaging.md` "Manual qualified-artifact promotion" names `publish.yml` and the pinned engine.
+  Do not dispatch publication to test it: Release promotes retained ZIP bytes and can submit winget.
+  At that publication, `qualify.yml` has already frozen the commit, both native Release test branches have
+  passed, and production ZIPs match their sidecars. Record the version and the run. The old `release.yml`
+  procedure in this box is not a command. Rows: `alignment#1`, `scoped-testing#0`, `tests#16`.
 - [ ] **Owner confirmation: the hosted Release legs replace the local x64 Release rebuild.** This is a statement from
   you, not a run. `Specs/Plans/Done/ScopedTesting_2026-10-05.md` left a local x64 Release rebuild pending (the build
   guard refused it while an independently launched `RedXe.exe` used that output) and was closed on the reading that the

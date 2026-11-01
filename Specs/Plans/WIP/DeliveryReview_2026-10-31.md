@@ -1,11 +1,13 @@
 # Delivery review 2026-10-31
 
-Status: not started
+Status: evidence annex. Do not execute this file.
 Date: 2026-10-31
+Reviewed against tip `3a8b3b1` on 2026-11-01: the menu and probe line numbers still match. The package
+command below does not.
 
 This plan is a non-normative evidence annex. It does not change product behavior. The executable ship
-list is [`DeliveryRedTeam_2026-10-31.md`](DeliveryRedTeam_2026-10-31.md). Keep the DX-2, P1, and P2
-sections here for line numbers and the catalog sentence; tick those boxes on the red-team plan.
+list is [`DeliveryRedTeam_2026-10-31.md`](DeliveryRedTeam_2026-10-31.md). Keep the DX-2 and P1 sections
+here for line numbers and the catalog sentence. Tick boxes only on the red-team plan.
 
 No RedXe product C++ High exists on `origin/main`. The menu defect is in the pinned DxUi library.
 Two pipeline Highs (engine AND-gate, production-receipt leftovers) are on the red-team plan and must
@@ -49,10 +51,12 @@ retarget `Dependencies/DxUi.lock.json` to either main tip.
 
 ## Checklist
 
-- [ ] DX-2. Port submenu hover-timer cancellation onto `ej/wall-compat-redxe-20261028` and re-pin RedXe.
-- [ ] P1. Make the three `--redmonitor-probe` exit-2 descriptions name a rejected write. Leave the exit code.
-- [ ] P2. Run production `package.ps1` on `8c882636` and match both ZIP hashes to their sidecars.
-- [ ] P3. Leave the RedMonitor physical, paired-performance, and native ARM64 gates open. Do not check them from this review.
+Do not tick these here. The red-team plan owns the boxes.
+
+- DX-2 is red-team P0-4. The pinned menu lines in the next section were re-read on pin `616104f3` on 2026-11-01 and still match.
+- P1 probe wording is red-team P1-3. `CommandLine.h` 122–124, `docs/usage.md` 176, and `UI_XeneonDisplayWindowing.md` 52 still say `2 no listener` only.
+- P2, packaging `8c882636`, is superseded. Package `c61861c` as red-team P0-3. Do not run the command in the P2 section below.
+- P3 is a standing limit on [`RedMonitor_Adoption_2026-10-23.md`](RedMonitor_Adoption_2026-10-23.md), not a task.
 
 ## DX-2. Menu hover timers in the pinned library
 

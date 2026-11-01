@@ -4,6 +4,12 @@ Status: ACTIVE qualification. The canonical detailed execution plan is
 [RedMonitor extraction and adoption](https://github.com/RedSalamanders/RedMonitor/blob/main/Specs/Plans/WIP/RedMonitorExtraction_2026-10-21.md).
 The current contract is [RedMonitor integration](../../Core/Core_RedMonitorIntegration.md).
 
+2026-11-01 reconciliation: hosted run 39954330299 at `a55901c` passed tooling and all six native Full jobs, including
+native ARM64. That pass is not cancelled. The 27 October integration note below reopened native ARM64, interactive
+and manual checks, paired performance, and release publication for the combined source. Both statements stand.
+The unchecked box is the reopened set. Do not treat the checked ARM64 matrix line as a receipt for the
+post-integration gate.
+
 - [x] Inspect current main and preserve diagnostics, crash and provider ownership.
 - [x] Implement the bounded labelled native adapter and explicit installed-helper command.
 - [x] Replace managed viewer builds/staging with one vendored client header, MIT notice and immutable lock.

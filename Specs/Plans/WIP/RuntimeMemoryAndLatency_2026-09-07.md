@@ -12,6 +12,21 @@ waitable presentation, surface-lifetime and chrome changes that are now present.
 measurement of today's code. P0.1 establishes a repeatable production baseline before choosing another optimization.
 Proposals below remain non-normative; current domain contracts and later accepted resource envelopes take precedence.
 
+## Open gates (2026-11-01)
+
+Completed experiment narrative below is history. Do not append another experiment to this file. New numbers belong
+in receipts. September line numbers under "Historical cost hypotheses" are locations as of 2026-09-07. They are not
+current source locations.
+
+| Gate | Where it stays open |
+| --- | --- |
+| Physical input, first changed pixel, and presented-frame latency | P0.2. `Core_PerformanceAndResources.md` says no fixture qualifies physical input or hardware presented-frame latency. The recorded lack of a high-speed camera leaves the gate open. Any qualification-scope change requires an explicit owner decision reflected in the owning contract. |
+| Manual adapter/DPI migration and single-LUID accounting | P0.2 adapter/DPI move. The non-activating AMD/NVIDIA/AMD and 96/144/96-DPI sequence is programmatic evidence. Visible physical dragging and literal single-LUID committed accounting remain unqualified. |
+| Five-minute Desk Clock private growth | The HOLD child [`ClockPrivateMemoryPeakInvestigation_2026-10-13.md`](ClockPrivateMemoryPeakInvestigation_2026-10-13.md). Ordinary peaks were 5.93 and 6.46 MiB. `test.ps1` 60-second soaks are a different bar (`Build_Process.md`, `Plugins_API.md`). A green CI soak does not close this gate. |
+| Returned private bytes and cache attribution, including the proposed cold +4 MiB budget | P3.6. The performance contract records the source and GPU cuts and does not accept that budget. |
+| Shader returned private, Desk/Weather/Pulse setup, and the cold target tier | P3.4 and P4.6. Implementation of the accepted cuts is in the October ledger. These qualifications are not. |
+| Release screenshot access-violation investigation | P4.2 private JSON. The initial Release screenshot access violation remains unexplained despite later Full, isolated, and retained passes. Preserve the original failure and its investigation; those passes do not establish its cause or close it. |
+
 Product requirements restated by the owner on 2026-09-07:
 
 1. RedXe MUST render on the adapter that owns the display it is on, and MUST follow the window when it moves to a
@@ -2118,6 +2133,9 @@ exactly +9.0 s, when the ten System viewers subscribed; it is the host acquisiti
 fetch per Gallery visit during swipe testing.
 
 ### Historical cost hypotheses (2026-09-07; superseded where the checkpoint says so)
+
+Line numbers in this table are 2026-09-07 locations. They were re-checked on 2026-11-01 and do not name the current
+lines for those symbols. Read the October ledger and the owning spec before editing code from this table.
 
 #### Host
 

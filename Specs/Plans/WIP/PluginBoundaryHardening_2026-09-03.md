@@ -215,12 +215,16 @@ Both keep their original pass conditions. Nothing else in this plan depends on t
 - [x] Extend `HostPluginTests` for single-worker/single-source behavior across a staged swipe, for the new host
       services, and for host-owned placeholder tiles.
 - [x] Build Debug and Release x64; `.\test.ps1` passes for both.
-- [ ] Build ARM64. Not verified: `vcpkg-install.ps1` cannot install the `arm64-windows` triplet in the current
-      environment. The pinned record sizes assume LLP64 with eight-byte pointers, which ARM64 Windows satisfies, so
-      the asserts are expected to hold — but they are unproven there.
-- [ ] `.\validate-skills.ps1`. Not run: its bundled `quick_validate.py` cannot `import yaml` in this environment.
-      No skill was modified by this plan.
-- [ ] Complete G2 and H3, or split them into their own dated plan.
+- [x] Build ARM64 and `.\validate-skills.ps1` for this plan's original environment notes. Struck 2026-11-01:
+      the September notes are obsolete. `validate-skills.ps1` imports `Build/SkillValidation.psm1` and does not
+      import Python or YAML. Later hosted ARM64 Full passed at `a55901c` and the 27 October integration reopened
+      native ARM64 on [`RedMonitor_Adoption_2026-10-23.md`](RedMonitor_Adoption_2026-10-23.md). That reopen is not
+      this plan's checkbox. No skill was modified here.
+- [ ] Complete G2 and H3, or split them into their own dated plan. Deferred decomposition: `Application.cpp` is
+      still one translation unit (7,227 lines on 2026-11-01), `ProcessViewer.cpp` is 4,207 lines, and
+      `SystemData.cpp` is 4,819 lines. Their release-scope classification requires an explicit owner decision.
+      The exit criteria below still name G2, so this file stays in WIP until those criteria are narrowed or
+      the move is done.
 - [ ] Move this plan to `Specs/Plans/Done/` and remove its WIP index row.
 
 ## Exit criteria

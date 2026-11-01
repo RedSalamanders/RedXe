@@ -12,7 +12,13 @@ relying on a row of the working-state table. The open gates are the checklist of
 [`RFC_Plugins_AVControl.md`](RFC_Plugins_AVControl.md) (G1, G2, G3a, G3b). The proposed long-profile performance
 acceptance run under "Performance: OPEN" is recorded only here.
 
-## Resume first
+**Do not resume from this file.** The working-state table, task id, `Z:` paths, and pin `1947a5b` are the
+5 September 2026 snapshot. They are not a checkout to use. Open gates are only the checklist in
+[`RFC_Plugins_AVControl.md`](RFC_Plugins_AVControl.md). The current DxUi pin is `Dependencies/DxUi.lock.json`.
+
+## Historical resume list, 2026-09-05
+
+Do not follow these steps. They are the paused session's notes.
 
 1. Read `AGENTS.md`, `Specs/README.md`, `Specs/Plugins/Plugins_AVControl.md`, the
    [AV plan](RFC_Plugins_AVControl.md) and
