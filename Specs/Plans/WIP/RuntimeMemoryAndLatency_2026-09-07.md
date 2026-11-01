@@ -20,10 +20,12 @@ current source locations.
 
 | Gate | Where it stays open |
 | --- | --- |
-| Physical input, first changed pixel, and presented-frame latency | P0.2. `Core_PerformanceAndResources.md` says no fixture qualifies physical input or hardware presented-frame latency. This plan records that the owner has no high-speed camera, so the gate closes with a written waiver or a different measurement. |
+| Physical input, first changed pixel, and presented-frame latency | P0.2. `Core_PerformanceAndResources.md` says no fixture qualifies physical input or hardware presented-frame latency. The recorded lack of a high-speed camera leaves the gate open. Any qualification-scope change requires an explicit owner decision reflected in the owning contract. |
+| Manual adapter/DPI migration and single-LUID accounting | P0.2 adapter/DPI move. The non-activating AMD/NVIDIA/AMD and 96/144/96-DPI sequence is programmatic evidence. Visible physical dragging and literal single-LUID committed accounting remain unqualified. |
 | Five-minute Desk Clock private growth | The HOLD child [`ClockPrivateMemoryPeakInvestigation_2026-10-13.md`](ClockPrivateMemoryPeakInvestigation_2026-10-13.md). Ordinary peaks were 5.93 and 6.46 MiB. `test.ps1` 60-second soaks are a different bar (`Build_Process.md`, `Plugins_API.md`). A green CI soak does not close this gate. |
 | Returned private bytes and cache attribution, including the proposed cold +4 MiB budget | P3.6. The performance contract records the source and GPU cuts and does not accept that budget. |
 | Shader returned private, Desk/Weather/Pulse setup, and the cold target tier | P3.4 and P4.6. Implementation of the accepted cuts is in the October ledger. These qualifications are not. |
+| Release screenshot access-violation investigation | P4.2 private JSON. The initial Release screenshot access violation remains unexplained despite later Full, isolated, and retained passes. Preserve the original failure and its investigation; those passes do not establish its cause or close it. |
 
 Product requirements restated by the owner on 2026-09-07:
 

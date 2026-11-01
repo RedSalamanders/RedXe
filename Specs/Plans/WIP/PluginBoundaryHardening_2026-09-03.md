@@ -220,10 +220,11 @@ Both keep their original pass conditions. Nothing else in this plan depends on t
       import Python or YAML. Later hosted ARM64 Full passed at `a55901c` and the 27 October integration reopened
       native ARM64 on [`RedMonitor_Adoption_2026-10-23.md`](RedMonitor_Adoption_2026-10-23.md). That reopen is not
       this plan's checkbox. No skill was modified here.
-- [ ] Complete G2 and H3, or split them into their own dated plan. Post-release hygiene: `Application.cpp` is
+- [ ] Complete G2 and H3, or split them into their own dated plan. Deferred decomposition: `Application.cpp` is
       still one translation unit (7,227 lines on 2026-11-01), `ProcessViewer.cpp` is 4,207 lines, and
-      `SystemData.cpp` is 4,819 lines. They do not block the next release. The exit criteria below still name G2,
-      so this file stays in WIP until those criteria are narrowed or the move is done.
+      `SystemData.cpp` is 4,819 lines. Their release-scope classification requires an explicit owner decision.
+      The exit criteria below still name G2, so this file stays in WIP until those criteria are narrowed or
+      the move is done.
 - [ ] Move this plan to `Specs/Plans/Done/` and remove its WIP index row.
 
 ## Exit criteria
