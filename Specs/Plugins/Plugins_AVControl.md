@@ -146,8 +146,9 @@ is suppressed during an owned slider drag or a two- or three-finger host page pa
 returns `S_FALSE` for every horizontal wheel sample (`RedXePointerPhaseHorizontalWheel`; DxUi has no horizontal
 wheel), so an unused notch changes dashboard pages as `Specs/UI/UI_Dashboard.md` describes; a phase past the
 horizontal wheel is rejected with `E_INVALIDARG`. Paged profile, editor, and camera-setup surfaces host
-`DxUi::PageIndicator` at the bottom when more than one page is visible. The strip uses the control's 20 DIP height,
-does not scroll, and reports `Page N of M`. Its metrics (20 DIP strip, 3 / 4 DIP dot radii, 14 DIP gap) are the
+`DxUi::PageIndicator` at the bottom when more than one page is visible. The strip uses the control's 20 DIP height and
+does not scroll. UI Automation reads it as a slider named `Page` whose value is the current page, from 1 to M; DxUi
+leaves the name to the application. Its metrics (20 DIP strip, 3 / 4 DIP dot radii, 14 DIP gap) are the
 ones `Common/PageIndicator.h` gives every other paged bundled widget, so AV Control's pages read as the same control
 as Launcher, the System Data viewers, and Weather. One-finger contacts remain with the widget so sliders and the
 indicator stay usable.

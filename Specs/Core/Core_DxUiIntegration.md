@@ -1,7 +1,7 @@
 # DxUi integration
 
 Status: current normative consumer contract
-Last reviewed: 2026-10-13
+Last reviewed: 2026-11-02
 
 This contract owns how RedXe consumes the standalone DxUi library: the exact source pin, restore/build isolation,
 which process modules link `DxUi.lib`, and the COM/POD boundary that keeps DxUi C++ objects inside those modules.
@@ -17,7 +17,9 @@ in `capabilities.json`, `Tools/validate_consumer.ps1` rejects a lock that names 
 accepts only the revision this product is adapted to. Moving to a new revision is therefore one reviewed change: the
 lock, that number and the adapters the revision needs. `Update-DxUi.ps1` changes only the commit unless asked to start
 that change (see [Manual update loop](#manual-update-loop)). Revision 4 retains the APIs consumed by RedXe's host and
-AV adapters; its new intrinsic layout, forms, and prepared Tree APIs remain opt-in library features. RedXe does not
+AV adapters; its new intrinsic layout, forms, and prepared Tree APIs remain opt-in library features, as do its
+rich-text, file-drop, structured-clipboard, native-visibility and key-dispatch-receipt APIs, none of which RedXe uses.
+RedXe does not
 use the library's Python tools or private window messages (see Host bridges), and CI runs the library's PowerShell
 `validate-build-matrix.ps1`.
 
@@ -167,7 +169,10 @@ default 14.51, and every fresh ARM64 restore failed.
   installation at the pin. It pins them to the newest Visual Studio installation with MSBuild and that installation's
   default toolset, and `MSBUILD_EXE_PATH` does not change its choice. When that installation is not the build's, DxUi's
   dependencies build with another toolset (harmless while its only dependency is the header-only WIL), and a newest
-  installation without the C++ workload fails the DxUi restore although the build's installation has it. The remedy is
+  installation without the C++ workload fails the DxUi restore although the build's installation has it. At the
+  current pin it also refuses, before vcpkg runs, a newest installation whose default MSVC family is not the
+  `RequiredMsvcToolsVersion` of DxUi's own `Directory.Build.props` (14.52, the family RedXe requires), so such an
+  installation fails the DxUi restore too. The remedy is
   upstream: DxUi's `vcpkg-install.ps1` taking `-MSBuildPath` and resolving its installation as
   `Get-RedXeVisualStudioInstallation` does (or `Get-DxUiVisualStudioInstallation` honoring `MSBUILD_EXE_PATH`), which
   `restore-dxui.ps1` then passes, adopted with a pin update.
@@ -186,6 +191,18 @@ reallocates exactly one surface. The resource consequences for RedXe are owned b
 `src/DxUi.vcxproj` once. Project references keep Configuration/Platform; they do not enumerate library `.cpp` files.
 Debug and ASan Debug use `/MDd`, Release `/MD`, matching DxUi. ASan Debug requires actual instrumentation and
 the architecture-matching sanitizer runtime. RedXe retains the default STL annotations. There is no `DxUi.dll` to stage.
+
+The archive compiles under the shared native build policy, `Build/NativeBuildPolicy.targets`
+([`Build_ConsoleAndPaths.md`](../Build/Build_ConsoleAndPaths.md)). `Build/RedXe.DxUi.targets` injects RedXe's copy into the
+DxUi project through `Build/PinnedDxUiPolicy.targets` (`ForceImportAfterCppTargets`), and the build identity's
+`nativeBuildPolicySha256` hashes those two RedXe files. A pinned source that has its own `Build/NativeBuildPolicy.targets`,
+as DxUi main has since 28 October 2026, imports that copy from its `Directory.Build.targets`; the copy sets
+`NativeBuildPolicyImported`, so the injected import is skipped and the archive compiles under DxUi's copy. The hash then
+attests the archive only while both copies are the same text. `restore-dxui.ps1` MUST therefore refuse, before it computes
+the identity, a pinned source whose copy differs from RedXe's in anything but line endings, and name that file
+(`Assert-RedXeDxUiNativePolicy` in `Build/DxUiRestore.psm1`). A source without its own copy compiles under the injected
+one. `DxUiRestoreTests.ps1` covers a source without a copy, a copy that differs only in line endings, a differing copy,
+the restored pin itself, and the check's place before the hash.
 
 Restore writes separate resolved properties and evaluated identity files for each platform. The canonical imports
 preserve the chosen configuration and platform, and fail before compilation if the consumer's actual toolchain
@@ -235,7 +252,10 @@ previous source revision. Retain the previously qualified product package; a pin
 library that predates required integration helpers. Earlier adoption and rollback evidence is in the completed
 [2026-09-09](../Plans/Done/DxUiAdoption_2026-09-09.md) and
 [2026-10-01](../Plans/Done/DxUiFollowUps_2026-10-01.md) records. For this revision 4 adoption, the previous
-qualified consumer pin is `271bd54be24eadf3f03ba5221d1be7be069860f2` at revision 3.
+qualified consumer pin is `271bd54be24eadf3f03ba5221d1be7be069860f2` at revision 3. Before the move to DxUi main on
+2 November 2026 the pin was `616104f3b2b693a824a3a76b18b851055accf777`, the tip of DxUi's `ej/wall-compat-redxe-20261028`
+branch at the same revision. It has no native build policy of its own, so a rollback compiles the archive under the
+injected copy.
 The user deferred further ARM64 and ASan qualification on 2026-09-13; the cross-product
 follow-up is `Specs/Plans/WIP/DxUi_DeferredPlatformQualification_2026-09-13.md` in
 RedSalamander. That deferral is not a runtime pass or a change to the supported matrix.
@@ -253,6 +273,21 @@ The host owns the HWND, swap chain, presentation, OS focus, TSF/IME association,
 origin. `WidgetTextClient` adapts `IRedXeTextInputWidget` to `DxUi::TextInputClient`. `AccessibilityHost` owns
 `WM_GETOBJECT`, generation-bound sites, and prepared publication. AV adapts `IRedXeAccessibilitySite` to
 `DxUi::EmbeddedAccessibilitySite` inside the plugin module.
+
+An embedded view's `requestPreparation` callback runs synchronously inside DxUi's input and text entry points. The pinned
+library permits that callback to retire or replace retained controls, but its `TextField` still writes its own members
+after the callback returns (PRIOR-03 in DxUi's 2 November 2026 production review), so a RedXe callback MUST NOT change
+the retained tree. AV Control's callback only coalesces a frame request through `IRedXeHost::RequestFrame`, which never
+prepares or renders synchronously.
+
+`EmbeddedHost::Prepare` may change the borrowed immediate context's pixel-shader resource slot 0 and output-merger
+targets. It returns `S_FALSE` while cooperative content preparation is still pending, and `E_ABORT` when a callback
+superseded the frame, after the view has requested another preparation. RedXe keeps no adapter state for this:
+`Renderer::PrepareWidgets` unbinds the output-merger targets before the first widget preparation, every frame binds the
+host render target before drawing, host chrome binds its own atlas view for each draw, and each widget binds the rest of
+the state it uses ([`Plugins_API.md`](../Plugins/Plugins_API.md)). AV Control treats a failed preparation, `E_ABORT`
+included, as a view that is not ready: `Render` draws nothing for it instead of the retired frame, and the view prepares
+again on the next frame the host renders. Nothing retries in a loop.
 
 DxUi registers each private window message by name (`RedSalamanders.DxUi.<Component>.<Purpose>.v1`), so its values lie in
 0xC000-0xFFFF and no `WM_APP` value belongs to DxUi. A window that attaches a DxUi component passes every message to that

@@ -37,6 +37,9 @@ if ($buildIdentity.Identity -is [Collections.IDictionary]) {
     foreach ($entry in $buildIdentity.Identity.PSObject.Properties) { $policyIdentity[$entry.Name] = $entry.Value }
 }
 $policyIdentity['releaseOptimizationPolicy'] = 'Gy-REF-GL-LTCG-full-v1'
+# A source with its own native build policy compiles the archive under that copy, not the one RedXe injects, so the policy hash
+# below attests it only when the two are identical.
+Assert-RedXeDxUiNativePolicy -RepoRoot $PSScriptRoot -DxUiRoot $source
 foreach($field in (Get-DxUiNativePolicyFields -RepoRoot $PSScriptRoot).GetEnumerator()){$policyIdentity[$field.Key]=$field.Value}
 $policyHasher = [Security.Cryptography.SHA256]::Create()
 try { $policyFingerprint = ([BitConverter]::ToString($policyHasher.ComputeHash([Text.Encoding]::UTF8.GetBytes(($policyIdentity | ConvertTo-Json -Depth 8 -Compress))))).Replace('-','').ToLowerInvariant() }

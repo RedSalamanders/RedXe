@@ -75,6 +75,8 @@ ProfileControls::ProfileControls(DxUi::Panel& parent, ProfileCallbacks callbacks
             Invalidate();
         });
     _indicator = _panel->AddChild<DxUi::PageIndicator>();
+    // UI Automation reads the indicator as a slider whose value is the page; DxUi leaves its name to the application.
+    _indicator->SetAccessibleName(L"Page");
     _indicator->SetAccessibleAutomationId(L"av.page.indicator");
     _indicator->SetOnSelected(
         [this](uint32_t index)

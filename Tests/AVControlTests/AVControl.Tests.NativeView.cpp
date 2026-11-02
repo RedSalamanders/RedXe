@@ -824,9 +824,11 @@ uint32_t RunNativeViewTests()
         Check(FindAccessible(view.Controls().GetRoot(),
                              std::wstring(L"Camera setup, step ") + std::to_wstring(step) + L" of 6") != nullptr,
               "camera setup exposes a numbered accessible step");
-        Check(FindAccessible(view.Controls().GetRoot(), std::wstring(L"Page ") + std::to_wstring(step) + L" of 6") !=
-                  nullptr,
-              "camera setup shows a page indicator for the current step");
+        auto* indicator =
+            dynamic_cast<DxUi::PageIndicator*>(FindAccessible(view.Controls().GetRoot(), L"av.page.indicator"));
+        Check(indicator && indicator->GetAccessibleName() == L"Page" && indicator->GetPageCount() == 6u &&
+                  indicator->GetSelectedIndex() == step - 1,
+              "camera setup shows a named page indicator on the current step");
         gpu.Draw(view);
         gpu.Save(artifactRoot / (L"camera-setup-minimum-" + std::to_wstring(step) + L".png"));
         auto* done = FindAccessible(view.Controls().GetRoot(), L"Return to AV profiles without changing devices");

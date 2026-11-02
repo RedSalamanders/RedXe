@@ -590,6 +590,23 @@ try {
     $again = Update-DxUiVcpkgOverlayTriplet -StockTripletPath $stock -Toolset $toolset -OutputDirectory (Join-Path $testRoot 'overlays/ARM64')
     Assert-That (-not $again.Changed) 'an unchanged restore leaves the overlay alone'
 
+    # --- The native build policy the pinned archive compiles under ---
+    $policyRepo = Join-Path $testRoot 'policy/RedXe'
+    $policySource = Join-Path $testRoot 'policy/DxUi'
+    $policyText = "<Project>`r`n  <PropertyGroup><NativeBuildPolicyImported>true</NativeBuildPolicyImported></PropertyGroup>`r`n</Project>`r`n"
+    foreach ($root in @($policyRepo, $policySource)) { [void][IO.Directory]::CreateDirectory((Join-Path $root 'Build')) }
+    [IO.File]::WriteAllText((Join-Path $policyRepo 'Build/NativeBuildPolicy.targets'), $policyText)
+    $policyAccepted = { param([string] $Repo, [string] $Source)
+        try { Assert-RedXeDxUiNativePolicy -RepoRoot $Repo -DxUiRoot $Source; $true } catch { $false } }
+    Assert-That (& $policyAccepted $policyRepo $policySource) 'a pinned source without its own native build policy compiles under the copy RedXe injects'
+    $pinnedPolicy = Join-Path $policySource 'Build/NativeBuildPolicy.targets'
+    [IO.File]::WriteAllText($pinnedPolicy, $policyText.Replace("`r`n", "`n"))
+    Assert-That (& $policyAccepted $policyRepo $policySource) 'a pinned copy that differs only in line endings is accepted, as the identity hash ignores them'
+    [IO.File]::WriteAllText($pinnedPolicy, $policyText.Replace('>true<', '>false<'))
+    Assert-Throws { Assert-RedXeDxUiNativePolicy -RepoRoot $policyRepo -DxUiRoot $policySource } ([regex]::Escape($pinnedPolicy) + '.*identical in both repositories') `
+        'a pinned copy that is not RedXe''s is refused, naming it, because the identity hash would attest the wrong policy'
+    Assert-That (& $policyAccepted $repoRoot $realSource) 'the pinned DxUi''s own native build policy, when it has one, is RedXe''s'
+
     # --- The wiring ---
     $vcpkgInstall = Get-Content -LiteralPath (Join-Path $repoRoot 'vcpkg-install.ps1') -Raw
     foreach ($needle in @('Restore-RedXeDxUiPin', 'Find-RedXeMSBuild', 'Get-RedXeVisualStudioInstallation',
@@ -612,6 +629,9 @@ try {
     Assert-That ($rootInitialize -gt 0 -and $rootInitialize -lt $restoreScript.IndexOf("Join-Path `$source 'vcpkg-install.ps1'") -and
         -not $restoreScript.Contains('Initialize-DxUiOutputRoot ')) `
         'restore-dxui.ps1 gets the output root, leased and checked under its mutex, before anything builds into it'
+    $policyCheck = $restoreScript.IndexOf('Assert-RedXeDxUiNativePolicy -RepoRoot $PSScriptRoot -DxUiRoot $source')
+    Assert-That ($policyCheck -gt 0 -and $policyCheck -lt $restoreScript.IndexOf('Get-DxUiNativePolicyFields -RepoRoot')) `
+        'restore-dxui.ps1 checks the pinned source''s native build policy before it hashes RedXe''s copy into the identity'
     $buildScript = Get-Content -LiteralPath (Join-Path $repoRoot 'build.ps1') -Raw
     $installerCall = $buildScript.IndexOf('& $dependencyInstaller')
     $restoreCall = $buildScript.IndexOf("restore-dxui.ps1')")
