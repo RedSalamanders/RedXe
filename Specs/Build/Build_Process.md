@@ -338,7 +338,7 @@ The hosted Windows tooling job has a 20-minute outer ceiling to include required
 
 The [native policy, console and dependency-path contract](Build_ConsoleAndPaths.md) owns /Wall without /WX, zero-warning acceptance, Debug/ASan symbols, Release-only ICF, common terminal results and verified short dependency folders.
 
-The native build policy adopted a DxUi API4 maintenance commit; `Dependencies/DxUi.lock.json` names it and is the only place a DxUi commit is recorded. It preserves this consumer's existing API adoption while repairing native warning diagnostics and stable payload type identity under Release COMDAT folding. Restore and compile matching headers/archive from that exact lock. The indexed NativeBuildPolicyCoherence plan records outstanding product and desktop-focus qualification; this pin selection alone is not a green product receipt.
+The native build policy adopted a DxUi API4 maintenance commit; `Dependencies/DxUi.lock.json` names the current pin and is the only place a DxUi commit is recorded. Since 2 November 2026 the pin is a DxUi main commit, which keeps this consumer's existing API adoption, the native warning repairs and stable payload type identity under Release COMDAT folding. That source also has its own copy of the native build policy, which compiles the archive; restore refuses a copy that is not RedXe's, because the build identity hashes RedXe's ([`Core_DxUiIntegration.md`](../Core/Core_DxUiIntegration.md)). Restore and compile matching headers/archive from that exact lock. The indexed NativeBuildPolicyCoherence plan records outstanding product and desktop-focus qualification; this pin selection alone is not a green product receipt.
 
 ## Repository skill validation
 

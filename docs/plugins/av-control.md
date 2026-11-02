@@ -14,7 +14,7 @@ Smallest useful tile is 160×180 DIPs. Mute, camera and Profile targets are at l
 
 Profiles bind an output, a microphone, and a camera. Loading the dashboard does **not** apply hardware from those definitions. You choose a profile to apply it. Levels are 0–100. Mute is independent of level.
 
-Camera setup inside the widget is guided steps for the separate RedXe Camera package. It does not install or prove that package by itself. Hardware, IME, and screen-reader acceptance are still tracked on the AV plan. When a profile, editor, or camera-setup view has more than one page, a row of dots at the bottom shows the current page.
+Camera setup inside the widget is guided steps for the separate RedXe Camera package. It does not install or prove that package by itself. Hardware, IME, and screen-reader acceptance are still tracked on the AV plan. When a profile, editor, or camera-setup view has more than one page, a row of dots at the bottom shows the current page. Assistive technology sees the dots as a slider named Page whose value is that page.
 
 One-finger touches stay with the widget so sliders and page dots work. Two or three fingers swipe RedXe dashboard pages after the swipe locks sideways; a quick second tap does not cancel a slider.
 

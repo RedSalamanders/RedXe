@@ -571,6 +571,26 @@ function Test-RedXeMsvcFamily {
     ([string] $Version).StartsWith($Required + '.', [StringComparison]::Ordinal)
 }
 
+function Assert-RedXeDxUiNativePolicy {
+    <# Refuses a pinned source whose own Build/NativeBuildPolicy.targets is not RedXe's. The build identity hashes RedXe's copy
+       (Get-DxUiNativePolicyFields), but a source that has its own imports it from its Directory.Build.targets, which sets
+       NativeBuildPolicyImported and so skips the copy RedXe injects through PinnedDxUiPolicy.targets: the hash attests the archive
+       only while both copies are the same text. A source without one compiles under RedXe's. Line endings do not count, as in the
+       hash. #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string] $RepoRoot,
+        [Parameter(Mandatory)][string] $DxUiRoot
+    )
+    $relative = 'Build/NativeBuildPolicy.targets'
+    $pinned = Join-Path $DxUiRoot $relative
+    if (-not (Test-Path -LiteralPath $pinned -PathType Leaf)) { return }
+    $read = { param([string] $Path) [IO.File]::ReadAllText($Path).Replace([string][char]13, '') }
+    if ((& $read $pinned) -cne (& $read (Join-Path $RepoRoot $relative))) {
+        throw "The pinned DxUi compiles its archive under its own $relative, which is not identical to RedXe's: $pinned. The DxUi build identity hashes RedXe's copy; make the shared policy file identical in both repositories before adopting this pin."
+    }
+}
+
 function Find-RedXeMSBuild {
     <# The MSBuild the build runs: MSBUILD_EXE_PATH when that file exists, then msbuild.exe on PATH (a Developer PowerShell's), then
        the first x64 MSBuild of an installation vswhere reports, then a scan of the Visual Studio folders. build.ps1 hands its
@@ -640,4 +660,4 @@ Export-ModuleMember -Function Read-RedXeDxUiLock, Get-RedXeDxUiSupportedApiRevis
     Get-RedXeDxUiOutputRoot, Get-RedXeDxUiCloneSource, Restore-RedXeDxUiSource, Restore-RedXeDxUiPin, Update-RedXeDxUiLease,
     Initialize-RedXeDxUiOutputRoot,
     Remove-RedXeDxUiSupersededRestores, Get-RedXeDefaultCompilerHost, Enter-RedXeCompilerHost, Exit-RedXeCompilerHost,
-    Get-RedXeRequiredMsvcFamily, Test-RedXeMsvcFamily, Find-RedXeMSBuild, Get-RedXeVisualStudioInstallation
+    Get-RedXeRequiredMsvcFamily, Test-RedXeMsvcFamily, Assert-RedXeDxUiNativePolicy, Find-RedXeMSBuild, Get-RedXeVisualStudioInstallation

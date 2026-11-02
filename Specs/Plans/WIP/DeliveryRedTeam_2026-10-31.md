@@ -1,10 +1,11 @@
 # Delivery red-team 2026-10-31
 
-Status: not started
+Status: in progress
 Date: 2026-10-31
 
 This plan is a non-normative execution record. It does not change product behavior. The index marks it
-`ACTIVE` because the work is executable; nothing in the checklist has been started.
+`ACTIVE` because the work is executable. On 2 November P2-6 was done and P0-4 moved to DxUi main, with its
+package still open; nothing else in the checklist has been started.
 
 It is the ship list from a two-pass review of the last 15 days of RedXe (`f86fa016` through
 `c61861c`). [`DeliveryReview_2026-10-31.md`](DeliveryReview_2026-10-31.md) remains the product-review
@@ -24,6 +25,7 @@ Reviewed tip: `origin/main` `c61861ca771ac0c224273b47df3ccf25b5dad86a` (2026-10-
 Window: `f86fa016` (PR #45) through that tip. Engine pin: `e32cf9f9` (`RedSalamanders/.github`).
 DxUi lock: `616104f3` on `ej/wall-compat-redxe-20261028`, API revision 4. That commit is not an
 ancestor of DxUi main. The keyboard-cancel commit `762983a0` is not an ancestor of the pin.
+On 2 November the lock moved to DxUi main `f2e328a0` (P0-4).
 
 Re-read every anchor on the tip before editing. The local checkout `ej/unified-ci-20261030` at
 `a459ff9` is stale and dirty; branch from `c61861c`, not from that worktree.
@@ -39,7 +41,7 @@ window. P3 stays open.
 - [ ] P0-1. Engine AND-gate: production starts only after both native Release test branches succeed.
 - [ ] P0-2. Production receipts attest only the pair this run wrote, and `SmokePassed` comes from smoke.
 - [ ] P0-3. Run production `package.ps1` on `c61861c` and match both ZIP hashes to their sidecars.
-- [ ] P0-4. Port submenu hover-timer cancellation onto `ej/wall-compat-redxe-20261028` and re-pin RedXe.
+- [ ] P0-4. The RedXe pin cancels submenu hover timers on keyboard and UI Automation focus: lock moved to DxUi main `f2e328a0` on 2 November with the check recorded under P0-4; a new P0-3 of the merged commit remains.
 - [ ] P1-1. HostPluginTests owns the RedMonitor provider for its whole process lifetime.
 - [ ] P1-2. Delete the stale `PROCESSOR_ARCHITECTURE` ARM64 gate in `test.ps1`.
 - [ ] P1-3. Make the three `--redmonitor-probe` exit-2 descriptions name a rejected write.
@@ -54,7 +56,7 @@ window. P3 stays open.
 - [ ] P2-3. `Invoke-ToolingTests.ps1` fails when the folder has a suite the allowlist omitted.
 - [ ] P2-4. TestRunEvidence sets `Closed` only after `completed.json` readback; NTFS rename is not a tautology.
 - [ ] P2-5. Docs and tree drift: add `VcpkgRestore.psm1` to the `AGENTS.md` Build tree (`RedMonitor.props` is already listed), replace the `release.yml` clause in `Build_Process.md` line 333, stop `CaptureNativeArtifacts` hunting `DxUi.*.exe` names, and reconcile the skill TODO scan's multiline code-span mismatch.
-- [ ] P2-6. Document the DxUi pin-bump provenance hazard: current pin has no `NativeBuildPolicy`.
+- [x] P2-6. DxUi pin-bump provenance hazard: documented, and restore refuses a pinned `NativeBuildPolicy` copy that is not RedXe's (2 November).
 - [ ] P2-7. Automatic admission binds the coordinator’s own successful quiet wait (engine).
 - [ ] P2-8. setup-msvc Authenticode-only plus `vswhere -latest` after an isolated install (engine).
 Standing limit, not a task: RedMonitor physical input, paired performance, and post-integration native ARM64 stay open on [`RedMonitor_Adoption_2026-10-23.md`](RedMonitor_Adoption_2026-10-23.md). Do not check them from this plan.
@@ -127,6 +129,42 @@ DxUi main imports its own `NativeBuildPolicy`, so RedXe’s provenance hash woul
 (P2-6). Change only the lock `commit`. Keep `"apiRevision": 4`. Never run `Update-DxUi.ps1`.
 
 Acceptance is the annex DX-2 acceptance, then a new P0-3 of the later RedXe commit.
+
+### 2 November: retargeted to DxUi main
+
+The user asked to move RedXe to the latest DxUi. After being told that DxUi's own review (below) does not yet call main
+production-ready, the user chose an ordinary, mergeable pin of main `f2e328a0a26a18ca66bf4b2aea77bf010c9515e1`. That
+replaces the pin-branch port above. The check P2-6 asked for, run on that candidate:
+
+- `fa3de6c9`: main's `include/DxUi/DxUi.h` carries the warning-suppression blocks (36; 34 on the pin).
+  `src/Support/PostedPayload.h` keys payload type identity on `PostedPayloadTypeTag<T>`, not on the deleter address, and
+  `Tests/Controls/DxUi.Tests.WindowHost.cpp` keeps the `PostedPayloadIcfA`/`B` regression.
+- `8081a7c2` was a backport from main; `Tests/Controls/Controls.Tests.MenuPopupReadiness.h` is on main.
+- `f4600c3a` and `616104f3`: main's `Tests/Controls/DxUi.Tests.Menu.cpp` has the same fixture lines. Those are the
+  modal-timer owner activated before either timer, and the sent-dismissal owner's mouse drain and foreground check.
+- Keyboard: `762983a0`, AltGr guard included, is an ancestor of main. UI Automation focus:
+  `MenuAccessibilityItem::OnFocusChanged` calls `TakeKeyboardOwnership`, which cancels the hover timer of every popup in
+  the chain (`b5869cbc`, 1 November). `TestMenuKeyboardInputCancelsPendingSubmenuHoverTimers` asserts the accessibility
+  open and close cases. Whether DxUi's hosted qualification runs that focus-taking test was not checked here.
+- Native build policy: main's `Build/NativeBuildPolicy.targets` and `Build/PinnedDxUiPolicy.targets` are blob-identical
+  to RedXe's (`ae45fb7b`, `255da613`); since P2-6, restore refuses a difference.
+- Native inputs: `6df17007..f2e328a0` changes only Markdown (docs, Changes, specs, README). DxUi `qualify.yml` run
+  41459331431 succeeded on `6df17007`. Neither `5fc4d4c3` nor `f2e328a0` has its own run, and `Update-DxUi.ps1`
+  refuses the divergent old pin, so the lock was changed by hand through the manual update loop.
+
+DxUi's review of that delivery (`Specs/Plans/WIP/ProductionReview_2026-11-02.md` in DxUi, PR #161) says main is not
+ready for a production pin. Its findings and what they mean for RedXe:
+
+- PRIOR-03 (P0): embedded `TextField` use-after-free when a `requestPreparation` callback retires controls. RedXe's
+  only callback coalesces `IRedXeHost::RequestFrame`, so it is unreachable as written, and `Core_DxUiIntegration.md`
+  now forbids a callback that changes the tree.
+- CTRL-01 (P1, introduced 1 November): `TextField` drops supplementary characters that arrive as `VK_PACKET`
+  (on-screen keyboard, RDP, auto-type). It reaches AV Control's profile-name field, because the host forwards every
+  `WM_KEYDOWN`. It is a known regression of this pin until DxUi fixes it.
+- D9: DxUi decided to rewrite its history. The lock must then move to the rewritten commit, because the old SHA will be
+  on no branch.
+
+Remaining for P0-4: a new P0-3 production package of the merged RedXe commit.
 
 ## P1-1. HostPluginTests provider lifetime
 
@@ -303,6 +341,10 @@ Document in `Core_DxUiIntegration.md` and `Build_Process.md`: the current pin ha
 DxUi main would make the provenance hash attest the wrong file. P0-4 stays on the pin branch until a
 recorded check that the four pin-only commits and UI Automation focus cancel are on the candidate.
 
+Done 2 November, with the main retarget. `Core_DxUiIntegration.md` and `Build_Process.md` describe which copy compiles
+the archive. `restore-dxui.ps1` calls `Assert-RedXeDxUiNativePolicy` before it hashes RedXe's copy into the identity, so
+a pinned copy that differs is refused. `DxUiRestoreTests.ps1` covers it. The P0-4 check is recorded there.
+
 ### P2-7. Automatic admission binding
 
 Engine. Tighten `Invoke-CiAdmission` so automatic mode requires the coordinator’s own successful
@@ -336,10 +378,10 @@ post-1.0. Confirm that classification explicitly; do not infer it.
    implementing change keeps its own `Changes/` fragment.
 3. Engine pull request, then RedXe pin bump: P0-1. Do not ship a production batch from `e32cf9f9`
    after the AND-gate is known missing if one engine commit can wait.
-4. DxUi pin branch, then RedXe lock-only: P0-4. New P0-3 of that later RedXe commit.
+4. P0-4: lock moved to DxUi main on 2 November. New P0-3 of that later RedXe commit.
 5. RedMonitor pin (can parallel step 4): P1-4, then the RedXe ThirdParty bump.
 6. Tests hardening (can parallel step 2): P1-7, then P2-3 and P2-4.
-7. Tooling hygiene: P2-1, P2-2, P2-5, P2-6.
+7. Tooling hygiene: P2-1, P2-2, P2-5 (P2-6 is done).
 8. Engine follow-ups: P2-7, P2-8.
 
 ## Dropped
@@ -380,11 +422,12 @@ fragment. The engine change lives in `RedSalamanders/.github`.
 - RedXe Production adapter: `Tools/Invoke-ProjectCi.ps1`.
 - DxUi, on `ej/wall-compat-redxe-20261028`: `src/Controls/DxUi.Menu.cpp`,
   `Tests/Controls/DxUi.Tests.Menu.cpp`, and `Specs/UI/UI_InputAndAccessibility.md`. Then RedXe
-  `Dependencies/DxUi.lock.json` only, API revision staying 4.
+  `Dependencies/DxUi.lock.json` only, API revision staying 4. Superseded on 2 November: the lock names DxUi main
+  (P0-4), and RedXe no longer needs that branch.
 - RedXe probe wording: `RedXe/CommandLine.h`, `docs/usage.md`, and
   `Specs/UI/UI_XeneonDisplayWindowing.md` in one change.
 - RedXe HostPluginTests lifetime, `test.ps1` ARM64 gate, ConstructionWork idle, PackagingTests PE,
   WMI blank path, winget alias, changelog `#Requires`, junction deletes, VcpkgRestore mutex,
-  tooling-test allowlist, TestRunEvidence closeout, and the P2-5 / P2-6 docs.
+  tooling-test allowlist, TestRunEvidence closeout, and the P2-5 docs (P2-6 is done).
 - RedMonitor `Client.h` `LaunchInstalledViewer`, then RedXe ThirdParty pin and lock hash.
 - No edit to `Specs/Plans/WIP/RedMonitor_Adoption_2026-10-23.md` that checks the gates in P3.
