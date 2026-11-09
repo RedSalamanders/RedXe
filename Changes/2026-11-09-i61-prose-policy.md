@@ -1,0 +1,1 @@
+- Adopt the shared guard and explicit owned-prose exclusions so new runtime Markdown and notice inputs retain native qualification; preserve existing native gates and historical artifact identity.
