@@ -461,6 +461,13 @@ try {
         Import-Module (Join-Path $engine 'Tools/Modules/Ci.Project.psm1')
         Import-Module (Join-Path $engine 'Tools/Modules/Ci.Policy.psm1')
         $project=Read-CiProject $repository
+        Assert-Scope ('**/*.md' -notin $project.exclude) 'Hosted CI again excludes unknown runtime Markdown by extension'
+        foreach($path in @('Tests/Fixtures/README.md','Tests/Data/case.md','Common/res/README.md','Unknown/input.md','Plugins/5H4D3R5/LICENSES.md')) {
+            Assert-Scope (Get-CiPathDisposition $path $project).native "Hosted identity excludes runtime/unknown Markdown: $path"
+        }
+        foreach($path in @('README.md','Specs/Testing/explanation.md','Plugins/Weather/README.md','Changes/2026-11-09-example.md')) {
+            Assert-Scope (-not (Get-CiPathDisposition $path $project).native) "Hosted prose unexpectedly requires native work: $path"
+        }
         Test-CiProjectConfiguration @{root=$repository;engineRoot=$engine;project=$project;development=$false}
         $adapter=[IO.File]::ReadAllText((Join-Path $repository 'Tools/Invoke-ProjectCi.ps1'))
         Assert-Scope ($adapter.Contains("Run 'test.ps1'") -and $adapter.Contains("'-Full','-SkipTooling','-SkipBuild'")) 'The normal batch lost Full native execution'

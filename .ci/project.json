@@ -12,7 +12,14 @@
     "Tests/Fixtures/**"
   ],
   "exclude": [
-    "**/*.md",
+    "README.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CHANGELOG.md",
+    "Specs/**/*.md",
+    "Plugins/**/README.md",
+    "Tests/README.md",
+    ".github/skills/**/*.md",
     "Specs/Plans/**",
     "Specs/TestRuns/**",
     "Specs/Mockups/**",
