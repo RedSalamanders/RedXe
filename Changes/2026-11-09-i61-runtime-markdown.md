@@ -1,0 +1,1 @@
+- Preserve runtime Markdown and fixture README bytes in native test selection and receipts while keeping owned documentation on independent validation. Add scoped routing and byte-mutation controls; hosted native qualification remains separately recorded.
