@@ -113,7 +113,8 @@ try {
         Assert-Scope ((Get-Selected 'Dir/nested/isolated.ps1') -ceq 'A,B') 'An exclusive rule matched a nested path'
         Assert-Scope ((Get-Selected 'Dir/additive.ps1') -ceq 'A,B,C') 'An exact rule without the flag must add to the broader rules'
         Assert-Scope ((Get-Selected 'Dir/isolated.md') -ceq 'C') 'An exclusive rule did not outrank the prose shortcut'
-        Assert-Scope ((Get-Selected 'Dir/other.md') -ceq 'A,B,C') 'Prose without an exclusive rule lost the documentation shortcut'
+        Assert-Scope ((Get-Selected 'Dir/other.md') -ceq 'A,B') 'Implementation-local Markdown lost its declared directory owners'
+        Assert-Scope ((Get-Selected 'docs/other.md') -ceq 'A,B,C') 'Owned prose lost independent validation'
         $plan=Get-ScopedTestPlan $synthetic @('Dir/isolated.ps1')
         Assert-Scope ($plan.reasons.Count -eq 1 -and $plan.reasons[0].reason -ceq 'isolated tooling') 'The exclusive rule is not the recorded reason'
     }
@@ -144,6 +145,15 @@ try {
         Assert-Scope ((Get-ScopedTestPlan $manifest @()).scopes.Count -eq 0) 'Empty changes selected tests'
         # Nothing builds, tests or validates the HTML mockups.
         Assert-Scope ((Get-ScopedTestPlan $manifest @('Mockups/av-control.html')).scopes.Count -eq 0) 'A mockup selected tests'
+    }
+    Run-Case 'runtime Markdown including fixture readmes retains its native owners or full fallback' {
+        foreach($path in @('Tests/Fixtures/case.md','Tests/Fixtures/README.md','Tests/SettingsTests/Data/README.md','Common/res/README.md','Unknown/native-input.md')) {
+            $plan=Get-ScopedTestPlan $manifest @($path)
+            Assert-Scope (@($manifest.scopes | Where-Object {$_.native -and $_.name -in $plan.scopes}).Count -gt 0) "Runtime Markdown lost native coverage: $path"
+        }
+        # Explicit runtime ownership outranks prose classification, including ordinary docs paths.
+        $runtime=[pscustomobject]@{scopes=$manifest.scopes;rules=@([pscustomobject]@{pattern='docs/runtime.md';scopes=@('Settings');reason='exact runtime fixture';exclusive=$true})}
+        Assert-Scope (((Get-ScopedTestPlan $runtime @('docs/runtime.md')).scopes -join ',') -ceq 'Settings') 'Exact runtime ownership was ignored'
     }
     Run-Case 'invalid explicit scope and nonrelative paths fail before execution' {
         foreach($action in @({Get-ScopedTestPlan -Manifest $manifest -ChangedPaths @() -Scopes @('Typo')},{Get-ScopedTestPlan -Manifest $manifest -ChangedPaths @('../code.cpp')})) {
@@ -214,6 +224,21 @@ try {
         $before=Get-ScopedSourceIdentity $fixture -CompiledOnly
         Write-Fixture (Join-Path $fixture 'include/Fixture.inl') 'changed inline implementation'
         Assert-Scope ((Get-ScopedSourceIdentity $fixture -CompiledOnly) -cne $before) 'Inline implementation was absent from build identity'
+    }
+    Run-Case 'runtime Markdown bytes invalidate native proof including explicitly declared documentation paths' {
+        $markdownRoot=Join-Path $fixture 'runtime-markdown'
+        [void][IO.Directory]::CreateDirectory($markdownRoot)
+        Initialize-FixtureRepository $markdownRoot
+        Write-Fixture (Join-Path $markdownRoot 'Tests/test-scopes.json') (@{
+            version=1;scopes=@(@{name='Example';native=$true});prCoverage=@();
+            rules=@(@{pattern='docs/runtime.md';scopes=@('Example');reason='explicit runtime input';exclusive=$true})
+        } | ConvertTo-Json -Depth 6)
+        foreach($path in @('Tests/Fixtures/case.md','Tests/Fixtures/README.md','Common/res/README.md','Unknown/native-input.md','docs/runtime.md')) {
+            Write-Fixture (Join-Path $markdownRoot $path) 'initial native data'
+            $before=Get-ScopedSourceIdentity $markdownRoot -CompiledOnly
+            Write-Fixture (Join-Path $markdownRoot $path) 'changed native data'
+            Assert-Scope ((Get-ScopedSourceIdentity $markdownRoot -CompiledOnly) -cne $before) "Runtime Markdown omitted from native proof: $path"
+        }
     }
     Run-Case 'runtime DLL mutation invalidates even with unchanged executable' {
         $before=Get-ScopedArtifactIdentity $fixture x64 Debug

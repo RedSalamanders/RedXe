@@ -144,11 +144,29 @@ function Assert-ScopedTestNames {
     return $declared.Count
 }
 
+function Test-ScopedDocumentationPath {
+    param([string] $Path)
+    # A Markdown extension alone does not establish prose ownership. Test data, embedded
+    # resources and implementation-local inputs retain native coverage and byte identity.
+    if ($Path -notmatch '\.md$' -or $Path -match '^Tests/|(^|/)(Data|Fixtures|res)/') { return $false }
+    return $Path -match '^(Specs|docs|Changes|\.agents|\.github/skills)/|(^|/)(README|AGENTS|CLAUDE)\.md$|^CHANGELOG\.md$'
+}
+
+function Get-ScopedRuntimeDocumentationRules {
+    param([object] $Manifest)
+    $nativeNames=@($Manifest.scopes | Where-Object native | ForEach-Object name)
+    return @($Manifest.rules | Where-Object {
+        ($_.pattern -match '\.md$' -or ($_.PSObject.Properties['exclusive'] -and $_.exclusive)) -and
+        ('*' -in $_.scopes -or @($_.scopes | Where-Object {$_ -in $nativeNames}).Count)
+    })
+}
+
 function Get-ScopedTestPlan {
     param([object] $Manifest, [AllowEmptyCollection()][string[]] $ChangedPaths, [string[]] $Scopes = @(), [switch] $Full)
     $names = @($Manifest.scopes | ForEach-Object { $_.name })
     $selected = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $reasons = [Collections.Generic.List[object]]::new()
+    $runtimeDocumentation=@(Get-ScopedRuntimeDocumentationRules $Manifest)
     foreach ($scope in $Scopes) {
         if ($scope -notin $names) { throw "Unknown test scope '$scope'. Available: $($names -join ', ')" }
         [void]$selected.Add($scope)
@@ -163,7 +181,7 @@ function Get-ScopedTestPlan {
             # broader rule and the prose shortcut, so an independent tooling input is not widened by the directory around it.
             $exclusive = @($matched | Where-Object { $_.PSObject.Properties['exclusive'] -and $_.exclusive })
             if ($exclusive.Count) { $matched = $exclusive }
-            elseif ($path -match '\.md$') {
+            elseif ((Test-ScopedDocumentationPath $path) -and -not @($runtimeDocumentation | Where-Object {Test-ScopedPattern $path $_.pattern}).Count) {
                 $targets = @($Manifest.scopes | Where-Object { -not $_.native } | ForEach-Object name)
                 foreach ($name in $targets) { [void]$selected.Add($name) }
                 $reasons.Add([pscustomobject]@{path=$path; scopes=$targets; reason='documentation/skill validation; no native test input'})
@@ -197,12 +215,17 @@ function Get-ScopedSourceIdentity {
     param([string] $Root, [switch] $CompiledOnly)
     $rows = [Collections.Generic.List[string]]::new()
     $deleted = $null
+    $runtimeDocumentation=@()
+    if ($CompiledOnly -and (Test-Path -LiteralPath (Join-Path $Root 'Tests/test-scopes.json'))) {
+        $runtimeDocumentation=@(Get-ScopedRuntimeDocumentationRules (Read-ScopedTestManifest $Root))
+    }
     foreach ($path in @(Get-ScopedTrackedPaths $Root)) {
         # Validators read prose and skills too. Their full identity includes every versioned input.
         if ($path -match '^\.build/') { continue }
         # Build attestation excludes the evidence, prose, plans and mockups no build reads, but has no extension whitelist: .inl
         # and new generators count.
-        if ($CompiledOnly -and ($path -match '^(Measurements|docs|Mockups|Specs/Plans)/' -or $path -match '\.md$')) { continue }
+        if ($CompiledOnly -and ($path -match '^(Measurements|docs|Mockups|Specs/Plans)/' -or (Test-ScopedDocumentationPath $path)) -and
+            -not @($runtimeDocumentation | Where-Object {Test-ScopedPattern $path $_.pattern}).Count) { continue }
         $full = Join-Path $Root $path
         if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
             # A nested repository is listed as its directory; its files are not inputs of this tree.
