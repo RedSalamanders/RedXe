@@ -51,5 +51,15 @@
     "noCppSourceOrCompilerFlagChanges": true,
     "localProducerId": "6111102",
     "sourceMeasurementPrecedesOnlyFinalMetadataPublicationDeferral": true
+  },
+  "prePush": {
+    "status": "failed",
+    "runId": "20261110T215000516Z-57624-4e21abc256bd4d75a86d12da448d6536",
+    "failure": "Desk Clock warmed peak private growth",
+    "peakPrivateGrowthBytes": 4718592,
+    "requiredLimitBytes": 4194304,
+    "log": ".build/evidence/test-runs/20261110T215000516Z-57624-4e21abc256bd4d75a86d12da448d6536/payload/HostPluginTests.desk-clock-soak.log",
+    "attribution": "unresolved; original failure retained",
+    "mergeAcceptance": false
   }
 }

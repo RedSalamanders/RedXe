@@ -23,3 +23,10 @@ executed. This is not live GitHub-origin or ARM64 runtime acceptance. Concurrent
 background work makes these functional runs unsuitable for a controlled speed or
 CPU comparison. Hosted acceptance remains pending. Earlier failed fixture logs
 are retained beside their corrected results.
+Final PrePush is **failed and held**: the Desk Clock resource soak recorded peak
+private growth 4,718,592 bytes against the unchanged 4,194,304-byte limit. Stable
+resource counts, draw/scheduling checks and teardown passed. Earlier Source/SDK
+runs recorded approximately 1.1 MiB and remain those original narrower results.
+Attribution is unresolved; do not replace this failure with a passing retry or
+claim final merge acceptance. Its original run/log and values are retained in
+qualification.json. The measurement-routing repair is ready for review as a draft.
