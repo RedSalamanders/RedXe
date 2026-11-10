@@ -1,8 +1,11 @@
 <Project>
   <Import Project="$(MSBuildThisFileDirectory)..\.build\dependencies\DxUi\DxUi.resolved.$(Platform).props"
-          Condition="Exists('$(MSBuildThisFileDirectory)..\.build\dependencies\DxUi\DxUi.resolved.$(Platform).props')" />
-  <Import Project="$(DxUiRoot)\Build\DxUi.Consumer.props" Condition="'$(DxUiRoot)'!=''" />
+          Condition="'$(RedXeDxUiSdkRoot)'=='' and Exists('$(MSBuildThisFileDirectory)..\.build\dependencies\DxUi\DxUi.resolved.$(Platform).props')" />
+  <Import Project="$(DxUiRoot)\Build\DxUi.Consumer.props" Condition="'$(RedXeDxUiSdkRoot)'=='' and '$(DxUiRoot)'!=''" />
+  <Import Project="$(RedXeDxUiSdkRoot)\DxUi.Sdk.props" Condition="'$(RedXeDxUiSdkRoot)'!=''" />
+  <Import Project="$(RedXeCiEngineRoot)\Tools\MSBuild\Ci.SdkConsumer.targets" Condition="'$(RedXeDxUiSdkRoot)'!=''" />
   <Target Name="RequireRestoredDxUi" BeforeTargets="PrepareForBuild">
-    <Error Condition="'$(DxUiRoot)'==''" Text="Run restore-dxui.ps1 for the selected platform before building the AV Control consumer." />
+    <Error Condition="'$(DxUiRoot)'=='' and '$(RedXeDxUiSdkRoot)'==''" Text="Run restore-dxui.ps1 for the selected platform before building the AV Control consumer." />
+    <Error Condition="'$(RedXeDxUiSdkRoot)'!='' and ('$(RedXeCiEngineRoot)'=='' or '$(CiSdkRoot)'=='')" Text="Use build.ps1 with the exact pinned SDK reader and shared guard." />
   </Target>
 </Project>

@@ -184,7 +184,7 @@ try{
         if(($null-eq $case.caller-and $null-ne $after)-or ($null-ne $case.caller-and $after-cne $case.caller)){throw "The caller compiler-host selection '$($case.caller)' was not restored (now '$after')."}
     }
 }finally{Set-CallerCompilerHost $original}
-foreach($script in @('build.ps1','restore-dxui.ps1')){
+foreach($script in @('build.ps1','restore-dxui.ps1','package.ps1')){
     $scriptTokens=$null;$scriptErrors=$null
     $scriptAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $Root $script),[ref]$scriptTokens,[ref]$scriptErrors)
     if($scriptErrors.Count){throw "$script has syntax errors."}
@@ -193,12 +193,43 @@ foreach($script in @('build.ps1','restore-dxui.ps1')){
     # script's copy before its finally block runs.
     $capture=@($scriptAst.FindAll({param($node)$node -is [Management.Automation.Language.AssignmentStatementAst] -and
         $node.Left.Extent.Text -ceq '$exitCompilerHost' -and $node.Right.Extent.Text -ceq 'Get-Command Exit-RedXeCompilerHost'},$true))
-    $restore=@($scriptAst.FindAll({param($node)$node -is [Management.Automation.Language.TryStatementAst] -and $node.Finally -and
-        $node.Finally.Extent.Text.Contains('& $exitCompilerHost -State $compilerHost')},$true))
+    $restore=@($scriptAst.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and
+        $node.CommandElements.Count -eq 3 -and $node.CommandElements[0].Extent.Text -ceq '$exitCompilerHost' -and
+        $node.CommandElements[1].Extent.Text -ceq '-State' -and $node.CommandElements[2].Extent.Text -ceq '$compilerHost'},$true))
     if($enter.Count-ne 1-or $capture.Count-ne 1-or $restore.Count-ne 1){throw "$script must select the compiler host once, capture its restore and run it in one finally block."}
+    $owner=$restore[0].Parent
+    while($owner -and -not ($owner -is [Management.Automation.Language.StatementBlockAst] -and
+        $owner.Parent -is [Management.Automation.Language.TryStatementAst] -and [object]::ReferenceEquals($owner.Parent.Finally,$owner))){$owner=$owner.Parent}
+    if(-not $owner){throw "$script must restore the captured compiler host inside a finally block."}
+    $outer=@($scriptAst.EndBlock.Statements|Where-Object {$_ -is [Management.Automation.Language.TryStatementAst] -and $_.Finally})
+    if($outer.Count -ne 1){throw "$script must bracket its complete operation with the compiler-host restoration."}
+    $body=$outer[0].Finally.Extent.Text.Trim();$body=$body.Substring(1,$body.Length-2)
+    $cleanup=@($scriptAst.FindAll({param($node)$node -is [Management.Automation.Language.TryStatementAst] -and
+        $node.Finally -and $node.Finally.Extent.Text.Contains('Close-CiPinnedSdkInput')},$true))
+    if($cleanup.Count -gt 1){throw "$script has ambiguous SDK cleanup ownership."}
+    if($cleanup.Count -eq 1 -and -not [object]::ReferenceEquals($cleanup[0],$outer[0])){
+        $sdkBody=$cleanup[0].Finally.Extent.Text.Trim();$sdkBody=$sdkBody.Substring(1,$sdkBody.Length-2)
+        $body="try{`n"+$sdkBody+"`n}finally{`n"+$body+"`n}"
+    }
+    $stage=[scriptblock]::Create(@'
+param($Probe,$PrimaryFailure,$CloseFailure)
+$compilerHost=[pscustomobject]@{Previous='fixture-caller'}
+$exitCompilerHost={param($State) if($State.Previous -cne 'fixture-caller'){throw 'Lost compiler-host state.'};$Probe.restores++}
+$sdkInput=[pscustomobject]@{Closed=$false};$sdk=$sdkInput
+$sdkFailure=if($PrimaryFailure){'controlled primary failure'}else{$null};$packageFailure=$sdkFailure
+function Close-CiPinnedSdkInput {param($InputBytes) $Probe.closes++;if($CloseFailure){throw 'controlled SDK close failure'}}
+try{if($PrimaryFailure){throw 'controlled primary failure'}}finally{
+'@ + $body + "`n}")
+    foreach($primary in @($false,$true)){foreach($closeFailure in @($false,$true)){
+        $probe=@{restores=0;closes=0};$message=''
+        try{& $stage $probe $primary $closeFailure}catch{$message=$_.Exception.Message}
+        if($probe.restores -ne 1){throw "$script lost compiler-host restoration during SDK cleanup."}
+        $expected=if($primary){'controlled primary failure'}elseif($closeFailure -and $script -ne 'restore-dxui.ps1'){'controlled SDK close failure'}else{''}
+        if($message -cne $expected){throw "$script changed failure precedence: expected '$expected', got '$message'."}
+    }}
     if($scriptAst.Extent.Text -match "SetEnvironmentVariable\(\s*'PreferredToolArchitecture'|\`$env:PreferredToolArchitecture\s*="){throw "$script sets the compiler host outside the shared pair."}
 }
-Write-Host 'PASS compiler-host selection and caller restoration on success/failure; build.ps1 and restore-dxui.ps1 use only the shared pair.'
+Write-Host 'PASS compiler-host selection and actual finally restoration on success, primary failure and SDK close failure; build, restore and package use the shared pair.'
 # Every family guard reads the one RequiredMsvcToolsVersion and refuses another compiler family.
 if((Get-RedXeRequiredMsvcFamily -RepoRoot $Root)-notmatch '^\d+\.\d+$'){throw 'The required MSVC family is not major.minor.'}
 $familyFixture=Join-Path $scratch 'required-family'

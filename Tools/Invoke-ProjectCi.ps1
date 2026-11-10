@@ -58,17 +58,28 @@ $receiptDirectory = Join-Path $root ".build/ci/regression/$Platform"
 $evidenceDirectory = Join-Path $root '.build/evidence/test-runs'
 if ($env:GITHUB_OUTPUT) { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value ('evidence_directory=' + $evidenceDirectory) }
 if ($Phase -in @('ReleaseTestBuild','Qualification','Production')) {
+    $sdkDescriptor=$null
     $buildArguments = $profile + @('-BuildNumber',$number)
+    if($Configuration -ceq 'Release' -and $Phase -cin @('ReleaseTestBuild','Production')){
+        Import-Module (Join-Path $EngineRoot 'Tools/Modules/Ci.SdkPreparation.psm1')
+        $pin=Get-Content (Join-Path $root 'Dependencies/DxUi.lock.json') -Raw|ConvertFrom-Json
+        $sdkDescriptor=Initialize-CiPinnedSdkInput -Context $context -SourceCommit $pin.commit -ApiRevision $pin.apiRevision
+        if($sdkDescriptor){$buildArguments+=@('-DxUiSdkInputDescriptor',$sdkDescriptor)}
+    }
     if ($Phase -eq 'Production') { $buildArguments += '-ProductionOnly' }
     Run 'build.ps1' $buildArguments
     Import-Module (Join-Path $root 'Build/DxUiRestore.psm1')
     $pin=Read-RedXeDxUiLock -LockFile (Join-Path $root 'Dependencies/DxUi.lock.json')
-    $source=Get-RedXeDxUiSourcePath -RepoRoot $root -Commit $pin.commit
+    # An SDK hit deliberately skips the ordinary source restore. Its independent
+    # descriptor names the exact source already verified by the build's reader.
+    $source=if($sdkDescriptor){(Get-Content -LiteralPath $sdkDescriptor -Raw|ConvertFrom-Json).sourceRoot}else{Get-RedXeDxUiSourcePath -RepoRoot $root -Commit $pin.commit}
     Run ([IO.Path]::GetRelativePath($root,(Join-Path $source 'validate-build-matrix.ps1'))) @('-Root',$root)
     if ($Phase -eq 'ReleaseTestBuild') { return }
 }
 if ($Phase -eq 'Production') {
-    Run 'package.ps1' @('-Platform',$Platform,'-BuildNumber',$number,'-SkipBuild')
+    $packageArguments=@('-Platform',$Platform,'-BuildNumber',$number,'-SkipBuild')
+    if($sdkDescriptor){$packageArguments+=@('-DxUiSdkInputDescriptor',$sdkDescriptor)}
+    Run 'package.ps1' $packageArguments
     $archives = @(Get-ChildItem (Join-Path $root '.build/packages') -Filter "*-$Platform-*.zip" -File | ForEach-Object FullName)
     Write-CiProductionReceipt -Context $context -Archives $archives -TestModeDisabled $true -SmokePassed $true
     return

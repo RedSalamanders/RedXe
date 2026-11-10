@@ -322,3 +322,30 @@ an `abort()` that no such check reported ends it with a line saying so and exit 
 ([`Build_Process.md`](../Build/Build_Process.md)).
 
 Per-module provenance records an explicit test-enabled or production-only build role. Test validation retains the complete host/plugin/test consumer closure. Production Release validates only the shipping host and AV Control consumers; a test-role record cannot authorize packaging, and a production record cannot satisfy a test request. Each selected module still names and hashes its actual pinned DxUi archive/link command and output bytes.
+
+## Explicit pinned Release SDK input
+
+`build.ps1 -DxUiSdkInputDescriptor <independent .build JSON>` opens the shared
+`Open-CiApplicationSdkInput` reader only for Release. The pinned clean engine
+checks the actual source/API/target lock, canonical producer tooling, full input
+identity and every SDK byte. An exact miss retains the governed source restore;
+invalid provenance or corruption fails. Debug/ASan and ordinary local builds
+continue through the source recipe. This is a pinned input seam, not a local
+unpinned candidate or a test-result cache.
+
+After a hosted SDK hit, build-matrix validation uses the exact source already
+verified by that independent descriptor. It must work on a cold checkout without
+requiring the ordinary source restore that the SDK recipe deliberately skipped.
+
+Only actual SDK-linking projects import the SDK and canonical shared MSBuild
+guard. Source project references are disabled for that recipe. The guard proves
+the live owner and imported root and checks effective per-file ABI metadata;
+compiler/architecture checks in SDK imports remain required. The reader spans
+compilation and exact linker/archive/output provenance, then verifies inputs on
+close. A failed close cannot publish accepted SDK provenance. Native runtime and
+production/package obligations remain separate.
+
+SDK provenance records the original input key/manifest and the exact archive
+named by each consumer's link command. Runtime tests retain their module/pin/role
+checks. Packaging reopens the same input and refuses a different key/manifest,
+retaining its complete notices in `DxUi-licenses` through a verified reader.

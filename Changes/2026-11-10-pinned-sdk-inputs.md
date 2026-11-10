@@ -1,0 +1,1 @@
+- Add an explicit byte-verified pinned Release SDK recipe with shared ABI guards, exact link provenance and package notice staging. Hosted main build roles can request the same inputs while retaining source fallback and every native test/package gate; Debug and ASan keep source.

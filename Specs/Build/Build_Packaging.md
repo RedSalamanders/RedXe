@@ -208,3 +208,14 @@ For workflow changes, retain exact two-architecture batch receipts, a successful
 RedMonitor is installed independently. Application packages include its client MIT notice (`RedMonitor-LICENSE.txt`, the MIT section of the pinned licence file, as described above) and no viewer executable, runtime, satellite or theme payload. Normal builds verify only the pinned local header/license; see [RedMonitor integration](../Core/Core_RedMonitorIntegration.md).
 
 The canonical package entrypoint builds ProductionOnly Release. With -SkipBuild it requires matching production-only DxUi provenance for the shipping host/plugin modules; test-role or role-less output is refused. The existing clean-extraction product diagnostic smoke and ZIP/symbol contracts remain required.
+
+When production provenance names `PinnedReleaseSdkV1`, the caller must provide
+`-DxUiSdkInputDescriptor` for the identical key and manifest. Packaging reopens its
+verified reader and copies the complete SDK `licenses` directory into
+`DxUi-licenses`. The reader stays open through staging and package verification;
+input drift or failed close fails the operation. A test build cannot supply a
+production SDK package, and an input recipe supplies no runtime verdict.
+Packaging enters the same native compiler-host selection as build/restore before
+opening the SDK and captures the shared restoration command before nested module
+imports. Its outer finally restores the caller's selection even when SDK cleanup
+fails; a secondary cleanup failure cannot replace an earlier primary error.

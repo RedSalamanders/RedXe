@@ -11,6 +11,14 @@ checks its current head, commits only selected formatted source paths by ordinar
 explicitly dispatches fresh compiler-free checks for that exact head. Forks retain a patch for their author.
 PR checks never count as native acceptance. Compiler-dependent tooling runs in main qualification.
 
+Admitted matching-native main Release test/production builds ask the pinned shared
+engine for the exact distributed SDK at the unchanged application pin. Build and
+production packaging receive the same independent descriptor; compiler/profile/
+dependency/environment misses keep source fallback. Invalid data fails rather
+than becoming a hit. Static, local default, manual qualification and Debug/ASan
+routes do not automatically prepare an SDK. Preparation and cache hits supply
+dependency bytes only; both native test and production/package gates remain.
+
 After main has remained unchanged for five continuous minutes, its cheap coordinator submits one native
 admission. Cumulative native identity uses the complete committed Git input tree, file modes, dependencies,
 project adapter and exact engine/policy pins. It is not a truncated files API response or last-merge-only diff.

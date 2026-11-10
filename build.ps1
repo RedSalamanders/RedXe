@@ -31,6 +31,8 @@ Third version component stamped into every version resource (Common/Version.h su
 means the commit count of HEAD (git rev-list --count), the same number the release workflow uses. Range 0..65535.
 .PARAMETER ProductionOnly
 Build only shipping Release targets and record production provenance without standalone test modules.
+.PARAMETER DxUiSdkInputDescriptor
+Independent verified pinned Release SDK descriptor under .build. Exact misses use source; Debug/ASan use source.
 #>
 #Requires -Version 7.0
 [CmdletBinding()]
@@ -50,12 +52,14 @@ param(
     [int] $MaxCpuCount = 0,
 
     [ValidateRange(0, 65535)]
-    [int] $BuildNumber = 0
+    [int] $BuildNumber = 0,
+    [string] $DxUiSdkInputDescriptor = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if ($env:CI_NATIVE_BUILDS_DISABLED -eq 'true') { throw 'Native builds are forbidden in compiler-free PR checks.' }
+if($DxUiSdkInputDescriptor -and ($Configuration -cne 'Release' -or $Clean)){throw 'Pinned SDK inputs require a Release build, not Clean or Debug/ASan.'}
 $nativeEntryElapsed = [Diagnostics.Stopwatch]::StartNew()
 Import-Module (Join-Path $PSScriptRoot 'Build/BuildConsole.psm1') -ErrorAction Stop
 
@@ -71,6 +75,7 @@ Import-Module (Join-Path $PSScriptRoot 'Build/DxUiRestore.psm1') -Force -ErrorAc
 $compilerHost = Enter-RedXeCompilerHost
 # Captured now: a module that re-imports DxUiRestore with -Force (DxUiProvenance does) removes this script's copy.
 $exitCompilerHost = Get-Command Exit-RedXeCompilerHost
+$sdkInput=$null;$sdkFailure=$null;$sdkProvenanceWritten=$false
 try {
 $repoRoot = Split-Path -Parent $PSCommandPath
 $solutionPath = Join-Path $repoRoot 'RedXe.sln'
@@ -106,11 +111,22 @@ if ($ProductionOnly) {
 }
 $dependencyInstaller = Join-Path $repoRoot 'vcpkg-install.ps1'
 $operationStopwatch = [Diagnostics.Stopwatch]::StartNew()
+$sdkProperties=@()
 if (-not $Clean) {
     Write-Host '[1/2] Dependencies' -ForegroundColor Cyan
     # vcpkg builds with the Visual Studio installation that holds the MSBuild below, as MSBuild does.
     & $dependencyInstaller -Platform $Platform -MSBuildPath $msbuild
-    & (Join-Path $repoRoot 'restore-dxui.ps1') -Platform $Platform -MSBuildPath $msbuild -CheckUpdates
+    if($DxUiSdkInputDescriptor){
+        $engine=Join-Path $repoRoot '.ci-engine'
+        Import-Module (Join-Path $engine 'Tools/Modules/Ci.SdkConsumer.psm1')
+        $sdkInput=Open-CiApplicationSdkInput -ProjectRoot $repoRoot -Descriptor $DxUiSdkInputDescriptor -Platform $Platform -Configuration $Configuration
+        if($null -ne $sdkInput){
+            foreach($path in @($repoRoot,$sdkInput.SdkRoot,$sdkInput.LeasePath,$engine)){if($path -match '[%;"\r\n]'){throw 'SDK paths contain unsupported MSBuild delimiters.'}}
+            $sdkProperties=@("/p:RedXeDxUiSdkRoot=$($sdkInput.SdkRoot)","/p:CiSdkRoot=$($sdkInput.SdkRoot)","/p:CiSdkProjectRoot=$repoRoot","/p:CiSdkLeasePath=$($sdkInput.LeasePath)","/p:RedXeCiEngineRoot=$engine")
+            Write-Host "Using byte-verified pinned DxUi SDK input $($sdkInput.Evidence.inputKey)."
+        }else{Write-Host 'Exact SDK input unavailable; retaining the pinned source recipe.'}
+    }
+    if($null -eq $sdkInput){& (Join-Path $repoRoot 'restore-dxui.ps1') -Platform $Platform -MSBuildPath $msbuild -CheckUpdates}
     Write-Host ''
 }
 
@@ -124,7 +140,7 @@ $arguments = @(
     $workerArgument,
     '/nologo',
     '/verbosity:minimal'
-)
+) + $sdkProperties
 
 $logPath = New-RedXeBuildLogPath -RepoRoot $repoRoot -Target $target
 $invocationPlan = Get-RedXeBuildInvocationPlan `
@@ -179,7 +195,9 @@ if (-not $Clean) {
         throw "Build succeeded but the expected executable was not found: $executable"
     }
     Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1') -Force
-    $provenance=Write-RedXeDxUiProvenance -RepoRoot $repoRoot -Platform $Platform -Configuration $Configuration -ProductionOnly:$ProductionOnly
+    $provenance=Write-RedXeDxUiProvenance -RepoRoot $repoRoot -Platform $Platform -Configuration $Configuration -ProductionOnly:$ProductionOnly -SdkInput $sdkInput
+    $sdkProvenanceWritten=$null -ne $sdkInput
+    if($null -ne $sdkInput){Close-CiPinnedSdkInput $sdkInput}
     Write-Host "DxUi module provenance: $provenance" -ForegroundColor DarkGray
     Write-NativeBuildResult -Project RedXe -Platform $Platform -Configuration $Configuration -LogPath $logPath -Artifacts @($executable) -Executable $executable -Duration $nativeEntryElapsed.Elapsed
     if ($Run) {
@@ -194,6 +212,15 @@ else {
     Write-Host "CLEAN SIGNAL LOCKED in $duration" -ForegroundColor Green
 }
 
+} catch {
+    $sdkFailure=$_
+    if($sdkProvenanceWritten){
+        try{Remove-Item -LiteralPath (Join-Path $repoRoot ".build/$Platform/$Configuration/DxUi.provenance.json") -ErrorAction Stop}
+        catch{Write-Warning ('Failed SDK provenance cleanup also failed: '+$_.Exception.Message)}
+    }
+    throw $sdkFailure
 } finally {
-    & $exitCompilerHost -State $compilerHost
+    try{if($null -ne $sdkInput -and -not $sdkInput.Closed){Close-CiPinnedSdkInput $sdkInput}}
+    catch{if($null -eq $sdkFailure){throw}else{Write-Warning ('SDK close also failed: '+$_.Exception.Message)}}
+    finally{& $exitCompilerHost -State $compilerHost}
 }
