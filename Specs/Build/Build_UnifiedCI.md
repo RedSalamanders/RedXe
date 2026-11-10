@@ -19,6 +19,14 @@ than becoming a hit. Static, local default, manual qualification and Debug/ASan
 routes do not automatically prepare an SDK. Preparation and cache hits supply
 dependency bytes only; both native test and production/package gates remain.
 
+Qualified v2 descriptors retain the producer's original input key/manifest and
+native receipt. The reader compares complete actual consumer tool/header/library
+bytes and the build passes its selected MSBuild and verified v2 contract to the
+per-project and per-translation-unit admission guards. Packaging recognizes only
+the reviewed source, v1 and v2 recipes and reopens the exact SDK before staging
+notices. Controlled-origin local qualification does not prove live hosted-origin
+acceptance; neither SDK recipe supplies a product test verdict.
+
 After main has remained unchanged for five continuous minutes, its cheap coordinator submits one native
 admission. Cumulative native identity uses the complete committed Git input tree, file modes, dependencies,
 project adapter and exact engine/policy pins. It is not a truncated files API response or last-merge-only diff.

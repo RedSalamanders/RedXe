@@ -34,9 +34,9 @@ concurrency:
 jobs:
   qualify:
     if: github.ref == 'refs/heads/main'
-    uses: RedSalamanders/.github/.github/workflows/native.yml@008fb75d3a66138976b6beceb6df0d75dbb424cc
+    uses: RedSalamanders/.github/.github/workflows/native.yml@a0db31a5d4a57ed7275333d1f47b1b1c0efb9bee
     with:
-      engine_ref: 008fb75d3a66138976b6beceb6df0d75dbb424cc
+      engine_ref: a0db31a5d4a57ed7275333d1f47b1b1c0efb9bee
       commit: ${{ inputs.commit }}
       mode: ${{ inputs.mode }}
       retry: ${{ inputs.retry }}

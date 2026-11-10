@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "role": "LocalSourceProfileQualification",
+  "sourceBase": "02cc2055d0b00a5a67ceaed5eb5ccc64223d566e",
+  "controller": "a0db31a5d4a57ed7275333d1f47b1b1c0efb9bee",
+  "sixBuildsPassed": true,
+  "nativeScopesPerX64Profile": 15,
+  "x64Profiles": [
+    "Debug",
+    "Release",
+    "ASan Debug"
+  ],
+  "realAsanDetectorPassed": true,
+  "sourceProductionAndCleanExtractionPassed": true,
+  "packageRecipeRefusalsPassed": 3,
+  "nativeArm64RuntimeQualified": false,
+  "cppChanged": false,
+  "logs": [
+    {
+      "path": ".build/i61-qualified-reader-tooling.log",
+      "sha256": "92ab472a0eb1359b1b7195d0e728b46274942894702bf68c103741370e77f68f"
+    },
+    {
+      "path": ".build/i61-qualified-reader-source-x64-Debug.log",
+      "sha256": "4b1596c11c8aa4d1f3059a62d258b66e26e6055fb550fad02b02fd09174a929a"
+    },
+    {
+      "path": ".build/i61-qualified-reader-source-x64-Release.log",
+      "sha256": "4490dc715d749297e5d9f8bdfe3ad31a0049a841a6179d0923086782f12a2ab0"
+    },
+    {
+      "path": ".build/i61-qualified-reader-source-x64-ASan-Debug.log",
+      "sha256": "f1c2d27e953a46eb5f09ebc7061c1a23ae86591fc3293fcde460e70a4fdf0abd"
+    },
+    {
+      "path": ".build/i61-qualified-reader-source-ARM64-Debug.log",
+      "sha256": "c2ece01207f077bc11f088c740dbee3a00881e1634f1ba2c86c7a8f612a131cc"
+    },
+    {
+      "path": ".build/i61-qualified-reader-source-ARM64-Release.log",
+      "sha256": "0ac3eab54f18ef7edc6650bced3578a1e7a643b3a8b929818d6f3a12b375b730"
+    },
+    {
+      "path": ".build/i61-qualified-reader-source-ARM64-ASan-Debug.log",
+      "sha256": "68baefef321a00925ff7a58e2b4683e9d78de615da53903dbac673bfe09cee33"
+    },
+    {
+      "path": ".build/i61-qualified-reader-source-production.log",
+      "sha256": "a0de19f17c650c8f2b6f3733de8f52b629ec433b2f81a67f784268e73c0be48d"
+    },
+    {
+      "path": ".build/i61-qualified-reader-source-package.log",
+      "sha256": "6ef45939600a4b7ba74c8943d1b8b96c0d8c8f3d4a4b8342fe34576cb24330cb"
+    },
+    {
+      "path": ".build/i61-qualified-sdk-package-recipe-controls.log",
+      "sha256": "0427b79f8637731bccb9e9aa37c70a41c17590e48e27d6f31b091be735ba0352"
+    }
+  ]
+}
