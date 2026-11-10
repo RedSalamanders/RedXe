@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "role": "SdkAvMeasurementRepairQualification",
+  "sourceCommit": "cde3877c88a4fb25cc42014aeee41ac2469f1dac",
+  "originalFailedHostedRun": "https://github.com/RedSalamanders/RedXe/actions/runs/42884674473",
+  "source": {
+    "nativeRun": "20261110T211217060Z-93436-1644adfad5a64d519337c7eac9f825d2",
+    "wrapperSha256": "5d21822dcc80a72a3f9a36315722289327798993adbb0635a056a9227589b5f9",
+    "scenarios": 6,
+    "nativeScopesPassed": 15,
+    "measurementSha256": "108687e3241a2492040753705c900cf5f17b0ddf5d32219203d8bafab48c7ffc",
+    "measurement": ".build/i61-source-measurement/a36bd34def7f47d2b01bce9b991464f9/measurement.json",
+    "roundsPerScenario": 5
+  },
+  "sdk": {
+    "nativeScopesPassed": 15,
+    "recipe": "PinnedQualifiedReleaseSdkV2",
+    "roundsPerScenario": 5,
+    "measurement": ".build/i61-sdk-measurement/80436f75a1824c49a9ad616475b5596e/measurement.json",
+    "scenarios": 6,
+    "manifestSha256": "8bb5b8de037adf5e4ee522bd96cfa8db9ea82629c10edae5121c205162499ee1",
+    "wrapperSha256": "5e7a15ca6cd6b6972e7ae8a9891b17183065ee36f282d190cbf88c74d754a678",
+    "inputKey": "5868120cc91a06d158d7c4ccf617517e457546b0dcc92201099ad707a231fc98",
+    "nativeRun": "20261110T212622220Z-78812-606fc101c9c24838b7f3e72f46d1d806",
+    "measurementSha256": "df3ea2b8d94c8600bdc3e9239f5b919024208fd4ca23835db09d446f51b62e64"
+  },
+  "production": {
+    "packageExtractionPassed": true,
+    "archives": [
+      {
+        "file": "RedXe-1.0.451-x64-Portable.zip",
+        "sha256": "503e37c7e2e8417760bec301de86c92f440b776022e34c9f143a2e00aa01c2dd"
+      },
+      {
+        "file": "RedXe-1.0.451-x64-Symbols.zip",
+        "sha256": "5d8fa88bab04a3d0023247ec0c4197222e9eb1d68e891d628b34f780e9b0ce56"
+      }
+    ],
+    "sha256": "28651c1e6ba6d24aa221f7facae00d1d2898a93a69a7682a03659d378753a459",
+    "provenance": ".build/i61-sdk-measurement-production/f46d1734c2a94f8c9c522dd6df23666c/production-provenance.json"
+  },
+  "controls": {
+    "static": ".build/i61-sdk-measurement-static.log",
+    "finalProvenanceControls": ".build/i61-sdk-measurement-final-provenance-controls.log",
+    "completeTooling": ".build/i61-sdk-measurement-complete-tooling.log"
+  },
+  "limits": {
+    "hostedAcceptancePending": true,
+    "controlledPerformanceComparison": false,
+    "localQualifiedSdkOriginSubstitutionOnly": true,
+    "noCppSourceOrCompilerFlagChanges": true,
+    "localProducerId": "6111102",
+    "sourceMeasurementPrecedesOnlyFinalMetadataPublicationDeferral": true
+  }
+}

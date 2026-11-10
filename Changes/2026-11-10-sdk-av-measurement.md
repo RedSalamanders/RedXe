@@ -1,0 +1,1 @@
+- Fix offscreen AV measurements after a verified DxUi SDK build by reopening its original dependency inputs and preserving module, archive and measurement provenance checks.
