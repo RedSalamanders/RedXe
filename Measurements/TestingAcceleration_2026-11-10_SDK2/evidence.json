@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "role": "ControlledOriginSdkApplicationQualification",
+  "liveHostedOriginQualified": false,
+  "nativeArm64RuntimeQualified": false,
+  "controller": "64364b1e375b76c248b556fa70e5777fefa58ba3",
+  "applicationBase": "02cc2055d0b00a5a67ceaed5eb5ccc64223d566e",
+  "platform": "x64",
+  "configuration": "Release",
+  "testBuildRole": "test-enabled",
+  "productionBuildRole": "production-only",
+  "diagnostics": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "dependency": {
+    "recipe": "PinnedQualifiedReleaseSdkV2",
+    "inputKey": "5868120cc91a06d158d7c4ccf617517e457546b0dcc92201099ad707a231fc98",
+    "manifestSha256": "8bb5b8de037adf5e4ee522bd96cfa8db9ea82629c10edae5121c205162499ee1",
+    "identity": {
+      "schemaVersion": 1,
+      "role": "DependencySdkInputs",
+      "sourceRepository": "RedSalamanders/DxUi",
+      "sourceCommit": "f2e328a0a26a18ca66bf4b2aea77bf010c9515e1",
+      "sourceBytes": "fdcc91006d4ac75d9fb2eaddc2709358aa1354cc5aa365f634eaa6c014d0d773",
+      "apiRevision": 4,
+      "platform": "x64",
+      "configuration": "Release",
+      "runtimeFamily": "MD",
+      "annotationPolicy": "enabled",
+      "languageStandard": "stdcpplatest",
+      "optimizationPolicy": "GL-LTCG-full",
+      "toolchainIdentity": "33861927a16550a2fe5d9bd84d81bb6eb22b4ba15d92661e6a9bcf99669e3352",
+      "compilerProfileIdentity": "aaf4603e077a74697695caeb60716d1753041fe202eea65bf55f8a6f17012744",
+      "dependencyIdentity": "ced0e108d251d1911dec328475844de27ab967e3e8d603da1938a81922bb0d08",
+      "integrationPolicyIdentity": "42cdb62688af3a4bc08945b84ec5a1c3ed98dc6334d5bda5ee3e0b317ce118ec",
+      "environmentIdentity": "5669a893097882a211bb936cbdf1fdbfb68897188071c40001f30fa668119c01"
+    },
+    "toolchainReference": "a46852d85f7f4b35fbc9514b1a0c97483e8e20751a05dd97867db5e3a0578c92",
+    "producerRun": "6111102",
+    "attempt": 1,
+    "archiveSha256": "2704bd0ed96c27fedbb91aebd422f19582914c6bdb2336fb3fe1fb16ca5ea32b",
+    "publicHeadersGitTree": "afca31c268d9d750beecc7d8c4023467d9ce4d1e",
+    "storageEngineRef": "64364b1e375b76c248b556fa70e5777fefa58ba3",
+    "storageEngineBytes": "ab3d50f0180b1ce3cffd4f979f9e3d509a502b0e9c2e9c66b895645aa0c9fcbb"
+  },
+  "nativeScopesPassed": 15,
+  "testModules": [
+    {
+      "path": "RedXe.exe",
+      "sha256": "F6A7A257CAE1467B6FB381D3750A8C39EF64CDCCD26BC7BDC8D25263C9B2EC20",
+      "linkCommandSha256": "6DD6B95ECC296B9E038A8C08D3E1FC94A9387DD5F28494C63C88A0B628E20E27"
+    },
+    {
+      "path": "Plugins/AVControl.dll",
+      "sha256": "0B6E3D2C0E1C1C57810F34F922154B537EA9E945F2A2EC5B0581AD41E4B11186",
+      "linkCommandSha256": "0B72487E6BF25C0476EFB2E73F7296B54E36918D86128D1AA182660D65DABAE6"
+    },
+    {
+      "path": "AVControlTests.exe",
+      "sha256": "256DDBCE822C14CA28C12FED927791E9B063D5A9204068BAF6C99BE73966EAB2",
+      "linkCommandSha256": "AAAF7EE8551C1B075059741539DE7813A4600064DB4DD03241406DF7B7AAE041"
+    }
+  ],
+  "productionModules": [
+    {
+      "path": "RedXe.exe",
+      "sha256": "F6A7A257CAE1467B6FB381D3750A8C39EF64CDCCD26BC7BDC8D25263C9B2EC20",
+      "linkCommandSha256": "6DD6B95ECC296B9E038A8C08D3E1FC94A9387DD5F28494C63C88A0B628E20E27"
+    },
+    {
+      "path": "Plugins/AVControl.dll",
+      "sha256": "0B6E3D2C0E1C1C57810F34F922154B537EA9E945F2A2EC5B0581AD41E4B11186",
+      "linkCommandSha256": "0B72487E6BF25C0476EFB2E73F7296B54E36918D86128D1AA182660D65DABAE6"
+    }
+  ],
+  "nativeRun": "20261110T123801886Z-41564-12b2dff9355b4394b01f70904feba310",
+  "packageSha256": "9097dbefa1b67d43fc9e587755e8b7c9be08e95106dd455b3378b8b16c5cd6e7",
+  "symbolsSha256": "3fa0998b200737e02d9ac7f3da73cd3df067c6e030bbfd7d9db18f162e421acc",
+  "sequenceElapsedMs": 578333,
+  "overallSpeedTargetEstablished": false
+}

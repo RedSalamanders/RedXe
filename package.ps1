@@ -64,10 +64,12 @@ Assert-RedXeDxUiProvenance -OutputRoot (Join-Path $repoRoot ".build/$Platform/Re
 $record=Get-Content (Join-Path $repoRoot ".build/$Platform/Release/DxUi.provenance.json") -Raw|ConvertFrom-Json
 $sdk=$null;$packageFailure=$null
 try{
-if($record.PSObject.Properties['dependencyRecipe'] -and $record.dependencyRecipe.recipe -ceq 'PinnedReleaseSdkV1'){
+$knownSdkRecipes=@('PinnedReleaseSdkV1','PinnedQualifiedReleaseSdkV2')
+if($record.PSObject.Properties['dependencyRecipe'] -and $record.dependencyRecipe.recipe -cnotin (@('PinnedSource')+$knownSdkRecipes)){throw 'Unsupported build dependency recipe; rebuild through a reviewed reader.'}
+if($record.PSObject.Properties['dependencyRecipe'] -and $record.dependencyRecipe.recipe -cin $knownSdkRecipes){
     if(-not $DxUiSdkInputDescriptor){throw 'Reopen the original production SDK using -DxUiSdkInputDescriptor before packaging its notices.'}
     Import-Module (Join-Path $repoRoot '.ci-engine/Tools/Modules/Ci.SdkConsumer.psm1')
-    $sdk=Open-CiApplicationSdkInput -ProjectRoot $repoRoot -Descriptor $DxUiSdkInputDescriptor -Platform $Platform -Configuration Release
+    $sdk=Open-CiApplicationSdkInput -ProjectRoot $repoRoot -Descriptor $DxUiSdkInputDescriptor -Platform $Platform -Configuration Release -MSBuildPath (Find-RedXeMSBuild)
     if($null -eq $sdk -or $sdk.Evidence.inputKey -cne $record.dependencyRecipe.inputKey -or
         $sdk.Evidence.manifestSha256 -cne $record.dependencyRecipe.manifestSha256){throw 'Package SDK does not match the actual production build inputs.'}
 }

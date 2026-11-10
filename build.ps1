@@ -119,10 +119,11 @@ if (-not $Clean) {
     if($DxUiSdkInputDescriptor){
         $engine=Join-Path $repoRoot '.ci-engine'
         Import-Module (Join-Path $engine 'Tools/Modules/Ci.SdkConsumer.psm1')
-        $sdkInput=Open-CiApplicationSdkInput -ProjectRoot $repoRoot -Descriptor $DxUiSdkInputDescriptor -Platform $Platform -Configuration $Configuration
+        $sdkInput=Open-CiApplicationSdkInput -ProjectRoot $repoRoot -Descriptor $DxUiSdkInputDescriptor -Platform $Platform -Configuration $Configuration -MSBuildPath $msbuild
         if($null -ne $sdkInput){
             foreach($path in @($repoRoot,$sdkInput.SdkRoot,$sdkInput.LeasePath,$engine)){if($path -match '[%;"\r\n]'){throw 'SDK paths contain unsupported MSBuild delimiters.'}}
             $sdkProperties=@("/p:RedXeDxUiSdkRoot=$($sdkInput.SdkRoot)","/p:CiSdkRoot=$($sdkInput.SdkRoot)","/p:CiSdkProjectRoot=$repoRoot","/p:CiSdkLeasePath=$($sdkInput.LeasePath)","/p:RedXeCiEngineRoot=$engine")
+            if($sdkInput.Evidence.recipe -ceq 'PinnedQualifiedReleaseSdkV2'){$sdkProperties+=@('/p:CiSdkContract=QualifiedAbiV2')}
             Write-Host "Using byte-verified pinned DxUi SDK input $($sdkInput.Evidence.inputKey)."
         }else{Write-Host 'Exact SDK input unavailable; retaining the pinned source recipe.'}
     }
