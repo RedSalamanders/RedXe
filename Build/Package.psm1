@@ -250,7 +250,8 @@ function New-RedXePortablePackage {
         [ValidateRange(0, 65535)][int] $BuildNumber = 0,
         [string] $OutputDirectory,
         [string[]] $VcRuntimeSearchRoots,
-        [switch] $SkipExecution
+        [switch] $SkipExecution,
+        $DxUiSdkInput=$null
     )
     Import-Module (Join-Path $RepoRoot 'Build\Versioning.psm1') -Force
     $BuildNumber = Resolve-RedXeBuildNumber -RepoRoot $RepoRoot -Requested $BuildNumber
@@ -297,6 +298,10 @@ function New-RedXePortablePackage {
 
         foreach ($name in $script:PackageInstallerFiles) { Copy-RedXePackageFile (Join-Path $RepoRoot "Installer\$name") (Join-Path $staging $name) }
         Copy-RedXePackageFile (Join-Path $RepoRoot 'LICENSE.txt') (Join-Path $staging 'LICENSE.txt')
+        if($null -ne $DxUiSdkInput){
+            if($DxUiSdkInput.Closed){throw 'SDK notice staging requires the active verified reader.'}
+            Copy-Item -LiteralPath (Join-Path $DxUiSdkInput.SdkRoot 'licenses') -Destination (Join-Path $staging 'DxUi-licenses') -Recurse
+        }
         # The vendored file is the whole RedSalamander licence with notices for components RedXe does not ship; the
         # package carries only the client's MIT section, and packaging fails unless that section is found exactly once.
         [IO.File]::WriteAllText((Join-Path $staging 'RedMonitor-LICENSE.txt'),

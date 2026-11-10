@@ -17,12 +17,21 @@ function Write-RedXeDxUiProvenance {
         [Parameter(Mandatory)][string] $RepoRoot,
         [Parameter(Mandatory)][ValidateSet('x64','ARM64')][string] $Platform,
         [Parameter(Mandatory)][ValidateSet('Debug','Release','ASan Debug')][string] $Configuration,
-        [switch]$ProductionOnly
+        [switch]$ProductionOnly,
+        $SdkInput=$null
     )
     $ErrorActionPreference='Stop'
     if($ProductionOnly -and $Configuration -ne 'Release'){throw 'Production provenance requires Release.'}
     $lockFile=Join-Path $RepoRoot 'Dependencies/DxUi.lock.json'
     $pin=Read-RedXeDxUiLock -LockFile $lockFile
+    $recipe=@{recipe='PinnedSource'}
+    if($null -ne $SdkInput){
+        if($SdkInput.Closed -or $Configuration -cne 'Release'){throw 'SDK provenance requires the active Release reader.'}
+        $archive=Join-Path $SdkInput.SdkRoot "lib/$Platform/Release/DxUi.lib"
+        $source=$SdkInput.Descriptor.Value.sourceRoot
+        $identity=@{Fingerprint=$SdkInput.Evidence.inputKey;Identity=$SdkInput.Evidence.identity}
+        $recipe=$SdkInput.Evidence
+    }else{
     $dependencyRoot=Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot
     $identity=Get-Content -Raw -LiteralPath (Join-Path $dependencyRoot "DxUi.identity.$Platform.json") | ConvertFrom-Json
     if ($identity.Identity.commit -cne $pin.commit -or $identity.Identity.platform -cne $Platform) { throw 'Restored DxUi identity does not match the product pin/profile.' }
@@ -39,6 +48,7 @@ function Write-RedXeDxUiProvenance {
     }
     $archive=Join-Path $outputRoot "$Platform/$Configuration/DxUi.lib"
     $source=Get-RedXeDxUiSourcePath -RepoRoot $RepoRoot -Commit $pin.commit
+    }
     & (Join-Path $source 'Tools/validate_consumer.ps1') -DxUiRoot $source -LockFile $lockFile
     $output=Join-Path $RepoRoot ".build/$Platform/$Configuration"
     $modules=foreach ($module in @(Get-RedXeDxUiModuleDefinitions -ProductionOnly:$ProductionOnly)) {
@@ -54,7 +64,7 @@ function Write-RedXeDxUiProvenance {
     if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the pinned public headers.' }
     $record=[ordered]@{repository=$pin.repository;commit=$pin.commit;apiRevision=$pin.apiRevision;platform=$Platform;configuration=$Configuration;
         buildRole=$(if($ProductionOnly){'production-only'}else{'test-enabled'});
-        publicHeadersGitTree=$headers;buildIdentity=$identity;archiveSha256=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash;modules=@($modules)}
+        dependencyRecipe=$recipe;publicHeadersGitTree=$headers;buildIdentity=$identity;archiveSha256=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash;modules=@($modules)}
     $path=Join-Path $output 'DxUi.provenance.json'
     $json=$record | ConvertTo-Json -Depth 7
     if (-not (Test-Path -LiteralPath $path) -or [IO.File]::ReadAllText($path) -ne $json) { [IO.File]::WriteAllText($path,$json,[Text.UTF8Encoding]::new($false)) }

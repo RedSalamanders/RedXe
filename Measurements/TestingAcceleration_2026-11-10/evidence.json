@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "role": "I61LocalEvidenceCatalog",
+  "baseCommit": "7f135dcd005bd7b0e5c911cfe93e6563b1d7af30",
+  "hostedSdkHitAccepted": false,
+  "arm64RuntimeExecutedLocally": false,
+  "files": [
+    {
+      "path": ".build/evidence/i61-sdk-native-host/production-provenance.json",
+      "bytes": 3462,
+      "sha256": "bea065c5e710bd21bffc7059452fced6e9f5f41975c8858b5f04891a5a43c122"
+    },
+    {
+      "path": ".build/evidence/i61-sdk-native-host/test-provenance.json",
+      "bytes": 3691,
+      "sha256": "86280374286c059c62273dca57c4d7dce5a55ebcf2a1327d31c29099c7dc32ad"
+    },
+    {
+      "path": ".build/i61-sdk-build-final.log",
+      "bytes": 43662,
+      "sha256": "960201767756771fbae1373a0e8fdd8b8a9d257812402480ab73981309b32910"
+    },
+    {
+      "path": ".build/i61-sdk-build-process-controls.log",
+      "bytes": 173,
+      "sha256": "a842249fc02cd7ede6ff85669f8460abd855c4f02959800e23f2c98f8d65f4a0"
+    },
+    {
+      "path": ".build/i61-sdk-build.log",
+      "bytes": 2367,
+      "sha256": "bb75b042bd9471ef787da662a7213a7d44faa3eca6763dab1c1f03a83c9dffac"
+    },
+    {
+      "path": ".build/i61-sdk-cold-adapter-after.log",
+      "bytes": 114,
+      "sha256": "d028568a39bb6e8b6b773dc8d5f1589dfabe120ca69ff93b59d7f133d0325489"
+    },
+    {
+      "path": ".build/i61-sdk-cold-adapter-before.log",
+      "bytes": 264,
+      "sha256": "f4ab091888d081f48522fbeb7bf0445bbf93994246e1f4753154eeb20853e852"
+    },
+    {
+      "path": ".build/i61-sdk-dependencies.log",
+      "bytes": 13365,
+      "sha256": "ad9dbbe6ba375516d19178647e9e05af3b2ac6e8cb259e4909533719c6e20f6a"
+    },
+    {
+      "path": ".build/i61-sdk-fallback-runtime.log",
+      "bytes": 27007,
+      "sha256": "78ff2f126870a9c7a1fccd709a6c342f05be3d10e888b2efeb3d25f7c30dca24"
+    },
+    {
+      "path": ".build/i61-sdk-host-restoration-controls-final.log",
+      "bytes": 951,
+      "sha256": "161059c690d872db9d406b8203659ccc064af623167a5abe89f4959f5103d2ba"
+    },
+    {
+      "path": ".build/i61-sdk-host-restoration-controls.log",
+      "bytes": 513,
+      "sha256": "fa3258ad1eea6fd143778c2050f000d5b9cc2863ca498b072295268d22f4f94e"
+    },
+    {
+      "path": ".build/i61-sdk-identity-compare.log",
+      "bytes": 86,
+      "sha256": "ceb46e157fdee31e0296b6f9a7c47d63022563b70fa4b5d36f570b12e83d9648"
+    },
+    {
+      "path": ".build/i61-sdk-native-host-build.log",
+      "bytes": 9553,
+      "sha256": "c663bacfc763f33a8917e0002b649003e2fc4f7f0b883d34fc0a26d13d49964b"
+    },
+    {
+      "path": ".build/i61-sdk-native-host-runtime.log",
+      "bytes": 27012,
+      "sha256": "8c465bfe3876c5130414941e7c40b8509056d432ea4c7c5a50ab0cf534959121"
+    },
+    {
+      "path": ".build/i61-sdk-native-policy-controls.log",
+      "bytes": 151,
+      "sha256": "aaec1217467608eff987606c844c484592c445d590c55545462ce517f5446b4a"
+    },
+    {
+      "path": ".build/i61-sdk-package-corrected.log",
+      "bytes": 729,
+      "sha256": "1f855216a2803824ae7fa9e072d35609957c92f5cc805546618e14b268b843d3"
+    },
+    {
+      "path": ".build/i61-sdk-package.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".build/i61-sdk-production-build.log",
+      "bytes": 6095,
+      "sha256": "0b5ff4dc0468465e3fa21afce9e485e7565154d9699761e8b8c9e446fe40597c"
+    },
+    {
+      "path": ".build/i61-sdk-static-final.log",
+      "bytes": 45,
+      "sha256": "50155fa444a24817ef1b30e834c733c10e8f4d0d93a2c165558d3029f8ab0357"
+    },
+    {
+      "path": ".build/i61-sdk-static.log",
+      "bytes": 720,
+      "sha256": "c20acad78309db7c98f9842a266b783a78be2cb695d15583b532f183d2b9d5c6"
+    },
+    {
+      "path": ".build/i61-sdk-tooling-complete.log",
+      "bytes": 34947,
+      "sha256": "9f6fa0f9215229153f136b0378e234ac612baf83666a52a046d010dbaf6aa8d2"
+    },
+    {
+      "path": ".build/i61-sdk-tooling-final.log",
+      "bytes": 13067,
+      "sha256": "f947f8aac8f76e1f2e17d5c78140484076873ebcadaff818b0b63ccf10438143"
+    },
+    {
+      "path": ".build/i61-sdk-tooling.log",
+      "bytes": 7056,
+      "sha256": "abb80aa115629448f3ef81a0c61e0c8cc827d66c7f7c18e638351cf8aff36f41"
+    },
+    {
+      "path": ".build/i61-source-ARM64-ASan-Debug-build.log",
+      "bytes": 38694,
+      "sha256": "75b8ab5f3593c8432695f0325c473584f78f9594a78924b24933de3f656079b8"
+    },
+    {
+      "path": ".build/i61-source-ARM64-Debug-build.log",
+      "bytes": 51973,
+      "sha256": "85325f2dc6a6fbe2997e16fcee6833bff0c29262550ae88107cc52a3fc1bc7de"
+    },
+    {
+      "path": ".build/i61-source-ARM64-Release-build.log",
+      "bytes": 38319,
+      "sha256": "3d926cc0d1568800d38dd3ea8f65d74d491ab61ae9b0c445cabf0c8bb0d98752"
+    },
+    {
+      "path": ".build/i61-source-matrix-driver.log",
+      "bytes": 105,
+      "sha256": "77b459bd087f63ebd0228b3ffa6f3dc79342acf5aed1e20c963440ecb6983c28"
+    },
+    {
+      "path": ".build/i61-source-x64-ASan-Debug-build.log",
+      "bytes": 38030,
+      "sha256": "26304c30810a04d90f1cc5dc809843ba2f744e2d7cf50bd7f60979f4045d9bed"
+    },
+    {
+      "path": ".build/i61-source-x64-ASan-Debug-runtime.log",
+      "bytes": 23844,
+      "sha256": "4a4da105ce2ff7e2c6ad5129bf1b74e0e1da11f46a7e0d1fd32a5cc68b82a639"
+    },
+    {
+      "path": ".build/i61-source-x64-Debug-build.log",
+      "bytes": 37125,
+      "sha256": "1f0ffbd8f3040276710deca7c469c70c0207accfd4b3593868bb69dcac6c351d"
+    },
+    {
+      "path": ".build/i61-source-x64-Debug-runtime.log",
+      "bytes": 23869,
+      "sha256": "f42efc95d11cd52ce1f207972009aee1dc0c76e0ba17ca648d1fd9482bf996f5"
+    },
+    {
+      "path": ".build/sdk-consumer-controls/74a6556ff7484ec081460f4c8e76d177/controls.json",
+      "bytes": 2802,
+      "sha256": "f467872e07e63a7c0cdcf3f2be92f6f8b2d2a7ae5e7764d8a252a33de4b80232"
+    }
+  ]
+}

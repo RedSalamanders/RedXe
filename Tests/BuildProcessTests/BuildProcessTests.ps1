@@ -295,9 +295,12 @@ Z:\src\RedXe\Plugins\Launcher\Launcher.cpp(10,5): warning C4100: unreferenced pa
     $buildParseErrors = $null
     $buildAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repoRoot 'build.ps1'), [ref] $buildTokens, [ref] $buildParseErrors)
     $isCommand = { param([Management.Automation.Language.Ast] $Node, [string] $Name) $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -eq $Name }
-    $gates = @($buildAst.FindAll({ param($node) $node -is [Management.Automation.Language.TryStatementAst] -and $node.CatchClauses.Count -eq 1 -and
-                @($node.Body.FindAll({ param($inner) & $isCommand $inner 'Assert-NativeBuildDiagnostics' }, $true)).Count -eq 1 }, $true))
-    $gateCatch = if ($gates.Count -eq 1) { $gates[0].CatchClauses[0].Body } else { $null }
+    $assertions = @($buildAst.FindAll({ param($node) & $isCommand $node 'Assert-NativeBuildDiagnostics' }, $true))
+    $gate = if($assertions.Count -eq 1){$assertions[0].Parent}else{$null}
+    while($gate -and $gate -isnot [Management.Automation.Language.TryStatementAst]){$gate=$gate.Parent}
+    # Inspect the assertion's immediate error boundary, not every enclosing SDK/host
+    # boundary which also contains that assertion recursively.
+    $gateCatch = if ($gate -and $gate.CatchClauses.Count -eq 1) { $gate.CatchClauses[0].Body } else { $null }
     if ($buildParseErrors.Count -ne 0 -or $null -eq $gateCatch -or
         @($gateCatch.FindAll({ param($inner) & $isCommand $inner 'Reset-RedXeWarnedProjectTracking' }, $true)).Count -ne 1 -or
         @($gateCatch.FindAll({ param($inner) $inner -is [Management.Automation.Language.ThrowStatementAst] }, $true)).Count -ne 1 -or

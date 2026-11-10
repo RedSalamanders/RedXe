@@ -25,6 +25,8 @@ Package existing production-only Release output, with matching role provenance a
 
 .PARAMETER SkipExecution
 Validate the archive's contents only; do not start the packaged executables.
+.PARAMETER DxUiSdkInputDescriptor
+Reopens the exact build SDK for notice staging. Required when production provenance names an SDK recipe.
 
 .EXAMPLE
 .\package.ps1 -Platform x64 -BuildNumber 42
@@ -39,25 +41,40 @@ param(
     [int] $BuildNumber = 0,
 
     [switch] $SkipBuild,
-    [switch] $SkipExecution
+    [switch] $SkipExecution,
+    [string] $DxUiSdkInputDescriptor = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $repoRoot 'Build/DxUiRestore.psm1') -Force
+$compilerHost=Enter-RedXeCompilerHost
+$exitCompilerHost=Get-Command Exit-RedXeCompilerHost
+try{
 Import-Module (Join-Path $repoRoot 'Build\Versioning.psm1') -Force
 $BuildNumber = Resolve-RedXeBuildNumber -RepoRoot $repoRoot -Requested $BuildNumber
 if (-not $SkipBuild) {
-    & (Join-Path $repoRoot 'build.ps1') -Configuration Release -Platform $Platform -BuildNumber $BuildNumber -ProductionOnly
+    & (Join-Path $repoRoot 'build.ps1') -Configuration Release -Platform $Platform -BuildNumber $BuildNumber -ProductionOnly -DxUiSdkInputDescriptor $DxUiSdkInputDescriptor
     if ($LASTEXITCODE -ne 0) { throw "Build entrypoint failed with exit code $LASTEXITCODE." }
 }
 Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1')
 Assert-RedXeDxUiProvenance -OutputRoot (Join-Path $repoRoot ".build/$Platform/Release") -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json') -Platform $Platform -Configuration Release -ProductionOnly
+$record=Get-Content (Join-Path $repoRoot ".build/$Platform/Release/DxUi.provenance.json") -Raw|ConvertFrom-Json
+$sdk=$null;$packageFailure=$null
+try{
+if($record.PSObject.Properties['dependencyRecipe'] -and $record.dependencyRecipe.recipe -ceq 'PinnedReleaseSdkV1'){
+    if(-not $DxUiSdkInputDescriptor){throw 'Reopen the original production SDK using -DxUiSdkInputDescriptor before packaging its notices.'}
+    Import-Module (Join-Path $repoRoot '.ci-engine/Tools/Modules/Ci.SdkConsumer.psm1')
+    $sdk=Open-CiApplicationSdkInput -ProjectRoot $repoRoot -Descriptor $DxUiSdkInputDescriptor -Platform $Platform -Configuration Release
+    if($null -eq $sdk -or $sdk.Evidence.inputKey -cne $record.dependencyRecipe.inputKey -or
+        $sdk.Evidence.manifestSha256 -cne $record.dependencyRecipe.manifestSha256){throw 'Package SDK does not match the actual production build inputs.'}
+}
 
 Import-Module (Join-Path $repoRoot 'Build\Package.psm1') -Force
 Write-Host "Packaging Release | $Platform ..." -ForegroundColor Cyan
-$package = New-RedXePortablePackage -RepoRoot $repoRoot -Platform $Platform -BuildNumber $BuildNumber -SkipExecution:$SkipExecution
+$package = New-RedXePortablePackage -RepoRoot $repoRoot -Platform $Platform -BuildNumber $BuildNumber -SkipExecution:$SkipExecution -DxUiSdkInput $sdk
 Write-Host "Archiving symbols Release | $Platform ..." -ForegroundColor Cyan
 $symbols = New-RedXeSymbolArchive -RepoRoot $repoRoot -Version $package.Version -Platform $Platform -PackageEntries $package.Entries `
     -OutputDirectory (Split-Path -Parent $package.ZipPath)
@@ -70,4 +87,7 @@ Write-Host ("Size:    {0:N2} MB, {1} PDBs" -f ((Get-Item -LiteralPath $symbols.Z
 if ($symbols.Excluded.Count) {
     Write-Host ("No PDB (third-party): {0}" -f ((@($symbols.Excluded | Split-Path -Leaf) | Sort-Object -Unique) -join ', ')) -ForegroundColor DarkGray
 }
+}catch{$packageFailure=$_;throw}
+finally{if($null -ne $sdk){try{Close-CiPinnedSdkInput $sdk}catch{if($null -eq $packageFailure){throw}else{Write-Warning ('SDK package close also failed: '+$_.Exception.Message)}}}}
+}finally{& $exitCompilerHost -State $compilerHost}
 exit 0
