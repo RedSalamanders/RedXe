@@ -193,6 +193,58 @@ Export-ModuleMember -Function Open-CiApplicationSdkInput,Close-CiPinnedSdkInput
             throw 'Measurement provenance must be written only after the enclosing input lease finally completed.'
         }
         Write-Host 'PASS measurement publishes wrapper provenance only after successful final input verification'
+        $hashFunction=@($wrapper.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-InputHashes'},$true))
+        $snapshots=@($wrapper.EndBlock.Statements|Where-Object {$_.Extent.Text.StartsWith('$toolingPaths=') -or $_.Extent.Text.StartsWith('$toolingInputs=')})
+        $guards=@($wrapper.FindAll({param($node)$node -is [Management.Automation.Language.ForEachStatementAst] -and $node.Variable.Extent.Text -ceq '$inputSet'},$true))
+        $imports=@($wrapper.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Import-Module'},$true))
+        $localImports=@($imports|Where-Object {$_.Extent.Text.Contains("Build/DxUiProvenance.psm1") -or $_.Extent.Text.Contains("Build/DxUiRestore.psm1")})
+        if($localImports.Count -ne 2){throw 'Expected both canonical measurement modules.'}
+        $coldImports=Join-Path $fixture 'cold-measurement-imports.ps1'
+        $coldText='param($RepoRoot)'+"`n"+($localImports.Extent.Text -join "`n")+@'
+
+$ErrorActionPreference='Stop'
+$pin=Read-RedXeDxUiLock -LockFile (Join-Path $RepoRoot 'Dependencies/DxUi.lock.json')
+if(-not $pin.commit){throw 'Cold measurement cannot read its actual pin.'}
+$dependency=Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot
+if(-not $dependency){throw 'Cold Source measurement lost its restore helper.'}
+if(-not (Get-Command Open-RedXeDxUiMeasurementSdkInput -ErrorAction Stop)){throw 'Cold SDK measurement lost its provenance helper.'}
+'@
+        [IO.File]::WriteAllText($coldImports,$coldText)
+        & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $coldImports -RepoRoot $repo
+        if($LASTEXITCODE){throw 'Actual cold measurement imports lost Source or SDK helper visibility.'}
+        Write-Host 'PASS actual cold measurement module imports preserve Source and SDK helper bindings'
+        if($hashFunction.Count -ne 1 -or $snapshots.Count -ne 2 -or $guards.Count -ne 1 -or
+            $snapshots[-1].Extent.EndOffset -ge ($imports.Extent.StartOffset|Measure-Object -Minimum).Minimum -or
+            $guards[0].Extent.StartOffset -le $scope[0].Extent.EndOffset -or
+            $guards[0].Extent.EndOffset -ge $writes[0].Extent.StartOffset){
+            throw 'Measurement tooling must freeze before imports and be checked after finalization before publication.'
+        }
+        $guardRoot=Join-Path $fixture 'wrapper-input-guard'
+        [void][IO.Directory]::CreateDirectory((Join-Path $guardRoot 'Build'))
+        $guardPaths=@('measure-av-views.ps1','build.ps1','Build/DxUiProvenance.psm1','Build/DxUiRestore.psm1','Build/DxUiPaths.psm1')
+        $guardSetup=@'
+$exe=Join-Path $RepoRoot 'fixture.exe';$archive=Join-Path $RepoRoot 'archive.lib'
+$binaryInputs=Get-InputHashes @($exe,$archive)
+$fixturePaths=@();$productionPaths=@();$dependencyPaths=@()
+$fixtureInputs=@{};$productionInputs=@{};$dependencyInputs=@{}
+if($ChangedTool -cne 'Unchanged'){[IO.File]::AppendAllText((Join-Path $RepoRoot $ChangedTool),'changed during finalization')}
+'@
+        $guardScript='param($RepoRoot,$ChangedTool)'+"`n"+$hashFunction[0].Extent.Text+"`n"+($snapshots.Extent.Text -join "`n")+"`n"+$guardSetup+"`n"+$guards[0].Extent.Text
+        foreach($changedTool in @('Unchanged')+$guardPaths){
+            foreach($relative in $guardPaths+@('fixture.exe','archive.lib')){[IO.File]::WriteAllText((Join-Path $guardRoot $relative),'original owned fixture')}
+            # A real script file supplies its actual automatic PSCommandPath;
+            # evaluating the fragment in a dynamic block would make that empty.
+            [IO.File]::WriteAllText((Join-Path $guardRoot 'measure-av-views.ps1'),$guardScript)
+            $refused=$false
+            try{
+                & (Join-Path $guardRoot 'measure-av-views.ps1') -RepoRoot $guardRoot -ChangedTool $changedTool
+            }catch{
+                if($_.Exception.Message -notlike '*Measurement inputs changed during execution or finalization*'){throw}
+                $refused=$true
+            }
+            if($refused -ne ($changedTool -cne 'Unchanged')){throw "Actual wrapper input guard gave the wrong verdict for $changedTool."}
+        }
+        Write-Host 'PASS actual final measurement guard accepts unchanged tooling and rejects each wrapper/build/provenance/restore/path-helper mutation'
     }finally{
         & $provenanceModule {Remove-Item function:script:Find-RedXeMSBuild}
         Remove-Module $transport

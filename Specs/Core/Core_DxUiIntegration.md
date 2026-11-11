@@ -362,3 +362,13 @@ none may select Source as a fallback. The reader closes on success and failure,
 and a close failure cannot accept the measurement. Historical Source measurements
 retain their existing restore path. Packaging still requires its explicit original
 descriptor and production role; measurement metadata does not authorize packaging.
+
+Measurement freezes the actual wrapper, build entrypoint and local provenance,
+restore and dependency-path helpers before importing or executing them. The final
+publication check rehashes that tooling closure, the binary/archive, fixture and
+production inputs and original dependency descriptors after SDK close and compiler
+state restoration. Any changed or missing input leaves only the native raw result,
+without accepted wrapper provenance. Metadata records the captured tooling hashes;
+hashing only the wrapper's final bytes cannot attest the code that started the run.
+Cold measurement imports provenance before exporting its already loaded restore
+module, preserving both Source and SDK helper visibility without forced reloads.
