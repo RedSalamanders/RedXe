@@ -94,6 +94,16 @@ Open `RedXe.sln` for IDE development. Binaries are written to:
 .build\ARM64\Release\RedXe.exe
 ```
 
+Command-line builds require the shared engine at the exact `.ci/project.json` pin.
+In a fresh checkout, initialize it before building:
+
+```powershell
+git clone --no-checkout https://github.com/RedSalamanders/.github.git .ci-engine
+git -C .ci-engine checkout --detach ((Get-Content .ci/project.json -Raw | ConvertFrom-Json).engine.ref)
+```
+
+Keep an existing engine checkout clean and at that pin. MSBuild receives a private
+compiler metadata namespace without changing the caller's environment.
 The first command-line build clones and bootstraps the vcpkg commit pinned in `vcpkg-tool.json`, then installs the
 manifest from `vcpkg.json`. Its independent `builtin-baseline` supplies `.build/vcpkg-registry`, while the executable
 stays at `.build/vcpkg-tool`. Restore verifies both full Git identities and passes the catalogue with `--vcpkg-root`

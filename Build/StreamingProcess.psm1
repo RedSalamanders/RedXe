@@ -146,7 +146,7 @@ namespace RedXe.Build
         const uint HANDLE_FLAG_INHERIT = 0x1;
         const int STD_INPUT_HANDLE = -10;
         const int STARTF_USESTDHANDLES = 0x100;
-        const uint CREATE_SUSPENDED = 0x4, CREATE_NO_WINDOW = 0x08000000;
+        const uint CREATE_SUSPENDED = 0x4, CREATE_UNICODE_ENVIRONMENT = 0x400, CREATE_NO_WINDOW = 0x08000000;
         // Only this class's own starts are serialized; the child ends are inheritable just for one CreateProcess.
         static readonly object StartLock = new object();
         IntPtr handle;
@@ -162,12 +162,13 @@ namespace RedXe.Build
             }
         }
         // Starts the child the way Process.Start does with UseShellExecute off, CreateNoWindow, and both output
-        // streams redirected (quoted file name first, inherited environment and standard input, each stream decoded
+        // streams redirected (quoted file name first, inherited or explicitly overridden environment and inherited
+        // standard input, each stream decoded
         // with the encoding given for it or else the console output code page, as ProcessStartInfo's
         // StandardOutputEncoding and StandardErrorEncoding do), except that the child joins this job before its first
         // instruction runs.
         public ContainedProcess Start(string fileName, string arguments, string workingDirectory,
-            Encoding standardOutputEncoding, Encoding standardErrorEncoding)
+            Encoding standardOutputEncoding, Encoding standardErrorEncoding, string environmentBlock)
         {
             string file = fileName.Trim();
             var commandLine = new StringBuilder();
@@ -177,8 +178,12 @@ namespace RedXe.Build
 
             SafeFileHandle outputRead = null, outputWrite = null, errorRead = null, errorWrite = null;
             ProcessInformation info;
+            IntPtr environment = IntPtr.Zero;
+            // PowerShell binds an omitted string argument as empty rather than CLR null.
+            bool hasEnvironment = !string.IsNullOrEmpty(environmentBlock);
             try
             {
+                if (hasEnvironment) environment = Marshal.StringToHGlobalUni(environmentBlock);
                 if (!CreatePipe(out outputRead, out outputWrite, IntPtr.Zero, 0)) throw new Win32Exception();
                 if (!CreatePipe(out errorRead, out errorWrite, IntPtr.Zero, 0)) throw new Win32Exception();
                 var startup = new StartupInfo();
@@ -193,7 +198,7 @@ namespace RedXe.Build
                         !SetHandleInformation(errorWrite, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT))
                         throw new Win32Exception();
                     bool created = CreateProcessW(null, commandLine, IntPtr.Zero, IntPtr.Zero, true,
-                        CREATE_SUSPENDED | CREATE_NO_WINDOW, IntPtr.Zero,
+                        CREATE_SUSPENDED | CREATE_NO_WINDOW | (hasEnvironment ? CREATE_UNICODE_ENVIRONMENT : 0u), environment,
                         string.IsNullOrEmpty(workingDirectory) ? null : workingDirectory, ref startup, out info);
                     int error = Marshal.GetLastWin32Error();
                     // The child holds its own copies now; the parent's must close for end of file to arrive.
@@ -210,6 +215,10 @@ namespace RedXe.Build
                 if (errorRead != null) errorRead.Dispose();
                 if (errorWrite != null) errorWrite.Dispose();
                 throw;
+            }
+            finally
+            {
+                if (environment != IntPtr.Zero) Marshal.FreeHGlobal(environment);
             }
             // The child's clock starts immediately before its first thread can run: the process creation above is not
             // the child's time, and a caller that runs again only some time after the resume still counts all of it.
@@ -346,6 +355,10 @@ function Invoke-RedXeStreamingProcess {
 
         [string] $WorkingDirectory = (Get-Location).Path,
 
+        # Overrides apply only to this child and its descendants. A null value removes the inherited variable.
+        # MSBuild uses the shared engine's private metadata endpoint; ordinary test/app calls inherit unchanged.
+        [Collections.IDictionary] $EnvironmentOverrides,
+
         [Parameter(Mandatory)]
         [string] $LogPath,
 
@@ -400,13 +413,32 @@ function Invoke-RedXeStreamingProcess {
         $logWriter = [IO.StreamWriter]::new($resolvedLogPath, $false, $encoding)
 
         $budgetClock = $null
+        $environmentInfo = $null
+        $environmentBlock = $null
+        if ($null -ne $EnvironmentOverrides) {
+            $environmentInfo = [Diagnostics.ProcessStartInfo]::new()
+            foreach ($entry in $EnvironmentOverrides.GetEnumerator()) {
+                if ([string]::IsNullOrEmpty([string] $entry.Key) -or [string] $entry.Key -match '[=\x00]' -or
+                    ($null -ne $entry.Value -and ([string] $entry.Value).Contains([char] 0))) {
+                    throw 'Child environment overrides require nonempty names without equals/NUL and values without NUL.'
+                }
+                if ($null -eq $entry.Value) { [void] $environmentInfo.Environment.Remove([string] $entry.Key) }
+                else { $environmentInfo.Environment[[string] $entry.Key] = [string] $entry.Value }
+            }
+            # CreateProcessW requires a case-insensitively sorted Unicode block with two terminal NULs.
+            $names = [string[]] @($environmentInfo.Environment.Keys)
+            [Array]::Sort($names, [StringComparer]::OrdinalIgnoreCase)
+            $environmentBlock = (@(foreach ($name in $names) {
+                $name + '=' + $environmentInfo.Environment[$name]
+            }) -join [char] 0) + [char] 0 + [char] 0
+        }
         if ($TimeoutSeconds -gt 0) {
             # A bounded child is started by a job object with kill-on-close and belongs to it before it runs, so the
             # whole tree is contained: a descendant that inherited the redirected pipe and outlived the child is still
             # terminated at the budget and when this call returns.
             $job = New-RedXeContainmentJob
             $process = $job.Start($FilePath, (ConvertTo-RedXeProcessCommandLine -Arguments $Arguments), $WorkingDirectory,
-                $StandardOutputEncoding, $StandardErrorEncoding)
+                $StandardOutputEncoding, $StandardErrorEncoding, $environmentBlock)
             # The budget is the child's: the job started this clock immediately before it resumed the child, so it
             # counts every moment the child can run, even while this thread waits to run again after the resume. The
             # first bounded call in a session compiles the job type above, which took over a second on a loaded
@@ -429,6 +461,12 @@ function Invoke-RedXeStreamingProcess {
                 $startInfo.StandardErrorEncoding = $StandardErrorEncoding
             }
             $startInfo.CreateNoWindow = $true
+            if ($null -ne $environmentInfo) {
+                $startInfo.Environment.Clear()
+                foreach ($entry in $environmentInfo.Environment.GetEnumerator()) {
+                    $startInfo.Environment[$entry.Key] = $entry.Value
+                }
+            }
             $process = [Diagnostics.Process]::new()
             $process.StartInfo = $startInfo
             if (-not $process.Start()) {

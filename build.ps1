@@ -152,16 +152,21 @@ $stageLabel = if ($Clean) { '[1/1]' } else { '[2/2]' }
 Write-Host "$stageLabel $target" -ForegroundColor Cyan
 Write-Host "MSBuild: $msbuild" -ForegroundColor DarkGray
 
+Import-Module (Join-Path $repoRoot '.ci-engine/Tools/Modules/Ci.Policy.psm1')
 if ($invocationPlan.UseDirectConsole) {
     $directArguments = @($arguments + @($invocationPlan.AdditionalArguments))
-    & $msbuild @directArguments
-    $exitCode = $LASTEXITCODE
+    $exitCode = Invoke-CiNativeCommand -FilePath $msbuild -Arguments $directArguments -WorkingDirectory $repoRoot
 }
 else {
+    $nativeStart = [Diagnostics.ProcessStartInfo]::new()
+    $nativeStart.FileName = $msbuild
+    $nativeStart.UseShellExecute = $false
+    $null = Set-CiNativeProcessEnvironment -ProcessStartInfo $nativeStart
     $exitCode = Invoke-RedXeStreamingProcess `
         -FilePath $msbuild `
         -Arguments $arguments `
         -WorkingDirectory $repoRoot `
+        -EnvironmentOverrides @{ _MSPDBSRV_ENDPOINT_ = $nativeStart.Environment['_MSPDBSRV_ENDPOINT_'] } `
         -LogPath $logPath `
         -OutputLineCallback {
         param(

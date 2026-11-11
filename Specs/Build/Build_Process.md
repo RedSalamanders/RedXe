@@ -182,6 +182,20 @@ harness, two minutes to its `--help`, unknown-switch and routing checks, and sho
 tails, which never stream to the console, for a run ended at its budget as well as for a failing exit code.
 
 `Invoke-RedXeStreamingProcess` (`Build/StreamingProcess.psm1`) MUST also hold to the following. `BuildProcessTests.ps1`
+proves child-only environment overrides on both direct and suspended/contained paths:
+literal Unicode, newline, equals and quote values, removal, inherited system values,
+unchanged caller environment and exact child PID. Overrides reject invalid names/NUL
+values before launch. The bounded path serializes a sorted Unicode environment block,
+passes CREATE_UNICODE_ENVIRONMENT and frees its owned allocation on success/failure.
+The direct path uses ProcessStartInfo.Environment with identical semantics.
+MSBuild obtains a fresh private compiler metadata endpoint from the exact pinned
+shared engine's Set-CiNativeProcessEnvironment helper, passes it through this boundary
+for streaming, and uses Invoke-CiNativeCommand for interactive console launches.
+Only the MSBuild child/descendants receive this endpoint; no parent environment mutation
+or additional PowerShell wrapper is introduced for application/test processes.
+The exact clean .ci-engine checkout is a prerequisite of build.ps1.
+
+`BuildProcessTests.ps1` also
 covers a child that never stops writing, a caller held up after the resume until the child has run past its budget (the
 child is terminated at the first check and never finishes on its own), the exit grace with a drained last line, a child
 that starts nothing and exits while a slow callback presents its backlog for longer than the grace (every line
