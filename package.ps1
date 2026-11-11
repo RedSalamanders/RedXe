@@ -52,6 +52,7 @@ $repoRoot = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $repoRoot 'Build/DxUiRestore.psm1') -Force
 $compilerHost=Enter-RedXeCompilerHost
 $exitCompilerHost=Get-Command Exit-RedXeCompilerHost
+$findPackageMSBuild=Get-Command Find-RedXeMSBuild
 try{
 Import-Module (Join-Path $repoRoot 'Build\Versioning.psm1') -Force
 $BuildNumber = Resolve-RedXeBuildNumber -RepoRoot $repoRoot -Requested $BuildNumber
@@ -69,7 +70,7 @@ if($record.PSObject.Properties['dependencyRecipe'] -and $record.dependencyRecipe
 if($record.PSObject.Properties['dependencyRecipe'] -and $record.dependencyRecipe.recipe -cin $knownSdkRecipes){
     if(-not $DxUiSdkInputDescriptor){throw 'Reopen the original production SDK using -DxUiSdkInputDescriptor before packaging its notices.'}
     Import-Module (Join-Path $repoRoot '.ci-engine/Tools/Modules/Ci.SdkConsumer.psm1')
-    $sdk=Open-CiApplicationSdkInput -ProjectRoot $repoRoot -Descriptor $DxUiSdkInputDescriptor -Platform $Platform -Configuration Release -MSBuildPath (Find-RedXeMSBuild)
+    $sdk=Open-CiApplicationSdkInput -ProjectRoot $repoRoot -Descriptor $DxUiSdkInputDescriptor -Platform $Platform -Configuration Release -MSBuildPath (& $findPackageMSBuild)
     if($null -eq $sdk -or $sdk.Evidence.inputKey -cne $record.dependencyRecipe.inputKey -or
         $sdk.Evidence.manifestSha256 -cne $record.dependencyRecipe.manifestSha256){throw 'Package SDK does not match the actual production build inputs.'}
 }

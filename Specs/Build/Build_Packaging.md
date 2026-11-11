@@ -7,6 +7,13 @@ Owner: `package.ps1`, `winget-manifest.ps1`, `Build/Versioning.psm1`, `Build/Pac
 
 ## Scope
 
+The package entrypoint retains the selected MSBuild getter as a command object
+before invoking build/provenance modules. Nested dependency imports may replace
+outer exports; reopening the original SDK must still use that selected getter.
+Missing or mismatched original SDK provenance continues to fail packaging. The
+regression executes the actual package call branch after removing the function
+export, preserving literal SDK/profile arguments and the original reader result.
+
 This contract owns the product version stamp, the portable ZIP package and its clean-extraction smoke, the symbols ZIP
 released beside it, the installer that ships inside the package, the command-alias launcher, the release workflow, and
 winget publication. Build output selection and the running-target preflight remain in
