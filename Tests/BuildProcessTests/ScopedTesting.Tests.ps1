@@ -232,8 +232,10 @@ try {
         if($LASTEXITCODE){throw "Owned engine fixture clone failed: $cloneOutput"}
         $toolingBefore=Get-ScopedSourceIdentity $product
         $buildBefore=Get-ScopedSourceIdentity $product -CompiledOnly
-        Assert-Scope ((Get-ScopedSourceIdentity $product.ToUpperInvariant()) -ceq $toolingBefore) 'Windows path casing invalidated tooling evidence'
-        Assert-Scope ((Get-ScopedSourceIdentity $product.ToUpperInvariant() -CompiledOnly) -ceq $buildBefore) 'Windows path casing invalidated build evidence'
+        if([OperatingSystem]::IsWindows()){
+            Assert-Scope ((Get-ScopedSourceIdentity $product.ToUpperInvariant()) -ceq $toolingBefore) 'Windows path casing invalidated tooling evidence'
+            Assert-Scope ((Get-ScopedSourceIdentity $product.ToUpperInvariant() -CompiledOnly) -ceq $buildBefore) 'Windows path casing invalidated build evidence'
+        }
         Write-Fixture (Join-Path $engine '.build/fixture-output.json') '{"generated":true}'
         Assert-Scope ((Get-ScopedSourceIdentity $product) -ceq $toolingBefore) 'Generated engine output invalidated tooling'
         Assert-Scope ((Get-ScopedSourceIdentity $product -CompiledOnly) -ceq $buildBefore) 'Generated engine output invalidated build evidence'
