@@ -30,3 +30,12 @@ runs recorded approximately 1.1 MiB and remain those original narrower results.
 Attribution is unresolved; do not replace this failure with a passing retry or
 claim final merge acceptance. Its original run/log and values are retained in
 qualification.json. The measurement-routing repair is ready for review as a draft.
+
+The follow-up final wrapper freezes its complete local tooling before import and
+rechecks all inputs after SDK close/restoration. Cold Source and SDK helper
+visibility and each helper-mutation refusal pass. Both final Source and local-origin
+SDK measurements passed six scenarios with five rounds; original identities are in
+[the follow-up record](final-tooling-closure.json). Complete independent tooling,
+static and canonical formatting pass. A separate unchanged-budget canonical
+HostPlugin sequence passed with about2.47MiB peak private growth; it remains an
+attribution diagnostic and does not supersede the original failed PrePush.

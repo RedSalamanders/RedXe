@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "implementationCommit": "e30e0060b8669f92d9d0fa01bd2b070915c10a94",
+  "role": "FinalMeasurementToolingClosure",
+  "source": {
+    "measurement": ".build/i61-measurement-final-source/a060e564aacf454b92365bd91df249de/source-measurement.json",
+    "sha256": "45a97c7f4076876465a4b05b509829ccc267e1162dd8f893c1c6081883971bce"
+  },
+  "sdk": {
+    "measurement": ".build/i61-final-sdk-measurement/5ec2180b835b4942904365659e1049e9/measurement.json",
+    "producer": "6111102",
+    "localOriginOnly": true,
+    "sha256": "2f7161321f53599a97228bb8411065750342407d29135c27abe37954794f11b2"
+  },
+  "toolingControls": "All final independent tooling and cold Source/SDK import and per-helper mutation controls passed",
+  "originalPrePushSuperseded": false,
+  "originalMemoryFailureRun": "20261110T215000516Z-57624-4e21abc256bd4d75a86d12da448d6536",
+  "controlledPerformanceQualified": false
+}
