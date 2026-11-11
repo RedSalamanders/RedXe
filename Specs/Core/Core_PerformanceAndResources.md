@@ -878,6 +878,11 @@ remain with the AV owner.
   profile and machine context. Compare identical fixture/product source on the same quiet machine and
   retain all runs, including baseline-versus-baseline noise checks. These measurements do not establish
   presented FPS, peak memory, allocation counts, hardware AV or real-client accessibility acceptance.
+  Both pinned Source and verified Release SDK builds are supported. Measurement
+  retains the selected SDK reader throughout execution and checks the original
+  descriptor, provenance, archive, modules, fixture and production sources before
+  and after all rounds. SDK provenance never depends on skipped Source restore
+  files. See `Core_DxUiIntegration.md` for descriptor and lease refusal rules.
 - Debug and Release x64 WARP smoke tests must pass.
 - Current composition accounting (2026-10-11) is retained in `.build/receipts/runtime-2026-10-11-p04-accounting`
   and `-p04-accounting-canonical`. The 2560×720 / 96-DPI Focus Matrix grid calculates 5,248 glyph instances;

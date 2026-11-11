@@ -1,0 +1,1 @@
+- Bind local build and native/tooling evidence to the actual pinned engine checkout, closing the ignored-engine input gap. Missing, modified, foreign or wrong-version engines refuse reuse; generated engine build outputs remain excluded, and existing local/main gates remain required.

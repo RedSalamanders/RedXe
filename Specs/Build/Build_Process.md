@@ -182,6 +182,20 @@ harness, two minutes to its `--help`, unknown-switch and routing checks, and sho
 tails, which never stream to the console, for a run ended at its budget as well as for a failing exit code.
 
 `Invoke-RedXeStreamingProcess` (`Build/StreamingProcess.psm1`) MUST also hold to the following. `BuildProcessTests.ps1`
+proves child-only environment overrides on both direct and suspended/contained paths:
+literal Unicode, newline, equals and quote values, removal, inherited system values,
+unchanged caller environment and exact child PID. Overrides reject invalid names/NUL
+values before launch. The bounded path serializes a sorted Unicode environment block,
+passes CREATE_UNICODE_ENVIRONMENT and frees its owned allocation on success/failure.
+The direct path uses ProcessStartInfo.Environment with identical semantics.
+MSBuild obtains a fresh private compiler metadata endpoint from the exact pinned
+shared engine's Set-CiNativeProcessEnvironment helper, passes it through this boundary
+for streaming, and uses Invoke-CiNativeCommand for interactive console launches.
+Only the MSBuild child/descendants receive this endpoint; no parent environment mutation
+or additional PowerShell wrapper is introduced for application/test processes.
+The exact clean .ci-engine checkout is a prerequisite of build.ps1.
+
+`BuildProcessTests.ps1` also
 covers a child that never stops writing, a caller held up after the resume until the child has run past its budget (the
 child is terminated at the first check and never finishes on its own), the exit grace with a drained last line, a child
 that starts nothing and exits while a slow callback presents its backlog for longer than the grace (every line
@@ -277,6 +291,21 @@ Active native test sources, helpers, fixtures and seams MUST use `Scope.Tests.So
 Every `Test-Changes.ps1` run that does not fail ends with a coverage label, except `-Explain`, which ends with the plan. An empty affected plan MUST end with `NOTHING_SELECTED; repository NOT_EVALUATED` and exit 0: it evaluated nothing, so it is never a gate; `test.ps1 -Full` and `-Mode Full` are. A Git failure in scope discovery MUST name the Git command and its exit code. A base ref that does not resolve, or one that shares no history with `HEAD` (a shallow or unrelated clone), fails affected selection with that failure and the remedy: fetch, deepen, pass `-BaseRef`, or run the full gate; so does a tree without Git or a work tree. An ordinary `test.ps1` call (only `-Platform`, `-Configuration` or `-SkipBuild` bound) runs this affected selection; when it cannot compare (no Git, no work tree, no `origin/<default branch>`, no shared history) `test.ps1` MUST say why and run every suite, as `-Full` does.
 
 Successful whole-scope results are reused only for equal repository content, complete executable/DLL/PDB output closure, stable deployed settings/schema and DxUi provenance bytes, architecture, configuration, scope, runner and environment. Every required deployed input must exist and the binary closure must be nonempty before an identity is established. Changes or deletion of those deployed inputs invalidate reuse; generated reports and test-owned fixtures do not enter that stable runtime closure. Build attestation binds source inputs to those artifacts before SkipBuild. The attestation and native identities exclude owned prose and the `docs/`, `Measurements/`, `Mockups/` and `Specs/Plans/` folders except explicitly declared runtime inputs. Test data, fixture README files, embedded resources, unknown implementation-local Markdown and explicit native Markdown/exclusive rules retain byte identity. Tooling identities also include prose because validators read it. Invalid, missing, failed, interrupted or concurrently mutated evidence is never reusable. Force bypasses test-result reuse. Independent tooling receipts are shared across profiles because their execution has no profile argument. Receipt identity is content-based; staging/committing the same source tree does not itself invalidate it.
+
+The actual generated `.ci-engine` is also an input of local build attestations and
+native/tooling evidence, even though product Git discovery ignores it. Source identity
+includes the shared `Get-CiPinnedEngineInputsIdentity` result for this exact checkout.
+An absent, foreign, dirty or wrong-pin engine refuses before evidence reuse. Current
+raw engine source bytes are hashed afresh; generated engine `.build` output is excluded.
+This identity grants no qualification result or CI delegation.
+
+Independent tooling publishes its own successful receipt immediately after the complete
+original source/tool/environment closure verifies, before native execution. A later
+native failure or interruption preserves that proof and its original receipt bytes.
+Failed or input-mutating independent checks publish no success and stop before native
+execution. Native results remain separate; a later source mutation invalidates their
+own evidence and prevents current-tree completion. Pending CI or a retained independent
+pass does not close native, whole-run, manual or platform gates.
 
 `Test-Changes.ps1` MUST resolve one build number per run and pass it to `build.ps1 -BuildNumber` and `test.ps1 -BuildNumber`, and the build attestation MUST bind it. The number is the commit count of the merge base of `HEAD` with `origin/<default branch>`, or the default build number ([`Build_Packaging.md`](Build_Packaging.md)) when that ref does not resolve. A commit therefore leaves the version stamp, the binaries and native receipts unchanged; moving to a newer base changes the stamp, relinks the version-stamped binaries and invalidates native receipts, and SkipBuild then refuses with "Run without -SkipBuild" before any test runs. Binaries built this way carry the base's version, not a release number: `test.ps1 -Full -SkipBuild` or an explicit `-Suites` run on them needs the same `-BuildNumber`, which the run prints.
 

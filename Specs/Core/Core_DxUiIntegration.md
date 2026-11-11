@@ -349,3 +349,26 @@ SDK provenance records the original input key/manifest and the exact archive
 named by each consumer's link command. Runtime tests retain their module/pin/role
 checks. Packaging reopens the same input and refuses a different key/manifest,
 retaining its complete notices in `DxUi-licenses` through a verified reader.
+
+Offscreen AV measurement uses the test-enabled build's selected dependency
+recipe. SDK provenance retains the original descriptor path and SHA256 beside
+the existing input key/manifest and archive hash. `measure-av-views.ps1` reopens
+that descriptor (or an explicitly supplied equivalent original descriptor) through
+the canonical SDK reader, checks its key, manifest and archive against the
+verified module provenance, and holds the reader through all measurement rounds.
+It uses the reader's source/archive paths without requiring Source restore files.
+Missing descriptors, unknown recipes, changed modules or changed SDK inputs fail;
+none may select Source as a fallback. The reader closes on success and failure,
+and a close failure cannot accept the measurement. Historical Source measurements
+retain their existing restore path. Packaging still requires its explicit original
+descriptor and production role; measurement metadata does not authorize packaging.
+
+Measurement freezes the actual wrapper, build entrypoint and local provenance,
+restore and dependency-path helpers before importing or executing them. The final
+publication check rehashes that tooling closure, the binary/archive, fixture and
+production inputs and original dependency descriptors after SDK close and compiler
+state restoration. Any changed or missing input leaves only the native raw result,
+without accepted wrapper provenance. Metadata records the captured tooling hashes;
+hashing only the wrapper's final bytes cannot attest the code that started the run.
+Cold measurement imports provenance before exporting its already loaded restore
+module, preserving both Source and SDK helper visibility without forced reloads.

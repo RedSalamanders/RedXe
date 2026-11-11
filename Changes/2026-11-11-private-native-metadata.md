@@ -1,0 +1,1 @@
+- Give each MSBuild operation a private compiler metadata namespace through the pinned shared engine, preserving live console/log output and caller state. Child environment transport retains direct process identity and suspended containment, with Unicode/override/removal and timeout/lifetime regression controls; existing native qualification gates remain required.

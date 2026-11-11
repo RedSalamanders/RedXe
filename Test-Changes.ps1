@@ -4,7 +4,10 @@ Runs affected test scopes, reusing identical successful local results.
 .DESCRIPTION
 The default compares committed work since the local merge base plus staged, unstaged,
 deleted, renamed and untracked files. Unknown inputs select full coverage. Full selects
-every noninteractive scope. PrePush delegates matching scopes only to an enabled and
+every noninteractive scope. Independent tooling retains its own verified unchanged
+success before native execution; a later native failure does not erase that proof.
+Failed or input-mutating independent work stops before native execution.
+PrePush delegates matching scopes only to an enabled and
 reviewed candidate PR workflow whose checks the default branch requires; remaining
 obligations execute locally. CI never runs this script as a gate: it runs test.ps1 -Full
 -SkipTooling and the tooling tests, whose public-runner case executes a copy of this script
@@ -136,6 +139,15 @@ if ($pending.Count) {
             & (Join-Path $root $command)
             if (-not $? -or $LASTEXITCODE -ne 0) {throw "Tooling failed: $command (exit $LASTEXITCODE)."}
         }
+        # Preserve this completed obligation before a later native failure. Tooling may reload
+        # scoped helpers; reacquire them and verify its entire original source/tool/environment closure.
+        Import-Module $modulePath -Force
+        $afterIndependent=Get-ScopedDigest ((Get-ScopedSourceIdentity $root)+"`n"+(Get-ScopedEnvironmentIdentity -Tooling))
+        if($afterIndependent -cne $commonTooling){throw 'Inputs changed during independent tooling; no reusable success was published and native execution did not begin.'}
+        foreach($scope in $tooling){
+            if($scope.reuse){Write-ScopedReceipt (Get-ScopeReceiptPath $scope) $identities[$scope.name]}
+            Write-Host "PASSED $($scope.name) (independent obligation; native coverage remains separate)"
+        }
     }
     if ($runtime.Count) {
         & (Join-Path $root 'test.ps1') -Platform $Platform -Configuration $Configuration -SkipBuild -Suites $runtime -BuildNumber $buildNumber
@@ -146,7 +158,7 @@ if ($pending.Count) {
     $afterTooling=Get-ScopedDigest ((Get-ScopedSourceIdentity $root)+"`n"+(Get-ScopedEnvironmentIdentity -Tooling))
     # A scope whose inputs changed while it ran passed on the tree as it started: it is not recorded, the others are.
     $mutated=@($pending | Where-Object {(Get-ScopedDigest ($(if ($_.native) {$afterNative} else {$afterTooling})+"`n"+$_.name)) -cne $identities[$_.name]} | ForEach-Object {$_.name})
-    foreach ($scope in $pending) {
+    foreach ($scope in @($pending | Where-Object native)) {
         if ($scope.reuse -and $scope.name -notin $mutated) {Write-ScopedReceipt (Get-ScopeReceiptPath $scope) $identities[$scope.name]}
     }
     if ($mutated.Count) {Write-Warning "Inputs changed while $($mutated -join ', ') ran: they passed on the tree as it started and are not recorded for reuse. Run again to cover the current tree."}

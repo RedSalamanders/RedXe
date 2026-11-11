@@ -1,0 +1,1 @@
+- Preserve successful independent tooling evidence before native tests after verifying its complete unchanged source/tool/environment inputs. Native failures retain that proof for exact retries; failed or input-mutating independent checks publish no success and stop before native execution, while native and whole-run coverage remain separate.

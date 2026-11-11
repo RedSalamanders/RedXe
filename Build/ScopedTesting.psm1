@@ -239,6 +239,13 @@ function Get-ScopedSourceIdentity {
         $value = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash
         $rows.Add("$path`0$value")
     }
+    if(Test-Path -LiteralPath (Join-Path $Root '.ci/project.json') -PathType Leaf){
+        # The generated engine is ignored by product Git discovery but executes during local validation.
+        # Keep its actual pinned raw bytes in build attestations and native/tooling identities alike.
+        Import-Module (Join-Path $Root '.ci-engine/Tools/Modules/Ci.SourceInputs.psm1') -ErrorAction Stop
+        $engineInputs=Get-CiPinnedEngineInputsIdentity -Root $Root
+        $rows.Add(".ci-engine/.inputs-identity`0$engineInputs")
+    }
     return Get-ScopedDigest ($rows -join "`n")
 }
 

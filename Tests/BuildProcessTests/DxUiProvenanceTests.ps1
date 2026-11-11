@@ -87,6 +87,168 @@ try {
         if ((Write-OutputRoot $spelling) -like '*does not match the resolved output root*') { throw "Provenance rejected the output root its identity named, spelled $spelling." }
     }
     Write-Host 'PASS provenance writer accepts the output root its identity named, however it is spelled'
+
+    # Exercise the real measurement gate with a recording SDK transport boundary.
+    # These are data/lease controls, not native ABI or performance qualification.
+    $output=Join-Path $product '.build/x64/Release'
+    [void][IO.Directory]::CreateDirectory((Join-Path $output 'Plugins'))
+    $measurementModules=foreach($name in @('RedXe.exe','Plugins/AVControl.dll','AVControlTests.exe')){
+        $path=Join-Path $output $name
+        [IO.File]::WriteAllText($path,"measurement fixture $name")
+        @{path=$name;sha256=(Get-FileHash -LiteralPath $path).Hash}
+    }
+    $descriptor=Join-Path $product 'descriptor.json'
+    [IO.File]::WriteAllText($descriptor,'{"recordingTransportOnly":true}')
+    $sdkRoot=Join-Path $product 'sdk'
+    $archive=Join-Path $sdkRoot 'lib/x64/Release/DxUi.lib'
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $archive))
+    [IO.File]::WriteAllText($archive,'recording SDK archive')
+    $transportPath=Join-Path $product '.ci-engine/Tools/Modules/Ci.SdkConsumer.psm1'
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $transportPath))
+    [IO.File]::WriteAllText($transportPath,@'
+function Open-CiApplicationSdkInput {
+    param($ProjectRoot,$Descriptor,$Platform,$Configuration,$MSBuildPath)
+    $script:opens++
+    if($MSBuildPath -cne 'recording-msbuild'){throw 'Unexpected compiler discovery boundary.'}
+    return $script:reader
+}
+function Close-CiPinnedSdkInput {
+    param($Reader)
+    $script:closes++
+    $Reader.Closed=$true
+    if($script:closeFails){throw 'recording close failure'}
+}
+Export-ModuleMember -Function Open-CiApplicationSdkInput,Close-CiPinnedSdkInput
+'@)
+    $transport=Import-Module $transportPath -PassThru
+    $provenanceModule=Get-Module DxUiProvenance
+    & $provenanceModule { function script:Find-RedXeMSBuild { 'recording-msbuild' } }
+    try{
+        function Reset-MeasurementFixture([string]$Recipe='PinnedQualifiedReleaseSdkV2'){
+            $script:measurementRecord=@{repository='https://github.com/RedSalamanders/DxUi';commit=('a'*40);apiRevision=4;
+                platform='x64';configuration='Release';buildRole='test-enabled';modules=@($measurementModules|ConvertTo-Json -Depth 5|ConvertFrom-Json);
+                dependencyRecipe=@{recipe=$Recipe;inputKey=('1'*64);manifestSha256=('2'*64)};
+                archiveSha256=(Get-FileHash -LiteralPath $archive).Hash;
+                sdkInputDescriptor=@{path=$descriptor;sha256=(Get-FileHash -LiteralPath $descriptor).Hash.ToLowerInvariant()}}
+            $reader=[pscustomobject]@{Closed=$false;SdkRoot=$sdkRoot;Descriptor=[pscustomobject]@{Path=$descriptor};
+                Evidence=[pscustomobject]@{recipe=$Recipe;inputKey=('1'*64);manifestSha256=('2'*64)}}
+            & $transport {param($Reader)$script:reader=$Reader;$script:opens=0;$script:closes=0;$script:closeFails=$false} $reader
+        }
+        function Save-MeasurementFixture {
+            $script:measurementRecord|ConvertTo-Json -Depth 8|Set-Content -LiteralPath (Join-Path $output 'DxUi.provenance.json')
+        }
+        function Assert-MeasurementCounts([int]$Opens,[int]$Closes){
+            $counts=& $transport {@($script:opens,$script:closes)}
+            if($counts[0] -ne $Opens -or $counts[1] -ne $Closes){throw "Unexpected SDK lease counts: $counts; expected $Opens/$Closes"}
+        }
+        function Refuse-Measurement([string]$Pattern,[int]$Opens=0,[int]$Closes=0){
+            Save-MeasurementFixture
+            $message=''
+            try{Open-RedXeDxUiMeasurementSdkInput -RepoRoot $product -Platform x64 -Configuration Release|Out-Null}catch{$message=$_.Exception.Message}
+            if($message -notlike $Pattern){throw "Measurement refusal differed: $message; expected $Pattern"}
+            Assert-MeasurementCounts $Opens $Closes
+        }
+        if($null -ne (Open-RedXeDxUiMeasurementSdkInput -RepoRoot $product -Platform x64 -Configuration Release)){throw 'Historical Source unexpectedly acquired SDK inputs.'}
+        foreach($recipe in @('PinnedReleaseSdkV1','PinnedQualifiedReleaseSdkV2')){
+            Reset-MeasurementFixture $recipe;Save-MeasurementFixture
+            $reader=Open-RedXeDxUiMeasurementSdkInput -RepoRoot $product -Platform x64 -Configuration Release
+            if($null -eq $reader -or $reader.Closed){throw 'Measurement did not retain its live SDK reader.'}
+            Assert-MeasurementCounts 1 0
+            & $transport {param($Reader)Close-CiPinnedSdkInput $Reader} $reader
+            Assert-MeasurementCounts 1 1
+        }
+        Reset-MeasurementFixture 'PinnedSource';Save-MeasurementFixture
+        if($null -ne (Open-RedXeDxUiMeasurementSdkInput -RepoRoot $product -Platform x64 -Configuration Release)){throw 'Source unexpectedly entered SDK transport.'}
+        Assert-MeasurementCounts 0 0
+        $measurementRecord.Remove('dependencyRecipe');$measurementRecord.Remove('buildRole');Save-MeasurementFixture
+        if($null -ne (Open-RedXeDxUiMeasurementSdkInput -RepoRoot $product -Platform x64 -Configuration Release)){throw 'Legacy Source unexpectedly entered SDK transport.'}
+        Reset-MeasurementFixture 'UnreviewedSdk';Refuse-Measurement '*Unsupported measurement dependency recipe*'
+        Reset-MeasurementFixture;$measurementRecord.buildRole='production-only';Refuse-Measurement '*build role*'
+        Reset-MeasurementFixture;$measurementRecord.Remove('sdkInputDescriptor');Refuse-Measurement '*original descriptor*'
+        Reset-MeasurementFixture;$measurementRecord.sdkInputDescriptor.sha256='3'*64;Refuse-Measurement '*descriptor changed*'
+        Reset-MeasurementFixture;$measurementRecord.commit='b'*40;Refuse-Measurement '*Stale DxUi product provenance*'
+        Reset-MeasurementFixture;$measurementRecord.modules[0].sha256='4'*64;Refuse-Measurement '*Stale or missing DxUi consumer module*'
+        foreach($field in @('recipe','inputKey','manifestSha256')){
+            Reset-MeasurementFixture
+            & $transport {param($Field)$script:reader.Evidence.$Field='different'} $field
+            Refuse-Measurement '*does not match the actual test build inputs*' 1 1
+        }
+        Reset-MeasurementFixture;$measurementRecord.archiveSha256='5'*64;Refuse-Measurement '*archive differs from the linked build input*' 1 1
+        Reset-MeasurementFixture;$measurementRecord.archiveSha256='5'*64
+        & $transport {$script:closeFails=$true}
+        Refuse-Measurement '*archive differs from the linked build input*' 1 1
+        Reset-MeasurementFixture;$measurementRecord.Remove('sdkInputDescriptor');Save-MeasurementFixture
+        $reader=Open-RedXeDxUiMeasurementSdkInput -RepoRoot $product -Platform x64 -Configuration Release -Descriptor $descriptor
+        Assert-MeasurementCounts 1 0
+        & $transport {param($Reader)Close-CiPinnedSdkInput $Reader} $reader
+        Assert-MeasurementCounts 1 1
+        Write-Host 'PASS measurement preserves Source and SDK recipes, original descriptor/archive/module checks, and live lease ownership'
+        $wrapper=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'measure-av-views.ps1'),[ref]$null,[ref]$null)
+        $scope=@($wrapper.FindAll({param($node)$node -is [Management.Automation.Language.TryStatementAst] -and $node.Body.Extent.Text.Contains('$provenancePath=')},$true))
+        $writes=@($wrapper.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Set-Content' -and $node.Extent.Text.Contains('$OutputPath')},$true))
+        $closes=@($wrapper.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Close-CiPinnedSdkInput'},$true))
+        if($scope.Count -ne 1 -or $writes.Count -ne 1 -or $closes.Count -ne 1 -or
+            $writes[0].Extent.StartOffset -le $scope[0].Extent.EndOffset -or
+            $closes[0].Extent.StartOffset -le $scope[0].Finally.Extent.StartOffset -or $closes[0].Extent.EndOffset -ge $scope[0].Finally.Extent.EndOffset){
+            throw 'Measurement provenance must be written only after the enclosing input lease finally completed.'
+        }
+        Write-Host 'PASS measurement publishes wrapper provenance only after successful final input verification'
+        $hashFunction=@($wrapper.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-InputHashes'},$true))
+        $snapshots=@($wrapper.EndBlock.Statements|Where-Object {$_.Extent.Text.StartsWith('$toolingPaths=') -or $_.Extent.Text.StartsWith('$toolingInputs=')})
+        $guards=@($wrapper.FindAll({param($node)$node -is [Management.Automation.Language.ForEachStatementAst] -and $node.Variable.Extent.Text -ceq '$inputSet'},$true))
+        $imports=@($wrapper.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Import-Module'},$true))
+        $localImports=@($imports|Where-Object {$_.Extent.Text.Contains("Build/DxUiProvenance.psm1") -or $_.Extent.Text.Contains("Build/DxUiRestore.psm1")})
+        if($localImports.Count -ne 2){throw 'Expected both canonical measurement modules.'}
+        $coldImports=Join-Path $fixture 'cold-measurement-imports.ps1'
+        $coldText='param($RepoRoot)'+"`n"+($localImports.Extent.Text -join "`n")+@'
+
+$ErrorActionPreference='Stop'
+$pin=Read-RedXeDxUiLock -LockFile (Join-Path $RepoRoot 'Dependencies/DxUi.lock.json')
+if(-not $pin.commit){throw 'Cold measurement cannot read its actual pin.'}
+$dependency=Get-RedXeDxUiDependencyRoot -RepoRoot $RepoRoot
+if(-not $dependency){throw 'Cold Source measurement lost its restore helper.'}
+if(-not (Get-Command Open-RedXeDxUiMeasurementSdkInput -ErrorAction Stop)){throw 'Cold SDK measurement lost its provenance helper.'}
+'@
+        [IO.File]::WriteAllText($coldImports,$coldText)
+        & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $coldImports -RepoRoot $repo
+        if($LASTEXITCODE){throw 'Actual cold measurement imports lost Source or SDK helper visibility.'}
+        Write-Host 'PASS actual cold measurement module imports preserve Source and SDK helper bindings'
+        if($hashFunction.Count -ne 1 -or $snapshots.Count -ne 2 -or $guards.Count -ne 1 -or
+            $snapshots[-1].Extent.EndOffset -ge ($imports.Extent.StartOffset|Measure-Object -Minimum).Minimum -or
+            $guards[0].Extent.StartOffset -le $scope[0].Extent.EndOffset -or
+            $guards[0].Extent.EndOffset -ge $writes[0].Extent.StartOffset){
+            throw 'Measurement tooling must freeze before imports and be checked after finalization before publication.'
+        }
+        $guardRoot=Join-Path $fixture 'wrapper-input-guard'
+        [void][IO.Directory]::CreateDirectory((Join-Path $guardRoot 'Build'))
+        $guardPaths=@('measure-av-views.ps1','build.ps1','Build/DxUiProvenance.psm1','Build/DxUiRestore.psm1','Build/DxUiPaths.psm1')
+        $guardSetup=@'
+$exe=Join-Path $RepoRoot 'fixture.exe';$archive=Join-Path $RepoRoot 'archive.lib'
+$binaryInputs=Get-InputHashes @($exe,$archive)
+$fixturePaths=@();$productionPaths=@();$dependencyPaths=@()
+$fixtureInputs=@{};$productionInputs=@{};$dependencyInputs=@{}
+if($ChangedTool -cne 'Unchanged'){[IO.File]::AppendAllText((Join-Path $RepoRoot $ChangedTool),'changed during finalization')}
+'@
+        $guardScript='param($RepoRoot,$ChangedTool)'+"`n"+$hashFunction[0].Extent.Text+"`n"+($snapshots.Extent.Text -join "`n")+"`n"+$guardSetup+"`n"+$guards[0].Extent.Text
+        foreach($changedTool in @('Unchanged')+$guardPaths){
+            foreach($relative in $guardPaths+@('fixture.exe','archive.lib')){[IO.File]::WriteAllText((Join-Path $guardRoot $relative),'original owned fixture')}
+            # A real script file supplies its actual automatic PSCommandPath;
+            # evaluating the fragment in a dynamic block would make that empty.
+            [IO.File]::WriteAllText((Join-Path $guardRoot 'measure-av-views.ps1'),$guardScript)
+            $refused=$false
+            try{
+                & (Join-Path $guardRoot 'measure-av-views.ps1') -RepoRoot $guardRoot -ChangedTool $changedTool
+            }catch{
+                if($_.Exception.Message -notlike '*Measurement inputs changed during execution or finalization*'){throw}
+                $refused=$true
+            }
+            if($refused -ne ($changedTool -cne 'Unchanged')){throw "Actual wrapper input guard gave the wrong verdict for $changedTool."}
+        }
+        Write-Host 'PASS actual final measurement guard accepts unchanged tooling and rejects each wrapper/build/provenance/restore/path-helper mutation'
+    }finally{
+        & $provenanceModule {Remove-Item function:script:Find-RedXeMSBuild}
+        Remove-Module $transport
+    }
 } finally {
     $path=[IO.Path]::GetFullPath($fixture)
     $parent=[IO.Path]::GetFullPath((Join-Path $repo '.build/BuildProcessTests')).TrimEnd('\')+'\'

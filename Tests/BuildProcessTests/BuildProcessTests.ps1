@@ -396,6 +396,63 @@ exit 17
         throw "A bounded run decoded the child's output differently from Process.Start: '$($decodedOutput[120])' instead of '$($decodedOutput[0])'."
     }
 
+    # Transport the shared compiler namespace without changing the caller or introducing a wrapper PID.
+    Import-Module (Join-Path $repoRoot '.ci-engine/Tools/Modules/Ci.Policy.psm1')
+    $environmentEmitter = Join-Path $presentationTestRoot 'Emit Child Environment.ps1'
+    @'
+$descendantEndpoint = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -Command '$env:_MSPDBSRV_ENDPOINT_'
+Write-Output (ConvertTo-Json -Compress @{pid=$PID;endpoint=$env:_MSPDBSRV_ENDPOINT_;descendantEndpoint=$descendantEndpoint;literalBase64=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($env:REDXE_CHILD_LITERAL));removed=$env:REDXE_CHILD_REMOVED;inherited=$env:SystemRoot})
+'@ | Set-Content -LiteralPath $environmentEmitter -Encoding utf8
+    $savedEndpoint = $env:_MSPDBSRV_ENDPOINT_
+    $savedRemoved = $env:REDXE_CHILD_REMOVED
+    $savedLiteral = $env:REDXE_CHILD_LITERAL
+    $endpoints = [Collections.Generic.List[string]]::new()
+    try {
+        $env:_MSPDBSRV_ENDPOINT_ = 'parent-must-remain'
+        $env:REDXE_CHILD_REMOVED = 'parent-remains'
+        $env:REDXE_CHILD_LITERAL = 'parent-literal'
+        foreach ($budget in @(0, 120)) {
+            $nativeStart = [Diagnostics.ProcessStartInfo]::new()
+            $nativeStart.FileName = $powershellPath
+            $nativeStart.UseShellExecute = $false
+            $endpoint = Set-CiNativeProcessEnvironment -ProcessStartInfo $nativeStart
+            $endpoints.Add($endpoint)
+            $literal = "Unicode-$([char] 0x141);equals=a=b;quote=`";line`nend"
+            $environmentLog = Join-Path $presentationTestRoot "environment-$budget.log"
+            $childId = 0
+            $exit = Invoke-RedXeStreamingProcess -FilePath $powershellPath -Arguments @('-NoProfile','-File',$environmentEmitter) `
+                -WorkingDirectory $presentationTestRoot -LogPath $environmentLog -TimeoutSeconds $budget -ProcessId ([ref] $childId) `
+                -StandardOutputEncoding ([Text.UTF8Encoding]::new($false)) -EnvironmentOverrides @{
+                    _MSPDBSRV_ENDPOINT_=$endpoint;REDXE_CHILD_LITERAL=$literal;REDXE_CHILD_REMOVED=$null
+                }
+            $observed = Get-Content -LiteralPath $environmentLog -Raw | ConvertFrom-Json
+            if ($exit -ne 0 -or $observed.pid -ne $childId -or $observed.endpoint -cne $endpoint -or
+                $observed.descendantEndpoint -cne $endpoint -or
+                $observed.literalBase64 -cne [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($literal)) -or
+                $observed.removed -or $observed.inherited -cne $env:SystemRoot -or
+                $env:_MSPDBSRV_ENDPOINT_ -cne 'parent-must-remain' -or $env:REDXE_CHILD_REMOVED -cne 'parent-remains' -or
+                $env:REDXE_CHILD_LITERAL -cne 'parent-literal') {
+                throw "Child environment transport changed identity, values or caller state for budget $budget."
+            }
+        }
+        if ($endpoints[0] -ceq $endpoints[1]) { throw 'Separate native launches reused a compiler metadata namespace.' }
+        foreach ($invalid in @(@{ 'bad=name'='value' }, @{ safe=("bad"+[char]0+"value") })) {
+            $refused = $false
+            try {
+                $null = Invoke-RedXeStreamingProcess -FilePath $powershellPath -Arguments @('-NoProfile','-File',$environmentEmitter) `
+                    -LogPath (Join-Path $presentationTestRoot 'invalid-environment.log') -TimeoutSeconds 120 -EnvironmentOverrides $invalid
+            } catch [System.Management.Automation.RuntimeException] {
+                if ($_.Exception.Message -notmatch 'Child environment overrides require') { throw }
+                $refused = $true
+            }
+            if (-not $refused) { throw 'Invalid environment override reached process creation.' }
+        }
+    } finally {
+        $env:_MSPDBSRV_ENDPOINT_ = $savedEndpoint
+        $env:REDXE_CHILD_REMOVED = $savedRemoved
+        $env:REDXE_CHILD_LITERAL = $savedLiteral
+    }
+
     # -StandardOutputEncoding and -StandardErrorEncoding each decode their own stream alone with the encoding a caller
     # names, on both paths: RedXe's processes write both as UTF-8 (Common/FailureReports.h on stderr, RedXe.exe's
     # command-line text on stdout). A stream without one keeps the console output code page. The runs take place in a

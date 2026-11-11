@@ -65,6 +65,9 @@ function Write-RedXeDxUiProvenance {
     $record=[ordered]@{repository=$pin.repository;commit=$pin.commit;apiRevision=$pin.apiRevision;platform=$Platform;configuration=$Configuration;
         buildRole=$(if($ProductionOnly){'production-only'}else{'test-enabled'});
         dependencyRecipe=$recipe;publicHeadersGitTree=$headers;buildIdentity=$identity;archiveSha256=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash;modules=@($modules)}
+    if($null -ne $SdkInput){
+        $record.sdkInputDescriptor=[ordered]@{path=$SdkInput.Descriptor.Path;sha256=(Get-FileHash -LiteralPath $SdkInput.Descriptor.Path -Algorithm SHA256).Hash.ToLowerInvariant()}
+    }
     $path=Join-Path $output 'DxUi.provenance.json'
     $json=$record | ConvertTo-Json -Depth 7
     if (-not (Test-Path -LiteralPath $path) -or [IO.File]::ReadAllText($path) -ne $json) { [IO.File]::WriteAllText($path,$json,[Text.UTF8Encoding]::new($false)) }
@@ -98,4 +101,44 @@ function Assert-RedXeDxUiProvenance {
     }
 }
 
-Export-ModuleMember -Function Write-RedXeDxUiProvenance, Assert-RedXeDxUiProvenance
+function Open-RedXeDxUiMeasurementSdkInput {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot,[Parameter(Mandatory)][ValidateSet('x64','ARM64')][string]$Platform,
+        [Parameter(Mandatory)][ValidateSet('Debug','Release')][string]$Configuration,[string]$Descriptor='')
+    # Measurement reopens recorded test-enabled inputs. Production packaging still
+    # requires an explicit caller descriptor and owns its separate notice contract.
+    # Historical Source measurements predate provenance; their original path stays
+    # with the wrapper and is never manufactured from an SDK record.
+    $output=Join-Path $RepoRoot ".build/$Platform/$Configuration"
+    $path=Join-Path $output 'DxUi.provenance.json'
+    if(-not(Test-Path -LiteralPath $path -PathType Leaf)){return $null}
+    $record=Get-Content -LiteralPath $path -Raw|ConvertFrom-Json
+    if($record.PSObject.Properties['buildRole']){
+        Assert-RedXeDxUiProvenance -OutputRoot $output -LockFile (Join-Path $RepoRoot 'Dependencies/DxUi.lock.json') -Platform $Platform -Configuration $Configuration
+    }
+    if(-not $record.PSObject.Properties['dependencyRecipe']){return $null}
+    $recipe=$record.dependencyRecipe.recipe
+    if($recipe -ceq 'PinnedSource'){return $null}
+    if($recipe -cnotin @('PinnedReleaseSdkV1','PinnedQualifiedReleaseSdkV2')){throw 'Unsupported measurement dependency recipe.'}
+    Assert-RedXeDxUiProvenance -OutputRoot $output -LockFile (Join-Path $RepoRoot 'Dependencies/DxUi.lock.json') -Platform $Platform -Configuration $Configuration
+    if(-not $Descriptor -and $record.PSObject.Properties['sdkInputDescriptor']){$Descriptor=[string]$record.sdkInputDescriptor.path}
+    if(-not $Descriptor){throw 'SDK measurement requires the original descriptor; rebuild its provenance or pass -DxUiSdkInputDescriptor.'}
+    $descriptorHash=(Get-FileHash -LiteralPath $Descriptor -Algorithm SHA256).Hash.ToLowerInvariant()
+    if($record.PSObject.Properties['sdkInputDescriptor'] -and $descriptorHash -cne $record.sdkInputDescriptor.sha256){throw 'Measurement SDK descriptor changed after build.'}
+    Import-Module (Join-Path $RepoRoot '.ci-engine/Tools/Modules/Ci.SdkConsumer.psm1') -ErrorAction Stop
+    $reader=$null
+    try{
+        $reader=Open-CiApplicationSdkInput -ProjectRoot $RepoRoot -Descriptor $Descriptor -Platform $Platform -Configuration $Configuration -MSBuildPath (Find-RedXeMSBuild)
+        if($null -eq $reader -or $reader.Evidence.recipe -cne $recipe -or $reader.Evidence.inputKey -cne $record.dependencyRecipe.inputKey -or
+            $reader.Evidence.manifestSha256 -cne $record.dependencyRecipe.manifestSha256){throw 'Measurement SDK does not match the actual test build inputs.'}
+        $archive=Join-Path $reader.SdkRoot "lib/$Platform/Release/DxUi.lib"
+        if((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ine $record.archiveSha256){throw 'Measurement SDK archive differs from the linked build input.'}
+        return $reader
+    }catch{
+        $failure=$_
+        if($null -ne $reader){try{Close-CiPinnedSdkInput $reader}catch{Write-Warning ('SDK measurement close also failed: '+$_.Exception.Message)}}
+        throw $failure
+    }
+}
+
+Export-ModuleMember -Function Write-RedXeDxUiProvenance, Assert-RedXeDxUiProvenance, Open-RedXeDxUiMeasurementSdkInput
