@@ -2,6 +2,28 @@
 $ErrorActionPreference='Stop'
 $repo=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $repo 'Build/DxUiProvenance.psm1') -Force
+& {
+    $tokens=$null;$errors=$null
+    $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'package.ps1'),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Package entrypoint syntax is invalid.'}
+    $capture=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq '$findPackageMSBuild'},$true))
+    $open=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq '$sdk' -and $n.Right.Extent.Text.Contains('Open-CiApplicationSdkInput')},$true))
+    $imports=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'Import-Module' -and $n.Extent.Text.Contains('DxUiProvenance.psm1')},$true))
+    if($capture.Count -ne 1 -or $open.Count -ne 1 -or $imports.Count -ne 1 -or $capture[0].Extent.EndOffset -ge $imports[0].Extent.StartOffset){throw 'The packaging tool getter must be retained before provenance import can replace its exports.'}
+    function Find-RedXeMSBuild {'C:/synthetic-selected-vs/MSBuild.exe'}
+    . ([scriptblock]::Create($capture[0].Extent.Text))
+    # Model the observed nested forced import removing the outer function export.
+    Remove-Item function:Find-RedXeMSBuild
+    function Open-CiApplicationSdkInput {
+        param($ProjectRoot,$Descriptor,$Platform,$Configuration,$MSBuildPath)
+        if($MSBuildPath -cne 'C:/synthetic-selected-vs/MSBuild.exe' -or $Platform -cne 'ARM64' -or $Configuration -cne 'Release' -or $Descriptor -cne 'synthetic original descriptor'){throw 'Packaging lost the original tool getter or SDK arguments after export replacement.'}
+        [pscustomobject]@{Evidence=@{recipe='original reader result'}}
+    }
+    $repoRoot=$repo;$Platform='ARM64';$DxUiSdkInputDescriptor='synthetic original descriptor'
+    . ([scriptblock]::Create($open[0].Extent.Text))
+    if($sdk.Evidence.recipe -cne 'original reader result'){throw 'Packaging replaced the original SDK result.'}
+    Write-Host 'PASS actual package SDK branch retains its selected tool getter after nested export removal'
+}
 $fixture=Join-Path $repo ('.build/BuildProcessTests/DxUi-'+[guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path (Join-Path $fixture 'Plugins') -Force)
 try {
