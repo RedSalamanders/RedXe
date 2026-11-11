@@ -292,6 +292,13 @@ Every `Test-Changes.ps1` run that does not fail ends with a coverage label, exce
 
 Successful whole-scope results are reused only for equal repository content, complete executable/DLL/PDB output closure, stable deployed settings/schema and DxUi provenance bytes, architecture, configuration, scope, runner and environment. Every required deployed input must exist and the binary closure must be nonempty before an identity is established. Changes or deletion of those deployed inputs invalidate reuse; generated reports and test-owned fixtures do not enter that stable runtime closure. Build attestation binds source inputs to those artifacts before SkipBuild. The attestation and native identities exclude owned prose and the `docs/`, `Measurements/`, `Mockups/` and `Specs/Plans/` folders except explicitly declared runtime inputs. Test data, fixture README files, embedded resources, unknown implementation-local Markdown and explicit native Markdown/exclusive rules retain byte identity. Tooling identities also include prose because validators read it. Invalid, missing, failed, interrupted or concurrently mutated evidence is never reusable. Force bypasses test-result reuse. Independent tooling receipts are shared across profiles because their execution has no profile argument. Receipt identity is content-based; staging/committing the same source tree does not itself invalidate it.
 
+The actual generated `.ci-engine` is also an input of local build attestations and
+native/tooling evidence, even though product Git discovery ignores it. Source identity
+includes the shared `Get-CiPinnedEngineInputsIdentity` result for this exact checkout.
+An absent, foreign, dirty or wrong-pin engine refuses before evidence reuse. Current
+raw engine source bytes are hashed afresh; generated engine `.build` output is excluded.
+This identity grants no qualification result or CI delegation.
+
 Independent tooling publishes its own successful receipt immediately after the complete
 original source/tool/environment closure verifies, before native execution. A later
 native failure or interruption preserves that proof and its original receipt bytes.
