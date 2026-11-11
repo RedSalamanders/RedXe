@@ -575,6 +575,7 @@ exit 0
 '@
         Write-Fixture (Join-Path $sandbox 'tooling.ps1') @'
 [IO.File]::AppendAllText((Join-Path $PSScriptRoot '.build/calls.txt'),"tooling`n")
+if(Test-Path (Join-Path $PSScriptRoot '.build/tooling-fail')){exit 19}
 if(Test-Path (Join-Path $PSScriptRoot '.build/mutate-prose')){[IO.File]::AppendAllText((Join-Path $PSScriptRoot 'README.md'),' changed')}
 exit 0
 '@
@@ -626,12 +627,29 @@ exit 0
         $run=Invoke-PublicRunner @('-Force','-SkipBuild');Assert-Scope ($run.Exit -ne 0 -and -not(Test-Path $receipt)) 'Failure retained earlier reusable success'
         Remove-Item -LiteralPath (Join-Path $sandbox '.build/fail')
         $run=Invoke-PublicRunner @('-SkipBuild');Assert-Scope ($run.Exit -eq 0 -and -not $run.Text.Contains('REUSED Example')) 'Failed run was reused'
-        # A comma list under pwsh -File selects both scopes. Prose edited while they run changes only the tooling scope's
-        # inputs: the run passes unrecorded for Docs and keeps the native receipt.
         $docs=Join-Path $sandbox '.build/reports/scoped-tests/independent/Docs.json'
+        # A later native failure preserves completed independent proof, including its original receipt bytes.
+        Write-Fixture (Join-Path $sandbox '.build/fail') 'fail'
+        $run=Invoke-PublicRunner @('-Force','-SkipBuild') 'Example,Docs'
+        Assert-Scope ($run.Exit -ne 0 -and -not(Test-Path $receipt) -and (Test-Path $docs)) "Native failure erased independent tooling proof: $($run.Text)"
+        $docsBytes=[IO.File]::ReadAllText($docs)
+        $toolingCalls=@(Get-Content (Join-Path $sandbox '.build/calls.txt')|Where-Object{$_ -ceq 'tooling'}).Count
+        Remove-Item -LiteralPath (Join-Path $sandbox '.build/fail')
+        $run=Invoke-PublicRunner @('-SkipBuild') 'Example,Docs'
+        Assert-Scope ($run.Exit -eq 0 -and $run.Text.Contains('REUSED Docs') -and [IO.File]::ReadAllText($docs) -ceq $docsBytes) "Retry reran or rewrote matching independent evidence: $($run.Text)"
+        Assert-Scope (@(Get-Content (Join-Path $sandbox '.build/calls.txt')|Where-Object{$_ -ceq 'tooling'}).Count -eq $toolingCalls) 'Native retry executed independent tooling again'
+
+        $runtimeCalls=Get-RuntimeCalls
+        Write-Fixture (Join-Path $sandbox '.build/tooling-fail') 'fail'
+        $run=Invoke-PublicRunner @('-Force','-SkipBuild') 'Example,Docs'
+        Assert-Scope ($run.Exit -ne 0 -and -not(Test-Path $docs) -and (Get-RuntimeCalls) -eq $runtimeCalls) 'Failed independent work published success or entered native execution'
+        Remove-Item -LiteralPath (Join-Path $sandbox '.build/tooling-fail')
+
+        # Independent input mutation now fails closed before native execution; there is no proof to retain.
         Write-Fixture (Join-Path $sandbox '.build/mutate-prose') 'mutate'
         $run=Invoke-PublicRunner @('-Force','-SkipBuild') 'Example,Docs'
-        Assert-Scope ($run.Exit -eq 0 -and $run.Text.Contains('SELECTED_PASSED; NOT_RECORDED') -and (Test-Path $receipt) -and -not(Test-Path $docs)) "Prose edited during the run failed it or recorded the changed scope: $($run.Text)"
+        Assert-Scope ($run.Exit -ne 0 -and $run.Text.Contains('Inputs changed during independent tooling') -and
+            (Get-RuntimeCalls) -eq $runtimeCalls -and -not(Test-Path $docs) -and -not(Test-Path $receipt)) "Mutated independent inputs entered native execution or published success: $($run.Text)"
         Remove-Item -LiteralPath (Join-Path $sandbox '.build/mutate-prose')
         Write-Fixture (Join-Path $sandbox '.build/mutate') 'mutate'
         $run=Invoke-PublicRunner @('-Force','-SkipBuild');Assert-Scope ($run.Exit -eq 0 -and $run.Text.Contains('SELECTED_PASSED; NOT_RECORDED') -and -not(Test-Path $receipt)) "Source edited during the run failed it or published success: $($run.Text)"
