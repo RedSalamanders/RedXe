@@ -3,6 +3,15 @@
 Status: normative current tooling contract
 Last reviewed: 2026-10-29
 
+Explicit local SDK runtime checks use `.build/evidence/local-sdk-test-runs/` and
+`local-sdk-runtime.json`; normal qualification continues to use `test-runs` and
+`normal-suites.json`. The local result has role `LocalUnpinnedApplicationRuntimeResult`
+and binds the independently retained original build-record digest, current source,
+engine, dependency and complete runtime catalog. It always records
+`repositoryQualified=false` and `productionQualified=false`. Hosted discovery never
+scans the local folder. Close and revalidate the shared SDK/runtime reader before
+publishing a passing local result; failed checks or close failures retain evidence.
+
 After argument, desktop and build preflight, native test execution writes each invocation under `.build/evidence/test-runs/<UTC-pid-guid>/payload`.
 The id is the Gregorian UTC time as `yyyyMMddTHHmmssfffZ`, formatted with the invariant culture whatever the current
 culture or calendar, then the owner process id and a GUID. The repository MUST be a fully qualified local directory:

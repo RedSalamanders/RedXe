@@ -33,9 +33,9 @@ concurrency:
   queue: max
 jobs:
   report:
-    uses: RedSalamanders/.github/.github/workflows/integration-report.yml@0b25b7337a49e4a617294be138e6e2e146b48df0
+    uses: RedSalamanders/.github/.github/workflows/integration-report.yml@07bc6f1e56804390bd5b2ecfdd4027fac2493049
     with:
-      engine_ref: 0b25b7337a49e4a617294be138e6e2e146b48df0
+      engine_ref: 07bc6f1e56804390bd5b2ecfdd4027fac2493049
       pull_request: ${{ inputs.pull_request }}
       identity: ${{ inputs.identity }}
       producer_run: ${{ inputs.producer_run }}

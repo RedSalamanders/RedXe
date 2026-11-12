@@ -26,6 +26,11 @@ Runs the complete noninteractive gate; ordinary calls use Test-Changes affected 
 no Git work tree or comparison base to select from.
 .PARAMETER SkipTooling
 Leaves profile-independent tooling to the CI tooling job or selected BuildProcess scope.
+.PARAMETER LocalSdkBuildReceipt
+Original independently hashed local SDK build record. Requires native Release, SkipBuild and explicit HostSmoke only.
+The same hidden WARP, CLI and crash checks run against the held output; ordinary qualification is not granted.
+.PARAMETER LocalSdkBuildSha256
+Independently retained SHA-256 of the original build record.
 #>
 #Requires -Version 7.0
 [CmdletBinding()]
@@ -45,12 +50,24 @@ param(
     [string[]] $Suites,
 
     [ValidateRange(0, 65535)]
-    [int] $BuildNumber = 0
+    [int] $BuildNumber = 0,
+
+    [string] $LocalSdkBuildReceipt = '',
+    [string] $LocalSdkBuildSha256 = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSCommandPath
+$localSdkMode = [bool]($LocalSdkBuildReceipt -or $LocalSdkBuildSha256)
+if ($localSdkMode -and (-not $IsWindows -or $env:GITHUB_ACTIONS -ceq 'true' -or $env:CI_NATIVE_BUILDS_DISABLED -ceq 'true')) {
+    throw 'Local SDK runtime requires local Windows native execution.'
+}
+if ($localSdkMode -and (-not $LocalSdkBuildReceipt -or $LocalSdkBuildSha256 -cnotmatch '^[a-f0-9]{64}$' -or
+    $Configuration -cne 'Release' -or -not $SkipBuild -or $Full -or $Rebuild -or
+    @($Suites).Count -ne 1 -or $Suites -cnotcontains 'HostSmoke')) {
+    throw 'Local SDK runtime requires the original build record/digest, Release, SkipBuild and explicit HostSmoke only.'
+}
 Import-Module (Join-Path $repoRoot 'Build/ScopedTesting.psm1') -Force
 $manifest = Read-ScopedTestManifest $repoRoot
 # Ordinary iteration uses source impact. Explicit suites and Full retain the lower-level runner surface.
@@ -77,6 +94,20 @@ if ($Platform -eq 'ARM64' -and $nativeArchitecture -ne 'Arm64') {
     throw 'ARM64 runtime qualification requires a native ARM64 host; use build.ps1 for cross-compilation.'
 }
 # Resolve the build number once (explicit, else the commit count) so the build and the identity checks agree.
+$runtimeInput = $null
+$runtimeFailure = $null
+try {
+if ($localSdkMode) {
+    Import-Module (Join-Path $repoRoot 'Build/DxUiRestore.psm1')
+    Import-Module (Join-Path $repoRoot '.ci-engine/Tools/Modules/Ci.LocalSdkRuntime.psm1')
+    $runtimeInput = Open-CiLocalSdkApplicationRuntimeInput -ProjectRoot $repoRoot -BuildReceipt $LocalSdkBuildReceipt `
+        -ExpectedBuildSha256 $LocalSdkBuildSha256 -MSBuildPath (Find-RedXeMSBuild)
+    $sdkExecutableVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($runtimeInput.Build.executable)
+    if ($runtimeInput.Build.platform -cne $Platform -or ($BuildNumber -and $BuildNumber -ne $sdkExecutableVersion.FileBuildPart)) {
+        throw 'Local SDK runtime profile/build number differs from the held native build.'
+    }
+    $BuildNumber = $sdkExecutableVersion.FileBuildPart
+}
 Import-Module (Join-Path $repoRoot 'Build/Versioning.psm1') -Force
 $BuildNumber = Resolve-RedXeBuildNumber -RepoRoot $repoRoot -Requested $BuildNumber
 $buildArguments = @{
@@ -94,9 +125,12 @@ if (-not $SkipBuild) {
 }
 Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1') -Force
 Import-Module (Join-Path $repoRoot 'Build/StreamingProcess.psm1') -Force
-Assert-RedXeDxUiProvenance -OutputRoot (Join-Path $repoRoot ".build/$Platform/$Configuration") -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json') -Platform $Platform -Configuration $Configuration
-
-$executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
+if ($localSdkMode) {
+    $executable = $runtimeInput.Build.executable
+} else {
+    Assert-RedXeDxUiProvenance -OutputRoot (Join-Path $repoRoot ".build/$Platform/$Configuration") -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json') -Platform $Platform -Configuration $Configuration
+    $executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
+}
 if ($Platform -ne 'x64' -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') {
     throw 'The ARM64 smoke test must run on ARM64 Windows. The build itself completed successfully.'
 }
@@ -121,7 +155,7 @@ $testTimeoutSeconds = 900
 # the console output code page, would garble non-ASCII text under a legacy one (Build_Process.md).
 $utf8 = [Text.UTF8Encoding]::new($false)
 Import-Module (Join-Path $repoRoot 'Build/TestRunEvidence.psm1') -Force
-$evidence = Start-TestRunEvidence -Repository $repoRoot -Context @{ project='RedXe'; platform=$Platform; configuration=$Configuration; suites=$Suites; buildNumber=$BuildNumber }
+$evidence = Start-TestRunEvidence -Repository $repoRoot -LocalSdkCandidate:$localSdkMode -Context @{ project='RedXe'; platform=$Platform; configuration=$Configuration; suites=$Suites; buildNumber=$BuildNumber; localSdkCandidate=$localSdkMode }
 $runPassed = $false
 try {
 
@@ -840,10 +874,27 @@ Invoke-RedXeCrashTest -CrashArgument '--crash-test-stack-overflow' -ExpectedExce
 
 
 }
-Publish-TestRunEvidenceReceipt -Run $evidence -Name 'normal-suites.json' -Receipt ([ordered]@{
+$resultReceipt = [ordered]@{
     schemaVersion=1; platform=$Platform; configuration=$Configuration; passed=$true
     countUnit='suite'; discovered=@($Suites); executed=@($Suites); filtered=$false
-})
+}
+$receiptName = 'normal-suites.json'
+if ($localSdkMode) {
+    Close-CiLocalSdkApplicationRuntimeInput $runtimeInput
+    $receiptName = 'local-sdk-runtime.json'
+    $resultReceipt.role = 'LocalUnpinnedApplicationRuntimeResult'
+    $resultReceipt.recipe = 'LocalUnpinnedReleaseSdk'
+    $resultReceipt.buildReceipt = $LocalSdkBuildReceipt
+    $resultReceipt.buildReceiptSha256 = $LocalSdkBuildSha256
+    $resultReceipt.sourceBytes = $runtimeInput.Build.sourceBytes
+    $resultReceipt.engineInputs = $runtimeInput.Build.engineInputs
+    $resultReceipt.dependency = $runtimeInput.Build.dependency
+    $resultReceipt.runtimeBytesDigest = $runtimeInput.Build.runtimeBytes.digest
+    $resultReceipt.testsExecuted = $true
+    $resultReceipt.repositoryQualified = $false
+    $resultReceipt.productionQualified = $false
+}
+Publish-TestRunEvidenceReceipt -Run $evidence -Name $receiptName -Receipt $resultReceipt
 $runPassed = $true
 } finally {
     # The record is completed before any verdict is printed. After a failed run a record that cannot be completed is only
@@ -856,4 +907,17 @@ $runPassed = $true
     }
 }
 Write-Host "All $($Suites.Count) requested scopes passed." -ForegroundColor Green
+if ($localSdkMode) { Write-Host 'LOCAL_UNPINNED_RUNTIME: ordinary local/main, repository and production gates remain NOT_EVALUATED.' }
 exit 0
+} catch {
+    $runtimeFailure = $_
+    throw
+} finally {
+    if ($null -ne $runtimeInput -and -not $runtimeInput.Closed) {
+        try { Close-CiLocalSdkApplicationRuntimeInput $runtimeInput }
+        catch {
+            if ($null -eq $runtimeFailure) { throw }
+            Write-Warning ('Local SDK runtime close also failed: ' + $_.Exception.Message)
+        }
+    }
+}

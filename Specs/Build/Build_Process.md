@@ -17,6 +17,17 @@ RedXe and AVControl retain the complete SDK ABI guard. The existing application 
 is unconditional, so the adapter explicitly supplies no test-property override. A retained
 local build/link record never qualifies tests, native ARM64 runtime, packages or publication.
 
+`test.ps1 -Configuration Release -SkipBuild -Suites HostSmoke` accepts an explicit
+`-LocalSdkBuildReceipt` and independently retained `-LocalSdkBuildSha256`. Only this
+application scope is supported by the application-target recipe: standalone suites,
+Full, Rebuild, a different profile/build version, hosted execution or stale inputs
+refuse. The shared runtime reader authenticates the original descriptor, actual
+SDK/source/API/ABI/engine and complete payload, and holds it throughout the unchanged
+hidden WARP, CLI and crash checks. Its actual executable resource supplies the build
+number, which remains checked against the source version contract. Close-time
+verification precedes any passing local result. Separate local SDK evidence never
+satisfies ordinary pinned local, main, packaging or production gates.
+
 This contract owns the root build and test entrypoints: command-line build output selection and the running-output
 preflight, MSBuild selection, test-process failure reporting, the streaming child-process runner, and scoped test
 selection, reuse and PR coverage. Compiler, warning, dependency, and generated-output policies remain in `AGENTS.md` and

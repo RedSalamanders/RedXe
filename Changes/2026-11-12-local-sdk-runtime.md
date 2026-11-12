@@ -1,0 +1,1 @@
+- Run the existing hidden WARP application, command-line and crash checks against an explicitly retained local DxUi SDK build with full runtime-byte leases and close-time verification. Keep local candidate evidence separate from ordinary qualification, and adopt the measured shared SDK admission engine without removing local or main gates.
