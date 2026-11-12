@@ -32,7 +32,7 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\Plugins\</OutDir>
+    <OutDir>$(RedXeOutputRoot)$(Platform)\$(Configuration)\Plugins\</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">
     <ClCompile>

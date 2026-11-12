@@ -6,6 +6,17 @@ Owner: root build and test entrypoints
 
 ## Scope
 
+`Tools/Build-LocalSdkCandidate.ps1` is an explicit local Release application build against
+one independently hashed local SDK descriptor. It requires the selected app dependencies
+to be restored first and unchanged during execution. `RedXeOutputRoot` owns application,
+plugin, broker, camera and intermediate outputs; the ordinary `RedXeBuildRoot` dependency
+tree remains separate. Every project refuses a noncanonical root unless the local SDK
+contract and shared live output lease authorize it before writes. Non-DxUi plugin projects
+call only the shared output verifier; they do not import SDK headers or link its archive.
+RedXe and AVControl retain the complete SDK ABI guard. The existing application test surface
+is unconditional, so the adapter explicitly supplies no test-property override. A retained
+local build/link record never qualifies tests, native ARM64 runtime, packages or publication.
+
 This contract owns the root build and test entrypoints: command-line build output selection and the running-output
 preflight, MSBuild selection, test-process failure reporting, the streaming child-process runner, and scoped test
 selection, reuse and PR coverage. Compiler, warning, dependency, and generated-output policies remain in `AGENTS.md` and

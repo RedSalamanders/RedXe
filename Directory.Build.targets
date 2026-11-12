@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
+  <Target Name="ValidateRedXeOutputRoot" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <_RedXeCanonicalOutputRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory).build\'))</_RedXeCanonicalOutputRoot>
+      <_RedXeEvaluatedOutputRoot>$([System.IO.Path]::GetFullPath('$(RedXeOutputRoot)'))</_RedXeEvaluatedOutputRoot>
+    </PropertyGroup>
+    <Error Condition="'$(_RedXeEvaluatedOutputRoot)'!='$(_RedXeCanonicalOutputRoot)' and ('$(CiSdkContract)'!='LocalUnpinnedAbiV1' or '$(RedXeDxUiSdkRoot)'=='' or '$(RedXeCiEngineRoot)'=='')" Text="Separate RedXe output roots require the explicit local SDK build broker and its active compiler lease." />
+    <CallTarget Targets="RedXeRequireLocalSdkOutputLease" Condition="'$(_RedXeEvaluatedOutputRoot)'!='$(_RedXeCanonicalOutputRoot)'" />
+  </Target>
+  <!-- Non-DxUi plugin projects need output ownership but must not import SDK headers/archive.
+       Reuse the shared output-only verifier; actual SDK consumers keep their full ABI guard. -->
+  <Target Name="RedXeRequireLocalSdkOutputLease">
+    <Exec Command="pwsh -NoProfile -NonInteractive -File &quot;$(RedXeCiEngineRoot)\Tools\Test-SdkConsumerLease.ps1&quot; -ProjectRoot &quot;$(CiSdkProjectRoot)&quot; -LeasePath &quot;$(CiSdkLeasePath)&quot; -SdkRoot &quot;$(CiSdkRoot)&quot; -Platform &quot;$(Platform)&quot; -Configuration &quot;$(Configuration)&quot; -SdkContract &quot;$(CiSdkContract)&quot; -PreflightLocalOutputs -OutputDirectory &quot;$(OutDir)/.&quot; -IntermediateDirectory &quot;$(IntDir)/.&quot;" />
+  </Target>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='ASan Debug'">
     <ClCompile>
       <EnableASAN>true</EnableASAN>

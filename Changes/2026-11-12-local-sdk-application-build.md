@@ -1,0 +1,1 @@
+- Add an explicit local Release SDK build for the application and plugin closure in isolated leased outputs. Keep ordinary dependencies separate and retain full ABI checks only in actual DxUi consumers; output-only plugin checks import no SDK archive. The result grants no test, repository or production qualification.

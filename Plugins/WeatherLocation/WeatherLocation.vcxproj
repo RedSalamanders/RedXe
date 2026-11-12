@@ -31,7 +31,7 @@
             Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
             Label="LocalAppDataPlatform" />
   </ImportGroup>
-  <PropertyGroup Label="UserMacros"><OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\Plugins\</OutDir></PropertyGroup>
+  <PropertyGroup Label="UserMacros"><OutDir>$(RedXeOutputRoot)$(Platform)\$(Configuration)\Plugins\</OutDir></PropertyGroup>
   <ItemDefinitionGroup Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">
     <ClCompile>
       <ExceptionHandling>Sync</ExceptionHandling>
