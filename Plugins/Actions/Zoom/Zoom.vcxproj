@@ -34,7 +34,7 @@
   <PropertyGroup>
     <!-- The first published-namespace DLL: <namespace>.action.dll. -->
     <TargetName>zoom.action</TargetName>
-    <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\Plugins\</OutDir>
+    <OutDir>$(RedXeOutputRoot)$(Platform)\$(Configuration)\Plugins\</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">
     <ClCompile>

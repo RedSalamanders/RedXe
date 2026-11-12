@@ -7,8 +7,9 @@
     <PreferredToolArchitecture Condition="'$(PreferredToolArchitecture)'=='' and ('$(PROCESSOR_ARCHITECTURE)'=='ARM64' or '$(PROCESSOR_ARCHITEW6432)'=='ARM64')">arm64</PreferredToolArchitecture>
     <PreferredToolArchitecture Condition="'$(PreferredToolArchitecture)'=='' and ('$(PROCESSOR_ARCHITECTURE)'=='AMD64' or '$(PROCESSOR_ARCHITEW6432)'=='AMD64')">x64</PreferredToolArchitecture>
     <RedXeBuildRoot>$(MSBuildThisFileDirectory).build\</RedXeBuildRoot>
-    <OutDir>$(RedXeBuildRoot)$(Platform)\$(Configuration)\</OutDir>
-    <IntDir>$(RedXeBuildRoot)Intermediate\$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
+    <RedXeOutputRoot Condition="'$(RedXeOutputRoot)'==''">$(RedXeBuildRoot)</RedXeOutputRoot>
+    <OutDir>$(RedXeOutputRoot)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(RedXeOutputRoot)Intermediate\$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
     <TargetName>$(MSBuildProjectName)</TargetName>
 
     <!-- Keep each platform's vcpkg metadata private, matching RedSalamander's manifest layout. -->
