@@ -25,11 +25,15 @@ try{
     catch{if($_.Exception.Message -notmatch 'requires local Windows native execution'){throw};$refused=$true}
     if(-not $refused){throw 'Hosted/compile-free runtime reached discovery.'}
 }finally{$env:CI_NATIVE_BUILDS_DISABLED=$saved}
+$scopeGuards=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.Contains("throw 'Local SDK runtime requires the original build record/digest")},$true))
+if($scopeGuards.Count -ne 1){throw 'Expected one original runtime scope admission.'}
+# Evaluate the actual pre-discovery scope guard in every host, including hosted
+# compiler-free validation. No CI markers are cleared and no discovery can run.
 foreach($arguments in @(@{Suites=@('Settings')},@{Suites=@('HostSmoke');Full=$true},@{Suites=@('HostSmoke');SkipBuild=$false},@{Suites=@('HostSmoke');Configuration='Debug'})){
-    $request=@{Configuration='Release';SkipBuild=$true;Suites=@('HostSmoke');LocalSdkBuildReceipt=$LocalSdkBuildReceipt;LocalSdkBuildSha256=$LocalSdkBuildSha256}
-    foreach($key in $arguments.Keys){$request[$key]=$arguments[$key]}
+    $localSdkMode=$true;$Configuration='Release';$SkipBuild=$true;$Suites=@('HostSmoke');$Full=$false;$Rebuild=$false
+    foreach($key in $arguments.Keys){Set-Variable -Name $key -Value $arguments[$key]}
     $refused=$false
-    try{& $file @request}catch{if($_.Exception.Message -notmatch 'requires the original build record/digest'){throw};$refused=$true}
+    try{. ([scriptblock]::Create($scopeGuards[0].Extent.Text))}catch{if($_.Exception.Message -notmatch 'requires the original build record/digest'){throw};$refused=$true}
     if(-not $refused){throw 'Unsupported runtime scope reached discovery.'}
 }
 Write-Host 'PASS actual runtime admission binding and early hosted/unsupported-scope refusals; no native execution.'
