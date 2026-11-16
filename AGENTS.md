@@ -63,6 +63,8 @@ junctions during cleanup or leave compatibility junctions at forbidden old roots
 
 Cross-repository `spec-workflow`, `d3d11-win32-host`, `performance-resources`, `modern-cpp-windows`, `wil-raii`, and `yyjson` skills live in the sibling `RedHome` repository.
 
+Shared skill index: `../RedHome/AGENTS.md`; packages: `../RedHome/.agents/skills/`. If `../RedHome` is missing, clone https://github.com/RedSalamanders/RedHome.git to that path. This repository's guidance and domain specs own product behavior and validation.
+
 ## Specification workflow
 
 - Start with [`Specs/README.md`](Specs/README.md), then read the owning domain spec. XENEON display, window, fallback,
