@@ -14,7 +14,7 @@ Start with [the plugin API contract](../../../Specs/Plugins/Plugins_API.md). Rea
 - [Performance and resources](../../../Specs/Core/Core_PerformanceAndResources.md): every ABI or hot-path change.
 
 Use [the active plan index](../../../Specs/Plans/WIP/README.md) for unfinished work; delivery history and old
-closeout snapshots do not define today's ABI or support status. Apply `spec-workflow` when behavior or ABI changes.
+closeout snapshots do not define today's ABI or support status. Update the owning contract when behavior or ABI changes.
 
 ## Boundaries
 
