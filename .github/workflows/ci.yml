@@ -116,7 +116,7 @@ jobs:
           if ($failed) { throw 'One or more compiler-free PR rechecks failed.' }
   coordinate:
     if: github.event_name == 'push'
-    uses: RedSalamanders/.github/.github/workflows/coordinate.yml@07bc6f1e56804390bd5b2ecfdd4027fac2493049
+    uses: RedSalamanders/.github/.github/workflows/coordinate.yml@a094b2ea66fc6fd7a8933488a71dacda262903a4
     with:
       engine_ref: 07bc6f1e56804390bd5b2ecfdd4027fac2493049
     permissions:
