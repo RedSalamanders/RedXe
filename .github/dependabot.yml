@@ -9,7 +9,9 @@ updates:
     open-pull-requests-limit: 5
     ignore:
       # Engine pin updates also change .ci/project.json and all thin callers together.
+      # Reusable workflows are separate dependencies named RedSalamanders/.github/.github/workflows/<file>.yml.
       - dependency-name: RedSalamanders/.github
+      - dependency-name: RedSalamanders/.github/*
   - package-ecosystem: vcpkg
     directory: /
     schedule:
