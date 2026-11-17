@@ -9,8 +9,8 @@ Read [the settings contract](../../../Specs/Core/Core_Settings.md),
 [the performance contract](../../../Specs/Core/Core_PerformanceAndResources.md) and
 [the canonical schema](../../../Specs/Settings.schema.json) before changing behavior. Current document versions,
 field ranges, filenames and migration rules belong there and in the parser/templates, not in a second skill copy.
-Use `yyjson` for document/string ownership, `wil-raii` for files/events, `win32-windowing` for UI delivery and
-`plugin-development` when settings recreate widgets.
+Use `yyjson` with WIL RAII for document/string and file/event ownership, keep UI delivery on `Application`'s thread, and
+apply `plugin-development` when settings recreate widgets.
 
 ## Preserve the storage boundary
 

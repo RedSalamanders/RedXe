@@ -57,16 +57,13 @@ junctions during cleanup or leave compatibility junctions at forbidden old roots
 
 | Skill | Use it for |
 | --- | --- |
-| [spec-workflow](.agents/skills/spec-workflow/SKILL.md) | Normative specs, reconciliation, active plans, and closeout |
 | [build-redxe](.agents/skills/build-redxe/SKILL.md) | Building, cleaning, running, and smoke-testing |
-| [direct3d11-rendering](.agents/skills/direct3d11-rendering/SKILL.md) | Device, swap-chain, pipeline, rendering, resize, and device loss |
 | [plugin-development](.agents/skills/plugin-development/SKILL.md) | Native plugin ABI, factories, loading, widget instances, and bundled DLLs |
-| [performance-resources](.agents/skills/performance-resources/SKILL.md) | CPU, memory, allocation, batching, idle, and resource-budget decisions |
-| [win32-windowing](.agents/skills/win32-windowing/SKILL.md) | Window creation, message routing, DPI, and lifetime |
-| [modern-cpp-windows](.agents/skills/modern-cpp-windows/SKILL.md) | C++ ownership, HRESULT handling, warnings, and source style |
-| [wil-raii](.agents/skills/wil-raii/SKILL.md) | Windows handles, COM interfaces, and unconditional cleanup |
-| [yyjson](.agents/skills/yyjson/SKILL.md) | JSON parsing, writing, document lifetime, and string ownership |
 | [settings-store](.agents/skills/settings-store/SKILL.md) | Settings paths, schema, recovery, stamps, watching, and live apply |
+
+Cross-repository `spec-workflow`, `d3d11-win32-host`, `performance-resources`, `modern-cpp-windows`, `wil-raii`, and `yyjson` skills live in the sibling `RedHome` repository.
+
+Shared skill index: `../RedHome/AGENTS.md`; packages: `../RedHome/.agents/skills/`. If `../RedHome` is missing, clone https://github.com/RedSalamanders/RedHome.git to that path. This repository's guidance and domain specs own product behavior and validation.
 
 ## Specification workflow
 

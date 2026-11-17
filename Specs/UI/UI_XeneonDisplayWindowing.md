@@ -9,7 +9,7 @@ Owner: `Application` process, display-selection, HWND, and DPI behavior
 This specification owns RedXe startup display selection, Debug and Release window modes, the screen-edge dock window
 kind, the XENEON EDGE design canvas, per-monitor DPI behavior, fallback prompts, the notification-area icon, and the
 hidden smoke-test window. Direct3D device and swap-chain
-ownership remains in `Renderer`; see the `direct3d11-rendering` skill for that boundary.
+ownership remains in `Renderer` (`AGENTS.md` and `Specs/Core/Core_PerformanceAndResources.md`).
 
 Dashboard pages, adaptive placement, runtime orientation reflow, and horizontal touch navigation are owned by
 `Specs/UI/UI_Dashboard.md`.
