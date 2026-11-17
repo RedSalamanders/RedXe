@@ -4,6 +4,45 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Consolidated the seven shared skills (`direct3d11-rendering`, `modern-cpp-windows`, `performance-resources`,
+  `spec-workflow`, `wil-raii`, `win32-windowing`, and `yyjson`) into the organization `RedHome` repository, retaining
+  RedXe-specific skills under `.agents/skills/` and validating with `validate-skills.ps1` and `Tools/Test-Changelog.ps1`
+  (documentation/tooling only; native qualification unchanged).
+  Shared-skill discovery names `../RedHome/AGENTS.md`, the package directory, and the clone URL while preserving
+  local product authority.
+- Run the existing hidden WARP application, command-line and crash checks against an explicitly retained local DxUi SDK build with full runtime-byte leases and close-time verification. Keep local candidate evidence separate from ordinary qualification, and adopt the measured shared SDK admission engine without removing local or main gates.
+- Add an explicit local Release SDK build for the application and plugin closure in isolated leased outputs. Keep ordinary dependencies separate and retain full ABI checks only in actual DxUi consumers; output-only plugin checks import no SDK archive. The result grants no test, repository or production qualification.
+- Give each MSBuild operation a private compiler metadata namespace through the pinned shared engine, preserving live console/log output and caller state. Child environment transport retains direct process identity and suspended containment, with Unicode/override/removal and timeout/lifetime regression controls; existing native qualification gates remain required.
+- Retain packaging's selected compiler-tool getter across nested provenance module
+  reloads so production SDK packages reopen their original reader on x64 and ARM64.
+- Preserve successful independent tooling evidence before native tests after verifying its complete unchanged source/tool/environment inputs. Native failures retain that proof for exact retries; failed or input-mutating independent checks publish no success and stop before native execution, while native and whole-run coverage remain separate.
+- Bind local build and native/tooling evidence to the actual pinned engine checkout, closing the ignored-engine input gap. Missing, modified, foreign or wrong-version engines refuse reuse; generated engine build outputs remain excluded, and existing local/main gates remain required.
+- Fix offscreen AV measurements after a verified DxUi SDK build by reopening its original dependency inputs and preserving module, archive and measurement provenance checks.
+  Freeze the wrapper and local build/provenance helpers before execution and reject changed tooling, binary, fixture or dependency inputs after finalization before publishing provenance.
+- Build and package Release inputs through the qualified SDK v2 reader, retaining
+  original producer identities and validating the selected compiler, headers,
+  libraries and per-file ABI settings. Keep source fallback and native consumer
+  tests; refuse unknown package dependency recipes.
+- Add an explicit byte-verified pinned Release SDK recipe with shared ABI guards, exact link provenance and package notice staging. Hosted main build roles can request the same inputs while retaining source fallback and every native test/package gate; Debug and ASan keep source.
+- Enable authenticated qualified DxUi SDK reuse for eligible hosted Release builds, preserving the existing dependency pin and all native regression, detector and package checks.
+- Add the active `Specs/Plans/WIP/ExplicitStateMachines_2026-11-10.md` execution plan cataloging RedXe's 27 implicit state machines and 24 verified defects (`RX-SM-01`..`RX-SM-24`) across host window/gesture/overlay/settings code, `PluginHost`, bundled widget/service/camera/broker plugins, `RedXeLauncher`, and `Build/*.psm1` tooling, organized into six non-breaking slices.
+  Validation: relative link verification, `validate-skills.ps1`, `Tools/Test-Changelog.ps1 -Base origin/main`, and `Tools/Invoke-ProjectCi.ps1 -Phase Static` passed; production code, plugin ABIs, and `DxUi` pin are unchanged while implementation and native runtime gates remain pending.
+- Preserve runtime Markdown and fixture README bytes in native test selection and receipts while keeping owned documentation on independent validation. Add scoped routing and byte-mutation controls; hosted native qualification remains separately recorded.
+- Adopt the shared guard and explicit owned-prose exclusions so new runtime Markdown and notice inputs retain native qualification; preserve existing native gates and historical artifact identity.
+- Adopt the shared engine's ABI-indexed vcpkg fallback cache and manual native dependency caching; keep compiler-free PRs, exact dependency pins and every native qualification gate.
+- Move the DxUi pin from side-branch commit `616104f3` to DxUi main `f2e328a0` (API revision 4). Main carries DxUi's
+  2 November delivery, what the old pin's four branch-only commits did, and submenu hover-timer cancellation on
+  keyboard and UI Automation focus. Restore now refuses a pinned source whose own `Build/NativeBuildPolicy.targets`
+  differs from RedXe's, so the policy hash in the build identity attests the copy that compiles the archive. One adapter
+  change: DxUi now exposes `PageIndicator` to UI Automation as a slider whose value is the page and no longer names it
+  "Page N of M", so AV Control names its indicator `Page`. AV Control's preparation callback only requests a frame,
+  and the host rebinds its state after embedded preparation, so neither needs a change. x64 Debug builds with zero
+  warnings and passes the full non-interactive gate. DxUi's own review still keeps main short of a production pin:
+  its P0 (PRIOR-03) is unreachable from RedXe, but CTRL-01 drops supplementary characters typed as `VK_PACKET` into
+  AV Control's profile-name field. DxUi's planned history rewrite will need a re-pin, and a production package of the
+  merged commit is still due.
+- Correct the WIP index so each row names the remaining work and records open release gates or unresolved owner scope decisions without granting deferrals. The delivery review is an evidence annex: its `8c882636` package command is superseded by the red-team package of `c61861c`. The Actions status names the unpublished publishers and marks the Zoom SDK sections as history. The AV continuation is not a resume list. The boundary plan drops its obsolete Python and ARM64 environment notes and keeps G2 and H3. The merged-review publication check follows `qualify.yml` and `publish.yml`. The runtime summary retains manual adapter/DPI and single-LUID qualification, the unexplained Release screenshot access violation, its other open gates, and historical September line numbers. AV release requirements and RedMonitor physical, paired-performance, and post-integration native ARM64 gates stay open. PresentMon remains the host-chrome C8 receipt pending capture or an explicit owner decision. Validate with `Tools/Test-Changelog.ps1`, `validate-skills.ps1`, read-only diff/link checks, and affected scoped checks. No product code or native test changes.
+- Record the 31 October delivery red-team ship list for tip `c61861c`: engine AND-gate, production-receipt leftovers, production packaging of that tip, the pinned DxUi submenu hover-timer cancel, and the P1/P2 follow-ups. Keep the earlier delivery-review document as the product-evidence annex. No product behavior changes; RedMonitor physical, paired-performance, and native ARM64 gates stay open.
 - Restore the independently pinned ports catalogue for vcpkg version resolution while preserving the executable pin, dependency floors and platform-private package roots. Verify dirty/foreign refusal, immutable pins, caller environment and deep port paths; native x64/ARM64 qualification remains required.
 - Adopt shared CI v1.0.6: DxUi SDK ZIPs stay internal with no publication workflow; application publication remains manual and artifact-only. Document the organization token route and separate implementation closeout from source-bound hosted acceptance; no product or winget publication is performed.
 - `--redmonitor-probe` prints one line naming its outcome on the console or redirected output, and still never shows
