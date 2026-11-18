@@ -7,4 +7,6 @@
   (now including `RedXeLauncher`), and gains `-Check`, which verifies without writing.
   `Plugins/MatrixRain/GenerateGlyphAtlas.ps1` writes its constants aligned, so a regenerated atlas equals the
   formatted one, and the `Main.cpp` routing check in `BuildProcessTests.ps1` accepts the aligned assignment.
-  This is step CV-6-05 of the `RedHome` convergence plan (register D-01, D-02, D-05, E-02).
+  `Build_Process.md` gains the shared formatting paragraph, and the validation steps of `Core_CrashHandling.md`
+  and `Plugins_API.md` run `format.ps1 -Check`.
+  This is step CV-6-05 of the `RedHome` convergence plan (register D-01, D-02, D-05, D-06, E-02).
