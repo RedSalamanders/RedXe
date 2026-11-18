@@ -4,7 +4,7 @@
   "repository": "RedSalamanders/RedXe",
   "engine": {
     "repository": "RedSalamanders/.github",
-    "ref": "07bc6f1e56804390bd5b2ecfdd4027fac2493049"
+    "ref": "f965c7945aff98dbab352623a0cfbe333e7f282f"
   },
   "kind": "application",
   "adapter": "Tools/Invoke-ProjectCi.ps1",
@@ -32,7 +32,10 @@
     ".vscode/**",
     ".github/ISSUE_TEMPLATE/**",
     ".github/dependabot.yml",
-    ".github/CODEOWNERS"
+    ".github/CODEOWNERS",
+    ".codex/**",
+    ".github/agents/**",
+    ".github/copilot-instructions.md"
   ],
   "formatRoots": [
     "Common",
