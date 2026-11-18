@@ -1,6 +1,6 @@
 ---
 name: plugin-development
-description: Implement or revise RedXe native plugin interfaces, factory exports, PluginManager loading, bundled plugin DLLs, or generic widget instances. Do not use for renderer-only D3D pipeline work.
+description: Implement or revise RedXe native plugin interfaces, factory exports, PluginManager loading, bundled plugin DLLs, or generic widget instances. Use when changing an ABI header under Common/PlugInterfaces, a factory, how PluginHost maps and retains modules, a bundled widget or service with its catalog, templates, schema and docs page, or a widget's GPU, native-window or raised mechanism. Do not use for renderer-only D3D pipeline work.
 ---
 
 # RedXe plugin development
