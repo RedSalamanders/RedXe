@@ -49,6 +49,10 @@ $buildIdentity = [pscustomobject]@{ Fingerprint=$policyFingerprint; Identity=$po
 # this session's or another's, takes either for the lease window, even once another fingerprint's properties replace ours. Its
 # marker is checked or written under the root's own mutex, so parallel restores of one new fingerprint all get it.
 $output = Initialize-RedXeDxUiOutputRoot -RepoRoot $PSScriptRoot -BuildIdentity $buildIdentity
+# The pinned DxUi installer makes a partial vcpkg clone unless its output root already holds a clean checkout of the pinned
+# vcpkg commit, and vcpkg cannot fetch the blobs a partial clone lacks (its Git runs without SystemRoot), so give it a complete one.
+Import-Module (Join-Path $PSScriptRoot 'Build/VcpkgToolCheckout.psm1') -Force -ErrorAction Stop
+Initialize-VcpkgToolCheckout -ToolIdentityPath (Join-Path $source 'vcpkg-tool.json') -ToolRoot (Join-Path $output 'vcpkg-tool')
 # DxUi's own vcpkg-install.ps1 takes no MSBuild: it builds DxUi's dependencies with the newest Visual Studio installation that has
 # MSBuild, which can differ from the build's (Core_DxUiIntegration.md).
 & (Join-Path $source 'vcpkg-install.ps1') -Platform $Platform -OutputRoot $output

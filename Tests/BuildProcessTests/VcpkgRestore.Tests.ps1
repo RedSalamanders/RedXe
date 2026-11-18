@@ -68,14 +68,59 @@ try{
 }finally{$env:VCPKG_ROOT=$before}
 $null=Git $source @('config','uploadpack.allowFilter','true')
 $null=Git $source @('config','uploadpack.allowAnySHA1InWant','true')
-$product=Product 'partial-transport'
 $sourceUri=([Uri]$source).AbsoluteUri
+# vcpkg extracts a versioned port with git read-tree and checkout-index in an environment that holds only GIT_INDEX_FILE,
+# where Git cannot reach the network. GIT_NO_LAZY_FETCH stands in for that offline, since file:// needs no network.
+function Read-TreeOffline([string]$Checkout,[string]$Treeish,[string]$Name){
+    $out=Join-Path $scratch ('offline-'+$Name);[void][IO.Directory]::CreateDirectory($out)
+    $codes=foreach($arguments in @(@('read-tree',$Treeish),@('--work-tree',$out,'checkout-index','-af',"--prefix=$out/"))){
+        $start=[Diagnostics.ProcessStartInfo]::new((Get-Command git.exe).Source)
+        foreach($argument in @('--git-dir',(Join-Path $Checkout '.git'))+$arguments){$start.ArgumentList.Add($argument)}
+        $start.UseShellExecute=$false;$start.RedirectStandardError=$true;$start.Environment.Clear()
+        $start.Environment['GIT_INDEX_FILE']=Join-Path $scratch ($Name+'.index');$start.Environment['GIT_NO_LAZY_FETCH']='1'
+        $process=[Diagnostics.Process]::Start($start);$null=$process.StandardError.ReadToEnd();$process.WaitForExit();$process.ExitCode
+        $process.Dispose()
+    }
+    return (@($codes|Where-Object{$_ -ne 0}).Count -eq 0)
+}
+function Get-LocalConfig([string]$Checkout,[string]$Name){$value=& git.exe -C $Checkout config --get $Name;$global:LASTEXITCODE=0;return [string]$value}
+function Get-MissingObjectCount([string]$Checkout){@(& git.exe -C $Checkout rev-list --objects --missing=print --all|Where-Object{$_.StartsWith('?')}).Count}
+$product=Product 'filter-capable-transport'
 [IO.File]::WriteAllText((Join-Path $product 'vcpkg-tool.json'),(@{repository=$sourceUri;commit=$toolCommit}|ConvertTo-Json))
 $state=Initialize-RedXeVcpkgSources $product
-Require ((Git $state.ToolRoot @('config','--get','remote.origin.promisor')) -ceq 'true') 'Tool clone lost filtering configuration.'
-Require ((Git $state.RegistryRoot @('config','--get','remote.origin.promisor')) -ceq 'true') 'Catalogue clone lost filtering configuration.'
-Require ([IO.File]::ReadAllText((Join-Path $state.RegistryRoot 'versions.txt')) -ceq 'yyjson=0.13;curl=8.23') 'Filtered catalogue cannot retrieve baseline objects.'
-Write-Host 'PASS real filtered transport retains promisor metadata and retrieves independent catalogue objects.'
+foreach($checkout in @($state.ToolRoot,$state.RegistryRoot)){
+    Require (-not (Get-LocalConfig $checkout 'remote.origin.partialclonefilter')) "A fresh clone is partial although the server offers filtering: $checkout"
+    Require ((Git $checkout @('rev-parse','--is-shallow-repository')) -ceq 'false') "A fresh clone is shallow: $checkout"
+    Require ((Get-MissingObjectCount $checkout) -eq 0) "A fresh clone lacks objects: $checkout"
+}
+Require (Read-TreeOffline $state.RegistryRoot ($toolCommit+'^{tree}') 'fresh') 'An older catalogue tree is not readable offline.'
+Write-Host 'PASS a server that offers filtering still gives complete, unshallow clones vcpkg can read offline.'
+# What earlier restores left: a shallow partial executable clone and a partial catalogue clone, each at its pin.
+$product=Product 'partial-upgrade'
+[IO.File]::WriteAllText((Join-Path $product 'vcpkg-tool.json'),(@{repository=$sourceUri;commit=$toolCommit}|ConvertTo-Json))
+$oldTool=Join-Path $product '.build/vcpkg-tool';$oldRegistry=Join-Path $product '.build/vcpkg-registry'
+[void][IO.Directory]::CreateDirectory((Join-Path $product '.build'))
+$null=Git $product @('clone','--filter=blob:none','--depth','1','--no-hardlinks','--no-checkout','--',$sourceUri,$oldTool)
+$null=Git $oldTool @('fetch','--depth','1','origin',$toolCommit);$null=Git $oldTool @('checkout','--force','--detach',$toolCommit)
+$null=Git $product @('clone','--filter=blob:none','--no-hardlinks','--no-checkout','--',$sourceUri,$oldRegistry)
+$null=Git $oldRegistry @('checkout','--force','--detach',$baseline)
+Require ((Git $oldTool @('rev-parse','--is-shallow-repository')) -ceq 'true') 'The old executable clone fixture is not shallow.'
+Require ((Get-MissingObjectCount $oldRegistry) -gt 0) 'The old catalogue clone fixture is not partial.'
+Require (-not (Read-TreeOffline $oldRegistry ($toolCommit+'^{tree}') 'partial')) 'The partial fixture does not reproduce the offline failure.'
+$state=Initialize-RedXeVcpkgSources $product
+foreach($item in @(@($state.ToolRoot,$toolCommit,$baseline),@($state.RegistryRoot,$baseline,$toolCommit))){
+    $checkout=$item[0]
+    Require ((Git $checkout @('rev-parse','HEAD')) -ceq $item[1]) "Completion moved HEAD: $checkout"
+    Require (-not (Git $checkout @('status','--porcelain'))) "Completion changed the working tree: $checkout"
+    Require (-not (Get-LocalConfig $checkout 'remote.origin.partialclonefilter')) "Completion kept the filter: $checkout"
+    Require (-not (Get-LocalConfig $checkout 'remote.origin.promisor')) "Completion kept the promisor setting: $checkout"
+    Require ((Git $checkout @('rev-parse','--is-shallow-repository')) -ceq 'false') "Completion left the clone shallow: $checkout"
+    Require ((Get-MissingObjectCount $checkout) -eq 0) "Completion left objects missing: $checkout"
+    Require (Read-TreeOffline $checkout ($item[2]+'^{tree}') ('completed-'+[IO.Path]::GetFileName($checkout))) "The other pin's tree is not readable offline: $checkout"
+}
+$again=Initialize-RedXeVcpkgSources $product
+Require ((Git $again.ToolRoot @('rev-parse','HEAD')) -ceq $toolCommit) 'Warm restore after completion moved the executable checkout.'
+Write-Host 'PASS partial and shallow clones from earlier restores are completed in place, HEAD and tree kept, readable offline.'
 foreach($role in @('ToolRoot','RegistryRoot')){
     $product=Product ('dirty-'+$role);$state=Initialize-RedXeVcpkgSources $product
     $file=Join-Path $state.$role 'versions.txt'

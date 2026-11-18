@@ -45,9 +45,10 @@ function Initialize-RedXeVcpkgCheckout {
     }
     if (-not (Test-Path -LiteralPath $Path)) {
         [void][IO.Directory]::CreateDirectory((Split-Path -Parent $Path))
-        # Clone from the declared repository so Git retains the promisor configuration
-        # needed for filtered objects. Copying a partial clone locally loses that contract.
-        $null = Invoke-RedXeVcpkgGit $RepoRoot @('clone','--filter=blob:none','--no-hardlinks','--no-checkout','--',$Repository,$Path)
+        # A complete clone: vcpkg extracts each versioned port with git read-tree and checkout-index in an environment
+        # that holds only GIT_INDEX_FILE. Without SystemRoot that Git resolves no host, so it cannot fetch an object a
+        # partial clone left on the server ("Could not resolve host: github.com" for a promisor object).
+        $null = Invoke-RedXeVcpkgGit $RepoRoot @('clone','--no-hardlinks','--no-checkout','--',$Repository,$Path)
         $created = $true
     }
     if (-not (Test-Path -LiteralPath (Join-Path $Path '.git') -PathType Container)) { throw "Managed vcpkg path is not an owned clone: $Path" }
@@ -57,8 +58,19 @@ function Initialize-RedXeVcpkgCheckout {
     if ($origin.TrimEnd('/') -cne $Repository.TrimEnd('/')) { throw "Managed vcpkg origin differs from the declared repository: $Path" }
     if (-not $created -and (Invoke-RedXeVcpkgGit $Path @('status','--porcelain')).Text) { throw "Managed vcpkg checkout contains local changes: $Path" }
     $null = Invoke-RedXeVcpkgGit $Path @('config','core.longpaths','true')
+    # Earlier restores made partial, shallow clones. Complete one in place, keeping its HEAD and working tree; the filter
+    # setting goes only once every object is local, so an interrupted completion is detected and retried.
+    if ((Invoke-RedXeVcpkgGit $Path @('config','--get','remote.origin.partialclonefilter') -AllowFailure).Text) {
+        if ((Invoke-RedXeVcpkgGit $Path @('rev-parse','--is-shallow-repository')).Text -ceq 'true') {
+            $null = Invoke-RedXeVcpkgGit $Path @('fetch','--unshallow','origin')
+        }
+        $null = Invoke-RedXeVcpkgGit $Path @('fetch','--refetch','--no-filter','origin')
+        $null = Invoke-RedXeVcpkgGit $Path @('config','--unset-all','remote.origin.partialclonefilter')
+        $null = Invoke-RedXeVcpkgGit $Path @('config','--unset-all','remote.origin.promisor') -AllowFailure
+    }
     $available = Invoke-RedXeVcpkgGit $Path @('cat-file','-e',($Commit+'^{commit}')) -AllowFailure
-    if ($available.ExitCode -ne 0) { $null = Invoke-RedXeVcpkgGit $Path @('fetch','--depth','1','origin',$Commit) }
+    # The default branch normally holds the pin; fetch it, with its history, only when it is missing, so the clone stays complete.
+    if ($available.ExitCode -ne 0) { $null = Invoke-RedXeVcpkgGit $Path @('fetch','origin',$Commit) }
     $head = (Invoke-RedXeVcpkgGit $Path @('rev-parse','HEAD')).Text
     if ($created) {
         # Only this invocation's new --no-checkout clone has no caller work to preserve.
