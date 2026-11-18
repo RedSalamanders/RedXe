@@ -1,7 +1,7 @@
 # Skill packages and guidance validation
 
 Status: normative repository tooling contract
-Last reviewed: 2026-10-29
+Last reviewed: 2026-11-18
 
 ## Ownership and verdicts
 
@@ -14,8 +14,9 @@ opening metadata through the grammar validator, which rejects malformed headers,
 instructions. `Build/SkillPackageIntegrity.psm1` supplies read-only package and local-reference validation. It inspects
 every Markdown resource in the skill packages and
 the canonical root/CLAUDE/Copilot guidance routes, rejects missing local targets or references outside this checkout,
-and rejects empty supplied UI metadata. UI metadata remains optional. External links, anchor existence, inline
-command signatures, C++ compilation and model decisions are outside this package verdict.
+and rejects empty supplied UI metadata. UI metadata remains optional to the validator, but no RedXe skill carries an
+`agents/openai.yaml`: the RedSalamanders repositories use none (`RedHome` convergence register row A-11). External
+links, anchor existence, inline command signatures, C++ compilation and model decisions are outside this package verdict.
 
 Both validators read package Markdown through `Build/SkillText.psm1` as strict UTF-8. UTF-16 or UTF-32 text, NUL bytes
 and invalid UTF-8 are refused for every file, and a UTF-8 byte order mark is refused for `SKILL.md`, whose front matter
