@@ -23,7 +23,7 @@
 namespace
 {
 constexpr wchar_t kTargetExecutable[] = L"RedXe.exe";
-constexpr wchar_t kErrorCaption[] = L"RedXe";
+constexpr wchar_t kErrorCaption[]     = L"RedXe";
 
 void ShowError(std::wstring_view message) noexcept
 {
@@ -78,10 +78,9 @@ void ShowError(std::wstring_view message) noexcept
 // The file the launched path finally denotes, with every symbolic link and junction resolved.
 [[nodiscard]] std::wstring ResolveFinalPath(const std::wstring& path)
 {
-    const wil::unique_hfile file(CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
-                                             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
-    if (!file)
+    const wil::unique_hfile file(CreateFileW(
+        path.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (! file)
     {
         return {};
     }
@@ -89,9 +88,8 @@ void ShowError(std::wstring_view message) noexcept
     std::wstring resolved(MAX_PATH, L'\0');
     for (;;)
     {
-        const DWORD written = GetFinalPathNameByHandleW(file.get(), resolved.data(),
-                                                        static_cast<DWORD>(resolved.size()),
-                                                        FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+        const DWORD written =
+            GetFinalPathNameByHandleW(file.get(), resolved.data(), static_cast<DWORD>(resolved.size()), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
         if (written == 0)
         {
             return {};
@@ -157,7 +155,7 @@ void ShowError(std::wstring_view message) noexcept
     }
     for (int index = 1; index < argumentCount; ++index)
     {
-        if (!arguments[index])
+        if (! arguments[index])
         {
             continue;
         }
@@ -191,8 +189,7 @@ int Launch()
     const std::wstring finalPath = ResolveFinalPath(launchedPath);
     if (finalPath.empty())
     {
-        ShowError(FormatWin32Failure(L"Could not resolve the launcher target path for " + launchedPath,
-                                     GetLastError()));
+        ShowError(FormatWin32Failure(L"Could not resolve the launcher target path for " + launchedPath, GetLastError()));
         return 1;
     }
     const std::wstring packageDirectory = GetParentDirectory(finalPath);
@@ -210,7 +207,7 @@ int Launch()
 
     int argumentCount = 0;
     const wil::unique_hlocal_ptr<wchar_t*> arguments(CommandLineToArgvW(GetCommandLineW(), &argumentCount));
-    if (!arguments)
+    if (! arguments)
     {
         ShowError(FormatWin32Failure(L"Could not parse the command line", GetLastError()));
         return 1;
@@ -220,8 +217,7 @@ int Launch()
     for (int index = 1; index < argumentCount; ++index)
     {
         commandLine.push_back(L' ');
-        commandLine.append(QuoteArgument(arguments.get()[index] ? std::wstring_view(arguments.get()[index])
-                                                                : std::wstring_view{}));
+        commandLine.append(QuoteArgument(arguments.get()[index] ? std::wstring_view(arguments.get()[index]) : std::wstring_view{}));
     }
     std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
     mutableCommandLine.push_back(L'\0');
@@ -229,15 +225,14 @@ int Launch()
     // Hand the console (or a redirection) to RedXe.exe so `RedXe --help > file` and terminal output work
     // even though RedXe.exe is a GUI-subsystem image.
     STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    startup.dwFlags = STARTF_USESTDHANDLES;
-    startup.hStdInput = InheritableStandardHandle(STD_INPUT_HANDLE);
+    startup.cb         = sizeof(startup);
+    startup.dwFlags    = STARTF_USESTDHANDLES;
+    startup.hStdInput  = InheritableStandardHandle(STD_INPUT_HANDLE);
     startup.hStdOutput = InheritableStandardHandle(STD_OUTPUT_HANDLE);
-    startup.hStdError = InheritableStandardHandle(STD_ERROR_HANDLE);
+    startup.hStdError  = InheritableStandardHandle(STD_ERROR_HANDLE);
 
     PROCESS_INFORMATION process{};
-    if (!CreateProcessW(targetPath.c_str(), mutableCommandLine.data(), nullptr, nullptr, TRUE, 0, nullptr,
-                        packageDirectory.c_str(), &startup, &process))
+    if (! CreateProcessW(targetPath.c_str(), mutableCommandLine.data(), nullptr, nullptr, TRUE, 0, nullptr, packageDirectory.c_str(), &startup, &process))
     {
         ShowError(FormatWin32Failure(L"Could not start " + targetPath, GetLastError()));
         return 1;
@@ -245,7 +240,7 @@ int Launch()
     const wil::unique_handle processHandle(process.hProcess);
     const wil::unique_handle threadHandle(process.hThread);
 
-    if (!ShouldAwaitTarget(arguments.get(), argumentCount))
+    if (! ShouldAwaitTarget(arguments.get(), argumentCount))
     {
         return 0;
     }
@@ -255,7 +250,7 @@ int Launch()
         return 1;
     }
     DWORD exitCode = 1;
-    if (!GetExitCodeProcess(processHandle.get(), &exitCode))
+    if (! GetExitCodeProcess(processHandle.get(), &exitCode))
     {
         ShowError(FormatWin32Failure(L"Could not read the exit code of " + targetPath, GetLastError()));
         return 1;

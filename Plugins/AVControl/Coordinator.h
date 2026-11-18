@@ -15,7 +15,7 @@ namespace AVControl
 #pragma warning(disable : 4625 4626)
 class Coordinator final : public RedXeComObject<Coordinator, IRedXeControlWork>
 {
-  public:
+public:
     Coordinator(IRedXeHost* host, std::wstring executable, bool synthetic = false);
     ~Coordinator();
     HRESULT Initialize() noexcept;
@@ -59,12 +59,12 @@ class Coordinator final : public RedXeComObject<Coordinator, IRedXeControlWork>
     HRESULT STDMETHODCALLTYPE Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexcept override;
     void STDMETHODCALLTYPE Complete(HRESULT result) noexcept override;
 
-  private:
+private:
     struct Command final
     {
         ViewCommand value;
         uint64_t acceptedAt = 0;
-        bool followRoute = false;
+        bool followRoute    = false;
     };
     IRedXeHost* _host; // Borrowed until runtime shutdown, after control-lane drain.
     std::wstring _executable;
@@ -78,7 +78,7 @@ class Coordinator final : public RedXeComObject<Coordinator, IRedXeControlWork>
     std::unique_ptr<InventoryPreferences> _preferences, _workPreferences;
     uint64_t _preferenceRevision = 1, _workPreferenceRevision = 0;
     uint64_t _brokerPreferenceRevision = 0;
-    mutable SRWLOCK _lock = SRWLOCK_INIT;
+    mutable SRWLOCK _lock              = SRWLOCK_INIT;
     std::array<std::optional<Command>, 5> _commands;
     std::optional<Profile> _profile;
     uint64_t _profileAcceptedAt = 0;
@@ -86,7 +86,7 @@ class Coordinator final : public RedXeComObject<Coordinator, IRedXeControlWork>
     wil::unique_threadpool_wait _wait;
     std::atomic<bool> _dirty{true};
     std::atomic<bool> _observing{false};
-    uint32_t _visible = 0;
+    uint32_t _visible     = 0;
     uint32_t _runningMask = 0;
     bool _inFlight = false, _profilePending = false, _observeRequested = false, _stopRequested = false;
     uint64_t _revision = 1, _deviceRevision = 1;

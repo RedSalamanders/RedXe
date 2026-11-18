@@ -14,8 +14,10 @@
 // Plain value type over borrowed text: no allocation, no Win32.
 class RedXeSettingsCursor final
 {
-  public:
-    constexpr explicit RedXeSettingsCursor(std::string_view text) noexcept : _text(text) {}
+public:
+    constexpr explicit RedXeSettingsCursor(std::string_view text) noexcept : _text(text)
+    {
+    }
 
     constexpr void SkipWhitespace() noexcept
     {
@@ -70,7 +72,7 @@ class RedXeSettingsCursor final
     [[nodiscard]] constexpr bool ReadBoolean(bool& value) noexcept
     {
         SkipWhitespace();
-        constexpr std::string_view trueText = "true";
+        constexpr std::string_view trueText  = "true";
         constexpr std::string_view falseText = "false";
         if (_text.substr(_offset, trueText.size()) == trueText)
         {
@@ -95,8 +97,8 @@ class RedXeSettingsCursor final
             return false;
         }
         const bool leadingZero = _text[_offset] == '0';
-        uint64_t parsed = 0;
-        size_t digits = 0;
+        uint64_t parsed        = 0;
+        size_t digits          = 0;
         while (_offset < _text.size() && _text[_offset] >= '0' && _text[_offset] <= '9')
         {
             parsed = parsed * 10U + static_cast<uint64_t>(_text[_offset] - '0');
@@ -121,7 +123,7 @@ class RedXeSettingsCursor final
         return _offset == _text.size();
     }
 
-  private:
+private:
     std::string_view _text;
     size_t _offset = 0;
 };

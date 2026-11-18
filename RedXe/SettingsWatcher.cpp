@@ -4,12 +4,10 @@
 
 namespace
 {
-using unique_change_notification =
-    wil::unique_any<HANDLE, decltype(&::FindCloseChangeNotification), ::FindCloseChangeNotification>;
+using unique_change_notification = wil::unique_any<HANDLE, decltype(&::FindCloseChangeNotification), ::FindCloseChangeNotification>;
 
-constexpr DWORD kNotificationFilter =
-    FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE;
-constexpr DWORD kRetryMilliseconds = 1000;
+constexpr DWORD kNotificationFilter   = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE;
+constexpr DWORD kRetryMilliseconds    = 1000;
 constexpr DWORD kDebounceMilliseconds = 100;
 } // namespace
 
@@ -21,7 +19,7 @@ SettingsWatcher::~SettingsWatcher()
 HRESULT SettingsWatcher::Start(HWND targetWindow, std::wstring_view settingsDirectory) noexcept
 {
     Stop();
-    if (!targetWindow || !IsWindow(targetWindow) || settingsDirectory.empty())
+    if (! targetWindow || ! IsWindow(targetWindow) || settingsDirectory.empty())
     {
         return E_INVALIDARG;
     }
@@ -31,7 +29,7 @@ HRESULT SettingsWatcher::Start(HWND targetWindow, std::wstring_view settingsDire
         _targetWindow = targetWindow;
         _settingsDirectory.assign(settingsDirectory);
         _stopEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
-        if (!_stopEvent)
+        if (! _stopEvent)
         {
             const DWORD error = GetLastError();
             Stop();
@@ -82,7 +80,7 @@ void SettingsWatcher::WatchThread() noexcept
     unique_change_notification notification;
     for (;;)
     {
-        if (!notification)
+        if (! notification)
         {
             HANDLE raw = FindFirstChangeNotificationW(_settingsDirectory.c_str(), FALSE, kNotificationFilter);
             if (raw == nullptr || raw == INVALID_HANDLE_VALUE)
@@ -99,7 +97,7 @@ void SettingsWatcher::WatchThread() noexcept
             PostSettingsChanged();
         }
 
-        HANDLE handles[] = {_stopEvent.get(), notification.get()};
+        HANDLE handles[]       = {_stopEvent.get(), notification.get()};
         const DWORD waitResult = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
         if (waitResult == WAIT_OBJECT_0)
         {
@@ -110,7 +108,7 @@ void SettingsWatcher::WatchThread() noexcept
             return;
         }
 
-        if (!FindNextChangeNotification(notification.get()))
+        if (! FindNextChangeNotification(notification.get()))
         {
             notification.reset();
         }
@@ -129,7 +127,7 @@ void SettingsWatcher::PostSettingsChanged() noexcept
     {
         return;
     }
-    if (!PostMessageW(_targetWindow, kSettingsChangedMessage, 0, 0))
+    if (! PostMessageW(_targetWindow, kSettingsChangedMessage, 0, 0))
     {
         _notificationPending.store(false, std::memory_order_release);
     }

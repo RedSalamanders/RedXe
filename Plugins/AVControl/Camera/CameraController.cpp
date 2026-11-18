@@ -22,10 +22,11 @@ Availability FailureState(HRESULT result) noexcept
 }
 } // namespace
 CameraController::CameraController(BridgeIdentity identity, std::unique_ptr<CaptureSession> capture)
-    : _identity(std::move(identity)), _capture(std::move(capture))
+    : _identity(std::move(identity)),
+      _capture(std::move(capture))
 {
     _confirmed.availability = Availability::Ready;
-    _confirmed.revision = 1;
+    _confirmed.revision     = 1;
 }
 CameraController::~CameraController()
 {
@@ -33,10 +34,9 @@ CameraController::~CameraController()
 }
 HRESULT CameraController::Initialize(HANDLE changed) noexcept
 {
-    if (!changed || !_capture || _identity.ownerSid.empty())
+    if (! changed || ! _capture || _identity.ownerSid.empty())
         return E_INVALIDARG;
-    RETURN_IF_WIN32_BOOL_FALSE(DuplicateHandle(GetCurrentProcess(), changed, GetCurrentProcess(), _changed.put(),
-                                               EVENT_MODIFY_STATE, FALSE, 0));
+    RETURN_IF_WIN32_BOOL_FALSE(DuplicateHandle(GetCurrentProcess(), changed, GetCurrentProcess(), _changed.put(), EVENT_MODIFY_STATE, FALSE, 0));
     _completed.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
     _progress.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
     return _completed && _progress ? S_OK : HRESULT_FROM_WIN32(GetLastError());
@@ -56,14 +56,14 @@ void CameraController::EndDriverCall() noexcept
 DWORD CameraController::WatchdogTimeout() const noexcept
 {
     const auto deadline = _driverDeadline.load(std::memory_order_acquire);
-    if (!deadline)
+    if (! deadline)
         return INFINITE;
     const auto now = GetTickCount64();
     return static_cast<DWORD>(deadline > now ? deadline - now : 0);
 }
 void CameraController::CloseCapture() noexcept
 {
-    if (!_capture)
+    if (! _capture)
         return;
     BeginDriverCall();
     _capture->Close();
@@ -98,9 +98,9 @@ HRESULT CameraController::Enable(bool enabled, uint64_t expectedRevision) noexce
 }
 HRESULT CameraController::Change(const DeviceId* source, bool enabled, uint64_t expectedRevision) noexcept
 {
-    if (!_completed || !_changed)
+    if (! _completed || ! _changed)
         return E_UNEXPECTED;
-    uint64_t serial = 0;
+    uint64_t serial     = 0;
     bool desiredEnabled = false;
     DeviceId id;
     {
@@ -118,20 +118,20 @@ HRESULT CameraController::Change(const DeviceId* source, bool enabled, uint64_t 
             _desiredEnabled = false;
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
-        id = _desiredId;
+        id             = _desiredId;
         desiredEnabled = _desiredEnabled;
-        serial = ++_request;
-        _result = E_PENDING;
+        serial         = ++_request;
+        _result        = E_PENDING;
     }
-    if (!_running && !desiredEnabled)
+    if (! _running && ! desiredEnabled)
     {
         Finish(serial, id, false, S_OK);
         return S_OK;
     }
-    if (!_running)
+    if (! _running)
     {
         // Merely selecting a source while off creates no capture thread, pipe, shared frame or media reader.
-        _gate = 1;
+        _gate                 = 1;
         const HRESULT started = _bridge.Start(_identity, this);
         if (FAILED(started))
         {
@@ -144,16 +144,16 @@ HRESULT CameraController::Change(const DeviceId* source, bool enabled, uint64_t 
     const ULONGLONG deadline = GetTickCount64() + 2500;
     for (;;)
     {
-        bool done = false;
+        bool done      = false;
         HRESULT result = E_PENDING;
         {
             const auto lock = wil::AcquireSRWLockShared(&_lock);
-            done = _done >= serial;
-            result = _result;
+            done            = _done >= serial;
+            result          = _result;
         }
         if (done)
         {
-            if (!desiredEnabled)
+            if (! desiredEnabled)
             {
                 _bridge.Stop();
                 _running = false;
@@ -162,26 +162,25 @@ HRESULT CameraController::Change(const DeviceId* source, bool enabled, uint64_t 
         }
         const auto now = GetTickCount64();
         if (now >= deadline)
-            return HRESULT_FROM_WIN32(
-                ERROR_TIMEOUT); // Parent contains a stalled driver by terminating only this helper.
+            return HRESULT_FROM_WIN32(ERROR_TIMEOUT); // Parent contains a stalled driver by terminating only this helper.
         (void)WaitForSingleObject(_completed.get(), static_cast<DWORD>(deadline - now));
     }
 }
 void CameraController::Finish(uint64_t serial, const DeviceId& id, bool enabled, HRESULT result) noexcept
 {
-    const auto lock = wil::AcquireSRWLockExclusive(&_lock);
+    const auto lock         = wil::AcquireSRWLockExclusive(&_lock);
     const auto availability = FailureState(result);
     if (_confirmed.sourceId != id || _confirmed.enabled != enabled || _confirmed.availability != availability)
     {
-        _confirmed.sourceId = id;
-        _confirmed.enabled = enabled;
+        _confirmed.sourceId     = id;
+        _confirmed.enabled      = enabled;
         _confirmed.availability = availability;
         ++_confirmed.revision;
         SetEvent(_changed.get());
     }
     if (serial == _request && _done != serial)
     {
-        _done = serial;
+        _done   = serial;
         _result = result;
         SetEvent(_completed.get());
     }
@@ -203,17 +202,17 @@ void CameraController::Fail(uint64_t serial, const DeviceId& id, HRESULT result)
 void CameraController::OnBridgeWork() noexcept
 {
     DeviceId id;
-    bool enabled = false;
+    bool enabled    = false;
     uint64_t serial = 0;
-    bool pending = false;
+    bool pending    = false;
     {
         const auto lock = wil::AcquireSRWLockShared(&_lock);
-        id = _desiredId;
-        enabled = _desiredEnabled;
-        serial = _request;
-        pending = _done != serial;
+        id              = _desiredId;
+        enabled         = _desiredEnabled;
+        serial          = _request;
+        pending         = _done != serial;
     }
-    if (!enabled || !_bridge.DemandingConsumers())
+    if (! enabled || ! _bridge.DemandingConsumers())
     {
         if (_capturing || pending)
         {
@@ -234,7 +233,7 @@ void CameraController::OnBridgeWork() noexcept
             Finish(serial, id, enabled, S_OK);
         return;
     }
-    if (!_capturing || _capturedId != id)
+    if (! _capturing || _capturedId != id)
     {
         const HRESULT gated = _bridge.SetGate(++_gate, false);
         if (FAILED(gated))
@@ -247,7 +246,7 @@ void CameraController::OnBridgeWork() noexcept
         _published = false;
         try
         {
-            if (!_frame)
+            if (! _frame)
                 _frame = std::make_unique<std::array<BYTE, FrameBytes>>();
         }
         catch (const std::bad_alloc&)
@@ -264,7 +263,7 @@ void CameraController::OnBridgeWork() noexcept
             return;
         }
         _capturedId = id;
-        _capturing = true;
+        _capturing  = true;
     }
     LONGLONG timestamp = 0;
     BeginDriverCall();
@@ -277,7 +276,7 @@ void CameraController::OnBridgeWork() noexcept
     }
     if (frame == S_OK)
     {
-        if (!_published)
+        if (! _published)
         {
             const HRESULT gated = _bridge.SetGate(++_gate, true);
             if (FAILED(gated))

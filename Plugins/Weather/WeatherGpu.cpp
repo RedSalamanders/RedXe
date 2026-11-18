@@ -19,23 +19,22 @@
 
 namespace
 {
-constexpr float kGlyphEmSize = 40.0f;
-constexpr uint32_t kStaticGlyphFirst = 32;
-constexpr uint32_t kStaticGlyphLast = 126;
-constexpr uint32_t kStaticGlyphCount = kStaticGlyphLast - kStaticGlyphFirst + 1;
-constexpr wchar_t kStaticExtraGlyphs[] = {0x00B0};
-constexpr uint32_t kStaticExtraCount =
-    static_cast<uint32_t>(sizeof(kStaticExtraGlyphs) / sizeof(kStaticExtraGlyphs[0]));
+constexpr float kGlyphEmSize            = 40.0f;
+constexpr uint32_t kStaticGlyphFirst    = 32;
+constexpr uint32_t kStaticGlyphLast     = 126;
+constexpr uint32_t kStaticGlyphCount    = kStaticGlyphLast - kStaticGlyphFirst + 1;
+constexpr wchar_t kStaticExtraGlyphs[]  = {0x00B0};
+constexpr uint32_t kStaticExtraCount    = static_cast<uint32_t>(sizeof(kStaticExtraGlyphs) / sizeof(kStaticExtraGlyphs[0]));
 constexpr uint32_t kStaticReservedCount = kStaticGlyphCount + kStaticExtraCount;
-constexpr uint32_t kHeroGlyphCount = static_cast<uint32_t>(sizeof(kWeatherHeroGlyphs) / sizeof(kWeatherHeroGlyphs[0]));
-constexpr uint32_t kIconGlyphCount = static_cast<uint32_t>(sizeof(kWeatherIconGlyphs) / sizeof(kWeatherIconGlyphs[0]));
+constexpr uint32_t kHeroGlyphCount      = static_cast<uint32_t>(sizeof(kWeatherHeroGlyphs) / sizeof(kWeatherHeroGlyphs[0]));
+constexpr uint32_t kIconGlyphCount      = static_cast<uint32_t>(sizeof(kWeatherIconGlyphs) / sizeof(kWeatherIconGlyphs[0]));
 // The bottom rows of the atlas hold every 96 px cell: condition icons first, then hero glyphs.
-constexpr uint32_t kLargeCellColumns = kWeatherAtlasSize / kWeatherIconCell;
-constexpr uint32_t kLargeCellRows = 3;
-constexpr uint32_t kLargeCellCapacity = kLargeCellColumns * kLargeCellRows;
-constexpr uint32_t kLargeCellReserveY = kWeatherAtlasSize - kWeatherIconCell * kLargeCellRows;
+constexpr uint32_t kLargeCellColumns   = kWeatherAtlasSize / kWeatherIconCell;
+constexpr uint32_t kLargeCellRows      = 3;
+constexpr uint32_t kLargeCellCapacity  = kLargeCellColumns * kLargeCellRows;
+constexpr uint32_t kLargeCellReserveY  = kWeatherAtlasSize - kWeatherIconCell * kLargeCellRows;
 constexpr uint32_t kSmallGlyphCapacity = (kLargeCellReserveY / kWeatherGlyphCell) * kWeatherGlyphColumns;
-constexpr uint32_t kMissingGlyph = 0xFFFFFFFFu;
+constexpr uint32_t kMissingGlyph       = 0xFFFFFFFFu;
 // Every large twin consumes a slot index, and slot indices map onto 48 px cell positions above the reserve.
 static_assert(kStaticReservedCount + 2 * kIconGlyphCount + kHeroGlyphCount < kSmallGlyphCapacity);
 static_assert(kIconGlyphCount + kHeroGlyphCount <= kLargeCellCapacity);
@@ -57,8 +56,7 @@ std::atomic<uint32_t> g_fontSessionCount{0};
 std::atomic<uint32_t> g_livePreparationFonts{0};
 std::atomic<bool> g_failNextGlyphPreparationForTest{false};
 
-[[nodiscard]] HRESULT CreateWeatherFontFace(IDWriteFactory& factory,
-                                            wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
+[[nodiscard]] HRESULT CreateWeatherFontFace(IDWriteFactory& factory, wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
 {
     face.reset();
     wil::com_ptr_nothrow<IDWriteFontCollection> collection;
@@ -71,9 +69,9 @@ std::atomic<bool> g_failNextGlyphPreparationForTest{false};
     for (const wchar_t* familyName : families)
     {
         UINT32 familyIndex = 0;
-        BOOL exists = FALSE;
-        result = collection->FindFamilyName(familyName, &familyIndex, &exists);
-        if (FAILED(result) || !exists)
+        BOOL exists        = FALSE;
+        result             = collection->FindFamilyName(familyName, &familyIndex, &exists);
+        if (FAILED(result) || ! exists)
         {
             continue;
         }
@@ -84,8 +82,7 @@ std::atomic<bool> g_failNextGlyphPreparationForTest{false};
             return result;
         }
         wil::com_ptr_nothrow<IDWriteFont> font;
-        result = family->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_LIGHT, DWRITE_FONT_STRETCH_NORMAL,
-                                              DWRITE_FONT_STYLE_NORMAL, font.put());
+        result = family->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_LIGHT, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, font.put());
         if (FAILED(result))
         {
             continue;
@@ -99,8 +96,7 @@ std::atomic<bool> g_failNextGlyphPreparationForTest{false};
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
 
-[[nodiscard]] HRESULT CreateWeatherIconFontFace(IDWriteFactory& factory,
-                                                wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
+[[nodiscard]] HRESULT CreateWeatherIconFontFace(IDWriteFactory& factory, wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
 {
     face.reset();
     HMODULE module = nullptr;
@@ -117,7 +113,7 @@ std::atomic<bool> g_failNextGlyphPreparationForTest{false};
         return HRESULT_FROM_WIN32(length == 0 ? GetLastError() : ERROR_INSUFFICIENT_BUFFER);
     }
     wchar_t* slash = wcsrchr(path, L'\\');
-    if (!slash)
+    if (! slash)
     {
         return HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND);
     }
@@ -140,7 +136,7 @@ std::atomic<bool> g_failNextGlyphPreparationForTest{false};
     DWRITE_FONT_FILE_TYPE fileType{};
     DWRITE_FONT_FACE_TYPE faceType{};
     UINT32 faceCount = 0;
-    result = file->Analyze(&supported, &fileType, &faceType, &faceCount);
+    result           = file->Analyze(&supported, &fileType, &faceType, &faceCount);
     if (FAILED(result) || supported == FALSE || faceCount == 0)
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
@@ -165,7 +161,7 @@ struct DirectWriteSession final
 [[nodiscard]] HRESULT OpenDirectWrite(DirectWriteSession& session) noexcept
 {
     session.module.reset(LoadLibraryExW(L"dwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32));
-    if (!session.module)
+    if (! session.module)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -175,12 +171,11 @@ struct DirectWriteSession final
 // Owner: RedXe maintainers; review: 2027-01-31.
 #pragma warning(suppress : 4191)
         reinterpret_cast<DWriteCreateFactoryFn>(GetProcAddress(session.module.get(), "DWriteCreateFactory"));
-    if (!createFactory)
+    if (! createFactory)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
-    HRESULT result = createFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory),
-                                   reinterpret_cast<IUnknown**>(session.factory.put()));
+    HRESULT result = createFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(session.factory.put()));
     if (FAILED(result))
     {
         return result;
@@ -195,8 +190,7 @@ struct DirectWriteSession final
     return S_OK;
 }
 
-[[nodiscard]] HRESULT BlitGlyphAnalysis(IDWriteGlyphRunAnalysis& analysis, uint32_t atlasX, uint32_t atlasY,
-                                        uint32_t cell, uint8_t* atlasPixels) noexcept
+[[nodiscard]] HRESULT BlitGlyphAnalysis(IDWriteGlyphRunAnalysis& analysis, uint32_t atlasX, uint32_t atlasY, uint32_t cell, uint8_t* atlasPixels) noexcept
 {
     RECT bounds{};
     HRESULT result = analysis.GetAlphaTextureBounds(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds);
@@ -205,18 +199,17 @@ struct DirectWriteSession final
         return result;
     }
     // Reject a clipped glyph rather than silently baking missing strokes into the atlas.
-    if (bounds.left < 0 || bounds.top < 0 || bounds.right > static_cast<LONG>(cell) ||
-        bounds.bottom > static_cast<LONG>(cell))
+    if (bounds.left < 0 || bounds.top < 0 || bounds.right > static_cast<LONG>(cell) || bounds.bottom > static_cast<LONG>(cell))
         return E_BOUNDS;
     if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
     {
         return S_OK;
     }
-    const uint32_t width = static_cast<uint32_t>(bounds.right - bounds.left);
+    const uint32_t width  = static_cast<uint32_t>(bounds.right - bounds.left);
     const uint32_t height = static_cast<uint32_t>(bounds.bottom - bounds.top);
     std::array<uint8_t, kWeatherIconCell * kWeatherIconCell * 3> scratch{};
     const uint32_t required = width * height * 3U;
-    result = analysis.CreateAlphaTexture(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds, scratch.data(), required);
+    result                  = analysis.CreateAlphaTexture(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds, scratch.data(), required);
     if (FAILED(result))
     {
         return result;
@@ -225,32 +218,37 @@ struct DirectWriteSession final
     {
         for (uint32_t x = 0; x < width; ++x)
         {
-            const size_t source = (static_cast<size_t>(y) * width + x) * 3U;
-            const uint32_t coverage =
-                static_cast<uint32_t>(scratch[source]) + scratch[source + 1U] + scratch[source + 2U];
+            const size_t source     = (static_cast<size_t>(y) * width + x) * 3U;
+            const uint32_t coverage = static_cast<uint32_t>(scratch[source]) + scratch[source + 1U] + scratch[source + 2U];
             const size_t destination =
-                static_cast<size_t>(atlasY + static_cast<uint32_t>(bounds.top) + y) * kWeatherAtlasSize + atlasX +
-                static_cast<uint32_t>(bounds.left) + x;
+                static_cast<size_t>(atlasY + static_cast<uint32_t>(bounds.top) + y) * kWeatherAtlasSize + atlasX + static_cast<uint32_t>(bounds.left) + x;
             atlasPixels[destination] = static_cast<uint8_t>((coverage + 1U) / 3U);
         }
     }
     return S_OK;
 }
 
-[[nodiscard]] HRESULT RasterizeIntoAtlas(IDWriteFactory& factory, IDWriteFontFace& face, wchar_t character,
-                                         uint32_t atlasX, uint32_t atlasY, uint32_t cell, uint8_t* atlasPixels,
-                                         float& advance, bool centerInCell, WeatherGlyphInk& ink) noexcept
+[[nodiscard]] HRESULT RasterizeIntoAtlas(IDWriteFactory& factory,
+                                         IDWriteFontFace& face,
+                                         wchar_t character,
+                                         uint32_t atlasX,
+                                         uint32_t atlasY,
+                                         uint32_t cell,
+                                         uint8_t* atlasPixels,
+                                         float& advance,
+                                         bool centerInCell,
+                                         WeatherGlyphInk& ink) noexcept
 {
-    ink = {};
-    const float cellF = static_cast<float>(cell);
-    const float maxInk = cellF - 4.0f;
-    const float fitInk = cellF - 6.0f;
+    ink                 = {};
+    const float cellF   = static_cast<float>(cell);
+    const float maxInk  = cellF - 4.0f;
+    const float fitInk  = cellF - 6.0f;
     const LONG cellEdge = static_cast<LONG>(cell) - 1;
     for (uint32_t row = 0; row < cell; ++row)
         std::memset(atlasPixels + static_cast<size_t>(atlasY + row) * kWeatherAtlasSize + atlasX, 0, cell);
     const UINT32 codePoint = static_cast<UINT32>(character);
-    UINT16 glyphIndex = 0;
-    HRESULT result = face.GetGlyphIndices(&codePoint, 1, &glyphIndex);
+    UINT16 glyphIndex      = 0;
+    HRESULT result         = face.GetGlyphIndices(&codePoint, 1, &glyphIndex);
     if (FAILED(result))
     {
         return result;
@@ -273,20 +271,18 @@ struct DirectWriteSession final
         return E_UNEXPECTED;
     }
     // Text cells scale from the 48 px base so a 96 px twin is an exact 2x raster with the same normalized metrics.
-    const float textScale = cellF / static_cast<float>(kWeatherGlyphCell);
-    float emSize =
-        centerInCell
-            ? cellF * 0.78f
-            : textScale *
-                  std::min(kGlyphEmSize, (static_cast<float>(kWeatherGlyphCell) - 4.0f) * fontMetrics.designUnitsPerEm /
-                                             static_cast<float>(fontMetrics.ascent + fontMetrics.descent));
+    const float textScale   = cellF / static_cast<float>(kWeatherGlyphCell);
+    float emSize            = centerInCell ? cellF * 0.78f
+                                           : textScale * std::min(kGlyphEmSize,
+                                                                  (static_cast<float>(kWeatherGlyphCell) - 4.0f) * fontMetrics.designUnitsPerEm /
+                                                                      static_cast<float>(fontMetrics.ascent + fontMetrics.descent));
     const float designScale = emSize / static_cast<float>(fontMetrics.designUnitsPerEm);
-    float pixelAdvance = static_cast<float>(glyphMetrics.advanceWidth) * designScale;
-    advance = centerInCell ? 1.0f : pixelAdvance / cellF;
-    float baselineX = 3.0f * textScale;
-    const float ascent = static_cast<float>(fontMetrics.ascent) * designScale;
-    const float descent = static_cast<float>(fontMetrics.descent) * designScale;
-    float baselineY = (cellF - ascent - descent) * 0.5f + ascent;
+    float pixelAdvance      = static_cast<float>(glyphMetrics.advanceWidth) * designScale;
+    advance                 = centerInCell ? 1.0f : pixelAdvance / cellF;
+    float baselineX         = 3.0f * textScale;
+    const float ascent      = static_cast<float>(fontMetrics.ascent) * designScale;
+    const float descent     = static_cast<float>(fontMetrics.descent) * designScale;
+    float baselineY         = (cellF - ascent - descent) * 0.5f + ascent;
     if (centerInCell)
     {
         baselineX = 0.0f;
@@ -294,8 +290,8 @@ struct DirectWriteSession final
     }
     DWRITE_GLYPH_RUN run{&face, emSize, 1, &glyphIndex, &pixelAdvance, nullptr, FALSE, 0};
     wil::com_ptr_nothrow<IDWriteGlyphRunAnalysis> analysis;
-    result = factory.CreateGlyphRunAnalysis(&run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
-                                            DWRITE_MEASURING_MODE_NATURAL, baselineX, baselineY, analysis.put());
+    result = factory.CreateGlyphRunAnalysis(
+        &run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC, DWRITE_MEASURING_MODE_NATURAL, baselineX, baselineY, analysis.put());
     if (FAILED(result))
     {
         return result;
@@ -308,16 +304,15 @@ struct DirectWriteSession final
         {
             return result;
         }
-        const float inkWidth = static_cast<float>(bounds.right - bounds.left);
+        const float inkWidth  = static_cast<float>(bounds.right - bounds.left);
         const float inkHeight = static_cast<float>(bounds.bottom - bounds.top);
         if (inkWidth <= 0.0f || inkHeight <= 0.0f)
             return S_OK;
-        if (inkWidth <= maxInk && inkHeight <= maxInk && bounds.left >= 1 && bounds.top >= 1 &&
-            bounds.right <= cellEdge && bounds.bottom <= cellEdge && (!centerInCell || attempt != 0))
+        if (inkWidth <= maxInk && inkHeight <= maxInk && bounds.left >= 1 && bounds.top >= 1 && bounds.right <= cellEdge && bounds.bottom <= cellEdge &&
+            (! centerInCell || attempt != 0))
         {
             // Include one transparent texel to preserve antialiasing when filtering the cropped quad.
-            ink = {static_cast<float>(bounds.left - 1) / cellF, static_cast<float>(bounds.top - 1) / cellF,
-                   (inkWidth + 2) / cellF, (inkHeight + 2) / cellF};
+            ink = {static_cast<float>(bounds.left - 1) / cellF, static_cast<float>(bounds.top - 1) / cellF, (inkWidth + 2) / cellF, (inkHeight + 2) / cellF};
             advance = centerInCell ? 1.0f : pixelAdvance / cellF;
             return BlitGlyphAnalysis(*analysis, atlasX, atlasY, cell, atlasPixels);
         }
@@ -332,20 +327,16 @@ struct DirectWriteSession final
         }
         else
         {
-            const float shiftX =
-                (centerInCell ? (cellF - inkWidth) * 0.5f
-                              : std::clamp(static_cast<float>(bounds.left), 2.0f, cellF - 2.0f - inkWidth)) -
-                static_cast<float>(bounds.left);
-            const float shiftY =
-                (centerInCell ? (cellF - inkHeight) * 0.5f
-                              : std::clamp(static_cast<float>(bounds.top), 2.0f, cellF - 2.0f - inkHeight)) -
-                static_cast<float>(bounds.top);
+            const float shiftX = (centerInCell ? (cellF - inkWidth) * 0.5f : std::clamp(static_cast<float>(bounds.left), 2.0f, cellF - 2.0f - inkWidth)) -
+                                 static_cast<float>(bounds.left);
+            const float shiftY = (centerInCell ? (cellF - inkHeight) * 0.5f : std::clamp(static_cast<float>(bounds.top), 2.0f, cellF - 2.0f - inkHeight)) -
+                                 static_cast<float>(bounds.top);
             baselineX += shiftX;
             baselineY += shiftY;
         }
         analysis.reset();
-        result = factory.CreateGlyphRunAnalysis(&run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
-                                                DWRITE_MEASURING_MODE_NATURAL, baselineX, baselineY, analysis.put());
+        result = factory.CreateGlyphRunAnalysis(
+            &run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC, DWRITE_MEASURING_MODE_NATURAL, baselineX, baselineY, analysis.put());
         if (FAILED(result))
         {
             return result;
@@ -362,7 +353,7 @@ WeatherGpuResources::~WeatherGpuResources()
 
 HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
 {
-    if (!device)
+    if (! device)
     {
         return E_POINTER;
     }
@@ -371,13 +362,12 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
         return S_OK;
     }
 
-    const auto cleanup = wil::scope_exit(
-        [this]() noexcept
-        {
-            if (!_instanceBuffer)
-                Reset();
-        });
-    HRESULT result = BuildStaticAtlas();
+    const auto cleanup = wil::scope_exit([this]() noexcept
+    {
+        if (! _instanceBuffer)
+            Reset();
+    });
+    HRESULT result     = BuildStaticAtlas();
     if (FAILED(result))
     {
         return result;
@@ -388,8 +378,7 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
         return E_OUTOFMEMORY;
 
     wil::com_ptr_nothrow<ID3D11VertexShader> vertexShader;
-    result =
-        device->CreateVertexShader(g_WeatherVertexShader, sizeof(g_WeatherVertexShader), nullptr, vertexShader.put());
+    result = device->CreateVertexShader(g_WeatherVertexShader, sizeof(g_WeatherVertexShader), nullptr, vertexShader.put());
     if (FAILED(result))
     {
         return result;
@@ -408,17 +397,16 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
         {"TEXCOORD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1},
     };
     wil::com_ptr_nothrow<ID3D11InputLayout> inputLayout;
-    result =
-        device->CreateInputLayout(layout, 4, g_WeatherVertexShader, sizeof(g_WeatherVertexShader), inputLayout.put());
+    result = device->CreateInputLayout(layout, 4, g_WeatherVertexShader, sizeof(g_WeatherVertexShader), inputLayout.put());
     if (FAILED(result))
     {
         return result;
     }
 
     D3D11_BUFFER_DESC constantDescription{};
-    constantDescription.ByteWidth = sizeof(WeatherConstants);
-    constantDescription.Usage = D3D11_USAGE_DYNAMIC;
-    constantDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    constantDescription.ByteWidth      = sizeof(WeatherConstants);
+    constantDescription.Usage          = D3D11_USAGE_DYNAMIC;
+    constantDescription.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
     constantDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     wil::com_ptr_nothrow<ID3D11Buffer> constantBuffer;
     result = device->CreateBuffer(&constantDescription, nullptr, constantBuffer.put());
@@ -428,9 +416,9 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
     }
 
     D3D11_BUFFER_DESC instanceDescription{};
-    instanceDescription.ByteWidth = sizeof(WeatherQuadInstance) * kWeatherMaximumQuads;
-    instanceDescription.Usage = D3D11_USAGE_DYNAMIC;
-    instanceDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    instanceDescription.ByteWidth      = sizeof(WeatherQuadInstance) * kWeatherMaximumQuads;
+    instanceDescription.Usage          = D3D11_USAGE_DYNAMIC;
+    instanceDescription.BindFlags      = D3D11_BIND_VERTEX_BUFFER;
     instanceDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     wil::com_ptr_nothrow<ID3D11Buffer> instanceBuffer;
     result = device->CreateBuffer(&instanceDescription, nullptr, instanceBuffer.put());
@@ -440,16 +428,16 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
     }
 
     D3D11_TEXTURE2D_DESC atlasDescription{};
-    atlasDescription.Width = kWeatherAtlasSize;
-    atlasDescription.Height = kWeatherAtlasSize;
-    atlasDescription.MipLevels = 1;
-    atlasDescription.ArraySize = 1;
-    atlasDescription.Format = DXGI_FORMAT_R8_UNORM;
+    atlasDescription.Width            = kWeatherAtlasSize;
+    atlasDescription.Height           = kWeatherAtlasSize;
+    atlasDescription.MipLevels        = 1;
+    atlasDescription.ArraySize        = 1;
+    atlasDescription.Format           = DXGI_FORMAT_R8_UNORM;
     atlasDescription.SampleDesc.Count = 1;
-    atlasDescription.Usage = D3D11_USAGE_DEFAULT;
-    atlasDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    atlasDescription.Usage            = D3D11_USAGE_DEFAULT;
+    atlasDescription.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
     D3D11_SUBRESOURCE_DATA atlasData{};
-    atlasData.pSysMem = _atlasPixels.get();
+    atlasData.pSysMem     = _atlasPixels.get();
     atlasData.SysMemPitch = kWeatherAtlasSize;
     wil::com_ptr_nothrow<ID3D11Texture2D> atlas;
     result = device->CreateTexture2D(&atlasDescription, &atlasData, atlas.put());
@@ -465,11 +453,11 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
     }
 
     D3D11_SAMPLER_DESC samplerDescription{};
-    samplerDescription.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+    samplerDescription.Filter   = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
     samplerDescription.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
     samplerDescription.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
     samplerDescription.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-    samplerDescription.MaxLOD = D3D11_FLOAT32_MAX;
+    samplerDescription.MaxLOD   = D3D11_FLOAT32_MAX;
     wil::com_ptr_nothrow<ID3D11SamplerState> sampler;
     result = device->CreateSamplerState(&samplerDescription, sampler.put());
     if (FAILED(result))
@@ -478,8 +466,8 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
     }
 
     D3D11_RASTERIZER_DESC rasterizerDescription{};
-    rasterizerDescription.FillMode = D3D11_FILL_SOLID;
-    rasterizerDescription.CullMode = D3D11_CULL_NONE;
+    rasterizerDescription.FillMode        = D3D11_FILL_SOLID;
+    rasterizerDescription.CullMode        = D3D11_CULL_NONE;
     rasterizerDescription.DepthClipEnable = TRUE;
     wil::com_ptr_nothrow<ID3D11RasterizerState> rasterizer;
     result = device->CreateRasterizerState(&rasterizerDescription, rasterizer.put());
@@ -489,9 +477,9 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
     }
 
     D3D11_DEPTH_STENCIL_DESC depthDescription{};
-    depthDescription.DepthEnable = FALSE;
+    depthDescription.DepthEnable    = FALSE;
     depthDescription.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-    depthDescription.DepthFunc = D3D11_COMPARISON_ALWAYS;
+    depthDescription.DepthFunc      = D3D11_COMPARISON_ALWAYS;
     wil::com_ptr_nothrow<ID3D11DepthStencilState> depthState;
     result = device->CreateDepthStencilState(&depthDescription, depthState.put());
     if (FAILED(result))
@@ -501,14 +489,14 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
 
     D3D11_BLEND_DESC blendDescription{};
     D3D11_RENDER_TARGET_BLEND_DESC& target = blendDescription.RenderTarget[0];
-    target.BlendEnable = TRUE;
-    target.SrcBlend = D3D11_BLEND_SRC_ALPHA;
-    target.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-    target.BlendOp = D3D11_BLEND_OP_ADD;
-    target.SrcBlendAlpha = D3D11_BLEND_ONE;
-    target.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
-    target.BlendOpAlpha = D3D11_BLEND_OP_ADD;
-    target.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    target.BlendEnable                     = TRUE;
+    target.SrcBlend                        = D3D11_BLEND_SRC_ALPHA;
+    target.DestBlend                       = D3D11_BLEND_INV_SRC_ALPHA;
+    target.BlendOp                         = D3D11_BLEND_OP_ADD;
+    target.SrcBlendAlpha                   = D3D11_BLEND_ONE;
+    target.DestBlendAlpha                  = D3D11_BLEND_INV_SRC_ALPHA;
+    target.BlendOpAlpha                    = D3D11_BLEND_OP_ADD;
+    target.RenderTargetWriteMask           = D3D11_COLOR_WRITE_ENABLE_ALL;
     wil::com_ptr_nothrow<ID3D11BlendState> blendState;
     result = device->CreateBlendState(&blendDescription, blendState.put());
     if (FAILED(result))
@@ -518,17 +506,17 @@ HRESULT WeatherGpuResources::Initialize(ID3D11Device* device) noexcept
 
     ResetGpuResources();
     _deviceIdentity = device;
-    _vertexShader = std::move(vertexShader);
-    _pixelShader = std::move(pixelShader);
-    _inputLayout = std::move(inputLayout);
+    _vertexShader   = std::move(vertexShader);
+    _pixelShader    = std::move(pixelShader);
+    _inputLayout    = std::move(inputLayout);
     _constantBuffer = std::move(constantBuffer);
     _instanceBuffer = std::move(instanceBuffer);
-    _atlas = std::move(atlas);
-    _atlasView = std::move(atlasView);
-    _sampler = std::move(sampler);
-    _rasterizer = std::move(rasterizer);
-    _depthState = std::move(depthState);
-    _blendState = std::move(blendState);
+    _atlas          = std::move(atlas);
+    _atlasView      = std::move(atlasView);
+    _sampler        = std::move(sampler);
+    _rasterizer     = std::move(rasterizer);
+    _depthState     = std::move(depthState);
+    _blendState     = std::move(blendState);
     _dirtyGlyphs.reset();
     g_liveResourceSets.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
@@ -566,11 +554,10 @@ void WeatherGpuResources::ResetGpuResources() noexcept
 
 HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
 {
-    if (!_atlasPixels)
+    if (! _atlasPixels)
     {
-        _atlasPixels.reset(static_cast<uint8_t*>(
-            VirtualAlloc(nullptr, kWeatherAtlasSize * kWeatherAtlasSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
-        if (!_atlasPixels)
+        _atlasPixels.reset(static_cast<uint8_t*>(VirtualAlloc(nullptr, kWeatherAtlasSize * kWeatherAtlasSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
+        if (! _atlasPixels)
             return HRESULT_FROM_WIN32(GetLastError());
     }
     else
@@ -582,7 +569,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
     _glyphAtlasY.fill(0);
     _glyphCell.fill(0);
     _glyphLarge.fill(0);
-    _glyphCount = 0;
+    _glyphCount    = 0;
     _dynamicCursor = kStaticReservedCount;
     DirectWriteSession session;
     HRESULT result = OpenDirectWrite(session);
@@ -594,11 +581,11 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
     {
         _glyphAtlasX[slot] = static_cast<uint16_t>(atlasX);
         _glyphAtlasY[slot] = static_cast<uint16_t>(atlasY);
-        _glyphCell[slot] = static_cast<uint16_t>(cell);
+        _glyphCell[slot]   = static_cast<uint16_t>(cell);
     };
     for (uint32_t character = kStaticGlyphFirst; character <= kStaticGlyphLast; ++character)
     {
-        const uint32_t slot = _glyphCount;
+        const uint32_t slot   = _glyphCount;
         const uint32_t atlasX = (slot % kWeatherGlyphColumns) * kWeatherGlyphCell;
         const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
         if (atlasY + kWeatherGlyphCell > kLargeCellReserveY)
@@ -606,20 +593,28 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
             return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
         }
         float advance = 0.5f;
-        result = RasterizeIntoAtlas(*session.factory, *session.face, static_cast<wchar_t>(character), atlasX, atlasY,
-                                    kWeatherGlyphCell, _atlasPixels.get(), advance, false, _glyphInk[slot]);
+        result        = RasterizeIntoAtlas(*session.factory,
+                                           *session.face,
+                                           static_cast<wchar_t>(character),
+                                           atlasX,
+                                           atlasY,
+                                           kWeatherGlyphCell,
+                                           _atlasPixels.get(),
+                                           advance,
+                                           false,
+                                           _glyphInk[slot]);
         if (FAILED(result))
         {
             return result;
         }
         _glyphCharacters[slot] = static_cast<wchar_t>(character);
-        _glyphAdvances[slot] = advance;
+        _glyphAdvances[slot]   = advance;
         place(slot, atlasX, atlasY, kWeatherGlyphCell);
         ++_glyphCount;
     }
     for (uint32_t extra = 0; extra < kStaticExtraCount; ++extra)
     {
-        const uint32_t slot = _glyphCount;
+        const uint32_t slot   = _glyphCount;
         const uint32_t atlasX = (slot % kWeatherGlyphColumns) * kWeatherGlyphCell;
         const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
         if (atlasY + kWeatherGlyphCell > kLargeCellReserveY)
@@ -627,19 +622,19 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
             return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
         }
         float advance = 0.5f;
-        result = RasterizeIntoAtlas(*session.factory, *session.face, kStaticExtraGlyphs[extra], atlasX, atlasY,
-                                    kWeatherGlyphCell, _atlasPixels.get(), advance, false, _glyphInk[slot]);
+        result        = RasterizeIntoAtlas(
+            *session.factory, *session.face, kStaticExtraGlyphs[extra], atlasX, atlasY, kWeatherGlyphCell, _atlasPixels.get(), advance, false, _glyphInk[slot]);
         if (FAILED(result))
         {
             return result;
         }
         _glyphCharacters[slot] = kStaticExtraGlyphs[extra];
-        _glyphAdvances[slot] = advance;
+        _glyphAdvances[slot]   = advance;
         place(slot, atlasX, atlasY, kWeatherGlyphCell);
         ++_glyphCount;
     }
-    uint32_t iconCells = 0;
-    uint32_t largeIndex = 0;
+    uint32_t iconCells         = 0;
+    uint32_t largeIndex        = 0;
     const auto largeCellOrigin = [](uint32_t index, uint32_t& x, uint32_t& y) noexcept
     {
         x = (index % kLargeCellColumns) * kWeatherIconCell;
@@ -649,7 +644,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
     {
         for (wchar_t glyph : kWeatherIconGlyphs)
         {
-            const uint32_t slot = _glyphCount;
+            const uint32_t slot   = _glyphCount;
             const uint32_t atlasX = (slot % kWeatherGlyphColumns) * kWeatherGlyphCell;
             const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
             if (atlasY + kWeatherGlyphCell > kLargeCellReserveY)
@@ -657,8 +652,8 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
                 return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
             }
             float advance = 1.0f;
-            result = RasterizeIntoAtlas(*session.factory, *session.iconFace, glyph, atlasX, atlasY, kWeatherGlyphCell,
-                                        _atlasPixels.get(), advance, true, _glyphInk[slot]);
+            result        = RasterizeIntoAtlas(
+                *session.factory, *session.iconFace, glyph, atlasX, atlasY, kWeatherGlyphCell, _atlasPixels.get(), advance, true, _glyphInk[slot]);
             if (result == S_FALSE)
             {
                 continue;
@@ -668,19 +663,18 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
                 return result;
             }
             _glyphCharacters[slot] = glyph;
-            _glyphAdvances[slot] = advance;
+            _glyphAdvances[slot]   = advance;
             place(slot, atlasX, atlasY, kWeatherGlyphCell);
             ++_glyphCount;
             if (largeIndex < kLargeCellCapacity)
             {
                 const uint32_t largeSlot = _glyphCount;
-                uint32_t largeX = 0;
-                uint32_t largeY = 0;
+                uint32_t largeX          = 0;
+                uint32_t largeY          = 0;
                 largeCellOrigin(largeIndex++, largeX, largeY);
                 float largeAdvance = 1.0f;
-                result =
-                    RasterizeIntoAtlas(*session.factory, *session.iconFace, glyph, largeX, largeY, kWeatherIconCell,
-                                       _atlasPixels.get(), largeAdvance, true, _glyphInk[largeSlot]);
+                result             = RasterizeIntoAtlas(
+                    *session.factory, *session.iconFace, glyph, largeX, largeY, kWeatherIconCell, _atlasPixels.get(), largeAdvance, true, _glyphInk[largeSlot]);
                 if (FAILED(result))
                 {
                     return result;
@@ -688,7 +682,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
                 if (result == S_OK)
                 {
                     _glyphCharacters[largeSlot] = 0;
-                    _glyphAdvances[largeSlot] = largeAdvance;
+                    _glyphAdvances[largeSlot]   = largeAdvance;
                     place(largeSlot, largeX, largeY, kWeatherIconCell);
                     _glyphLarge[slot] = static_cast<uint16_t>(largeSlot);
                     ++_glyphCount;
@@ -707,13 +701,13 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
             continue;
         }
         const uint32_t largeSlot = _glyphCount;
-        uint32_t largeX = 0;
-        uint32_t largeY = 0;
+        uint32_t largeX          = 0;
+        uint32_t largeY          = 0;
         largeCellOrigin(largeIndex++, largeX, largeY);
         float largeAdvance = 0.5f;
         WeatherGlyphInk largeInk{};
-        result = RasterizeIntoAtlas(*session.factory, *session.face, glyph, largeX, largeY, kWeatherIconCell,
-                                    _atlasPixels.get(), largeAdvance, false, largeInk);
+        result =
+            RasterizeIntoAtlas(*session.factory, *session.face, glyph, largeX, largeY, kWeatherIconCell, _atlasPixels.get(), largeAdvance, false, largeInk);
         if (FAILED(result))
         {
             return result;
@@ -722,15 +716,14 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
         // (an exact 2x raster rounded outward, inside the small cell's doubled padding) must sit within that
         // rectangle; otherwise keep drawing this glyph from the small cell.
         const WeatherGlyphInk& ink = _glyphInk[slot];
-        if (largeInk.width <= 0.0f || largeInk.left < ink.left || largeInk.top < ink.top ||
-            largeInk.left + largeInk.width > ink.left + ink.width ||
+        if (largeInk.width <= 0.0f || largeInk.left < ink.left || largeInk.top < ink.top || largeInk.left + largeInk.width > ink.left + ink.width ||
             largeInk.top + largeInk.height > ink.top + ink.height)
         {
             continue;
         }
         _glyphCharacters[largeSlot] = 0;
-        _glyphAdvances[largeSlot] = _glyphAdvances[slot];
-        _glyphInk[largeSlot] = ink;
+        _glyphAdvances[largeSlot]   = _glyphAdvances[slot];
+        _glyphInk[largeSlot]        = ink;
         place(largeSlot, largeX, largeY, kWeatherIconCell);
         _glyphLarge[slot] = static_cast<uint16_t>(largeSlot);
         ++_glyphCount;
@@ -739,7 +732,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
     g_heroTwinCount.store(heroLinked, std::memory_order_relaxed);
     g_iconCellCount.store(iconCells, std::memory_order_relaxed);
     _staticGlyphCount = _glyphCount;
-    _dynamicCursor = _glyphCount;
+    _dynamicCursor    = _glyphCount;
     _dirtyGlyphs.reset();
     g_typographyCount.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
@@ -748,8 +741,7 @@ HRESULT WeatherGpuResources::BuildStaticAtlas() noexcept
 uint32_t WeatherGpuResources::ResolveLargeSlot(uint32_t slot, float extent) const noexcept
 {
     const uint16_t large = _glyphLarge[slot];
-    if (large != 0 && extent > static_cast<float>(_glyphCell[slot]) * 1.1f && large < _glyphCount &&
-        _glyphCell[large] != 0)
+    if (large != 0 && extent > static_cast<float>(_glyphCell[slot]) * 1.1f && large < _glyphCount && _glyphCell[large] != 0)
     {
         return large;
     }
@@ -774,7 +766,7 @@ uint32_t WeatherGpuResources::FindGlyph(wchar_t character) const noexcept
 
 HRESULT WeatherGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characters) noexcept
 {
-    if (!text && characters != 0)
+    if (! text && characters != 0)
     {
         return E_POINTER;
     }
@@ -796,22 +788,22 @@ HRESULT WeatherGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characte
             break;
         }
     }
-    if (!missing)
+    if (! missing)
     {
         return S_OK;
     }
 
     HRESULT result = S_OK;
-    if (!_preparationFontFace)
+    if (! _preparationFontFace)
     {
         DirectWriteSession session;
         result = OpenDirectWrite(session);
         if (FAILED(result))
             return result;
-        _preparationFontModule = std::move(session.module);
+        _preparationFontModule  = std::move(session.module);
         _preparationFontFactory = std::move(session.factory);
-        _preparationFontFace = std::move(session.face);
-        _preparationIconFace = std::move(session.iconFace);
+        _preparationFontFace    = std::move(session.face);
+        _preparationIconFace    = std::move(session.iconFace);
         g_livePreparationFonts.fetch_add(1, std::memory_order_relaxed);
     }
     if (g_failNextGlyphPreparationForTest.exchange(false, std::memory_order_relaxed))
@@ -832,21 +824,21 @@ HRESULT WeatherGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characte
         {
             _dynamicCursor = _staticGlyphCount == 0 ? kStaticReservedCount : _staticGlyphCount;
         }
-        const uint32_t slot = _dynamicCursor++;
+        const uint32_t slot   = _dynamicCursor++;
         const uint32_t atlasX = (slot % kWeatherGlyphColumns) * kWeatherGlyphCell;
         const uint32_t atlasY = (slot / kWeatherGlyphColumns) * kWeatherGlyphCell;
-        float advance = 0.5f;
-        result = RasterizeIntoAtlas(*_preparationFontFactory, *_preparationFontFace, character, atlasX, atlasY,
-                                    kWeatherGlyphCell, _atlasPixels.get(), advance, false, _glyphInk[slot]);
+        float advance         = 0.5f;
+        result                = RasterizeIntoAtlas(
+            *_preparationFontFactory, *_preparationFontFace, character, atlasX, atlasY, kWeatherGlyphCell, _atlasPixels.get(), advance, false, _glyphInk[slot]);
         if (FAILED(result))
         {
             return result;
         }
         _glyphCharacters[slot] = character;
-        _glyphAdvances[slot] = advance;
-        _glyphAtlasX[slot] = static_cast<uint16_t>(atlasX);
-        _glyphAtlasY[slot] = static_cast<uint16_t>(atlasY);
-        _glyphCell[slot] = static_cast<uint16_t>(kWeatherGlyphCell);
+        _glyphAdvances[slot]   = advance;
+        _glyphAtlasX[slot]     = static_cast<uint16_t>(atlasX);
+        _glyphAtlasY[slot]     = static_cast<uint16_t>(atlasY);
+        _glyphCell[slot]       = static_cast<uint16_t>(kWeatherGlyphCell);
         if (slot >= _glyphCount)
         {
             _glyphCount = slot + 1;
@@ -859,12 +851,12 @@ HRESULT WeatherGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characte
 
 float WeatherGpuResources::MeasureText(const wchar_t* text, uint32_t characters, float height) const noexcept
 {
-    if (!text || height <= 0.0f)
+    if (! text || height <= 0.0f)
     {
         return 0.0f;
     }
     float width = 0.0f;
-    float pen = 0.0f;
+    float pen   = 0.0f;
     for (uint32_t index = 0; index < characters; ++index)
     {
         const wchar_t character = text[index];
@@ -881,14 +873,14 @@ float WeatherGpuResources::MeasureText(const wchar_t* text, uint32_t characters,
     return std::max(width, pen);
 }
 
-HRESULT WeatherGpuResources::AppendText(WeatherDrawList& list, float x, float y, float height, float red, float green,
-                                        float blue, float alpha, const wchar_t* text, uint32_t characters) noexcept
+HRESULT WeatherGpuResources::AppendText(
+    WeatherDrawList& list, float x, float y, float height, float red, float green, float blue, float alpha, const wchar_t* text, uint32_t characters) noexcept
 {
-    if (!text || height <= 0.0f)
+    if (! text || height <= 0.0f)
     {
         return S_OK;
     }
-    float pen = x;
+    float pen                = x;
     const float inverseAtlas = 1.0f / static_cast<float>(kWeatherAtlasSize);
     for (uint32_t index = 0; index < characters; ++index)
     {
@@ -903,14 +895,25 @@ HRESULT WeatherGpuResources::AppendText(WeatherDrawList& list, float x, float y,
         if (slot != kMissingGlyph)
         {
             const uint32_t drawSlot = ResolveLargeSlot(slot, height);
-            const auto& ink = _glyphInk[drawSlot];
-            const float cellPx =
-                static_cast<float>(_glyphCell[drawSlot] != 0 ? _glyphCell[drawSlot] : kWeatherGlyphCell);
-            const float u0 = (static_cast<float>(_glyphAtlasX[drawSlot]) + ink.left * cellPx) * inverseAtlas;
-            const float v0 = (static_cast<float>(_glyphAtlasY[drawSlot]) + ink.top * cellPx) * inverseAtlas;
-            if (!list.Add(WeatherQuadKindGlyph, pen + ink.left * height, y + ink.top * height, ink.width * height,
-                          ink.height * height, red, green, blue, alpha, 0.0f, 0.0f, u0, v0,
-                          u0 + ink.width * cellPx * inverseAtlas, v0 + ink.height * cellPx * inverseAtlas))
+            const auto& ink         = _glyphInk[drawSlot];
+            const float cellPx      = static_cast<float>(_glyphCell[drawSlot] != 0 ? _glyphCell[drawSlot] : kWeatherGlyphCell);
+            const float u0          = (static_cast<float>(_glyphAtlasX[drawSlot]) + ink.left * cellPx) * inverseAtlas;
+            const float v0          = (static_cast<float>(_glyphAtlasY[drawSlot]) + ink.top * cellPx) * inverseAtlas;
+            if (! list.Add(WeatherQuadKindGlyph,
+                           pen + ink.left * height,
+                           y + ink.top * height,
+                           ink.width * height,
+                           ink.height * height,
+                           red,
+                           green,
+                           blue,
+                           alpha,
+                           0.0f,
+                           0.0f,
+                           u0,
+                           v0,
+                           u0 + ink.width * cellPx * inverseAtlas,
+                           v0 + ink.height * cellPx * inverseAtlas))
             {
                 return S_OK;
             }
@@ -920,14 +923,14 @@ HRESULT WeatherGpuResources::AppendText(WeatherDrawList& list, float x, float y,
     return S_OK;
 }
 
-HRESULT WeatherGpuResources::AppendIcon(WeatherDrawList& list, float x, float y, float size, wchar_t glyph, float red,
-                                        float green, float blue, float alpha) noexcept
+HRESULT WeatherGpuResources::AppendIcon(
+    WeatherDrawList& list, float x, float y, float size, wchar_t glyph, float red, float green, float blue, float alpha) noexcept
 {
     return AppendIconFit(list, x, y, size, size, glyph, red, green, blue, alpha);
 }
 
-HRESULT WeatherGpuResources::AppendIconFit(WeatherDrawList& list, float x, float y, float width, float height,
-                                           wchar_t glyph, float red, float green, float blue, float alpha) noexcept
+HRESULT WeatherGpuResources::AppendIconFit(
+    WeatherDrawList& list, float x, float y, float width, float height, wchar_t glyph, float red, float green, float blue, float alpha) noexcept
 {
     if (width <= 0.0f || height <= 0.0f || alpha <= 0.0f)
     {
@@ -938,21 +941,33 @@ HRESULT WeatherGpuResources::AppendIconFit(WeatherDrawList& list, float x, float
     {
         return S_FALSE;
     }
-    slot = ResolveLargeSlot(slot, std::max(width, height));
+    slot            = ResolveLargeSlot(slot, std::max(width, height));
     const auto& ink = _glyphInk[slot];
     if (ink.width <= 0.0f || ink.height <= 0.0f)
     {
         return S_FALSE;
     }
     const float inverseAtlas = 1.0f / static_cast<float>(kWeatherAtlasSize);
-    const float cellPx = static_cast<float>(_glyphCell[slot] != 0 ? _glyphCell[slot] : kWeatherGlyphCell);
-    const float u0 = (static_cast<float>(_glyphAtlasX[slot]) + ink.left * cellPx) * inverseAtlas;
-    const float v0 = (static_cast<float>(_glyphAtlasY[slot]) + ink.top * cellPx) * inverseAtlas;
-    const float scale = std::min(width / ink.width, height / ink.height);
-    const float drawnW = ink.width * scale;
-    const float drawnH = ink.height * scale;
-    (void)list.Add(WeatherQuadKindGlyph, x + (width - drawnW) * 0.5f, y + (height - drawnH) * 0.5f, drawnW, drawnH, red,
-                   green, blue, alpha, 0.0f, 0.0f, u0, v0, u0 + ink.width * cellPx * inverseAtlas,
+    const float cellPx       = static_cast<float>(_glyphCell[slot] != 0 ? _glyphCell[slot] : kWeatherGlyphCell);
+    const float u0           = (static_cast<float>(_glyphAtlasX[slot]) + ink.left * cellPx) * inverseAtlas;
+    const float v0           = (static_cast<float>(_glyphAtlasY[slot]) + ink.top * cellPx) * inverseAtlas;
+    const float scale        = std::min(width / ink.width, height / ink.height);
+    const float drawnW       = ink.width * scale;
+    const float drawnH       = ink.height * scale;
+    (void)list.Add(WeatherQuadKindGlyph,
+                   x + (width - drawnW) * 0.5f,
+                   y + (height - drawnH) * 0.5f,
+                   drawnW,
+                   drawnH,
+                   red,
+                   green,
+                   blue,
+                   alpha,
+                   0.0f,
+                   0.0f,
+                   u0,
+                   v0,
+                   u0 + ink.width * cellPx * inverseAtlas,
                    v0 + ink.height * cellPx * inverseAtlas);
     return S_OK;
 }
@@ -970,40 +985,38 @@ void WeatherGpuResources::ReleasePreparationFonts() noexcept
 
 void WeatherGpuResources::UploadDirtyGlyphs() noexcept
 {
-    if (_dirtyGlyphs.none() || !_atlas || !_deviceIdentity)
+    if (_dirtyGlyphs.none() || ! _atlas || ! _deviceIdentity)
     {
         return;
     }
     wil::com_ptr_nothrow<ID3D11DeviceContext> context;
     _deviceIdentity->GetImmediateContext(context.put());
-    if (!context)
+    if (! context)
     {
         return;
     }
     for (uint32_t slot = 0; slot < kWeatherGlyphCapacity; ++slot)
     {
-        if (!_dirtyGlyphs.test(slot))
+        if (! _dirtyGlyphs.test(slot))
             continue;
-        const uint32_t x = _glyphAtlasX[slot];
-        const uint32_t y = _glyphAtlasY[slot];
+        const uint32_t x    = _glyphAtlasX[slot];
+        const uint32_t y    = _glyphAtlasY[slot];
         const uint32_t cell = _glyphCell[slot];
         const D3D11_BOX box{x, y, 0, x + cell, y + cell, 1};
-        context->UpdateSubresource(_atlas.get(), 0, &box, _atlasPixels.get() + y * kWeatherAtlasSize + x,
-                                   kWeatherAtlasSize, 0);
+        context->UpdateSubresource(_atlas.get(), 0, &box, _atlasPixels.get() + y * kWeatherAtlasSize + x, kWeatherAtlasSize, 0);
         g_uploadCellCount.fetch_add(1, std::memory_order_relaxed);
         g_uploadBytes.fetch_add(cell * cell, std::memory_order_relaxed);
     }
     _dirtyGlyphs.reset();
 }
 
-HRESULT WeatherGpuResources::Render(ID3D11DeviceContext* context, float width, float height,
-                                    const WeatherDrawList& list) noexcept
+HRESULT WeatherGpuResources::Render(ID3D11DeviceContext* context, float width, float height, const WeatherDrawList& list) noexcept
 {
-    if (!context)
+    if (! context)
     {
         return E_POINTER;
     }
-    if (!_instanceBuffer || width <= 0.0f || height <= 0.0f || list.Count() == 0)
+    if (! _instanceBuffer || width <= 0.0f || height <= 0.0f || list.Count() == 0)
     {
         return S_OK;
     }
@@ -1014,7 +1027,7 @@ HRESULT WeatherGpuResources::Render(ID3D11DeviceContext* context, float width, f
     {
         return result;
     }
-    auto* constants = static_cast<WeatherConstants*>(mapped.pData);
+    auto* constants          = static_cast<WeatherConstants*>(mapped.pData);
     constants->targetSize[0] = width;
     constants->targetSize[1] = height;
     constants->targetSize[2] = 0.0f;
@@ -1030,13 +1043,13 @@ HRESULT WeatherGpuResources::Render(ID3D11DeviceContext* context, float width, f
     context->Unmap(_instanceBuffer.get(), 0);
     g_mapCount.fetch_add(1, std::memory_order_relaxed);
 
-    const UINT stride = sizeof(WeatherQuadInstance);
-    const UINT offset = 0;
-    ID3D11Buffer* instanceBuffer = _instanceBuffer.get();
-    ID3D11Buffer* constantBuffer = _constantBuffer.get();
+    const UINT stride                   = sizeof(WeatherQuadInstance);
+    const UINT offset                   = 0;
+    ID3D11Buffer* instanceBuffer        = _instanceBuffer.get();
+    ID3D11Buffer* constantBuffer        = _constantBuffer.get();
     ID3D11ShaderResourceView* atlasView = _atlasView.get();
-    ID3D11SamplerState* sampler = _sampler.get();
-    const float blendFactor[4] = {};
+    ID3D11SamplerState* sampler         = _sampler.get();
+    const float blendFactor[4]          = {};
     context->IASetInputLayout(_inputLayout.get());
     context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->IASetVertexBuffers(0, 1, &instanceBuffer, &stride, &offset);

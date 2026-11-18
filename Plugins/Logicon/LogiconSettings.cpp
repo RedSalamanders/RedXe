@@ -17,13 +17,17 @@ struct NamedFace final
 };
 
 constexpr NamedFace kFaces[] = {
-    {"none", KeyFace::None}, {"clock", KeyFace::Clock},   {"pageIndicator", KeyFace::PageIndicator},
-    {"cpu", KeyFace::Cpu},   {"memory", KeyFace::Memory}, {"gpu", KeyFace::Gpu},
+    {"none", KeyFace::None},
+    {"clock", KeyFace::Clock},
+    {"pageIndicator", KeyFace::PageIndicator},
+    {"cpu", KeyFace::Cpu},
+    {"memory", KeyFace::Memory},
+    {"gpu", KeyFace::Gpu},
 };
 
 void WriteDiagnostic(char* diagnostic, size_t capacity, const char* text) noexcept
 {
-    if (!diagnostic || capacity == 0)
+    if (! diagnostic || capacity == 0)
     {
         return;
     }
@@ -70,7 +74,7 @@ void WriteDiagnostic(char* diagnostic, size_t capacity, const char* text) noexce
     for (size_t index = 1; index < 7; ++index)
     {
         const char character = text[index];
-        if (!IsHexDigit(character))
+        if (! IsHexDigit(character))
         {
             return false;
         }
@@ -94,8 +98,7 @@ void WriteDiagnostic(char* diagnostic, size_t capacity, const char* text) noexce
 }
 
 template <size_t Capacity>
-[[nodiscard]] bool CopyBounded(std::string_view source, std::array<char, Capacity>& destination, uint32_t& bytes,
-                               size_t maximumBytes) noexcept
+[[nodiscard]] bool CopyBounded(std::string_view source, std::array<char, Capacity>& destination, uint32_t& bytes, size_t maximumBytes) noexcept
 {
     if (source.size() > maximumBytes || source.size() >= Capacity || source.find('\0') != std::string_view::npos)
     {
@@ -110,7 +113,7 @@ template <size_t Capacity>
 // "none" clears the action; anything else must satisfy the action-name grammar.
 [[nodiscard]] bool ParseAction(yyjson_val* value, KeyBinding& binding) noexcept
 {
-    if (!yyjson_is_str(value))
+    if (! yyjson_is_str(value))
     {
         return false;
     }
@@ -121,7 +124,7 @@ template <size_t Capacity>
         binding.actionBytes = 0;
         return true;
     }
-    if (!CopyBounded(name, binding.action, binding.actionBytes, kMaximumActionBytes))
+    if (! CopyBounded(name, binding.action, binding.actionBytes, kMaximumActionBytes))
     {
         return false;
     }
@@ -130,20 +133,20 @@ template <size_t Capacity>
 
 [[nodiscard]] HRESULT ParseKey(yyjson_val* item, KeyBinding& binding, char* diagnostic, size_t capacity) noexcept
 {
-    if (!yyjson_is_obj(item))
+    if (! yyjson_is_obj(item))
     {
         return Fail(diagnostic, capacity, "keys items must be objects.");
     }
-    binding = KeyBinding{};
-    bool sawSlot = false;
+    binding                  = KeyBinding{};
+    bool sawSlot             = false;
     yyjson_obj_iter iterator = yyjson_obj_iter_with(item);
     while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
     {
         const std::string_view name = StringOf(key);
-        yyjson_val* value = yyjson_obj_iter_get_val(key);
+        yyjson_val* value           = yyjson_obj_iter_get_val(key);
         if (name == "page")
         {
-            if (!yyjson_is_uint(value) || yyjson_get_uint(value) >= kMaximumKeyPages)
+            if (! yyjson_is_uint(value) || yyjson_get_uint(value) >= kMaximumKeyPages)
             {
                 return Fail(diagnostic, capacity, "keys[].page must be an integer from 0 through 3.");
             }
@@ -151,54 +154,52 @@ template <size_t Capacity>
         }
         else if (name == "slot")
         {
-            if (!yyjson_is_uint(value) || yyjson_get_uint(value) >= kKeysPerPage)
+            if (! yyjson_is_uint(value) || yyjson_get_uint(value) >= kKeysPerPage)
             {
                 return Fail(diagnostic, capacity, "keys[].slot must be an integer from 0 through 8.");
             }
             binding.slot = static_cast<uint8_t>(yyjson_get_uint(value));
-            sawSlot = true;
+            sawSlot      = true;
         }
         else if (name == "action")
         {
-            if (!ParseAction(value, binding))
+            if (! ParseAction(value, binding))
             {
                 return Fail(diagnostic, capacity, "keys[].action is not an action name such as page.next.");
             }
         }
         else if (name == "face")
         {
-            if (!yyjson_is_str(value) || !FaceFromName(StringOf(value), binding.face))
+            if (! yyjson_is_str(value) || ! FaceFromName(StringOf(value), binding.face))
             {
                 return Fail(diagnostic, capacity, "keys[].face is not a known face name.");
             }
         }
         else if (name == "target")
         {
-            if (!yyjson_is_str(value) ||
-                !CopyBounded(StringOf(value), binding.target, binding.targetBytes, kMaximumTargetBytes))
+            if (! yyjson_is_str(value) || ! CopyBounded(StringOf(value), binding.target, binding.targetBytes, kMaximumTargetBytes))
             {
                 return Fail(diagnostic, capacity, "keys[].target must be a string of at most 512 bytes.");
             }
         }
         else if (name == "label")
         {
-            if (!yyjson_is_str(value) || Utf8CodePoints(StringOf(value)) > kMaximumLabelCodePoints ||
-                !CopyBounded(StringOf(value), binding.label, binding.labelBytes, kMaximumLabelBytes))
+            if (! yyjson_is_str(value) || Utf8CodePoints(StringOf(value)) > kMaximumLabelCodePoints ||
+                ! CopyBounded(StringOf(value), binding.label, binding.labelBytes, kMaximumLabelBytes))
             {
                 return Fail(diagnostic, capacity, "keys[].label must be a string of at most 16 code points.");
             }
         }
         else if (name == "icon")
         {
-            if (!yyjson_is_str(value) ||
-                !CopyBounded(StringOf(value), binding.icon, binding.iconBytes, kMaximumIconBytes))
+            if (! yyjson_is_str(value) || ! CopyBounded(StringOf(value), binding.icon, binding.iconBytes, kMaximumIconBytes))
             {
                 return Fail(diagnostic, capacity, "keys[].icon must be a string of at most 260 bytes.");
             }
         }
         else if (name == "color")
         {
-            if (!yyjson_is_str(value) || !ParseColor(StringOf(value), binding.colorRgb))
+            if (! yyjson_is_str(value) || ! ParseColor(StringOf(value), binding.colorRgb))
             {
                 return Fail(diagnostic, capacity, "keys[].color must be a #RRGGBB string.");
             }
@@ -209,7 +210,7 @@ template <size_t Capacity>
             return Fail(diagnostic, capacity, "keys[] contains an unknown member.");
         }
     }
-    if (!sawSlot)
+    if (! sawSlot)
     {
         return Fail(diagnostic, capacity, "keys[].slot is required.");
     }
@@ -217,36 +218,34 @@ template <size_t Capacity>
 }
 
 // One dialpad button ({button, action, target}) or one turn ({control, direction, action, target}).
-[[nodiscard]] HRESULT ParseDialBinding(yyjson_val* item, bool turn, KeyBinding& binding, char* diagnostic,
-                                       size_t capacity) noexcept
+[[nodiscard]] HRESULT ParseDialBinding(yyjson_val* item, bool turn, KeyBinding& binding, char* diagnostic, size_t capacity) noexcept
 {
-    if (!yyjson_is_obj(item))
+    if (! yyjson_is_obj(item))
     {
-        return Fail(diagnostic, capacity,
-                    turn ? "dialpad.turns items must be objects." : "dialpad.buttons items must be objects.");
+        return Fail(diagnostic, capacity, turn ? "dialpad.turns items must be objects." : "dialpad.buttons items must be objects.");
     }
-    binding = KeyBinding{};
-    bool sawButton = false;
-    bool sawControl = false;
+    binding           = KeyBinding{};
+    bool sawButton    = false;
+    bool sawControl   = false;
     bool sawDirection = false;
     std::string_view directionName;
     yyjson_obj_iter iterator = yyjson_obj_iter_with(item);
     while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
     {
         const std::string_view name = StringOf(key);
-        yyjson_val* value = yyjson_obj_iter_get_val(key);
-        if (!turn && name == "button")
+        yyjson_val* value           = yyjson_obj_iter_get_val(key);
+        if (! turn && name == "button")
         {
-            if (!yyjson_is_uint(value) || yyjson_get_uint(value) >= kDialpadButtons)
+            if (! yyjson_is_uint(value) || yyjson_get_uint(value) >= kDialpadButtons)
             {
                 return Fail(diagnostic, capacity, "dialpad.buttons[].button must be an integer from 0 through 3.");
             }
             binding.slot = static_cast<uint8_t>(yyjson_get_uint(value));
-            sawButton = true;
+            sawButton    = true;
         }
         else if (turn && name == "control")
         {
-            if (!yyjson_is_str(value))
+            if (! yyjson_is_str(value))
             {
                 return Fail(diagnostic, capacity, "dialpad.turns[].control must be dial or roller.");
             }
@@ -267,46 +266,45 @@ template <size_t Capacity>
         }
         else if (turn && name == "direction")
         {
-            if (!yyjson_is_str(value))
+            if (! yyjson_is_str(value))
             {
                 return Fail(diagnostic, capacity, "dialpad.turns[].direction must be cw, ccw, up, or down.");
             }
             directionName = StringOf(value);
-            sawDirection = true;
+            sawDirection  = true;
         }
         else if (name == "action")
         {
-            if (!ParseAction(value, binding))
+            if (! ParseAction(value, binding))
             {
-                return Fail(diagnostic, capacity,
+                return Fail(diagnostic,
+                            capacity,
                             turn ? "dialpad.turns[].action is not an action name such as page.next."
                                  : "dialpad.buttons[].action is not an action name such as page.next.");
             }
         }
         else if (name == "target")
         {
-            if (!yyjson_is_str(value) ||
-                !CopyBounded(StringOf(value), binding.target, binding.targetBytes, kMaximumTargetBytes))
+            if (! yyjson_is_str(value) || ! CopyBounded(StringOf(value), binding.target, binding.targetBytes, kMaximumTargetBytes))
             {
-                return Fail(diagnostic, capacity,
+                return Fail(diagnostic,
+                            capacity,
                             turn ? "dialpad.turns[].target must be a string of at most 512 bytes."
                                  : "dialpad.buttons[].target must be a string of at most 512 bytes.");
             }
         }
         else
         {
-            return Fail(diagnostic, capacity,
-                        turn ? "dialpad.turns[] contains an unknown member."
-                             : "dialpad.buttons[] contains an unknown member.");
+            return Fail(diagnostic, capacity, turn ? "dialpad.turns[] contains an unknown member." : "dialpad.buttons[] contains an unknown member.");
         }
     }
-    if (!turn && !sawButton)
+    if (! turn && ! sawButton)
     {
         return Fail(diagnostic, capacity, "dialpad.buttons[].button is required.");
     }
     if (turn)
     {
-        if (!sawControl || !sawDirection)
+        if (! sawControl || ! sawDirection)
         {
             return Fail(diagnostic, capacity, "dialpad.turns[] requires control and direction.");
         }
@@ -330,46 +328,40 @@ template <size_t Capacity>
         }
         else
         {
-            return Fail(diagnostic, capacity,
-                        "dialpad.turns[].direction must be cw or ccw for the dial and up or down for the roller.");
+            return Fail(diagnostic, capacity, "dialpad.turns[].direction must be cw or ccw for the dial and up or down for the roller.");
         }
     }
     return S_OK;
 }
 
-[[nodiscard]] HRESULT ParseDialpad(yyjson_val* object, DialpadSettings& dialpad, char* diagnostic,
-                                   size_t capacity) noexcept
+[[nodiscard]] HRESULT ParseDialpad(yyjson_val* object, DialpadSettings& dialpad, char* diagnostic, size_t capacity) noexcept
 {
-    if (!yyjson_is_obj(object))
+    if (! yyjson_is_obj(object))
     {
         return Fail(diagnostic, capacity, "dialpad must be an object.");
     }
-    dialpad = DialpadSettings{};
+    dialpad                  = DialpadSettings{};
     yyjson_obj_iter iterator = yyjson_obj_iter_with(object);
     while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
     {
         const std::string_view name = StringOf(key);
-        yyjson_val* value = yyjson_obj_iter_get_val(key);
+        yyjson_val* value           = yyjson_obj_iter_get_val(key);
         if (name == "buttons" || name == "turns")
         {
             const bool turns = name == "turns";
-            if (!yyjson_is_arr(value))
+            if (! yyjson_is_arr(value))
             {
-                return Fail(diagnostic, capacity,
-                            turns ? "dialpad.turns must be an array." : "dialpad.buttons must be an array.");
+                return Fail(diagnostic, capacity, turns ? "dialpad.turns must be an array." : "dialpad.buttons must be an array.");
             }
             const size_t count = yyjson_arr_size(value);
             if (count > (turns ? kDialpadTurns : kDialpadButtons))
             {
-                return Fail(diagnostic, capacity,
-                            turns ? "dialpad.turns may contain at most 4 entries."
-                                  : "dialpad.buttons may contain at most 4 entries.");
+                return Fail(diagnostic, capacity, turns ? "dialpad.turns may contain at most 4 entries." : "dialpad.buttons may contain at most 4 entries.");
             }
             for (size_t index = 0; index < count; ++index)
             {
-                KeyBinding& binding = turns ? dialpad.turns[index] : dialpad.buttons[index];
-                const HRESULT parsed =
-                    ParseDialBinding(yyjson_arr_get(value, index), turns, binding, diagnostic, capacity);
+                KeyBinding& binding  = turns ? dialpad.turns[index] : dialpad.buttons[index];
+                const HRESULT parsed = ParseDialBinding(yyjson_arr_get(value, index), turns, binding, diagnostic, capacity);
                 if (FAILED(parsed))
                 {
                     return parsed;
@@ -378,13 +370,12 @@ template <size_t Capacity>
                 {
                     const KeyBinding& earlier = turns ? dialpad.turns[previous] : dialpad.buttons[previous];
                     const bool duplicate =
-                        turns ? (earlier.control == binding.control && earlier.direction == binding.direction)
-                              : earlier.slot == binding.slot;
+                        turns ? (earlier.control == binding.control && earlier.direction == binding.direction) : earlier.slot == binding.slot;
                     if (duplicate)
                     {
-                        return Fail(diagnostic, capacity,
-                                    turns ? "dialpad.turns[] binds the same control and direction twice."
-                                          : "dialpad.buttons[] binds the same button twice.");
+                        return Fail(diagnostic,
+                                    capacity,
+                                    turns ? "dialpad.turns[] binds the same control and direction twice." : "dialpad.buttons[] binds the same button twice.");
                     }
                 }
             }
@@ -461,7 +452,7 @@ HRESULT ParseSettings(yyjson_val* object, Settings& settings, char* diagnostic, 
 {
     WriteDiagnostic(diagnostic, diagnosticCapacity, "");
     settings = Settings{};
-    if (!yyjson_is_obj(object))
+    if (! yyjson_is_obj(object))
     {
         return Fail(diagnostic, diagnosticCapacity, "Logicon settings must be a JSON object.");
     }
@@ -469,11 +460,10 @@ HRESULT ParseSettings(yyjson_val* object, Settings& settings, char* diagnostic, 
     while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
     {
         const std::string_view name = StringOf(key);
-        yyjson_val* value = yyjson_obj_iter_get_val(key);
+        yyjson_val* value           = yyjson_obj_iter_get_val(key);
         if (name == "brightness")
         {
-            if (!yyjson_is_uint(value) || yyjson_get_uint(value) < kMinimumBrightness ||
-                yyjson_get_uint(value) > kMaximumBrightness)
+            if (! yyjson_is_uint(value) || yyjson_get_uint(value) < kMinimumBrightness || yyjson_get_uint(value) > kMaximumBrightness)
             {
                 return Fail(diagnostic, diagnosticCapacity, "brightness must be an integer from 1 through 100.");
             }
@@ -481,7 +471,7 @@ HRESULT ParseSettings(yyjson_val* object, Settings& settings, char* diagnostic, 
         }
         else if (name == "restoreLogoOnExit")
         {
-            if (!yyjson_is_bool(value))
+            if (! yyjson_is_bool(value))
             {
                 return Fail(diagnostic, diagnosticCapacity, "restoreLogoOnExit must be a boolean.");
             }
@@ -489,7 +479,7 @@ HRESULT ParseSettings(yyjson_val* object, Settings& settings, char* diagnostic, 
         }
         else if (name == "pageButtons")
         {
-            if (!yyjson_is_str(value))
+            if (! yyjson_is_str(value))
             {
                 return Fail(diagnostic, diagnosticCapacity, "pageButtons must be keyPages or dashboardPages.");
             }
@@ -509,7 +499,7 @@ HRESULT ParseSettings(yyjson_val* object, Settings& settings, char* diagnostic, 
         }
         else if (name == "keys")
         {
-            if (!yyjson_is_arr(value))
+            if (! yyjson_is_arr(value))
             {
                 return Fail(diagnostic, diagnosticCapacity, "keys must be an array.");
             }
@@ -520,7 +510,7 @@ HRESULT ParseSettings(yyjson_val* object, Settings& settings, char* diagnostic, 
             }
             for (size_t index = 0; index < count; ++index)
             {
-                KeyBinding& binding = settings.keys[index];
+                KeyBinding& binding  = settings.keys[index];
                 const HRESULT parsed = ParseKey(yyjson_arr_get(value, index), binding, diagnostic, diagnosticCapacity);
                 if (FAILED(parsed))
                 {
@@ -552,15 +542,14 @@ HRESULT ParseSettings(yyjson_val* object, Settings& settings, char* diagnostic, 
     return S_OK;
 }
 
-HRESULT ParseSettingsJson(std::string_view json, Settings& settings, char* diagnostic,
-                          size_t diagnosticCapacity) noexcept
+HRESULT ParseSettingsJson(std::string_view json, Settings& settings, char* diagnostic, size_t diagnosticCapacity) noexcept
 {
     if (json.empty())
     {
         return Fail(diagnostic, diagnosticCapacity, "Logicon settings are empty.");
     }
     yyjson_doc* document = yyjson_read(json.data(), json.size(), YYJSON_READ_NOFLAG);
-    if (!document)
+    if (! document)
     {
         return Fail(diagnostic, diagnosticCapacity, "Logicon settings are not valid JSON.");
     }
@@ -610,14 +599,14 @@ const char* DirectionName(uint8_t control, uint8_t direction) noexcept
 
 bool ParseWidgetTarget(std::string_view target, std::string_view& pageId, uint32_t& ordinal) noexcept
 {
-    pageId = {};
+    pageId  = {};
     ordinal = 0;
     if (target.empty())
     {
         return false;
     }
     std::string_view number = target;
-    const size_t separator = target.rfind('/');
+    const size_t separator  = target.rfind('/');
     if (separator != std::string_view::npos)
     {
         pageId = target.substr(0, separator);

@@ -51,7 +51,7 @@ namespace
     {
         if (index < name.size() && name[index] != '.')
         {
-            if (!IsAlpha(name[index]) && !IsDigit(name[index]) && name[index] != '-')
+            if (! IsAlpha(name[index]) && ! IsDigit(name[index]) && name[index] != '-')
             {
                 return false;
             }
@@ -76,7 +76,7 @@ namespace
     uint64_t total = 0;
     for (const char character : value)
     {
-        if (!IsDigit(character))
+        if (! IsDigit(character))
         {
             return false;
         }
@@ -171,7 +171,7 @@ constexpr NamedKey kNamedKeys[] = {
         for (const char character : digits)
         {
             const char lower = Lower(character);
-            uint32_t digit = 0;
+            uint32_t digit   = 0;
             if (IsDigit(lower))
             {
                 digit = static_cast<uint32_t>(lower - '0');
@@ -198,7 +198,7 @@ constexpr NamedKey kNamedKeys[] = {
         if (EqualsIgnoreCase(name, candidate.name))
         {
             chord.virtualKey = candidate.virtualKey;
-            chord.extended = candidate.extended;
+            chord.extended   = candidate.extended;
             return true;
         }
     }
@@ -291,7 +291,7 @@ constexpr NamedKey kNamedKeys[] = {
 
 std::string_view SplitSuffix(std::string_view target, std::string_view& suffix) noexcept
 {
-    suffix = {};
+    suffix          = {};
     const size_t at = target.rfind('@');
     if (at == std::string_view::npos)
     {
@@ -342,37 +342,37 @@ bool ParseCommandLine(std::string_view value, CommandLine& parsed) noexcept
             return false;
         }
         executable = value.substr(1, close - 1);
-        rest = value.substr(close + 1);
+        rest       = value.substr(close + 1);
     }
     else
     {
         const size_t space = value.find(' ');
-        executable = value.substr(0, space);
-        rest = space == std::string_view::npos ? std::string_view{} : value.substr(space);
+        executable         = value.substr(0, space);
+        rest               = space == std::string_view::npos ? std::string_view{} : value.substr(space);
     }
-    if (!IsAbsolutePath(executable))
+    if (! IsAbsolutePath(executable))
     {
         return false;
     }
-    while (!rest.empty() && rest.front() == ' ')
+    while (! rest.empty() && rest.front() == ' ')
     {
         rest.remove_prefix(1);
     }
     parsed.executable = executable;
-    parsed.arguments = rest;
+    parsed.arguments  = rest;
     return true;
 }
 
 bool ParseWidgetRef(std::string_view value, std::string_view& pageId, uint32_t& ordinal) noexcept
 {
-    pageId = {};
+    pageId  = {};
     ordinal = 0;
     if (value.empty())
     {
         return false;
     }
     std::string_view number = value;
-    const size_t separator = value.rfind('/');
+    const size_t separator  = value.rfind('/');
     if (separator != std::string_view::npos)
     {
         pageId = value.substr(0, separator);
@@ -383,7 +383,7 @@ bool ParseWidgetRef(std::string_view value, std::string_view& pageId, uint32_t& 
         }
     }
     uint64_t parsed = 0;
-    if (number.size() > 3 || !ParseUnsigned(number, 511, parsed))
+    if (number.size() > 3 || ! ParseUnsigned(number, 511, parsed))
     {
         return false;
     }
@@ -404,7 +404,7 @@ bool ParseInteger(std::string_view value, int32_t minimum, int32_t maximum, int3
         value.remove_prefix(1);
     }
     uint64_t magnitude = 0;
-    if (!ParseUnsigned(value, 0x7FFFFFFFU, magnitude))
+    if (! ParseUnsigned(value, 0x7FFFFFFFU, magnitude))
     {
         return false;
     }
@@ -428,12 +428,12 @@ bool ParseDelta(std::string_view value, int32_t minimum, int32_t maximum, Delta&
     {
         uint64_t magnitude = 0;
         const int64_t span = static_cast<int64_t>(maximum) - static_cast<int64_t>(minimum);
-        if (!ParseUnsigned(value.substr(1), static_cast<uint64_t>(span < 0 ? 0 : span), magnitude) || magnitude == 0)
+        if (! ParseUnsigned(value.substr(1), static_cast<uint64_t>(span < 0 ? 0 : span), magnitude) || magnitude == 0)
         {
             return false;
         }
         parsed.relative = true;
-        parsed.value = value[0] == '-' ? -static_cast<int32_t>(magnitude) : static_cast<int32_t>(magnitude);
+        parsed.value    = value[0] == '-' ? -static_cast<int32_t>(magnitude) : static_cast<int32_t>(magnitude);
         return true;
     }
     return ParseInteger(value, minimum, maximum, parsed.value);
@@ -448,7 +448,7 @@ bool ParseNowOrSeconds(std::string_view value, int32_t minimum, int32_t maximum,
         return true;
     }
     int32_t seconds = 0;
-    if (!ParseInteger(value, minimum < 0 ? 0 : minimum, maximum, seconds))
+    if (! ParseInteger(value, minimum < 0 ? 0 : minimum, maximum, seconds))
     {
         return false;
     }
@@ -459,15 +459,15 @@ bool ParseNowOrSeconds(std::string_view value, int32_t minimum, int32_t maximum,
 bool ParseEnum(std::string_view value, const char* options, uint32_t& index) noexcept
 {
     index = 0;
-    if (!options || value.empty())
+    if (! options || value.empty())
     {
         return false;
     }
     std::string_view remaining{options};
     uint32_t position = 0;
-    while (!remaining.empty())
+    while (! remaining.empty())
     {
-        const size_t bar = remaining.find('|');
+        const size_t bar              = remaining.find('|');
         const std::string_view option = remaining.substr(0, bar);
         if (option == value)
         {
@@ -493,9 +493,9 @@ bool ParseChords(std::string_view value, ChordSequence& parsed) noexcept
     }
     while (true)
     {
-        const size_t comma = value.find(',');
+        const size_t comma          = value.find(',');
         const std::string_view text = value.substr(0, comma);
-        if (parsed.count >= kMaximumChords || !ParseChord(text, parsed.chords[parsed.count]))
+        if (parsed.count >= kMaximumChords || ! ParseChord(text, parsed.chords[parsed.count]))
         {
             parsed = ChordSequence{};
             return false;
@@ -536,12 +536,12 @@ bool ParseMonitorSelector(std::string_view value, bool allowAll, MonitorSelector
     {
         parsed.kind = MonitorSelector::Kind::Name;
         parsed.name = value.substr(5);
-        return !parsed.name.empty() && parsed.name.size() <= 128;
+        return ! parsed.name.empty() && parsed.name.size() <= 128;
     }
     uint64_t index = 0;
     if (ParseUnsigned(value, 64, index) && index >= 1)
     {
-        parsed.kind = MonitorSelector::Kind::Index;
+        parsed.kind  = MonitorSelector::Kind::Index;
         parsed.index = static_cast<uint32_t>(index);
         return true;
     }
@@ -558,24 +558,24 @@ bool ParseWindowSelector(std::string_view value, WindowSelector& parsed) noexcep
     }
     if (value.starts_with("exe:"))
     {
-        parsed.kind = WindowSelector::Kind::Executable;
+        parsed.kind  = WindowSelector::Kind::Executable;
         parsed.value = value.substr(4);
     }
     else if (value.starts_with("class:"))
     {
-        parsed.kind = WindowSelector::Kind::Class;
+        parsed.kind  = WindowSelector::Kind::Class;
         parsed.value = value.substr(6);
     }
     else if (value.starts_with("title:"))
     {
-        parsed.kind = WindowSelector::Kind::Title;
+        parsed.kind  = WindowSelector::Kind::Title;
         parsed.value = value.substr(6);
     }
     else
     {
         return false;
     }
-    return !parsed.value.empty() && parsed.value.size() <= 260;
+    return ! parsed.value.empty() && parsed.value.size() <= 260;
 }
 
 bool ParsePoint(std::string_view value, Point& parsed) noexcept
@@ -583,9 +583,9 @@ bool ParsePoint(std::string_view value, Point& parsed) noexcept
     parsed = Point{};
     std::string_view suffix;
     const std::string_view bare = SplitSuffix(value, suffix);
-    if (!suffix.empty() || value.find('@') != std::string_view::npos)
+    if (! suffix.empty() || value.find('@') != std::string_view::npos)
     {
-        if (!ParseMonitorSelector(suffix, false, parsed.monitor))
+        if (! ParseMonitorSelector(suffix, false, parsed.monitor))
         {
             return false;
         }
@@ -601,31 +601,31 @@ bool ParsePoint(std::string_view value, Point& parsed) noexcept
     {
         return false;
     }
-    const std::string_view first = bare.substr(0, comma);
+    const std::string_view first  = bare.substr(0, comma);
     const std::string_view second = bare.substr(comma + 1);
     if (first.empty() || second.empty())
     {
         return false;
     }
-    const bool firstRelative = first[0] == '+' || first[0] == '-';
+    const bool firstRelative  = first[0] == '+' || first[0] == '-';
     const bool secondRelative = second[0] == '+' || second[0] == '-';
     if (firstRelative != secondRelative)
     {
         return false;
     }
     constexpr int32_t kLimit = 65535;
-    int32_t x = 0;
-    int32_t y = 0;
+    int32_t x                = 0;
+    int32_t y                = 0;
     if (firstRelative)
     {
-        if (!ParseInteger(first[0] == '+' ? first.substr(1) : first, -kLimit, kLimit, x) ||
-            !ParseInteger(second[0] == '+' ? second.substr(1) : second, -kLimit, kLimit, y))
+        if (! ParseInteger(first[0] == '+' ? first.substr(1) : first, -kLimit, kLimit, x) ||
+            ! ParseInteger(second[0] == '+' ? second.substr(1) : second, -kLimit, kLimit, y))
         {
             return false;
         }
         parsed.relative = true;
     }
-    else if (!ParseInteger(first, -kLimit, kLimit, x) || !ParseInteger(second, -kLimit, kLimit, y))
+    else if (! ParseInteger(first, -kLimit, kLimit, x) || ! ParseInteger(second, -kLimit, kLimit, y))
     {
         return false;
     }
@@ -637,7 +637,7 @@ bool ParsePoint(std::string_view value, Point& parsed) noexcept
 bool ParseMeeting(std::string_view value) noexcept
 {
     constexpr std::string_view kScheme = "https://";
-    if (value.size() > kRedXeMaximumActionTargetBytes || !value.starts_with(kScheme))
+    if (value.size() > kRedXeMaximumActionTargetBytes || ! value.starts_with(kScheme))
     {
         return false;
     }
@@ -650,7 +650,7 @@ bool ParseMeeting(std::string_view value) noexcept
         }
     }
     const std::string_view rest = value.substr(kScheme.size());
-    const size_t slash = rest.find('/');
+    const size_t slash          = rest.find('/');
     if (slash == std::string_view::npos)
     {
         return false;
@@ -660,19 +660,18 @@ bool ParseMeeting(std::string_view value) noexcept
     // "https://evil.example#.zoom.us/j/..." pass as a zoom.us subdomain, or percent-encoding a browser decodes first
     // ("a%2e.zoom.us" is "a..zoom.us"); and "a..zoom.us" ends in ".zoom.us" but, with an empty label, is no subdomain.
     const std::string_view host = rest.substr(0, slash);
-    if (!IsDnsHostName(host))
+    if (! IsDnsHostName(host))
     {
         return false;
     }
-    const bool zoomHost = EqualsIgnoreCase(host, "zoom.us") ||
-                          (host.size() > 8 && EqualsIgnoreCase(host.substr(host.size() - 8), ".zoom.us"));
-    if (!zoomHost)
+    const bool zoomHost = EqualsIgnoreCase(host, "zoom.us") || (host.size() > 8 && EqualsIgnoreCase(host.substr(host.size() - 8), ".zoom.us"));
+    if (! zoomHost)
     {
         return false;
     }
     // The query and fragment (an invite's opaque pwd token) pass unchanged; only the path is checked.
     std::string_view path = rest.substr(slash);
-    path = path.substr(0, path.find_first_of("?#"));
+    path                  = path.substr(0, path.find_first_of("?#"));
     std::string_view id;
     if (path.starts_with("/j/"))
     {
@@ -706,98 +705,83 @@ HRESULT ValidateTarget(const RedXeActionDescriptor& descriptor, std::string_view
     }
     if (target.empty())
     {
-        return (descriptor.flags & RedXeActionFlagTargetOptional) != 0 &&
-                       (descriptor.flags & RedXeActionFlagDestructive) == 0
-                   ? S_OK
-                   : E_INVALIDARG;
+        return (descriptor.flags & RedXeActionFlagTargetOptional) != 0 && (descriptor.flags & RedXeActionFlagDestructive) == 0 ? S_OK : E_INVALIDARG;
     }
     std::string_view value = target;
-    if (!ValidateSuffixes(descriptor, value))
+    if (! ValidateSuffixes(descriptor, value))
     {
         return E_INVALIDARG;
     }
     bool valid = false;
     switch (descriptor.targetKind)
     {
-    case RedXeActionTargetText:
-        valid = !value.empty();
-        break;
-    case RedXeActionTargetPathOrUri:
-        valid = IsPathOrUri(value);
-        break;
-    case RedXeActionTargetPath:
-        valid = IsAbsolutePath(value);
-        break;
-    case RedXeActionTargetCommandLine:
-    {
-        CommandLine parsed{};
-        valid = ParseCommandLine(value, parsed);
-        break;
-    }
-    case RedXeActionTargetPageRef:
-        valid = !value.empty() && value.size() <= 128;
-        break;
-    case RedXeActionTargetWidgetRef:
-    {
-        std::string_view pageId;
-        uint32_t ordinal = 0;
-        valid = ParseWidgetRef(value, pageId, ordinal);
-        break;
-    }
-    case RedXeActionTargetInteger:
-    {
-        int32_t parsed = 0;
-        valid = ParseInteger(value, descriptor.targetMinimum, descriptor.targetMaximum, parsed);
-        break;
-    }
-    case RedXeActionTargetDelta:
-    {
-        Delta parsed{};
-        valid = ParseDelta(value, descriptor.targetMinimum, descriptor.targetMaximum, parsed);
-        break;
-    }
-    case RedXeActionTargetEnum:
-    {
-        uint32_t index = 0;
-        valid = ParseEnum(value, descriptor.targetOptions, index);
-        break;
-    }
-    case RedXeActionTargetChords:
-    {
-        ChordSequence parsed{};
-        valid = ParseChords(value, parsed);
-        break;
-    }
-    case RedXeActionTargetPoint:
-    {
-        Point parsed{};
-        valid = ParsePoint(target, parsed);
-        break;
-    }
-    case RedXeActionTargetMonitor:
-    {
-        MonitorSelector parsed{};
-        valid = ParseMonitorSelector(value, false, parsed);
-        break;
-    }
-    case RedXeActionTargetWindow:
-    {
-        WindowSelector parsed{};
-        valid = ParseWindowSelector(value, parsed);
-        break;
-    }
-    case RedXeActionTargetMeeting:
-        valid = ParseMeeting(value);
-        break;
-    case RedXeActionTargetNowOrSeconds:
-    {
-        NowOrSeconds parsed{};
-        valid = ParseNowOrSeconds(value, descriptor.targetMinimum, descriptor.targetMaximum, parsed);
-        break;
-    }
-    default:
-        valid = false;
-        break;
+        case RedXeActionTargetText: valid = ! value.empty(); break;
+        case RedXeActionTargetPathOrUri: valid = IsPathOrUri(value); break;
+        case RedXeActionTargetPath: valid = IsAbsolutePath(value); break;
+        case RedXeActionTargetCommandLine:
+        {
+            CommandLine parsed{};
+            valid = ParseCommandLine(value, parsed);
+            break;
+        }
+        case RedXeActionTargetPageRef: valid = ! value.empty() && value.size() <= 128; break;
+        case RedXeActionTargetWidgetRef:
+        {
+            std::string_view pageId;
+            uint32_t ordinal = 0;
+            valid            = ParseWidgetRef(value, pageId, ordinal);
+            break;
+        }
+        case RedXeActionTargetInteger:
+        {
+            int32_t parsed = 0;
+            valid          = ParseInteger(value, descriptor.targetMinimum, descriptor.targetMaximum, parsed);
+            break;
+        }
+        case RedXeActionTargetDelta:
+        {
+            Delta parsed{};
+            valid = ParseDelta(value, descriptor.targetMinimum, descriptor.targetMaximum, parsed);
+            break;
+        }
+        case RedXeActionTargetEnum:
+        {
+            uint32_t index = 0;
+            valid          = ParseEnum(value, descriptor.targetOptions, index);
+            break;
+        }
+        case RedXeActionTargetChords:
+        {
+            ChordSequence parsed{};
+            valid = ParseChords(value, parsed);
+            break;
+        }
+        case RedXeActionTargetPoint:
+        {
+            Point parsed{};
+            valid = ParsePoint(target, parsed);
+            break;
+        }
+        case RedXeActionTargetMonitor:
+        {
+            MonitorSelector parsed{};
+            valid = ParseMonitorSelector(value, false, parsed);
+            break;
+        }
+        case RedXeActionTargetWindow:
+        {
+            WindowSelector parsed{};
+            valid = ParseWindowSelector(value, parsed);
+            break;
+        }
+        case RedXeActionTargetMeeting: valid = ParseMeeting(value); break;
+        case RedXeActionTargetNowOrSeconds:
+        {
+            NowOrSeconds parsed{};
+            valid = ParseNowOrSeconds(value, descriptor.targetMinimum, descriptor.targetMaximum, parsed);
+            break;
+        }
+        default: valid = false; break;
     }
     return valid ? S_OK : E_INVALIDARG;
 }

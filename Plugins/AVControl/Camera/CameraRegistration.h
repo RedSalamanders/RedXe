@@ -13,7 +13,7 @@ namespace AVControl::Camera
 #pragma warning(disable : 4625 4626)
 class VirtualCameraRoute final
 {
-  public:
+public:
     VirtualCameraRoute();
     ~VirtualCameraRoute();
     static HRESULT ProbeInstalledSource() noexcept;
@@ -24,7 +24,7 @@ class VirtualCameraRoute final
     [[nodiscard]] std::wstring_view SymbolicLink() const noexcept;
     [[nodiscard]] std::wstring_view OwnerSid() const noexcept;
 
-  private:
+private:
     struct State;
     std::unique_ptr<State> _state;
 };

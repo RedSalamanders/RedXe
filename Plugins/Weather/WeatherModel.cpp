@@ -22,10 +22,9 @@ using unique_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjs
 [[nodiscard]] bool FileTimeToLocalSystem(uint64_t fileTime100ns, SYSTEMTIME& local) noexcept;
 [[nodiscard]] uint32_t CivilDayNumber(const SYSTEMTIME& local) noexcept;
 
-constexpr char kEuropeIso2[][3] = {"AT", "BE", "BA", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR",
-                                   "DE", "GR", "HU", "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MT",
-                                   "MD", "ME", "NL", "MK", "NO", "PL", "PT", "RO", "RS", "SK", "SI",
-                                   "ES", "SE", "CH", "TR", "UA", "GB", "UK", "AL", "AD", "MC", "SM"};
+constexpr char kEuropeIso2[][3] = {"AT", "BE", "BA", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IS",
+                                   "IE", "IT", "LV", "LI", "LT", "LU", "MT", "MD", "ME", "NL", "MK", "NO", "PL", "PT", "RO",
+                                   "RS", "SK", "SI", "ES", "SE", "CH", "TR", "UA", "GB", "UK", "AL", "AD", "MC", "SM"};
 
 [[nodiscard]] bool EqualsIgnoreCase(std::string_view left, std::string_view right) noexcept
 {
@@ -60,8 +59,8 @@ constexpr char kEuropeIso2[][3] = {"AT", "BE", "BA", "BG", "HR", "CY", "CZ", "DK
     if (yyjson_is_str(value))
     {
         const char* text = yyjson_get_str(value);
-        char* end = nullptr;
-        out = std::strtod(text, &end);
+        char* end        = nullptr;
+        out              = std::strtod(text, &end);
         return end != text && end == text + yyjson_get_len(value) && std::isfinite(out);
     }
     return false;
@@ -74,19 +73,16 @@ constexpr char kEuropeIso2[][3] = {"AT", "BE", "BA", "BG", "HR", "CY", "CZ", "DK
         return {};
     }
     yyjson_read_err error{};
-    return unique_doc{
-        yyjson_read_opts(const_cast<char*>(json.data()), json.size(), YYJSON_READ_NOFLAG, nullptr, &error)};
+    return unique_doc{yyjson_read_opts(const_cast<char*>(json.data()), json.size(), YYJSON_READ_NOFLAG, nullptr, &error)};
 }
 
 [[nodiscard]] WeatherAlertSeverity SeverityFromText(std::string_view text) noexcept
 {
-    if (EqualsIgnoreCase(text, "extreme") || EqualsIgnoreCase(text, "severe") || EqualsIgnoreCase(text, "red") ||
-        text.find("4;") != std::string_view::npos)
+    if (EqualsIgnoreCase(text, "extreme") || EqualsIgnoreCase(text, "severe") || EqualsIgnoreCase(text, "red") || text.find("4;") != std::string_view::npos)
     {
         return WeatherAlertSeverity::Red;
     }
-    if (EqualsIgnoreCase(text, "moderate") || EqualsIgnoreCase(text, "orange") ||
-        text.find("3;") != std::string_view::npos)
+    if (EqualsIgnoreCase(text, "moderate") || EqualsIgnoreCase(text, "orange") || text.find("3;") != std::string_view::npos)
     {
         return WeatherAlertSeverity::Orange;
     }
@@ -97,8 +93,13 @@ constexpr char kEuropeIso2[][3] = {"AT", "BE", "BA", "BG", "HR", "CY", "CZ", "DK
     return WeatherAlertSeverity::Yellow;
 }
 
-void AddAlert(WeatherSnapshot& snapshot, std::string_view title, std::string_view description,
-              std::string_view instructions, std::string_view authority, WeatherAlertSeverity severity, uint64_t start,
+void AddAlert(WeatherSnapshot& snapshot,
+              std::string_view title,
+              std::string_view description,
+              std::string_view instructions,
+              std::string_view authority,
+              WeatherAlertSeverity severity,
+              uint64_t start,
               uint64_t expiry) noexcept
 {
     if (snapshot.alertCount >= snapshot.alerts.size() || severity == WeatherAlertSeverity::None)
@@ -106,44 +107,41 @@ void AddAlert(WeatherSnapshot& snapshot, std::string_view title, std::string_vie
         return;
     }
     WeatherAlert& alert = snapshot.alerts[snapshot.alertCount++];
-    alert = WeatherAlert{};
+    alert               = WeatherAlert{};
     WeatherCopyWide(std::wstring_view{}, alert.title.data(), alert.title.size());
-    const int titleChars = MultiByteToWideChar(CP_UTF8, 0, title.data(), static_cast<int>(title.size()),
-                                               alert.title.data(), static_cast<int>(alert.title.size()) - 1);
+    const int titleChars =
+        MultiByteToWideChar(CP_UTF8, 0, title.data(), static_cast<int>(title.size()), alert.title.data(), static_cast<int>(alert.title.size()) - 1);
     if (titleChars > 0)
     {
         alert.title[static_cast<size_t>(titleChars)] = L'\0';
     }
-    const int descriptionChars =
-        MultiByteToWideChar(CP_UTF8, 0, description.data(), static_cast<int>(description.size()),
-                            alert.description.data(), static_cast<int>(alert.description.size()) - 1);
+    const int descriptionChars = MultiByteToWideChar(
+        CP_UTF8, 0, description.data(), static_cast<int>(description.size()), alert.description.data(), static_cast<int>(alert.description.size()) - 1);
     if (descriptionChars > 0)
     {
         alert.description[static_cast<size_t>(descriptionChars)] = L'\0';
     }
-    const int instructionChars =
-        MultiByteToWideChar(CP_UTF8, 0, instructions.data(), static_cast<int>(instructions.size()),
-                            alert.instructions.data(), static_cast<int>(alert.instructions.size()) - 1);
+    const int instructionChars = MultiByteToWideChar(
+        CP_UTF8, 0, instructions.data(), static_cast<int>(instructions.size()), alert.instructions.data(), static_cast<int>(alert.instructions.size()) - 1);
     if (instructionChars > 0)
     {
         alert.instructions[static_cast<size_t>(instructionChars)] = L'\0';
     }
-    const int authorityChars =
-        MultiByteToWideChar(CP_UTF8, 0, authority.data(), static_cast<int>(authority.size()), alert.authority.data(),
-                            static_cast<int>(alert.authority.size()) - 1);
+    const int authorityChars = MultiByteToWideChar(
+        CP_UTF8, 0, authority.data(), static_cast<int>(authority.size()), alert.authority.data(), static_cast<int>(alert.authority.size()) - 1);
     if (authorityChars > 0)
     {
         alert.authority[static_cast<size_t>(authorityChars)] = L'\0';
     }
-    alert.severity = severity;
-    alert.startFileTime100ns = start;
+    alert.severity            = severity;
+    alert.startFileTime100ns  = start;
     alert.expiryFileTime100ns = expiry;
 }
 } // namespace
 
 bool WeatherCopyWide(std::wstring_view source, wchar_t* destination, size_t capacity) noexcept
 {
-    if (!destination || capacity == 0)
+    if (! destination || capacity == 0)
     {
         return false;
     }
@@ -158,7 +156,7 @@ bool WeatherCopyWide(std::wstring_view source, wchar_t* destination, size_t capa
 
 bool WeatherCopyNarrow(std::string_view source, char* destination, size_t capacity) noexcept
 {
-    if (!destination || capacity == 0)
+    if (! destination || capacity == 0)
     {
         return false;
     }
@@ -173,7 +171,7 @@ bool WeatherCopyNarrow(std::string_view source, char* destination, size_t capaci
 
 WeatherCondition WeatherConditionFromSymbol(std::string_view symbol) noexcept
 {
-    const size_t underscore = symbol.find('_');
+    const size_t underscore     = symbol.find('_');
     const std::string_view stem = underscore == std::string_view::npos ? symbol : symbol.substr(0, underscore);
     if (stem == "clearsky" || stem == "fair" || stem == "clear")
     {
@@ -218,25 +216,17 @@ WeatherRgb WeatherConditionColor(WeatherCondition condition) noexcept
 {
     switch (condition)
     {
-    case WeatherCondition::Clear:
-        return {232.0f / 255.0f, 195.0f / 255.0f, 106.0f / 255.0f};
-    case WeatherCondition::PartlyCloudy:
-        return {200.0f / 255.0f, 196.0f / 255.0f, 184.0f / 255.0f};
-    case WeatherCondition::Cloudy:
-        return {168.0f / 255.0f, 176.0f / 255.0f, 184.0f / 255.0f};
-    case WeatherCondition::Rain:
-    case WeatherCondition::Sleet:
-        return {90.0f / 255.0f, 160.0f / 255.0f, 212.0f / 255.0f};
-    case WeatherCondition::Snow:
-        return {208.0f / 255.0f, 228.0f / 255.0f, 240.0f / 255.0f};
-    case WeatherCondition::Thunder:
-        return {240.0f / 255.0f, 160.0f / 255.0f, 48.0f / 255.0f};
-    case WeatherCondition::Fog:
-    case WeatherCondition::Wind:
-        return {138.0f / 255.0f, 148.0f / 255.0f, 156.0f / 255.0f};
-    case ::WeatherCondition::Unknown:
-    default:
-        return {168.0f / 255.0f, 176.0f / 255.0f, 184.0f / 255.0f};
+        case WeatherCondition::Clear: return {232.0f / 255.0f, 195.0f / 255.0f, 106.0f / 255.0f};
+        case WeatherCondition::PartlyCloudy: return {200.0f / 255.0f, 196.0f / 255.0f, 184.0f / 255.0f};
+        case WeatherCondition::Cloudy: return {168.0f / 255.0f, 176.0f / 255.0f, 184.0f / 255.0f};
+        case WeatherCondition::Rain:
+        case WeatherCondition::Sleet: return {90.0f / 255.0f, 160.0f / 255.0f, 212.0f / 255.0f};
+        case WeatherCondition::Snow: return {208.0f / 255.0f, 228.0f / 255.0f, 240.0f / 255.0f};
+        case WeatherCondition::Thunder: return {240.0f / 255.0f, 160.0f / 255.0f, 48.0f / 255.0f};
+        case WeatherCondition::Fog:
+        case WeatherCondition::Wind: return {138.0f / 255.0f, 148.0f / 255.0f, 156.0f / 255.0f};
+        case ::WeatherCondition::Unknown:
+        default: return {168.0f / 255.0f, 176.0f / 255.0f, 184.0f / 255.0f};
     }
 }
 
@@ -244,15 +234,11 @@ WeatherRgb WeatherAlertColor(WeatherAlertSeverity severity) noexcept
 {
     switch (severity)
     {
-    case WeatherAlertSeverity::Red:
-        return {224.0f / 255.0f, 56.0f / 255.0f, 56.0f / 255.0f};
-    case WeatherAlertSeverity::Orange:
-        return {240.0f / 255.0f, 122.0f / 255.0f, 32.0f / 255.0f};
-    case WeatherAlertSeverity::Yellow:
-        return {224.0f / 255.0f, 192.0f / 255.0f, 64.0f / 255.0f};
-    case ::WeatherAlertSeverity::None:
-    default:
-        return {0.92f, 0.92f, 0.94f};
+        case WeatherAlertSeverity::Red: return {224.0f / 255.0f, 56.0f / 255.0f, 56.0f / 255.0f};
+        case WeatherAlertSeverity::Orange: return {240.0f / 255.0f, 122.0f / 255.0f, 32.0f / 255.0f};
+        case WeatherAlertSeverity::Yellow: return {224.0f / 255.0f, 192.0f / 255.0f, 64.0f / 255.0f};
+        case ::WeatherAlertSeverity::None:
+        default: return {0.92f, 0.92f, 0.94f};
     }
 }
 
@@ -261,16 +247,15 @@ WeatherAlertSeverity WeatherHighestAlertSeverity(const WeatherSnapshot& snapshot
     WeatherAlertSeverity highest = WeatherAlertSeverity::None;
     for (uint32_t index = 0; index < snapshot.alertCount; ++index)
     {
-        highest = static_cast<WeatherAlertSeverity>(
-            std::max(static_cast<uint32_t>(highest), static_cast<uint32_t>(snapshot.alerts[index].severity)));
+        highest = static_cast<WeatherAlertSeverity>(std::max(static_cast<uint32_t>(highest), static_cast<uint32_t>(snapshot.alerts[index].severity)));
     }
     return highest;
 }
 
 WeatherAlertRegion WeatherAlertRegionFromCountry(std::string_view countryCode) noexcept
 {
-    if (EqualsIgnoreCase(countryCode, "US") || EqualsIgnoreCase(countryCode, "PR") ||
-        EqualsIgnoreCase(countryCode, "GU") || EqualsIgnoreCase(countryCode, "VI"))
+    if (EqualsIgnoreCase(countryCode, "US") || EqualsIgnoreCase(countryCode, "PR") || EqualsIgnoreCase(countryCode, "GU") ||
+        EqualsIgnoreCase(countryCode, "VI"))
     {
         return WeatherAlertRegion::UnitedStates;
     }
@@ -301,16 +286,16 @@ bool WeatherParseIso8601Utc(std::string_view text, uint64_t& fileTime100ns) noex
     }
     char buffer[48]{};
     std::memcpy(buffer, text.data(), text.size());
-    int year = 0;
-    int month = 0;
-    int day = 0;
-    int hour = 0;
-    int minute = 0;
-    int second = 0;
+    int year     = 0;
+    int month    = 0;
+    int day      = 0;
+    int hour     = 0;
+    int minute   = 0;
+    int second   = 0;
     int consumed = 0;
     if (sscanf_s(buffer, "%4d-%2d-%2dT%2d:%2d:%2d%n", &year, &month, &day, &hour, &minute, &second, &consumed) != 6)
     {
-        second = 0;
+        second   = 0;
         consumed = 0;
         if (sscanf_s(buffer, "%4d-%2d-%2dT%2d:%2d%n", &year, &month, &day, &hour, &minute, &consumed) != 5)
         {
@@ -334,10 +319,9 @@ bool WeatherParseIso8601Utc(std::string_view text, uint64_t& fileTime100ns) noex
     if (*rest == '+' || *rest == '-')
     {
         const int sign = *rest == '+' ? 1 : -1;
-        int tzHour = 0;
-        int tzMinute = 0;
-        if (sscanf_s(rest + 1, "%2d:%2d", &tzHour, &tzMinute) != 2 &&
-            sscanf_s(rest + 1, "%2d%2d", &tzHour, &tzMinute) != 2)
+        int tzHour     = 0;
+        int tzMinute   = 0;
+        if (sscanf_s(rest + 1, "%2d:%2d", &tzHour, &tzMinute) != 2 && sscanf_s(rest + 1, "%2d%2d", &tzHour, &tzMinute) != 2)
         {
             return false;
         }
@@ -349,10 +333,10 @@ bool WeatherParseIso8601Utc(std::string_view text, uint64_t& fileTime100ns) noex
     }
 
     SYSTEMTIME time{};
-    time.wYear = static_cast<WORD>(year);
-    time.wMonth = static_cast<WORD>(month);
-    time.wDay = static_cast<WORD>(day);
-    time.wHour = static_cast<WORD>(hour);
+    time.wYear   = static_cast<WORD>(year);
+    time.wMonth  = static_cast<WORD>(month);
+    time.wDay    = static_cast<WORD>(day);
+    time.wHour   = static_cast<WORD>(hour);
     time.wMinute = static_cast<WORD>(minute);
     time.wSecond = static_cast<WORD>(second);
     FILETIME fileTime{};
@@ -361,8 +345,8 @@ bool WeatherParseIso8601Utc(std::string_view text, uint64_t& fileTime100ns) noex
         return false;
     }
     ULARGE_INTEGER value{};
-    value.LowPart = fileTime.dwLowDateTime;
-    value.HighPart = fileTime.dwHighDateTime;
+    value.LowPart     = fileTime.dwLowDateTime;
+    value.HighPart    = fileTime.dwHighDateTime;
     const int64_t utc = static_cast<int64_t>(value.QuadPart) - static_cast<int64_t>(tzMinutes) * 60LL * 10000000LL;
     if (utc < 0)
     {
@@ -374,8 +358,8 @@ bool WeatherParseIso8601Utc(std::string_view text, uint64_t& fileTime100ns) noex
 
 bool WeatherParseLatLon(std::string_view text, double& latitude, double& longitude) noexcept
 {
-    latitude = 0.0;
-    longitude = 0.0;
+    latitude           = 0.0;
+    longitude          = 0.0;
     const size_t comma = text.find(',');
     if (comma == std::string_view::npos || comma == 0 || comma + 1 >= text.size())
     {
@@ -383,8 +367,8 @@ bool WeatherParseLatLon(std::string_view text, double& latitude, double& longitu
     }
     const std::string_view latText = text.substr(0, comma);
     const std::string_view lonText = text.substr(comma + 1);
-    char* latEnd = nullptr;
-    char* lonEnd = nullptr;
+    char* latEnd                   = nullptr;
+    char* lonEnd                   = nullptr;
     std::array<char, 64> latBuffer{};
     std::array<char, 64> lonBuffer{};
     if (latText.size() >= latBuffer.size() || lonText.size() >= lonBuffer.size())
@@ -393,10 +377,10 @@ bool WeatherParseLatLon(std::string_view text, double& latitude, double& longitu
     }
     std::memcpy(latBuffer.data(), latText.data(), latText.size());
     std::memcpy(lonBuffer.data(), lonText.data(), lonText.size());
-    latitude = std::strtod(latBuffer.data(), &latEnd);
+    latitude  = std::strtod(latBuffer.data(), &latEnd);
     longitude = std::strtod(lonBuffer.data(), &lonEnd);
-    if (latEnd == latBuffer.data() || lonEnd == lonBuffer.data() || !std::isfinite(latitude) ||
-        !std::isfinite(longitude) || latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0)
+    if (latEnd == latBuffer.data() || lonEnd == lonBuffer.data() || ! std::isfinite(latitude) || ! std::isfinite(longitude) || latitude < -90.0 ||
+        latitude > 90.0 || longitude < -180.0 || longitude > 180.0)
     {
         return false;
     }
@@ -405,97 +389,93 @@ bool WeatherParseLatLon(std::string_view text, double& latitude, double& longitu
 
 HRESULT WeatherParseLocationForecast(std::string_view json, WeatherSnapshot& snapshot) noexcept
 {
-    unique_doc document = ParseJsonCopy(json);
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    unique_doc document    = ParseJsonCopy(json);
+    yyjson_val* root       = document ? yyjson_doc_get_root(document.get()) : nullptr;
     yyjson_val* properties = yyjson_is_obj(root) ? yyjson_obj_get(root, "properties") : nullptr;
     yyjson_val* timeseries = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "timeseries") : nullptr;
-    if (!yyjson_is_arr(timeseries) || yyjson_arr_size(timeseries) == 0)
+    if (! yyjson_is_arr(timeseries) || yyjson_arr_size(timeseries) == 0)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
     snapshot.hourlyCount = 0;
-    snapshot.dailyCount = 0;
-    bool haveCurrent = false;
-    double dayMin = 0.0;
-    double dayMax = 0.0;
-    uint64_t currentDay = 0;
+    snapshot.dailyCount  = 0;
+    bool haveCurrent     = false;
+    double dayMin        = 0.0;
+    double dayMax        = 0.0;
+    uint64_t currentDay  = 0;
     WeatherDailyForecast accumulating{};
     bool accumulatingDay = false;
 
     const size_t count = yyjson_arr_size(timeseries);
     for (size_t index = 0; index < count; ++index)
     {
-        yyjson_val* entry = yyjson_arr_get(timeseries, index);
-        yyjson_val* data = yyjson_is_obj(entry) ? yyjson_obj_get(entry, "data") : nullptr;
+        yyjson_val* entry   = yyjson_arr_get(timeseries, index);
+        yyjson_val* data    = yyjson_is_obj(entry) ? yyjson_obj_get(entry, "data") : nullptr;
         yyjson_val* instant = yyjson_is_obj(data) ? yyjson_obj_get(data, "instant") : nullptr;
         yyjson_val* details = yyjson_is_obj(instant) ? yyjson_obj_get(instant, "details") : nullptr;
-        double temperature = 0.0;
-        double wind = 0.0;
-        uint64_t time = 0;
-        if (!WeatherParseIso8601Utc(JsonString(yyjson_obj_get(entry, "time")), time) ||
-            !JsonNumber(yyjson_obj_get(details, "air_temperature"), temperature))
+        double temperature  = 0.0;
+        double wind         = 0.0;
+        uint64_t time       = 0;
+        if (! WeatherParseIso8601Utc(JsonString(yyjson_obj_get(entry, "time")), time) || ! JsonNumber(yyjson_obj_get(details, "air_temperature"), temperature))
         {
             continue;
         }
         (void)JsonNumber(yyjson_obj_get(details, "wind_speed"), wind);
-        yyjson_val* next1 = yyjson_is_obj(data) ? yyjson_obj_get(data, "next_1_hours") : nullptr;
+        yyjson_val* next1  = yyjson_is_obj(data) ? yyjson_obj_get(data, "next_1_hours") : nullptr;
         const bool oneHour = yyjson_is_obj(next1);
-        if (!next1)
+        if (! next1)
         {
             next1 = yyjson_is_obj(data) ? yyjson_obj_get(data, "next_6_hours") : nullptr;
         }
-        yyjson_val* summary = yyjson_is_obj(next1) ? yyjson_obj_get(next1, "summary") : nullptr;
-        const WeatherCondition condition =
-            WeatherConditionFromSymbol(JsonString(yyjson_obj_get(summary, "symbol_code")));
-        if (!haveCurrent)
+        yyjson_val* summary              = yyjson_is_obj(next1) ? yyjson_obj_get(next1, "summary") : nullptr;
+        const WeatherCondition condition = WeatherConditionFromSymbol(JsonString(yyjson_obj_get(summary, "symbol_code")));
+        if (! haveCurrent)
         {
             snapshot.observationTimeFileTime100ns = time;
-            snapshot.temperatureCelsius = static_cast<float>(temperature);
-            snapshot.windMetersPerSecond = static_cast<float>(wind);
-            snapshot.currentCondition = condition;
-            haveCurrent = true;
+            snapshot.temperatureCelsius           = static_cast<float>(temperature);
+            snapshot.windMetersPerSecond          = static_cast<float>(wind);
+            snapshot.currentCondition             = condition;
+            haveCurrent                           = true;
         }
         if (oneHour && snapshot.hourlyCount < snapshot.hourly.size())
         {
             WeatherHourlyForecast& hour = snapshot.hourly[snapshot.hourlyCount++];
-            hour = {};
-            hour.timeFileTime100ns = time;
-            hour.temperatureCelsius = static_cast<float>(temperature);
-            hour.condition = condition;
-            double precipitation = 0.0;
-            hour.hasPrecipitation =
-                JsonNumber(yyjson_obj_get(yyjson_obj_get(next1, "details"), "precipitation_amount"), precipitation) &&
-                precipitation >= 0.0;
+            hour                        = {};
+            hour.timeFileTime100ns      = time;
+            hour.temperatureCelsius     = static_cast<float>(temperature);
+            hour.condition              = condition;
+            double precipitation        = 0.0;
+            hour.hasPrecipitation = JsonNumber(yyjson_obj_get(yyjson_obj_get(next1, "details"), "precipitation_amount"), precipitation) && precipitation >= 0.0;
             if (hour.hasPrecipitation)
                 hour.precipitationMillimeters = static_cast<float>(precipitation);
         }
 
         SYSTEMTIME local{};
-        if (!FileTimeToLocalSystem(time, local))
+        if (! FileTimeToLocalSystem(time, local))
             continue;
         const uint64_t day = CivilDayNumber(local);
-        if (!accumulatingDay || day != currentDay)
+        if (! accumulatingDay || day != currentDay)
         {
             if (accumulatingDay && snapshot.dailyCount < snapshot.daily.size())
             {
-                accumulating.minimumCelsius = static_cast<float>(dayMin);
-                accumulating.maximumCelsius = static_cast<float>(dayMax);
+                accumulating.minimumCelsius           = static_cast<float>(dayMin);
+                accumulating.maximumCelsius           = static_cast<float>(dayMax);
                 snapshot.daily[snapshot.dailyCount++] = accumulating;
             }
-            accumulating = WeatherDailyForecast{};
+            accumulating                  = WeatherDailyForecast{};
             accumulating.dayFileTime100ns = time;
-            accumulating.condition = condition;
-            dayMin = temperature;
-            dayMax = temperature;
-            currentDay = day;
-            accumulatingDay = true;
+            accumulating.condition        = condition;
+            dayMin                        = temperature;
+            dayMax                        = temperature;
+            currentDay                    = day;
+            accumulatingDay               = true;
         }
         else
         {
             if (temperature > dayMax)
             {
-                dayMax = temperature;
+                dayMax                 = temperature;
                 accumulating.condition = condition;
             }
             if (temperature < dayMin)
@@ -506,8 +486,8 @@ HRESULT WeatherParseLocationForecast(std::string_view json, WeatherSnapshot& sna
     }
     if (accumulatingDay && snapshot.dailyCount < snapshot.daily.size())
     {
-        accumulating.minimumCelsius = static_cast<float>(dayMin);
-        accumulating.maximumCelsius = static_cast<float>(dayMax);
+        accumulating.minimumCelsius           = static_cast<float>(dayMin);
+        accumulating.maximumCelsius           = static_cast<float>(dayMax);
         snapshot.daily[snapshot.dailyCount++] = accumulating;
     }
     if (snapshot.dailyCount > 0)
@@ -520,27 +500,25 @@ HRESULT WeatherParseLocationForecast(std::string_view json, WeatherSnapshot& sna
 
 HRESULT WeatherParseSunrise(std::string_view json, WeatherSnapshot& snapshot) noexcept
 {
-    unique_doc document = ParseJsonCopy(json);
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    unique_doc document    = ParseJsonCopy(json);
+    yyjson_val* root       = document ? yyjson_doc_get_root(document.get()) : nullptr;
     yyjson_val* properties = yyjson_is_obj(root) ? yyjson_obj_get(root, "properties") : nullptr;
-    yyjson_val* sunrise = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "sunrise") : nullptr;
-    yyjson_val* sunset = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "sunset") : nullptr;
-    if (!sunrise)
+    yyjson_val* sunrise    = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "sunrise") : nullptr;
+    yyjson_val* sunset     = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "sunset") : nullptr;
+    if (! sunrise)
     {
         yyjson_val* when = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "when") : nullptr;
         if (yyjson_is_arr(when) && yyjson_arr_size(when) > 0)
         {
             yyjson_val* first = yyjson_arr_get(when, 0);
-            sunrise = yyjson_is_obj(first) ? yyjson_obj_get(first, "sunrise") : nullptr;
-            sunset = yyjson_is_obj(first) ? yyjson_obj_get(first, "sunset") : nullptr;
+            sunrise           = yyjson_is_obj(first) ? yyjson_obj_get(first, "sunrise") : nullptr;
+            sunset            = yyjson_is_obj(first) ? yyjson_obj_get(first, "sunset") : nullptr;
         }
     }
-    uint64_t rise = 0;
-    uint64_t set = 0;
-    const bool haveRise =
-        WeatherParseIso8601Utc(JsonString(yyjson_is_obj(sunrise) ? yyjson_obj_get(sunrise, "time") : sunrise), rise);
-    const bool haveSet =
-        WeatherParseIso8601Utc(JsonString(yyjson_is_obj(sunset) ? yyjson_obj_get(sunset, "time") : sunset), set);
+    uint64_t rise       = 0;
+    uint64_t set        = 0;
+    const bool haveRise = WeatherParseIso8601Utc(JsonString(yyjson_is_obj(sunrise) ? yyjson_obj_get(sunrise, "time") : sunrise), rise);
+    const bool haveSet  = WeatherParseIso8601Utc(JsonString(yyjson_is_obj(sunset) ? yyjson_obj_get(sunset, "time") : sunset), set);
     if (haveRise)
     {
         snapshot.sunriseFileTime100ns = rise;
@@ -555,8 +533,8 @@ HRESULT WeatherParseSunrise(std::string_view json, WeatherSnapshot& snapshot) no
 HRESULT WeatherParseNominatim(std::string_view json, WeatherSnapshot& snapshot) noexcept
 {
     unique_doc document = ParseJsonCopy(json);
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
-    yyjson_val* entry = root;
+    yyjson_val* root    = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    yyjson_val* entry   = root;
     if (yyjson_is_arr(root))
     {
         if (yyjson_arr_size(root) == 0)
@@ -565,22 +543,22 @@ HRESULT WeatherParseNominatim(std::string_view json, WeatherSnapshot& snapshot) 
         }
         entry = yyjson_arr_get(root, 0);
     }
-    if (!yyjson_is_obj(entry))
+    if (! yyjson_is_obj(entry))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    double latitude = 0.0;
+    double latitude  = 0.0;
     double longitude = 0.0;
-    if (!JsonNumber(yyjson_obj_get(entry, "lat"), latitude) || !JsonNumber(yyjson_obj_get(entry, "lon"), longitude) ||
-        latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0)
+    if (! JsonNumber(yyjson_obj_get(entry, "lat"), latitude) || ! JsonNumber(yyjson_obj_get(entry, "lon"), longitude) || latitude < -90.0 || latitude > 90.0 ||
+        longitude < -180.0 || longitude > 180.0)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    snapshot.latitude = latitude;
-    snapshot.longitude = longitude;
+    snapshot.latitude       = latitude;
+    snapshot.longitude      = longitude;
     snapshot.hasCoordinates = true;
-    yyjson_val* address = yyjson_obj_get(entry, "address");
-    std::string_view name = JsonString(yyjson_obj_get(address, "city"));
+    yyjson_val* address     = yyjson_obj_get(entry, "address");
+    std::string_view name   = JsonString(yyjson_obj_get(address, "city"));
     if (name.empty())
     {
         name = JsonString(yyjson_obj_get(address, "town"));
@@ -607,7 +585,7 @@ HRESULT WeatherParseNominatim(std::string_view json, WeatherSnapshot& snapshot) 
     }
     if (name.empty())
     {
-        name = JsonString(yyjson_obj_get(entry, "display_name"));
+        name               = JsonString(yyjson_obj_get(entry, "display_name"));
         const size_t comma = name.find(',');
         if (comma != std::string_view::npos)
         {
@@ -615,15 +593,14 @@ HRESULT WeatherParseNominatim(std::string_view json, WeatherSnapshot& snapshot) 
         }
     }
     std::array<wchar_t, kWeatherMaximumNameCharacters> wide{};
-    const int converted = MultiByteToWideChar(CP_UTF8, 0, name.data(), static_cast<int>(name.size()), wide.data(),
-                                              static_cast<int>(wide.size()) - 1);
+    const int converted = MultiByteToWideChar(CP_UTF8, 0, name.data(), static_cast<int>(name.size()), wide.data(), static_cast<int>(wide.size()) - 1);
     if (converted > 0)
     {
         wide[static_cast<size_t>(converted)] = L'\0';
         WeatherCopyWide(wide.data(), snapshot.locationName.data(), snapshot.locationName.size());
     }
     std::string_view country = JsonString(yyjson_obj_get(address, "country_code"));
-    if (!country.empty())
+    if (! country.empty())
     {
         WeatherCopyNarrow(country, snapshot.countryCode.data(), snapshot.countryCode.size());
         for (char& value : snapshot.countryCode)
@@ -639,8 +616,8 @@ HRESULT WeatherParseNominatim(std::string_view json, WeatherSnapshot& snapshot) 
 
 HRESULT WeatherParseMeteoAlarm(std::string_view json, WeatherSnapshot& snapshot) noexcept
 {
-    unique_doc document = ParseJsonCopy(json);
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    unique_doc document  = ParseJsonCopy(json);
+    yyjson_val* root     = document ? yyjson_doc_get_root(document.get()) : nullptr;
     yyjson_val* warnings = nullptr;
     if (yyjson_is_arr(root))
     {
@@ -649,31 +626,31 @@ HRESULT WeatherParseMeteoAlarm(std::string_view json, WeatherSnapshot& snapshot)
     else if (yyjson_is_obj(root))
     {
         warnings = yyjson_obj_get(root, "warning");
-        if (!warnings)
+        if (! warnings)
         {
             warnings = yyjson_obj_get(root, "warnings");
         }
-        if (!warnings)
+        if (! warnings)
         {
             warnings = yyjson_obj_get(root, "features");
         }
     }
-    if (!yyjson_is_arr(warnings))
+    if (! yyjson_is_arr(warnings))
     {
         return S_FALSE;
     }
-    snapshot.alertCount = 0;
+    snapshot.alertCount    = 0;
     snapshot.alertProvider = WeatherAlertProvider::MeteoAlarm;
-    const size_t count = yyjson_arr_size(warnings);
+    const size_t count     = yyjson_arr_size(warnings);
     for (size_t index = 0; index < count && snapshot.alertCount < snapshot.alerts.size(); ++index)
     {
-        yyjson_val* item = yyjson_arr_get(warnings, index);
+        yyjson_val* item       = yyjson_arr_get(warnings, index);
         yyjson_val* properties = yyjson_is_obj(item) ? yyjson_obj_get(item, "properties") : nullptr;
         if (yyjson_is_obj(properties))
         {
             item = properties;
         }
-        if (!yyjson_is_obj(item))
+        if (! yyjson_is_obj(item))
         {
             continue;
         }
@@ -682,9 +659,9 @@ HRESULT WeatherParseMeteoAlarm(std::string_view json, WeatherSnapshot& snapshot)
         {
             title = JsonString(yyjson_obj_get(item, "event"));
         }
-        std::string_view description = JsonString(yyjson_obj_get(item, "description"));
+        std::string_view description  = JsonString(yyjson_obj_get(item, "description"));
         std::string_view instructions = JsonString(yyjson_obj_get(item, "instruction"));
-        std::string_view authority = JsonString(yyjson_obj_get(item, "sender"));
+        std::string_view authority    = JsonString(yyjson_obj_get(item, "sender"));
         if (authority.empty())
         {
             authority = "MeteoAlarm";
@@ -694,7 +671,7 @@ HRESULT WeatherParseMeteoAlarm(std::string_view json, WeatherSnapshot& snapshot)
         {
             severityText = JsonString(yyjson_obj_get(item, "severity"));
         }
-        uint64_t start = 0;
+        uint64_t start  = 0;
         uint64_t expiry = 0;
         (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(item, "onset")), start);
         (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(item, "expires")), expiry);
@@ -705,21 +682,21 @@ HRESULT WeatherParseMeteoAlarm(std::string_view json, WeatherSnapshot& snapshot)
 
 HRESULT WeatherParseNwsAlerts(std::string_view json, WeatherSnapshot& snapshot) noexcept
 {
-    unique_doc document = ParseJsonCopy(json);
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    unique_doc document  = ParseJsonCopy(json);
+    yyjson_val* root     = document ? yyjson_doc_get_root(document.get()) : nullptr;
     yyjson_val* features = yyjson_is_obj(root) ? yyjson_obj_get(root, "features") : nullptr;
-    if (!yyjson_is_arr(features))
+    if (! yyjson_is_arr(features))
     {
         return S_FALSE;
     }
-    snapshot.alertCount = 0;
+    snapshot.alertCount    = 0;
     snapshot.alertProvider = WeatherAlertProvider::NationalWeatherService;
-    const size_t count = yyjson_arr_size(features);
+    const size_t count     = yyjson_arr_size(features);
     for (size_t index = 0; index < count && snapshot.alertCount < snapshot.alerts.size(); ++index)
     {
-        yyjson_val* feature = yyjson_arr_get(features, index);
+        yyjson_val* feature    = yyjson_arr_get(features, index);
         yyjson_val* properties = yyjson_is_obj(feature) ? yyjson_obj_get(feature, "properties") : nullptr;
-        if (!yyjson_is_obj(properties))
+        if (! yyjson_is_obj(properties))
         {
             continue;
         }
@@ -728,19 +705,18 @@ HRESULT WeatherParseNwsAlerts(std::string_view json, WeatherSnapshot& snapshot) 
         {
             title = JsonString(yyjson_obj_get(properties, "event"));
         }
-        std::string_view description = JsonString(yyjson_obj_get(properties, "description"));
+        std::string_view description  = JsonString(yyjson_obj_get(properties, "description"));
         std::string_view instructions = JsonString(yyjson_obj_get(properties, "instruction"));
-        std::string_view authority = JsonString(yyjson_obj_get(properties, "senderName"));
+        std::string_view authority    = JsonString(yyjson_obj_get(properties, "senderName"));
         if (authority.empty())
         {
             authority = "NWS";
         }
-        uint64_t start = 0;
+        uint64_t start  = 0;
         uint64_t expiry = 0;
         (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "onset")), start);
         (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "expires")), expiry);
-        AddAlert(snapshot, title, description, instructions, authority,
-                 SeverityFromText(JsonString(yyjson_obj_get(properties, "severity"))), start, expiry);
+        AddAlert(snapshot, title, description, instructions, authority, SeverityFromText(JsonString(yyjson_obj_get(properties, "severity"))), start, expiry);
     }
     return S_OK;
 }
@@ -764,10 +740,9 @@ namespace
 }
 
 // ECCC classifies by alert_type (warning, watch, advisory, statement); risk-based products also carry a colour.
-[[nodiscard]] WeatherAlertSeverity EnvironmentCanadaSeverity(std::string_view riskColour, std::string_view alertType,
-                                                             std::string_view alertName) noexcept
+[[nodiscard]] WeatherAlertSeverity EnvironmentCanadaSeverity(std::string_view riskColour, std::string_view alertType, std::string_view alertName) noexcept
 {
-    if (!riskColour.empty())
+    if (! riskColour.empty())
     {
         return SeverityFromText(riskColour);
     }
@@ -790,13 +765,13 @@ namespace
     {
         return WeatherAlertSeverity::None;
     }
-    if (EqualsIgnoreCase(code, "WRAINB") || EqualsIgnoreCase(code, "WTMW") || EqualsIgnoreCase(code, "TC9") ||
-        EqualsIgnoreCase(code, "TC10") || (code.size() >= 3 && EqualsIgnoreCase(code.substr(0, 3), "TC8")))
+    if (EqualsIgnoreCase(code, "WRAINB") || EqualsIgnoreCase(code, "WTMW") || EqualsIgnoreCase(code, "TC9") || EqualsIgnoreCase(code, "TC10") ||
+        (code.size() >= 3 && EqualsIgnoreCase(code.substr(0, 3), "TC8")))
     {
         return WeatherAlertSeverity::Red;
     }
-    if (EqualsIgnoreCase(code, "WRAINR") || EqualsIgnoreCase(code, "TC3") || EqualsIgnoreCase(code, "WL") ||
-        EqualsIgnoreCase(code, "WFNTSA") || EqualsIgnoreCase(code, "WFIRER"))
+    if (EqualsIgnoreCase(code, "WRAINR") || EqualsIgnoreCase(code, "TC3") || EqualsIgnoreCase(code, "WL") || EqualsIgnoreCase(code, "WFNTSA") ||
+        EqualsIgnoreCase(code, "WFIRER"))
     {
         return WeatherAlertSeverity::Orange;
     }
@@ -832,21 +807,21 @@ namespace
 
 HRESULT WeatherParseEnvironmentCanadaAlerts(std::string_view json, WeatherSnapshot& snapshot) noexcept
 {
-    unique_doc document = ParseJsonCopy(json);
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    unique_doc document  = ParseJsonCopy(json);
+    yyjson_val* root     = document ? yyjson_doc_get_root(document.get()) : nullptr;
     yyjson_val* features = yyjson_is_obj(root) ? yyjson_obj_get(root, "features") : nullptr;
-    if (!yyjson_is_arr(features))
+    if (! yyjson_is_arr(features))
     {
         return S_FALSE;
     }
-    snapshot.alertCount = 0;
+    snapshot.alertCount    = 0;
     snapshot.alertProvider = WeatherAlertProvider::EnvironmentCanada;
-    const size_t count = yyjson_arr_size(features);
+    const size_t count     = yyjson_arr_size(features);
     for (size_t index = 0; index < count && snapshot.alertCount < snapshot.alerts.size(); ++index)
     {
-        yyjson_val* feature = yyjson_arr_get(features, index);
+        yyjson_val* feature    = yyjson_arr_get(features, index);
         yyjson_val* properties = yyjson_is_obj(feature) ? yyjson_obj_get(feature, "properties") : nullptr;
-        if (!yyjson_is_obj(properties))
+        if (! yyjson_is_obj(properties))
         {
             continue;
         }
@@ -856,7 +831,7 @@ HRESULT WeatherParseEnvironmentCanadaAlerts(std::string_view json, WeatherSnapsh
             continue;
         }
         const std::string_view alertType = JsonString(yyjson_obj_get(properties, "alert_type"));
-        std::string_view title = JsonString(yyjson_obj_get(properties, "alert_name_en"));
+        std::string_view title           = JsonString(yyjson_obj_get(properties, "alert_name_en"));
         if (title.empty())
         {
             title = JsonString(yyjson_obj_get(properties, "alert_short_name_en"));
@@ -869,20 +844,24 @@ HRESULT WeatherParseEnvironmentCanadaAlerts(std::string_view json, WeatherSnapsh
         {
             titleBuffer[0] = static_cast<char>(titleBuffer[0] - 'a' + 'A');
         }
-        uint64_t start = 0;
+        uint64_t start  = 0;
         uint64_t expiry = 0;
-        if (!WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "validity_datetime")), start))
+        if (! WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "validity_datetime")), start))
         {
             (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "publication_datetime")), start);
         }
-        if (!WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "event_end_datetime")), expiry))
+        if (! WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "event_end_datetime")), expiry))
         {
             (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(properties, "expiration_datetime")), expiry);
         }
-        AddAlert(snapshot, std::string_view(titleBuffer, titleBytes),
-                 JsonString(yyjson_obj_get(properties, "alert_text_en")), std::string_view{}, "Environment Canada",
+        AddAlert(snapshot,
+                 std::string_view(titleBuffer, titleBytes),
+                 JsonString(yyjson_obj_get(properties, "alert_text_en")),
+                 std::string_view{},
+                 "Environment Canada",
                  EnvironmentCanadaSeverity(JsonString(yyjson_obj_get(properties, "risk_colour_en")), alertType, title),
-                 start, expiry);
+                 start,
+                 expiry);
     }
     return S_OK;
 }
@@ -890,23 +869,23 @@ HRESULT WeatherParseEnvironmentCanadaAlerts(std::string_view json, WeatherSnapsh
 HRESULT WeatherParseHongKongWarnings(std::string_view json, WeatherSnapshot& snapshot) noexcept
 {
     unique_doc document = ParseJsonCopy(json);
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
-    if (!yyjson_is_obj(root))
+    yyjson_val* root    = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    if (! yyjson_is_obj(root))
     {
         return S_FALSE;
     }
-    snapshot.alertCount = 0;
+    snapshot.alertCount    = 0;
     snapshot.alertProvider = WeatherAlertProvider::HongKongObservatory;
     yyjson_obj_iter iterator{};
-    if (!yyjson_obj_iter_init(root, &iterator))
+    if (! yyjson_obj_iter_init(root, &iterator))
     {
         return S_OK;
     }
-    for (yyjson_val* key = yyjson_obj_iter_next(&iterator);
-         key != nullptr && snapshot.alertCount < snapshot.alerts.size(); key = yyjson_obj_iter_next(&iterator))
+    for (yyjson_val* key = yyjson_obj_iter_next(&iterator); key != nullptr && snapshot.alertCount < snapshot.alerts.size();
+         key             = yyjson_obj_iter_next(&iterator))
     {
         yyjson_val* statement = yyjson_obj_iter_get_val(key);
-        if (!yyjson_is_obj(statement))
+        if (! yyjson_is_obj(statement))
         {
             continue;
         }
@@ -919,12 +898,18 @@ HRESULT WeatherParseHongKongWarnings(std::string_view json, WeatherSnapshot& sna
         {
             code = JsonString(key);
         }
-        uint64_t start = 0;
+        uint64_t start  = 0;
         uint64_t expiry = 0;
         (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(statement, "issueTime")), start);
         (void)WeatherParseIso8601Utc(JsonString(yyjson_obj_get(statement, "expireTime")), expiry);
-        AddAlert(snapshot, HongKongTitle(code, JsonString(yyjson_obj_get(statement, "name"))), std::string_view{},
-                 std::string_view{}, "Hong Kong Observatory", HongKongSeverity(code), start, expiry);
+        AddAlert(snapshot,
+                 HongKongTitle(code, JsonString(yyjson_obj_get(statement, "name"))),
+                 std::string_view{},
+                 std::string_view{},
+                 "Hong Kong Observatory",
+                 HongKongSeverity(code),
+                 start,
+                 expiry);
     }
     return S_OK;
 }
@@ -933,68 +918,64 @@ HRESULT WeatherParseAlerts(WeatherAlertRegion region, std::string_view json, Wea
 {
     switch (region)
     {
-    case WeatherAlertRegion::Europe:
-        return WeatherParseMeteoAlarm(json, snapshot);
-    case WeatherAlertRegion::UnitedStates:
-        return WeatherParseNwsAlerts(json, snapshot);
-    case WeatherAlertRegion::Canada:
-        return WeatherParseEnvironmentCanadaAlerts(json, snapshot);
-    case WeatherAlertRegion::HongKong:
-        return WeatherParseHongKongWarnings(json, snapshot);
-    case ::WeatherAlertRegion::None:
-    default:
-        return S_FALSE;
+        case WeatherAlertRegion::Europe: return WeatherParseMeteoAlarm(json, snapshot);
+        case WeatherAlertRegion::UnitedStates: return WeatherParseNwsAlerts(json, snapshot);
+        case WeatherAlertRegion::Canada: return WeatherParseEnvironmentCanadaAlerts(json, snapshot);
+        case WeatherAlertRegion::HongKong: return WeatherParseHongKongWarnings(json, snapshot);
+        case ::WeatherAlertRegion::None:
+        default: return S_FALSE;
     }
 }
 
-HRESULT WeatherBuildAlertUrl(WeatherAlertRegion region, std::string_view countryCode, double latitude, double longitude,
-                             char* url, uint32_t capacity) noexcept
+HRESULT WeatherBuildAlertUrl(WeatherAlertRegion region, std::string_view countryCode, double latitude, double longitude, char* url, uint32_t capacity) noexcept
 {
-    if (!url || capacity == 0)
+    if (! url || capacity == 0)
     {
         return E_POINTER;
     }
     url[0] = '\0';
-    if (!std::isfinite(latitude) || !std::isfinite(longitude))
+    if (! std::isfinite(latitude) || ! std::isfinite(longitude))
     {
         return E_INVALIDARG;
     }
     int written = -1;
     switch (region)
     {
-    case WeatherAlertRegion::Europe:
-    {
-        if (countryCode.empty() || countryCode.size() > 3)
+        case WeatherAlertRegion::Europe:
         {
-            return S_FALSE;
+            if (countryCode.empty() || countryCode.size() > 3)
+            {
+                return S_FALSE;
+            }
+            char lower[4]{};
+            for (size_t index = 0; index < countryCode.size(); ++index)
+            {
+                lower[index] = static_cast<char>(std::tolower(static_cast<unsigned char>(countryCode[index])));
+            }
+            written = snprintf(url, capacity, "https://feeds.meteoalarm.org/api/v1/warnings/feeds-%s", lower);
+            break;
         }
-        char lower[4]{};
-        for (size_t index = 0; index < countryCode.size(); ++index)
-        {
-            lower[index] = static_cast<char>(std::tolower(static_cast<unsigned char>(countryCode[index])));
-        }
-        written = snprintf(url, capacity, "https://feeds.meteoalarm.org/api/v1/warnings/feeds-%s", lower);
-        break;
-    }
-    case WeatherAlertRegion::UnitedStates:
-        written = snprintf(url, capacity, "https://api.weather.gov/alerts/active?point=%.4f,%.4f", latitude, longitude);
-        break;
-    case WeatherAlertRegion::Canada:
-        // WMS 1.3.0 GetFeatureInfo on the experimental Current-Alerts layer: EPSG:4326 lists latitude first, and the
-        // centre pixel of a 0.02 degree box is the point. FEATURE_COUNT bounds the polygons in the reply.
-        written = snprintf(url, capacity,
-                           "https://geo.weather.gc.ca/geomet?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo"
-                           "&LAYERS=Current-Alerts&QUERY_LAYERS=Current-Alerts&INFO_FORMAT=application/json"
-                           "&CRS=EPSG:4326&BBOX=%.4f,%.4f,%.4f,%.4f&WIDTH=101&HEIGHT=101&I=50&J=50&FEATURE_COUNT=6",
-                           latitude - 0.01, longitude - 0.01, latitude + 0.01, longitude + 0.01);
-        break;
-    case WeatherAlertRegion::HongKong:
-        written = snprintf(url, capacity,
-                           "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=en");
-        break;
-    case ::WeatherAlertRegion::None:
-    default:
-        return S_FALSE;
+        case WeatherAlertRegion::UnitedStates:
+            written = snprintf(url, capacity, "https://api.weather.gov/alerts/active?point=%.4f,%.4f", latitude, longitude);
+            break;
+        case WeatherAlertRegion::Canada:
+            // WMS 1.3.0 GetFeatureInfo on the experimental Current-Alerts layer: EPSG:4326 lists latitude first, and the
+            // centre pixel of a 0.02 degree box is the point. FEATURE_COUNT bounds the polygons in the reply.
+            written = snprintf(url,
+                               capacity,
+                               "https://geo.weather.gc.ca/geomet?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo"
+                               "&LAYERS=Current-Alerts&QUERY_LAYERS=Current-Alerts&INFO_FORMAT=application/json"
+                               "&CRS=EPSG:4326&BBOX=%.4f,%.4f,%.4f,%.4f&WIDTH=101&HEIGHT=101&I=50&J=50&FEATURE_COUNT=6",
+                               latitude - 0.01,
+                               longitude - 0.01,
+                               latitude + 0.01,
+                               longitude + 0.01);
+            break;
+        case WeatherAlertRegion::HongKong:
+            written = snprintf(url, capacity, "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=en");
+            break;
+        case ::WeatherAlertRegion::None:
+        default: return S_FALSE;
     }
     if (written <= 0 || static_cast<uint32_t>(written) >= capacity)
     {
@@ -1008,43 +989,36 @@ const wchar_t* WeatherAlertProviderName(WeatherAlertProvider provider) noexcept
 {
     switch (provider)
     {
-    case WeatherAlertProvider::MeteoAlarm:
-        return L"MeteoAlarm";
-    case WeatherAlertProvider::NationalWeatherService:
-        return L"NWS";
-    case WeatherAlertProvider::EnvironmentCanada:
-        return L"Environment Canada";
-    case WeatherAlertProvider::HongKongObservatory:
-        return L"Hong Kong Observatory";
-    case ::WeatherAlertProvider::None:
-    default:
-        return L"";
+        case WeatherAlertProvider::MeteoAlarm: return L"MeteoAlarm";
+        case WeatherAlertProvider::NationalWeatherService: return L"NWS";
+        case WeatherAlertProvider::EnvironmentCanada: return L"Environment Canada";
+        case WeatherAlertProvider::HongKongObservatory: return L"Hong Kong Observatory";
+        case ::WeatherAlertProvider::None:
+        default: return L"";
     }
 }
 
 uint32_t WeatherFormatTemperature(float celsius, WeatherTemperatureUnit unit, wchar_t* text, uint32_t capacity) noexcept
 {
-    if (!text || capacity == 0)
+    if (! text || capacity == 0)
     {
         return 0;
     }
-    const float value = unit == WeatherTemperatureUnit::Fahrenheit ? (celsius * 9.0f / 5.0f + 32.0f) : celsius;
+    const float value     = unit == WeatherTemperatureUnit::Fahrenheit ? (celsius * 9.0f / 5.0f + 32.0f) : celsius;
     const wchar_t* suffix = unit == WeatherTemperatureUnit::Fahrenheit ? L"\u00B0F" : L"\u00B0C";
-    const int written = swprintf_s(text, capacity, L"%.0f%s", static_cast<double>(value), suffix);
+    const int written     = swprintf_s(text, capacity, L"%.0f%s", static_cast<double>(value), suffix);
     return written > 0 ? static_cast<uint32_t>(written) : 0;
 }
 
-uint32_t WeatherFormatTemperatureRange(float minimumCelsius, float maximumCelsius, WeatherTemperatureUnit unit,
-                                       wchar_t* text, uint32_t capacity) noexcept
+uint32_t WeatherFormatTemperatureRange(float minimumCelsius, float maximumCelsius, WeatherTemperatureUnit unit, wchar_t* text, uint32_t capacity) noexcept
 {
-    if (!text || capacity == 0)
+    if (! text || capacity == 0)
     {
         return 0;
     }
     wchar_t lo[16]{};
     wchar_t hi[16]{};
-    if (WeatherFormatTemperature(minimumCelsius, unit, lo, 16) == 0 ||
-        WeatherFormatTemperature(maximumCelsius, unit, hi, 16) == 0)
+    if (WeatherFormatTemperature(minimumCelsius, unit, lo, 16) == 0 || WeatherFormatTemperature(maximumCelsius, unit, hi, 16) == 0)
     {
         return 0;
     }
@@ -1054,13 +1028,13 @@ uint32_t WeatherFormatTemperatureRange(float minimumCelsius, float maximumCelsiu
 
 uint32_t WeatherFormatWind(float metersPerSecond, WeatherWindUnit unit, wchar_t* text, uint32_t capacity) noexcept
 {
-    if (!text || capacity == 0)
+    if (! text || capacity == 0)
     {
         return 0;
     }
-    const float value = unit == WeatherWindUnit::MilesPerHour ? metersPerSecond * 2.2369363f : metersPerSecond * 3.6f;
+    const float value     = unit == WeatherWindUnit::MilesPerHour ? metersPerSecond * 2.2369363f : metersPerSecond * 3.6f;
     const wchar_t* suffix = unit == WeatherWindUnit::MilesPerHour ? L"mph" : L"km/h";
-    const int written = swprintf_s(text, capacity, L"%.0f%s", static_cast<double>(value), suffix);
+    const int written     = swprintf_s(text, capacity, L"%.0f%s", static_cast<double>(value), suffix);
     return written > 0 ? static_cast<uint32_t>(written) : 0;
 }
 
@@ -1083,16 +1057,15 @@ std::atomic<bool> gUseTestTimeZone{false};
         return false;
     }
     // Use the timestamp's daylight-saving rule, rather than the current date's UTC bias.
-    const DYNAMIC_TIME_ZONE_INFORMATION* zone =
-        gUseTestTimeZone.load(std::memory_order_acquire) ? &gTestTimeZone : nullptr;
+    const DYNAMIC_TIME_ZONE_INFORMATION* zone = gUseTestTimeZone.load(std::memory_order_acquire) ? &gTestTimeZone : nullptr;
     return SystemTimeToTzSpecificLocalTimeEx(zone, &universal, &local) != FALSE;
 }
 [[nodiscard]] uint32_t CivilDayNumber(const SYSTEMTIME& local) noexcept
 {
-    SYSTEMTIME noon = local;
-    noon.wHour = 12;
-    noon.wMinute = 0;
-    noon.wSecond = 0;
+    SYSTEMTIME noon    = local;
+    noon.wHour         = 12;
+    noon.wMinute       = 0;
+    noon.wSecond       = 0;
     noon.wMilliseconds = 0;
     FILETIME fileTime{};
     if (SystemTimeToFileTime(&noon, &fileTime) == FALSE)
@@ -1100,7 +1073,7 @@ std::atomic<bool> gUseTestTimeZone{false};
         return 0;
     }
     ULARGE_INTEGER value{};
-    value.LowPart = fileTime.dwLowDateTime;
+    value.LowPart  = fileTime.dwLowDateTime;
     value.HighPart = fileTime.dwHighDateTime;
     return static_cast<uint32_t>(value.QuadPart / 864000000000ULL);
 }
@@ -1115,12 +1088,12 @@ std::atomic<bool> gUseTestTimeZone{false};
 
 uint32_t WeatherFormatClock(uint64_t fileTime100ns, wchar_t* text, uint32_t capacity) noexcept
 {
-    if (!text || capacity == 0)
+    if (! text || capacity == 0)
     {
         return 0;
     }
     SYSTEMTIME local{};
-    if (!FileTimeToLocalSystem(fileTime100ns, local))
+    if (! FileTimeToLocalSystem(fileTime100ns, local))
     {
         text[0] = L'\0';
         return 0;
@@ -1132,7 +1105,7 @@ uint32_t WeatherFormatClock(uint64_t fileTime100ns, wchar_t* text, uint32_t capa
 HRESULT WeatherSetTestTimeZone(const wchar_t* timeZoneKeyName) noexcept
 {
     gUseTestTimeZone.store(false, std::memory_order_release);
-    if (!timeZoneKeyName || timeZoneKeyName[0] == L'\0')
+    if (! timeZoneKeyName || timeZoneKeyName[0] == L'\0')
     {
         return S_OK;
     }
@@ -1160,19 +1133,16 @@ HRESULT WeatherSetTestTimeZone(const wchar_t* timeZoneKeyName) noexcept
 bool WeatherSameLocalDay(uint64_t first, uint64_t second) noexcept
 {
     SYSTEMTIME a{}, b{};
-    return FileTimeToLocalSystem(first, a) && FileTimeToLocalSystem(second, b) &&
-           CivilDayNumber(a) == CivilDayNumber(b);
+    return FileTimeToLocalSystem(first, a) && FileTimeToLocalSystem(second, b) && CivilDayNumber(a) == CivilDayNumber(b);
 }
 
-HRESULT WeatherWriteLocationSettings(const WeatherSnapshot& snapshot, char* json, uint32_t capacity,
-                                     uint32_t& written) noexcept
+HRESULT WeatherWriteLocationSettings(const WeatherSnapshot& snapshot, char* json, uint32_t capacity, uint32_t& written) noexcept
 {
     written = 0;
-    if (!json || capacity == 0 || !snapshot.hasCoordinates)
+    if (! json || capacity == 0 || ! snapshot.hasCoordinates)
         return E_INVALIDARG;
     std::array<char, 129> city{};
-    const int converted = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, snapshot.locationName.data(), -1,
-                                              city.data(), 120, nullptr, nullptr);
+    const int converted = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, snapshot.locationName.data(), -1, city.data(), 120, nullptr, nullptr);
     if (converted > 1)
     {
         if (snapshot.countryCode[0] != '\0')
@@ -1186,14 +1156,14 @@ HRESULT WeatherWriteLocationSettings(const WeatherSnapshot& snapshot, char* json
     using unique_mut_doc = wil::unique_any<yyjson_mut_doc*, decltype(&yyjson_mut_doc_free), yyjson_mut_doc_free>;
     unique_mut_doc document{yyjson_mut_doc_new(nullptr)};
     yyjson_mut_val* root = document ? yyjson_mut_obj(document.get()) : nullptr;
-    if (!root || !yyjson_mut_obj_add_strcpy(document.get(), root, "location", city.data()) ||
-        !yyjson_mut_obj_add_str(document.get(), root, "locationMode", "manual"))
+    if (! root || ! yyjson_mut_obj_add_strcpy(document.get(), root, "location", city.data()) ||
+        ! yyjson_mut_obj_add_str(document.get(), root, "locationMode", "manual"))
         return E_OUTOFMEMORY;
     yyjson_mut_doc_set_root(document.get(), root);
-    size_t length = 0;
+    size_t length              = 0;
     using unique_malloc_string = wil::unique_any<char*, decltype(&std::free), std::free>;
     unique_malloc_string serialized{yyjson_mut_write(document.get(), 0, &length)};
-    if (!serialized)
+    if (! serialized)
         return E_OUTOFMEMORY;
     if (length >= capacity)
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
@@ -1202,8 +1172,7 @@ HRESULT WeatherWriteLocationSettings(const WeatherSnapshot& snapshot, char* json
     return S_OK;
 }
 
-bool WeatherSelectPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t nowFileTime100ns,
-                                      uint32_t& hourIndex) noexcept
+bool WeatherSelectPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t nowFileTime100ns, uint32_t& hourIndex) noexcept
 {
     hourIndex = 0;
     if (snapshot.stale)
@@ -1212,13 +1181,12 @@ bool WeatherSelectPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t 
     for (uint32_t index = 0; index < snapshot.hourlyCount; ++index)
     {
         const auto& hour = snapshot.hourly[index];
-        if (hour.timeFileTime100ns + hourTicks <= nowFileTime100ns ||
-            hour.timeFileTime100ns > nowFileTime100ns + 12 * hourTicks)
+        if (hour.timeFileTime100ns + hourTicks <= nowFileTime100ns || hour.timeFileTime100ns > nowFileTime100ns + 12 * hourTicks)
             continue;
         const bool wetSymbol = hour.condition == WeatherCondition::Rain || hour.condition == WeatherCondition::Snow ||
                                hour.condition == WeatherCondition::Sleet || hour.condition == WeatherCondition::Thunder;
         // An explicit zero amount beats a broad weather symbol. Missing amounts do not mean zero.
-        if (hour.hasPrecipitation ? hour.precipitationMillimeters <= 0.0f : !wetSymbol)
+        if (hour.hasPrecipitation ? hour.precipitationMillimeters <= 0.0f : ! wetSymbol)
             continue;
         hourIndex = index;
         return true;
@@ -1226,43 +1194,39 @@ bool WeatherSelectPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t 
     return false;
 }
 
-uint32_t WeatherFormatPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t nowFileTime100ns, wchar_t* text,
-                                          uint32_t capacity) noexcept
+uint32_t WeatherFormatPrecipitationNotice(const WeatherSnapshot& snapshot, uint64_t nowFileTime100ns, wchar_t* text, uint32_t capacity) noexcept
 {
-    if (!text || capacity == 0)
+    if (! text || capacity == 0)
         return 0;
-    text[0] = L'\0';
+    text[0]            = L'\0';
     uint32_t hourIndex = 0;
-    if (!WeatherSelectPrecipitationNotice(snapshot, nowFileTime100ns, hourIndex))
+    if (! WeatherSelectPrecipitationNotice(snapshot, nowFileTime100ns, hourIndex))
         return 0;
-    const auto& hour = snapshot.hourly[hourIndex];
+    const auto& hour    = snapshot.hourly[hourIndex];
     const wchar_t* kind = hour.condition == WeatherCondition::Snow      ? L"Snow"
                           : hour.condition == WeatherCondition::Sleet   ? L"Rain / snow"
                           : hour.condition == WeatherCondition::Thunder ? L"Thundery rain"
                                                                         : L"Rain";
     std::array<wchar_t, 8> clock{};
     (void)WeatherFormatClock(hour.timeFileTime100ns, clock.data(), static_cast<uint32_t>(clock.size()));
-    const int written = hour.timeFileTime100ns <= nowFileTime100ns
-                            ? _snwprintf_s(text, capacity, _TRUNCATE, L"%s forecast this hour", kind)
-                            : _snwprintf_s(text, capacity, _TRUNCATE, L"%s expected around %s", kind, clock.data());
+    const int written = hour.timeFileTime100ns <= nowFileTime100ns ? _snwprintf_s(text, capacity, _TRUNCATE, L"%s forecast this hour", kind)
+                                                                   : _snwprintf_s(text, capacity, _TRUNCATE, L"%s expected around %s", kind, clock.data());
     return written > 0 ? static_cast<uint32_t>(written) : 0;
 }
 
-uint32_t WeatherFormatForecastDay(uint64_t fileTime100ns, uint64_t nowFileTime100ns, uint32_t fallbackIndex,
-                                  wchar_t* text, uint32_t capacity) noexcept
+uint32_t WeatherFormatForecastDay(uint64_t fileTime100ns, uint64_t nowFileTime100ns, uint32_t fallbackIndex, wchar_t* text, uint32_t capacity) noexcept
 {
-    if (!text || capacity == 0)
+    if (! text || capacity == 0)
     {
         return 0;
     }
-    constexpr const wchar_t* weekdays[] = {L"Sunday",   L"Monday", L"Tuesday", L"Wednesday",
-                                           L"Thursday", L"Friday", L"Saturday"};
-    const uint64_t nowUtc = nowFileTime100ns == 0 ? CurrentUtcFileTime() : nowFileTime100ns;
+    constexpr const wchar_t* weekdays[] = {L"Sunday", L"Monday", L"Tuesday", L"Wednesday", L"Thursday", L"Friday", L"Saturday"};
+    const uint64_t nowUtc               = nowFileTime100ns == 0 ? CurrentUtcFileTime() : nowFileTime100ns;
     SYSTEMTIME nowLocal{};
     SYSTEMTIME dayLocal{};
     const bool haveNow = FileTimeToLocalSystem(nowUtc, nowLocal);
-    bool haveDay = FileTimeToLocalSystem(fileTime100ns, dayLocal);
-    if (!haveDay && haveNow)
+    bool haveDay       = FileTimeToLocalSystem(fileTime100ns, dayLocal);
+    if (! haveDay && haveNow)
     {
         haveDay = FileTimeToLocalSystem(nowUtc + static_cast<uint64_t>(fallbackIndex) * 864000000000ULL, dayLocal);
     }
@@ -1321,8 +1285,8 @@ HRESULT WeatherReadConfiguration(std::string_view json, WeatherConfiguration& co
         return S_OK;
     }
     unique_doc document = ParseJsonCopy(json);
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
-    if (!yyjson_is_obj(root))
+    yyjson_val* root    = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    if (! yyjson_is_obj(root))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -1331,7 +1295,7 @@ HRESULT WeatherReadConfiguration(std::string_view json, WeatherConfiguration& co
     {
         configuration.locationMode = WeatherLocationMode::Manual;
     }
-    else if (!mode.empty() && mode != "automatic")
+    else if (! mode.empty() && mode != "automatic")
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -1346,7 +1310,7 @@ HRESULT WeatherReadConfiguration(std::string_view json, WeatherConfiguration& co
     {
         configuration.temperatureUnit = WeatherTemperatureUnit::Fahrenheit;
     }
-    else if (!temperature.empty() && temperature != "celsius")
+    else if (! temperature.empty() && temperature != "celsius")
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -1355,7 +1319,7 @@ HRESULT WeatherReadConfiguration(std::string_view json, WeatherConfiguration& co
     {
         configuration.windUnit = WeatherWindUnit::MilesPerHour;
     }
-    else if (!wind.empty() && wind != "kmh")
+    else if (! wind.empty() && wind != "kmh")
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }

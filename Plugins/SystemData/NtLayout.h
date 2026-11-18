@@ -65,8 +65,7 @@ static_assert(offsetof(RedXeNtProcessRecord, numberOfThreads) == offsetof(SYSTEM
 // Reserved1[48] spans workingSetPrivateSize .. kernelTime and ends exactly where ImageName begins.
 static_assert(offsetof(RedXeNtProcessRecord, workingSetPrivateSize) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved1));
 static_assert(offsetof(RedXeNtProcessRecord, hardFaultCount) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved1) + 8);
-static_assert(offsetof(RedXeNtProcessRecord, numberOfThreadsHighWatermark) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, Reserved1) + 12);
+static_assert(offsetof(RedXeNtProcessRecord, numberOfThreadsHighWatermark) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved1) + 12);
 static_assert(offsetof(RedXeNtProcessRecord, cycleTime) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved1) + 16);
 static_assert(offsetof(RedXeNtProcessRecord, createTime) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved1) + 24);
 static_assert(offsetof(RedXeNtProcessRecord, userTime) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved1) + 32);
@@ -75,30 +74,22 @@ static_assert(offsetof(RedXeNtProcessRecord, kernelTime) + 8 == offsetof(SYSTEM_
 static_assert(offsetof(RedXeNtProcessRecord, imageName) == offsetof(SYSTEM_PROCESS_INFORMATION, ImageName));
 static_assert(offsetof(RedXeNtProcessRecord, basePriority) == offsetof(SYSTEM_PROCESS_INFORMATION, BasePriority));
 static_assert(offsetof(RedXeNtProcessRecord, uniqueProcessId) == offsetof(SYSTEM_PROCESS_INFORMATION, UniqueProcessId));
-static_assert(offsetof(RedXeNtProcessRecord, inheritedFromUniqueProcessId) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, Reserved2));
+static_assert(offsetof(RedXeNtProcessRecord, inheritedFromUniqueProcessId) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved2));
 static_assert(offsetof(RedXeNtProcessRecord, handleCount) == offsetof(SYSTEM_PROCESS_INFORMATION, HandleCount));
 static_assert(offsetof(RedXeNtProcessRecord, sessionId) == offsetof(SYSTEM_PROCESS_INFORMATION, SessionId));
 static_assert(offsetof(RedXeNtProcessRecord, uniqueProcessKey) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved3));
 static_assert(offsetof(RedXeNtProcessRecord, peakVirtualSize) == offsetof(SYSTEM_PROCESS_INFORMATION, PeakVirtualSize));
 static_assert(offsetof(RedXeNtProcessRecord, virtualSize) == offsetof(SYSTEM_PROCESS_INFORMATION, VirtualSize));
 static_assert(offsetof(RedXeNtProcessRecord, pageFaultCount) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved4));
-static_assert(offsetof(RedXeNtProcessRecord, peakWorkingSetSize) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, PeakWorkingSetSize));
+static_assert(offsetof(RedXeNtProcessRecord, peakWorkingSetSize) == offsetof(SYSTEM_PROCESS_INFORMATION, PeakWorkingSetSize));
 static_assert(offsetof(RedXeNtProcessRecord, workingSetSize) == offsetof(SYSTEM_PROCESS_INFORMATION, WorkingSetSize));
-static_assert(offsetof(RedXeNtProcessRecord, quotaPeakPagedPoolUsage) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, Reserved5));
-static_assert(offsetof(RedXeNtProcessRecord, quotaPagedPoolUsage) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, QuotaPagedPoolUsage));
-static_assert(offsetof(RedXeNtProcessRecord, quotaPeakNonPagedPoolUsage) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, Reserved6));
-static_assert(offsetof(RedXeNtProcessRecord, quotaNonPagedPoolUsage) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, QuotaNonPagedPoolUsage));
+static_assert(offsetof(RedXeNtProcessRecord, quotaPeakPagedPoolUsage) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved5));
+static_assert(offsetof(RedXeNtProcessRecord, quotaPagedPoolUsage) == offsetof(SYSTEM_PROCESS_INFORMATION, QuotaPagedPoolUsage));
+static_assert(offsetof(RedXeNtProcessRecord, quotaPeakNonPagedPoolUsage) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved6));
+static_assert(offsetof(RedXeNtProcessRecord, quotaNonPagedPoolUsage) == offsetof(SYSTEM_PROCESS_INFORMATION, QuotaNonPagedPoolUsage));
 static_assert(offsetof(RedXeNtProcessRecord, pagefileUsage) == offsetof(SYSTEM_PROCESS_INFORMATION, PagefileUsage));
-static_assert(offsetof(RedXeNtProcessRecord, peakPagefileUsage) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, PeakPagefileUsage));
-static_assert(offsetof(RedXeNtProcessRecord, privatePageCount) ==
-              offsetof(SYSTEM_PROCESS_INFORMATION, PrivatePageCount));
+static_assert(offsetof(RedXeNtProcessRecord, peakPagefileUsage) == offsetof(SYSTEM_PROCESS_INFORMATION, PeakPagefileUsage));
+static_assert(offsetof(RedXeNtProcessRecord, privatePageCount) == offsetof(SYSTEM_PROCESS_INFORMATION, PrivatePageCount));
 // Reserved7[6] is the six per-process I/O counters and closes the record.
 static_assert(offsetof(RedXeNtProcessRecord, readOperationCount) == offsetof(SYSTEM_PROCESS_INFORMATION, Reserved7));
 static_assert(offsetof(RedXeNtProcessRecord, otherTransferCount) + 8 == sizeof(SYSTEM_PROCESS_INFORMATION));
@@ -152,18 +143,12 @@ struct RedXeNtProcessorPerformance final
 };
 
 static_assert(sizeof(RedXeNtProcessorPerformance) == sizeof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION));
-static_assert(offsetof(RedXeNtProcessorPerformance, idleTime) ==
-              offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, IdleTime));
-static_assert(offsetof(RedXeNtProcessorPerformance, kernelTime) ==
-              offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, KernelTime));
-static_assert(offsetof(RedXeNtProcessorPerformance, userTime) ==
-              offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, UserTime));
-static_assert(offsetof(RedXeNtProcessorPerformance, dpcTime) ==
-              offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, Reserved1));
-static_assert(offsetof(RedXeNtProcessorPerformance, interruptTime) ==
-              offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, Reserved1) + 8);
-static_assert(offsetof(RedXeNtProcessorPerformance, interruptCount) ==
-              offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, Reserved2));
+static_assert(offsetof(RedXeNtProcessorPerformance, idleTime) == offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, IdleTime));
+static_assert(offsetof(RedXeNtProcessorPerformance, kernelTime) == offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, KernelTime));
+static_assert(offsetof(RedXeNtProcessorPerformance, userTime) == offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, UserTime));
+static_assert(offsetof(RedXeNtProcessorPerformance, dpcTime) == offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, Reserved1));
+static_assert(offsetof(RedXeNtProcessorPerformance, interruptTime) == offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, Reserved1) + 8);
+static_assert(offsetof(RedXeNtProcessorPerformance, interruptCount) == offsetof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, Reserved2));
 
 // ---------------------------------------------------------------------------------------------------------------
 // SystemTimeOfDayInformation (class 3) — SDK `SYSTEM_TIMEOFDAY_INFORMATION`, 48 bytes, fully covered, no tail.
@@ -213,8 +198,7 @@ struct RedXeNtExceptionRecord final
 };
 
 static_assert(sizeof(RedXeNtExceptionRecord) == sizeof(SYSTEM_EXCEPTION_INFORMATION));
-static_assert(offsetof(RedXeNtExceptionRecord, alignmentFixupCount) ==
-              offsetof(SYSTEM_EXCEPTION_INFORMATION, Reserved1));
+static_assert(offsetof(RedXeNtExceptionRecord, alignmentFixupCount) == offsetof(SYSTEM_EXCEPTION_INFORMATION, Reserved1));
 
 // ---------------------------------------------------------------------------------------------------------------
 // SystemPerformanceInformation (class 2) — the one record with a build-dependent tail.
@@ -310,9 +294,9 @@ struct RedXeNtPerformance final
 };
 
 // Acceptance bands. A field is readable only when the measured ReturnLength covers its end offset.
-constexpr uint32_t kRedXeNtPerformanceBaseBytes = 312;      // through systemCalls; equals the SDK reserved block
+constexpr uint32_t kRedXeNtPerformanceBaseBytes      = 312; // through systemCalls; equals the SDK reserved block
 constexpr uint32_t kRedXeNtPerformanceThresholdBytes = 344; // + ccTotalDirtyPages .. sharedCommittedPages
-constexpr uint32_t kRedXeNtPerformance24H2Bytes = 376;      // + mdlPagesAllocated .. contiguousPagesAllocated
+constexpr uint32_t kRedXeNtPerformance24H2Bytes      = 376; // + mdlPagesAllocated .. contiguousPagesAllocated
 
 static_assert(offsetof(RedXeNtPerformance, systemCalls) + 4 == kRedXeNtPerformanceBaseBytes);
 static_assert(kRedXeNtPerformanceBaseBytes == sizeof(SYSTEM_PERFORMANCE_INFORMATION));
@@ -326,19 +310,19 @@ static_assert(sizeof(RedXeNtPerformance) == kRedXeNtPerformance24H2Bytes);
 // Microsoft's published DDI documentation, so no overlay is required; these are RedXe names for documented bits.
 // ---------------------------------------------------------------------------------------------------------------
 
-constexpr uint32_t kRedXeCodeIntegrityEnabled = 0x00000001;
-constexpr uint32_t kRedXeCodeIntegrityTestSign = 0x00000002;
-constexpr uint32_t kRedXeCodeIntegrityUmciEnabled = 0x00000004;
-constexpr uint32_t kRedXeCodeIntegrityUmciAuditMode = 0x00000008;
+constexpr uint32_t kRedXeCodeIntegrityEnabled            = 0x00000001;
+constexpr uint32_t kRedXeCodeIntegrityTestSign           = 0x00000002;
+constexpr uint32_t kRedXeCodeIntegrityUmciEnabled        = 0x00000004;
+constexpr uint32_t kRedXeCodeIntegrityUmciAuditMode      = 0x00000008;
 constexpr uint32_t kRedXeCodeIntegrityUmciExclusionPaths = 0x00000010;
-constexpr uint32_t kRedXeCodeIntegrityTestBuild = 0x00000020;
+constexpr uint32_t kRedXeCodeIntegrityTestBuild          = 0x00000020;
 constexpr uint32_t kRedXeCodeIntegrityPreproductionBuild = 0x00000040;
-constexpr uint32_t kRedXeCodeIntegrityDebugModeEnabled = 0x00000080;
-constexpr uint32_t kRedXeCodeIntegrityFlightBuild = 0x00000100;
-constexpr uint32_t kRedXeCodeIntegrityFlightingEnabled = 0x00000200;
-constexpr uint32_t kRedXeCodeIntegrityHvciKmciEnabled = 0x00000400;
-constexpr uint32_t kRedXeCodeIntegrityHvciKmciAuditMode = 0x00000800;
+constexpr uint32_t kRedXeCodeIntegrityDebugModeEnabled   = 0x00000080;
+constexpr uint32_t kRedXeCodeIntegrityFlightBuild        = 0x00000100;
+constexpr uint32_t kRedXeCodeIntegrityFlightingEnabled   = 0x00000200;
+constexpr uint32_t kRedXeCodeIntegrityHvciKmciEnabled    = 0x00000400;
+constexpr uint32_t kRedXeCodeIntegrityHvciKmciAuditMode  = 0x00000800;
 constexpr uint32_t kRedXeCodeIntegrityHvciKmciStrictMode = 0x00001000;
-constexpr uint32_t kRedXeCodeIntegrityHvciIumEnabled = 0x00002000;
-constexpr uint32_t kRedXeCodeIntegrityWhqlEnforcement = 0x00004000;
-constexpr uint32_t kRedXeCodeIntegrityWhqlAuditMode = 0x00008000;
+constexpr uint32_t kRedXeCodeIntegrityHvciIumEnabled     = 0x00002000;
+constexpr uint32_t kRedXeCodeIntegrityWhqlEnforcement    = 0x00004000;
+constexpr uint32_t kRedXeCodeIntegrityWhqlAuditMode      = 0x00008000;

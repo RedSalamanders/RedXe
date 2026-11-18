@@ -23,19 +23,19 @@
 
 namespace Logicon
 {
-inline constexpr uint32_t kGridPixels = kGridSize * kGridSize;
+inline constexpr uint32_t kGridPixels              = kGridSize * kGridSize;
 inline constexpr uint32_t kMaximumInjectedControls = 16;
-inline constexpr uint32_t kReconnectBackoffSteps = 4;
+inline constexpr uint32_t kReconnectBackoffSteps   = 4;
 // Raw Input reports classic wheels in WHEEL_DELTA units: one detent of the dial or the roller is 120.
 inline constexpr uint32_t kWheelDetentUnits = 120;
 // Requests for the published "logicon" namespace arriving from other owners through IRedXeActionPack::Execute.
 inline constexpr uint32_t kMaximumLocalRequests = 4;
 // The in-memory dialpad the test contract can present to the lane in place of Bluetooth discovery.
-inline constexpr uint32_t kSyntheticDialpadNone = 0;
+inline constexpr uint32_t kSyntheticDialpadNone      = 0;
 inline constexpr uint32_t kSyntheticDialpadAnswering = 1;
 // Present, but answers no HID++ command, as a sleeping dialpad or one Options+ holds.
 inline constexpr uint32_t kSyntheticDialpadUnresponsive = 2;
-using ActionName = std::array<char, kMaximumActionBytes + 1>;
+using ActionName                                        = std::array<char, kMaximumActionBytes + 1>;
 
 enum class OverrideKind : uint8_t
 {
@@ -55,10 +55,10 @@ struct FaceOverride final
 // Bounded copy of the last host state the service received.
 struct HostStateCopy final
 {
-    uint32_t flags = 0;
-    uint32_t pageIndex = 0;
-    uint32_t pageCount = 0;
-    uint32_t widgetCount = 0;
+    uint32_t flags               = 0;
+    uint32_t pageIndex           = 0;
+    uint32_t pageCount           = 0;
+    uint32_t widgetCount         = 0;
     uint32_t raisedWidgetOrdinal = 0;
     std::array<char, 129> pageId{};
     std::array<wchar_t, 129> pageName{};
@@ -68,12 +68,12 @@ struct HostStateCopy final
 struct InjectedControl final
 {
     // 0 = LCD key slot (index 0..8), 1 = page button (index 0 previous, 1 next), 2 = dialpad button (index 0..3).
-    uint8_t kind = 0;
+    uint8_t kind  = 0;
     uint8_t index = 0;
-    bool down = false;
+    bool down     = false;
 };
 
-inline constexpr uint32_t kInjectKindKey = 0;
+inline constexpr uint32_t kInjectKindKey        = 0;
 inline constexpr uint32_t kInjectKindPageButton = 1;
 inline constexpr uint32_t kInjectKindDialButton = 2;
 
@@ -82,14 +82,14 @@ struct DialpadSnapshot final
 {
     bool connected = false;
     // The dialpad is present and a turn is bound, so the wheels should be read; listening says whether they are.
-    bool wheelsWanted = false;
+    bool wheelsWanted    = false;
     bool wheelsListening = false;
-    uint32_t buttons = 0;
+    uint32_t buttons     = 0;
     // Bit n = button n is diverted (bound); the others keep their native behavior.
     uint32_t divertedButtons = 0;
-    uint32_t portCount = 0;
+    uint32_t portCount       = 0;
     uint32_t connectAttempts = 0;
-    uint32_t buttonPresses = 0;
+    uint32_t buttonPresses   = 0;
     // Detents dispatched to a dial or roller action.
     uint32_t wheelSteps = 0;
     HRESULT lastFailure = S_OK;
@@ -105,26 +105,26 @@ struct DialpadSnapshot final
 // Everything the Debug monitor and the test contract read. Copied under the service lock.
 struct MonitorSnapshot final
 {
-    bool laneRunning = false;
-    bool deviceAccess = false;
-    bool connected = false;
-    bool synthetic = false;
-    bool rendererReady = false;
-    bool iconFont = false;
-    bool competingWriter = false;
-    uint32_t keys = 0;
-    uint32_t pageButtons = 0;
-    uint32_t keyPage = 0;
-    uint32_t keyPageCount = 1;
-    uint32_t brightness = kDefaultBrightness;
-    uint32_t portCount = 0;
-    uint32_t faceGeneration = 0;
-    uint32_t facesWritten = 0;
+    bool laneRunning          = false;
+    bool deviceAccess         = false;
+    bool connected            = false;
+    bool synthetic            = false;
+    bool rendererReady        = false;
+    bool iconFont             = false;
+    bool competingWriter      = false;
+    uint32_t keys             = 0;
+    uint32_t pageButtons      = 0;
+    uint32_t keyPage          = 0;
+    uint32_t keyPageCount     = 1;
+    uint32_t brightness       = kDefaultBrightness;
+    uint32_t portCount        = 0;
+    uint32_t faceGeneration   = 0;
+    uint32_t facesWritten     = 0;
     uint32_t actionsRequested = 0;
-    uint32_t localExecuted = 0;
+    uint32_t localExecuted    = 0;
     ActionName lastAction{};
     uint32_t connectAttempts = 0;
-    HRESULT lastFailure = S_OK;
+    HRESULT lastFailure      = S_OK;
     DeviceFeatures features{};
     DeviceCounters counters{};
     HostStateCopy host{};
@@ -145,10 +145,9 @@ struct MonitorSnapshot final
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
 #pragma warning(disable : 4625 4626)
-class LogiconService final : public RedXeComObject<LogiconService, IRedXeService, IRedXeDeviceWorker, IRedXeActionPack>,
-                             public SystemValuesListener
+class LogiconService final : public RedXeComObject<LogiconService, IRedXeService, IRedXeDeviceWorker, IRedXeActionPack>, public SystemValuesListener
 {
-  public:
+public:
     LogiconService(IRedXeHost* host, uint32_t backgroundRgb) noexcept;
     ~LogiconService();
 
@@ -194,11 +193,11 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     // Module singleton for the monitor tile and the test contract; borrowed, may be null.
     [[nodiscard]] static LogiconService* Current() noexcept;
 
-  private:
+private:
     struct SlotState final
     {
         uint64_t signature = 0;
-        bool composed = false;
+        bool composed      = false;
     };
 
     // Lane-side helpers.
@@ -226,10 +225,10 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     // UI thread: asks the host to resolve every binding's action and target and records the result in valid.
     void ValidateBindings(Settings& settings) noexcept;
     void ChangeKeyPage(int direction) noexcept;
-    [[nodiscard]] uint64_t SlotSignature(uint32_t slot, const KeyBinding* binding, const FaceOverride& override,
-                                         const HostStateCopy& host, uint32_t minuteOfDay) noexcept;
-    [[nodiscard]] HRESULT ComposeSlot(uint32_t slot, const KeyBinding* binding, const FaceOverride& override,
-                                      const HostStateCopy& host, uint32_t* tile) noexcept;
+    [[nodiscard]] uint64_t SlotSignature(
+        uint32_t slot, const KeyBinding* binding, const FaceOverride& override, const HostStateCopy& host, uint32_t minuteOfDay) noexcept;
+    [[nodiscard]] HRESULT ComposeSlot(
+        uint32_t slot, const KeyBinding* binding, const FaceOverride& override, const HostStateCopy& host, uint32_t* tile) noexcept;
     [[nodiscard]] HRESULT ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcept;
     void PublishSnapshot() noexcept;
     // Fills _snapshot from lane state; the caller holds _lock exclusively.
@@ -252,21 +251,21 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     uint32_t _settingsGeneration = 0;
     HostStateCopy _hostState{};
     uint32_t _hostGeneration = 0;
-    uint32_t _keyPage = 0;
+    uint32_t _keyPage        = 0;
     std::array<FaceOverride, kKeyCount> _overrides{};
     uint32_t _overrideGeneration = 0;
     std::array<InjectedControl, kMaximumInjectedControls> _injected{};
-    uint32_t _injectedCount = 0;
-    uint32_t _brightnessRequest = 0;
-    bool _syntheticRequested = false;
+    uint32_t _injectedCount             = 0;
+    uint32_t _brightnessRequest         = 0;
+    bool _syntheticRequested            = false;
     uint32_t _syntheticDialpadRequested = kSyntheticDialpadNone;
-    HANDLE _wakeEvent = nullptr;
+    HANDLE _wakeEvent                   = nullptr;
     MonitorSnapshot _snapshot{};
     std::unique_ptr<uint32_t[]> _grid;
-    uint32_t _faceGeneration = 0;
-    uint32_t _facesWritten = 0;
+    uint32_t _faceGeneration   = 0;
+    uint32_t _facesWritten     = 0;
     uint32_t _actionsRequested = 0;
-    uint32_t _localExecuted = 0;
+    uint32_t _localExecuted    = 0;
     ActionName _lastAction{};
     struct LocalRequest final
     {
@@ -277,7 +276,7 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     uint32_t _pendingLocalCount = 0;
     SystemValues _systemValues{};
     uint32_t _systemGeneration = 0;
-    bool _systemFeedActive = false;
+    bool _systemFeedActive     = false;
 
     // UI-thread-owned: the System Data feed lives while the settings bind a system face.
     wil::com_ptr_nothrow<SystemDataFeed> _systemFeed;
@@ -287,10 +286,10 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     Settings _laneSettings{};
     uint32_t _laneSettingsGeneration = 0;
     HostStateCopy _laneHost{};
-    uint32_t _laneHostGeneration = 0;
+    uint32_t _laneHostGeneration     = 0;
     uint32_t _laneOverrideGeneration = 0;
-    uint32_t _laneKeyPage = 0;
-    uint32_t _laneMinute = 0xFFFFFFFFU;
+    uint32_t _laneKeyPage            = 0;
+    uint32_t _laneMinute             = 0xFFFFFFFFU;
     SystemValues _laneSystem{};
     uint32_t _laneSystemGeneration = 0;
     DeviceSession _session;
@@ -298,15 +297,15 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     RawWheelListener _wheels;
     // Whether the last dialpad discovery found it, and whether the wheels were last asked to run.
     bool _dialpadPresent = false;
-    bool _wheelsWanted = false;
+    bool _wheelsWanted   = false;
     SyntheticKeypad _syntheticDialpad;
-    uint32_t _syntheticDialpadMode = kSyntheticDialpadNone;
-    uint32_t _dialpadAttempts = 0;
-    uint32_t _dialButtonPresses = 0;
-    uint32_t _wheelSteps = 0;
-    int32_t _dialAccumulator = 0;
-    int32_t _rollerAccumulator = 0;
-    HRESULT _lastDialpadFailure = S_OK;
+    uint32_t _syntheticDialpadMode    = kSyntheticDialpadNone;
+    uint32_t _dialpadAttempts         = 0;
+    uint32_t _dialButtonPresses       = 0;
+    uint32_t _wheelSteps              = 0;
+    int32_t _dialAccumulator          = 0;
+    int32_t _rollerAccumulator        = 0;
+    HRESULT _lastDialpadFailure       = S_OK;
     HRESULT _lastLoggedDialpadFailure = S_OK;
     FaceRenderer _renderer;
     SyntheticKeypad _synthetic;
@@ -316,13 +315,13 @@ class LogiconService final : public RedXeComObject<LogiconService, IRedXeService
     std::array<uint32_t, kFacePixels> _tile{};
     std::array<uint32_t, kFaceIconPixels * kFaceIconPixels> _iconScratch{};
     std::unique_ptr<uint8_t[]> _jpeg;
-    uint32_t _connectAttempts = 0;
-    HRESULT _lastConnectFailure = S_OK;
+    uint32_t _connectAttempts         = 0;
+    HRESULT _lastConnectFailure       = S_OK;
     HRESULT _lastLoggedConnectFailure = S_OK;
-    uint32_t _appliedBrightness = 0;
+    uint32_t _appliedBrightness       = 0;
     // Monitor/test brightness override; 0 means the settings value applies. Cleared by a new settings object.
     uint32_t _brightnessOverride = 0;
-    uint64_t _publishedHash = 0;
+    uint64_t _publishedHash      = 0;
 };
 #pragma warning(pop)
 

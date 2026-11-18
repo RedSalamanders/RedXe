@@ -24,15 +24,15 @@ inline constexpr uint64_t kWheelSequenceGapMilliseconds = 500;
 
 enum class WheelAxis : uint8_t
 {
-    Vertical = 0,
+    Vertical   = 0,
     Horizontal = 1,
 };
 
 enum class WheelOwner : uint8_t
 {
-    None = 0,
+    None   = 0,
     Widget = 1,
-    Host = 2,
+    Host   = 2,
 };
 
 // Units a sample travels the dashboard, positive toward the next page: wheel down (negative Win32 delta) and tilt
@@ -44,10 +44,10 @@ enum class WheelOwner : uint8_t
 
 struct WheelNavigator final
 {
-    WheelOwner owner = WheelOwner::None;
-    size_t widgetIndex = SIZE_MAX;
+    WheelOwner owner                = WheelOwner::None;
+    size_t widgetIndex              = SIZE_MAX;
     uint64_t lastSampleMilliseconds = 0;
-    bool inSequence = false;
+    bool inSequence                 = false;
     // Per-axis accumulation in navigation units (positive = next page).
     std::array<RedXeWheelDetent, 2> detents{};
 
@@ -56,11 +56,11 @@ struct WheelNavigator final
     // (None): offer it to the widget under the pointer, then call Latch with the answer.
     [[nodiscard]] WheelOwner Begin(uint64_t nowMilliseconds) noexcept
     {
-        if (!inSequence || nowMilliseconds - lastSampleMilliseconds >= kWheelSequenceGapMilliseconds)
+        if (! inSequence || nowMilliseconds - lastSampleMilliseconds >= kWheelSequenceGapMilliseconds)
         {
             Reset();
         }
-        inSequence = true;
+        inSequence             = true;
         lastSampleMilliseconds = nowMilliseconds;
         return owner;
     }
@@ -73,7 +73,7 @@ struct WheelNavigator final
         {
             return;
         }
-        owner = consumed ? WheelOwner::Widget : WheelOwner::Host;
+        owner       = consumed ? WheelOwner::Widget : WheelOwner::Host;
         widgetIndex = consumed ? index : SIZE_MAX;
     }
 
@@ -104,9 +104,9 @@ struct WheelNavigator final
     // Ends the sequence outright: hide, resize, DPI change, settings apply, raise, dismiss, capture loss.
     void Reset() noexcept
     {
-        owner = WheelOwner::None;
-        widgetIndex = SIZE_MAX;
-        inSequence = false;
+        owner                  = WheelOwner::None;
+        widgetIndex            = SIZE_MAX;
+        inSequence             = false;
         lastSampleMilliseconds = 0;
         ClearAccumulation();
     }

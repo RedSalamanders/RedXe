@@ -39,16 +39,14 @@ struct StudioClockTestDiagnostics final
 
 extern "C"
 {
-    REDXE_STUDIO_CLOCK_TEST_API HRESULT __stdcall RedXeStudioClockSetTestTime(
-        const StudioClockTestTime* testTime) noexcept;
-    REDXE_STUDIO_CLOCK_TEST_API HRESULT __stdcall RedXeStudioClockGetTestDiagnostics(
-        StudioClockTestDiagnostics* diagnostics) noexcept;
+    REDXE_STUDIO_CLOCK_TEST_API HRESULT __stdcall RedXeStudioClockSetTestTime(const StudioClockTestTime* testTime) noexcept;
+    REDXE_STUDIO_CLOCK_TEST_API HRESULT __stdcall RedXeStudioClockGetTestDiagnostics(StudioClockTestDiagnostics* diagnostics) noexcept;
 }
 
-using StudioClockSetTestTimeFn = decltype(&RedXeStudioClockSetTestTime);
+using StudioClockSetTestTimeFn        = decltype(&RedXeStudioClockSetTestTime);
 using StudioClockGetTestDiagnosticsFn = decltype(&RedXeStudioClockGetTestDiagnostics);
 
 #undef REDXE_STUDIO_CLOCK_TEST_API
 
-inline constexpr char kStudioClockSetTestTimeExport[] = "RedXeStudioClockSetTestTime";
+inline constexpr char kStudioClockSetTestTimeExport[]        = "RedXeStudioClockSetTestTime";
 inline constexpr char kStudioClockGetTestDiagnosticsExport[] = "RedXeStudioClockGetTestDiagnostics";

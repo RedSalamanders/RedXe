@@ -22,14 +22,14 @@ struct ViewCommand final
     DeviceKind device{};
     DeviceId endpointId;
     uint64_t generation = 0;
-    uint64_t revision = 0;
-    uint32_t value = 0;
+    uint64_t revision   = 0;
+    uint32_t value      = 0;
 };
 struct ViewCallbacks final
 {
-    void* context = nullptr;
-    void (*command)(void*, const ViewCommand&) noexcept = nullptr;
-    void (*requestFrame)(void*) noexcept = nullptr;
+    void* context                                                 = nullptr;
+    void (*command)(void*, const ViewCommand&) noexcept           = nullptr;
+    void (*requestFrame)(void*) noexcept                          = nullptr;
     HRESULT (*saveProfiles)(void*, const Configuration&) noexcept = nullptr;
 };
 
@@ -40,7 +40,7 @@ struct ViewCallbacks final
 #pragma warning(disable : 4625 4626 5026 5027)
 class LiveView final
 {
-  public:
+public:
     HRESULT Attach(std::shared_ptr<DxUi::GraphicsDevice> graphics, ViewCallbacks callbacks) noexcept;
     void Detach() noexcept;
     void SetVisible(bool visible) noexcept;
@@ -57,9 +57,9 @@ class LiveView final
     HRESULT ApplyText(uint32_t action, const RedXeTextState& state) noexcept;
     HRESULT CancelText(uint64_t focusId) noexcept;
     HRESULT HitText(uint64_t revision, float x, float y, uint32_t& index) noexcept;
-    HRESULT TextRange(uint64_t revision, uint32_t start, uint32_t end, RedXeTextRectangle& bounds,
-                      BOOL& clipped) noexcept;
-    HRESULT ConnectAccessibility(const RedXeAccessibilityPlacement& placement, IRedXeAccessibilitySite* site,
+    HRESULT TextRange(uint64_t revision, uint32_t start, uint32_t end, RedXeTextRectangle& bounds, BOOL& clipped) noexcept;
+    HRESULT ConnectAccessibility(const RedXeAccessibilityPlacement& placement,
+                                 IRedXeAccessibilitySite* site,
                                  IRawElementProviderFragmentRoot** result) noexcept;
     HRESULT UpdateAccessibility(const RedXeAccessibilityPlacement& placement) noexcept;
     void DisconnectAccessibility() noexcept;
@@ -92,34 +92,34 @@ class LiveView final
         return _layout;
     }
 
-  private:
+private:
     DxUi::EmbeddedHost _view;
     ViewCallbacks _callbacks;
     ConfirmedState _state;
     std::array<wchar_t, 128> _profileName{};
     uint32_t _pendingMask = 0;
     uint32_t _width = 0, _height = 0;
-    float _dpi = 96;
+    float _dpi               = 96;
     uint64_t _layoutRevision = 0;
-    bool _modelDirty = true;
+    bool _modelDirty         = true;
     RedXeAppearance _appearance;
     uint32_t _backgroundRgb = 0;
-    bool _themeDirty = true;
-    bool _ready = false;
-    bool _visible = false;
+    bool _themeDirty        = true;
+    bool _ready             = false;
+    bool _visible           = false;
     bool _profilesVisible = false, _profileFocusPending = false;
     bool _tabBoundary = false;
     Configuration _configuration;
     const Inventory* _inventory = nullptr;
-    uint64_t _deviceRevision = 0;
-    DxUi::Panel* _livePanel = nullptr;
+    uint64_t _deviceRevision    = 0;
+    DxUi::Panel* _livePanel     = nullptr;
     std::unique_ptr<ProfileControls> _profileControls;
     std::optional<ProfileControls::RetainedState> _retainedProfile;
     LiveLayout _layout;
     std::array<LevelGesture, 2> _gestures;
-    DxUi::Label* _heading = nullptr;
-    DxUi::Button* _profile = nullptr;
-    DxUi::Label* _profileCaption = nullptr;
+    DxUi::Label* _heading           = nullptr;
+    DxUi::Button* _profile          = nullptr;
+    DxUi::Label* _profileCaption    = nullptr;
     uint64_t _accessibilityIdentity = 0;
     std::array<DxUi::Toggle*, 3> _toggles{};
     std::array<DxUi::Label*, 3> _toggleIcons{}, _toggleNames{};

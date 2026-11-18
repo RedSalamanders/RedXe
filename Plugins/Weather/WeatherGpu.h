@@ -12,24 +12,23 @@
 #include <wil/resource.h>
 #pragma warning(pop)
 
-inline constexpr uint32_t kWeatherMaximumQuads = 1024;
-inline constexpr uint32_t kWeatherAtlasSize = 1024;
-inline constexpr uint32_t kWeatherGlyphCell = 48;
-inline constexpr uint32_t kWeatherIconCell = 96;
-inline constexpr uint32_t kWeatherGlyphColumns = kWeatherAtlasSize / kWeatherGlyphCell;
+inline constexpr uint32_t kWeatherMaximumQuads  = 1024;
+inline constexpr uint32_t kWeatherAtlasSize     = 1024;
+inline constexpr uint32_t kWeatherGlyphCell     = 48;
+inline constexpr uint32_t kWeatherIconCell      = 96;
+inline constexpr uint32_t kWeatherGlyphColumns  = kWeatherAtlasSize / kWeatherGlyphCell;
 inline constexpr uint32_t kWeatherGlyphCapacity = kWeatherGlyphColumns * kWeatherGlyphColumns;
 // Header temperature glyphs (WeatherFormatTemperature: %.0f digits, sign, degree, C/F). Each also gets a
 // kWeatherIconCell twin so the hero row draws as sharp as the condition icon beside it.
-inline constexpr wchar_t kWeatherHeroGlyphs[] = {L'0', L'1', L'2', L'3', L'4',   L'5', L'6',
-                                                 L'7', L'8', L'9', L'-', 0x00B0, L'C', L'F'};
+inline constexpr wchar_t kWeatherHeroGlyphs[] = {L'0', L'1', L'2', L'3', L'4', L'5', L'6', L'7', L'8', L'9', L'-', 0x00B0, L'C', L'F'};
 
 enum WeatherQuadKind : uint32_t
 {
-    WeatherQuadKindFill = 0,
+    WeatherQuadKindFill   = 0,
     WeatherQuadKindStroke = 1,
-    WeatherQuadKindRing = 2,
-    WeatherQuadKindGlyph = 3,
-    WeatherQuadKindGlow = 4,
+    WeatherQuadKindRing   = 2,
+    WeatherQuadKindGlyph  = 3,
+    WeatherQuadKindGlow   = 4,
 };
 
 struct WeatherQuadInstance final
@@ -42,15 +41,15 @@ struct WeatherQuadInstance final
 
 struct WeatherGlyphInk final
 {
-    float left = 0.0f;
-    float top = 0.0f;
-    float width = 0.0f;
+    float left   = 0.0f;
+    float top    = 0.0f;
+    float width  = 0.0f;
     float height = 0.0f;
 };
 
 class WeatherDrawList final
 {
-  public:
+public:
     void Reset() noexcept
     {
         _count = 0;
@@ -66,8 +65,20 @@ class WeatherDrawList final
         return _items.data();
     }
 
-    [[nodiscard]] bool Add(WeatherQuadKind kind, float x, float y, float width, float height, float red, float green,
-                           float blue, float alpha, float radius, float extra, float u0, float v0, float u1,
+    [[nodiscard]] bool Add(WeatherQuadKind kind,
+                           float x,
+                           float y,
+                           float width,
+                           float height,
+                           float red,
+                           float green,
+                           float blue,
+                           float alpha,
+                           float radius,
+                           float extra,
+                           float u0,
+                           float v0,
+                           float u1,
                            float v1) noexcept
     {
         if (_count >= _items.size() || width <= 0.0f || height <= 0.0f || alpha <= 0.0f)
@@ -75,65 +86,58 @@ class WeatherDrawList final
             return _count < _items.size();
         }
         WeatherQuadInstance& item = _items[_count++];
-        item.rect[0] = x;
-        item.rect[1] = y;
-        item.rect[2] = width;
-        item.rect[3] = height;
-        item.color[0] = red;
-        item.color[1] = green;
-        item.color[2] = blue;
-        item.color[3] = alpha;
-        item.uv[0] = u0;
-        item.uv[1] = v0;
-        item.uv[2] = u1;
-        item.uv[3] = v1;
-        item.params[0] = static_cast<float>(kind);
-        item.params[1] = radius;
-        item.params[2] = extra;
-        item.params[3] = 0.0f;
+        item.rect[0]              = x;
+        item.rect[1]              = y;
+        item.rect[2]              = width;
+        item.rect[3]              = height;
+        item.color[0]             = red;
+        item.color[1]             = green;
+        item.color[2]             = blue;
+        item.color[3]             = alpha;
+        item.uv[0]                = u0;
+        item.uv[1]                = v0;
+        item.uv[2]                = u1;
+        item.uv[3]                = v1;
+        item.params[0]            = static_cast<float>(kind);
+        item.params[1]            = radius;
+        item.params[2]            = extra;
+        item.params[3]            = 0.0f;
         return true;
     }
 
-    [[nodiscard]] bool AddFill(float x, float y, float width, float height, float red, float green, float blue,
-                               float alpha, float radius) noexcept
+    [[nodiscard]] bool AddFill(float x, float y, float width, float height, float red, float green, float blue, float alpha, float radius) noexcept
     {
-        return Add(WeatherQuadKindFill, x, y, width, height, red, green, blue, alpha, radius, 0.0f, 0.0f, 0.0f, 0.0f,
-                   0.0f);
+        return Add(WeatherQuadKindFill, x, y, width, height, red, green, blue, alpha, radius, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    [[nodiscard]] bool AddStroke(float x, float y, float width, float height, float red, float green, float blue,
-                                 float alpha, float radius, float stroke) noexcept
+    [[nodiscard]] bool AddStroke(
+        float x, float y, float width, float height, float red, float green, float blue, float alpha, float radius, float stroke) noexcept
     {
-        return Add(WeatherQuadKindStroke, x, y, width, height, red, green, blue, alpha, radius, stroke, 0.0f, 0.0f,
-                   0.0f, 0.0f);
+        return Add(WeatherQuadKindStroke, x, y, width, height, red, green, blue, alpha, radius, stroke, 0.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    [[nodiscard]] bool AddGlow(float x, float y, float width, float height, float red, float green, float blue,
-                               float alpha, float radius) noexcept
+    [[nodiscard]] bool AddGlow(float x, float y, float width, float height, float red, float green, float blue, float alpha, float radius) noexcept
     {
-        return Add(WeatherQuadKindGlow, x, y, width, height, red, green, blue, alpha, radius, 0.0f, 0.0f, 0.0f, 0.0f,
-                   0.0f);
+        return Add(WeatherQuadKindGlow, x, y, width, height, red, green, blue, alpha, radius, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    [[nodiscard]] bool AddRing(float x, float y, float width, float height, float red, float green, float blue,
-                               float alpha, float innerRadius) noexcept
+    [[nodiscard]] bool AddRing(float x, float y, float width, float height, float red, float green, float blue, float alpha, float innerRadius) noexcept
     {
-        return Add(WeatherQuadKindRing, x, y, width, height, red, green, blue, alpha, 0.0f, innerRadius, 0.0f, 0.0f,
-                   0.0f, 0.0f);
+        return Add(WeatherQuadKindRing, x, y, width, height, red, green, blue, alpha, 0.0f, innerRadius, 0.0f, 0.0f, 0.0f, 0.0f);
     }
 
-  private:
+private:
     std::array<WeatherQuadInstance, kWeatherMaximumQuads> _items{};
     uint32_t _count = 0;
 };
 
 class WeatherGpuResources final
 {
-  public:
+public:
     WeatherGpuResources() = default;
     ~WeatherGpuResources();
 
-    WeatherGpuResources(const WeatherGpuResources&) = delete;
+    WeatherGpuResources(const WeatherGpuResources&)            = delete;
     WeatherGpuResources& operator=(const WeatherGpuResources&) = delete;
 
     [[nodiscard]] HRESULT Initialize(ID3D11Device* device) noexcept;
@@ -146,16 +150,23 @@ class WeatherGpuResources final
     void UploadDirtyGlyphs() noexcept;
     void ReleasePreparationFonts() noexcept;
     [[nodiscard]] float MeasureText(const wchar_t* text, uint32_t characters, float height) const noexcept;
-    [[nodiscard]] HRESULT AppendText(WeatherDrawList& list, float x, float y, float height, float red, float green,
-                                     float blue, float alpha, const wchar_t* text, uint32_t characters) noexcept;
-    [[nodiscard]] HRESULT AppendIcon(WeatherDrawList& list, float x, float y, float size, wchar_t glyph, float red,
-                                     float green, float blue, float alpha) noexcept;
-    [[nodiscard]] HRESULT AppendIconFit(WeatherDrawList& list, float x, float y, float width, float height,
-                                        wchar_t glyph, float red, float green, float blue, float alpha) noexcept;
-    [[nodiscard]] HRESULT Render(ID3D11DeviceContext* context, float width, float height,
-                                 const WeatherDrawList& list) noexcept;
+    [[nodiscard]] HRESULT AppendText(WeatherDrawList& list,
+                                     float x,
+                                     float y,
+                                     float height,
+                                     float red,
+                                     float green,
+                                     float blue,
+                                     float alpha,
+                                     const wchar_t* text,
+                                     uint32_t characters) noexcept;
+    [[nodiscard]] HRESULT AppendIcon(
+        WeatherDrawList& list, float x, float y, float size, wchar_t glyph, float red, float green, float blue, float alpha) noexcept;
+    [[nodiscard]] HRESULT AppendIconFit(
+        WeatherDrawList& list, float x, float y, float width, float height, wchar_t glyph, float red, float green, float blue, float alpha) noexcept;
+    [[nodiscard]] HRESULT Render(ID3D11DeviceContext* context, float width, float height, const WeatherDrawList& list) noexcept;
 
-  private:
+private:
     struct WeatherConstants final
     {
         float targetSize[4];
@@ -191,9 +202,9 @@ class WeatherGpuResources final
     std::array<uint16_t, kWeatherGlyphCapacity> _glyphAtlasY{};
     std::array<uint16_t, kWeatherGlyphCapacity> _glyphCell{};
     std::array<uint16_t, kWeatherGlyphCapacity> _glyphLarge{};
-    uint32_t _glyphCount = 0;
+    uint32_t _glyphCount       = 0;
     uint32_t _staticGlyphCount = 0;
-    uint32_t _dynamicCursor = 0;
+    uint32_t _dynamicCursor    = 0;
     std::bitset<kWeatherGlyphCapacity> _dirtyGlyphs{};
 };
 

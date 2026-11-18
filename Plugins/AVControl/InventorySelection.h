@@ -22,7 +22,7 @@ template <size_t Capacity> struct DevicePreferences final
     }
     bool Add(const DeviceId& id) noexcept
     {
-        if (!id.length || Rank(id) != UnreferencedDevice)
+        if (! id.length || Rank(id) != UnreferencedDevice)
             return true;
         if (count == Capacity)
             return false;
@@ -47,9 +47,9 @@ struct InventoryPreferences final
     void Add(const Profile& profile) noexcept
     {
         const bool output = outputs.Add(profile.outputId);
-        const bool input = inputs.Add(profile.microphoneId);
+        const bool input  = inputs.Add(profile.microphoneId);
         const bool camera = cameras.Add(profile.cameraId);
-        if (!output || !input || !camera)
+        if (! output || ! input || ! camera)
             truncated = 1;
     }
     bool operator==(const InventoryPreferences&) const noexcept = default;
@@ -63,7 +63,7 @@ struct InventoryPreferences final
 #pragma warning(disable : 4626 5027)
 template <typename Descriptor, size_t Capacity> class RankedInventory final
 {
-  public:
+public:
     RankedInventory(std::array<Descriptor, Capacity>& rows, uint32_t& count) noexcept : _rows(rows), _count(count)
     {
         _count = 0;
@@ -75,11 +75,11 @@ template <typename Descriptor, size_t Capacity> class RankedInventory final
                 return;
         if (_count < Capacity)
         {
-            _ranks[_count] = rank;
+            _ranks[_count]  = rank;
             _rows[_count++] = row;
             return;
         }
-        _truncated = true;
+        _truncated     = true;
         uint32_t worst = 0;
         for (uint32_t i = 1; i < _count; ++i)
             if (_ranks[i] >= _ranks[worst])
@@ -87,7 +87,7 @@ template <typename Descriptor, size_t Capacity> class RankedInventory final
         if (rank < _ranks[worst])
         {
             _ranks[worst] = rank;
-            _rows[worst] = row;
+            _rows[worst]  = row;
         }
     }
     [[nodiscard]] bool Truncated() const noexcept
@@ -95,7 +95,7 @@ template <typename Descriptor, size_t Capacity> class RankedInventory final
         return _truncated;
     }
 
-  private:
+private:
     std::array<Descriptor, Capacity>& _rows;
     uint32_t& _count;
     std::array<uint32_t, Capacity> _ranks{};
@@ -104,8 +104,7 @@ template <typename Descriptor, size_t Capacity> class RankedInventory final
 #pragma warning(pop)
 
 template <size_t Capacity>
-uint32_t InventoryRank(const DeviceId& id, std::span<const DeviceId> defaults,
-                       const DevicePreferences<Capacity>& references) noexcept
+uint32_t InventoryRank(const DeviceId& id, std::span<const DeviceId> defaults, const DevicePreferences<Capacity>& references) noexcept
 {
     for (uint32_t i = 0; i < defaults.size(); ++i)
         if (defaults[i] == id)

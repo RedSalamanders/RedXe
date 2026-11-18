@@ -39,12 +39,11 @@ static_assert(sizeof(ProcessViewerTestDiagnostics) == 96);
 #define REDXE_PROCESS_VIEWER_TEST_API
 #endif
 
-extern "C" REDXE_PROCESS_VIEWER_TEST_API HRESULT __stdcall RedXeProcessViewerGetTestDiagnostics(
-    ProcessViewerTestDiagnostics* diagnostics) noexcept;
+extern "C" REDXE_PROCESS_VIEWER_TEST_API HRESULT __stdcall RedXeProcessViewerGetTestDiagnostics(ProcessViewerTestDiagnostics* diagnostics) noexcept;
 extern "C" REDXE_PROCESS_VIEWER_TEST_API void __stdcall RedXeProcessViewerFailNextAtlasInitialization() noexcept;
 extern "C" REDXE_PROCESS_VIEWER_TEST_API void __stdcall RedXeProcessViewerFailNextGlyphPreparation() noexcept;
 
-using ProcessViewerGetTestDiagnosticsFn = decltype(&RedXeProcessViewerGetTestDiagnostics);
+using ProcessViewerGetTestDiagnosticsFn                        = decltype(&RedXeProcessViewerGetTestDiagnostics);
 inline constexpr char kProcessViewerGetTestDiagnosticsExport[] = "RedXeProcessViewerGetTestDiagnostics";
 
 #undef REDXE_PROCESS_VIEWER_TEST_API

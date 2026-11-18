@@ -871,7 +871,7 @@ foreach ($entryPoint in $entryPoints) {
 }
 $mainSource = [IO.File]::ReadAllText((Join-Path $repoRoot 'RedXe\Main.cpp'))
 $routedRun = [regex]::Match($mainSource,
-    'const bool unattended = RedXeIsUnattendedRun\(selfTest, screenshotSwitch\);\s*if \(unattended\)\s*\{\s*RedXeFailureReports::RouteAwayFromDialogs\(\);\s*\}')
+    'const bool unattended\s+=\s+RedXeIsUnattendedRun\(selfTest, screenshotSwitch\);\s*if \(unattended\)\s*\{\s*RedXeFailureReports::RouteAwayFromDialogs\(\);\s*\}')
 $firstArgumentCheck = $mainSource.IndexOf('RedXeIsHelpArgument(arguments')
 $applicationCreated = $mainSource.IndexOf('Application(instance, forceWarp)')
 if (-not $routedRun.Success -or $firstArgumentCheck -lt $routedRun.Index -or $applicationCreated -lt $routedRun.Index) {

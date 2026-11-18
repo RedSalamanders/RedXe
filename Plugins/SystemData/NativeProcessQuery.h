@@ -15,11 +15,10 @@ using QueryFunction = NTSTATUS(NTAPI*)(SYSTEM_INFORMATION_CLASS, PVOID, ULONG, P
 [[nodiscard]] inline bool Collect(QueryFunction query, std::span<std::byte> buffer, ULONG& readableBytes) noexcept
 {
     readableBytes = 0;
-    if (!query || buffer.empty() || buffer.size() > (std::numeric_limits<ULONG>::max)())
+    if (! query || buffer.empty() || buffer.size() > (std::numeric_limits<ULONG>::max)())
         return false;
-    ULONG returned = 0;
-    const NTSTATUS status =
-        query(SystemProcessInformation, buffer.data(), static_cast<ULONG>(buffer.size()), &returned);
+    ULONG returned        = 0;
+    const NTSTATUS status = query(SystemProcessInformation, buffer.data(), static_cast<ULONG>(buffer.size()), &returned);
     if (status < 0 || returned == 0 || returned > buffer.size())
         return false;
     readableBytes = returned;

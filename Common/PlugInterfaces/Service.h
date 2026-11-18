@@ -81,8 +81,8 @@ interface __declspec(uuid("9D7C1E52-4B8A-4F6E-A1C3-7E2F5B9D0A64")) __declspec(no
     // Complete effective settings object for this service (never the factory envelope). The service parses and
     // copies it before returning; it MUST NOT retain the borrowed pointer.
     virtual HRESULT STDMETHODCALLTYPE ApplySettings(const char* settingsJsonUtf8, uint32_t settingsBytes) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE OnHostState(const RedXeHostState* state) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE Stop() noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE OnHostState(const RedXeHostState* state) noexcept                            = 0;
+    virtual HRESULT STDMETHODCALLTYPE Stop() noexcept                                                              = 0;
 };
 
 // Optional host-owned device lane. The host creates one thread per started service that exposes this interface
@@ -102,5 +102,5 @@ interface __declspec(uuid("5A3E8C41-2D97-4B6F-9E15-C7D0F2A8B3E6")) __declspec(no
     virtual HRESULT STDMETHODCALLTYPE RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexcept = 0;
 };
 
-inline constexpr uint32_t kRedXeMaximumDeviceWorkers = 4;
+inline constexpr uint32_t kRedXeMaximumDeviceWorkers          = 4;
 inline constexpr uint32_t kRedXeDeviceWorkerDrainMilliseconds = 3000;

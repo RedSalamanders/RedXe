@@ -28,34 +28,33 @@ namespace
 std::atomic<uint32_t> g_cpuFaceCopyBytes{0};
 std::atomic<uint32_t> g_faceAllocations{0};
 std::atomic<bool> g_failNextFacePreparationForTest{false};
-constexpr float kPadding = 12.0f;
-constexpr float kPageButtonRowHeight = 38.0f;
-constexpr uint32_t kTraceLines = 8;
+constexpr float kPadding                  = 12.0f;
+constexpr float kPageButtonRowHeight      = 38.0f;
+constexpr uint32_t kTraceLines            = 8;
 constexpr uint32_t kMaximumTextCharacters = 96;
 // The tile's type descriptor asks for 720×420; text scales up with taller tiles and comes down only a little when
 // the status column is narrower than its reference width, so every line still fits.
-constexpr float kReferenceHeight = 420.0f;
+constexpr float kReferenceHeight      = 420.0f;
 constexpr float kReferenceColumnWidth = 400.0f;
-constexpr float kBaseTextHeight = 18.0f;
-constexpr float kBaseLineHeight = 22.0f;
-constexpr float kBaseChipHeight = 30.0f;
-constexpr float kBaseKeyLabelHeight = 14.0f;
-constexpr float kMinimumTextScale = 0.9f;
-constexpr float kMaximumTextScale = 1.6f;
+constexpr float kBaseTextHeight       = 18.0f;
+constexpr float kBaseLineHeight       = 22.0f;
+constexpr float kBaseChipHeight       = 30.0f;
+constexpr float kBaseKeyLabelHeight   = 14.0f;
+constexpr float kMinimumTextScale     = 0.9f;
+constexpr float kMaximumTextScale     = 1.6f;
 
 // Text and control sizes for one tile.
 struct Metrics final
 {
-    float text = kBaseTextHeight;
-    float line = kBaseLineHeight;
-    float chip = kBaseChipHeight;
+    float text     = kBaseTextHeight;
+    float line     = kBaseLineHeight;
+    float chip     = kBaseChipHeight;
     float keyLabel = kBaseKeyLabelHeight;
 };
 
 [[nodiscard]] Metrics ScaledMetrics(float scale) noexcept
 {
-    return Metrics{kBaseTextHeight * scale, kBaseLineHeight * scale, kBaseChipHeight * scale,
-                   kBaseKeyLabelHeight * scale};
+    return Metrics{kBaseTextHeight * scale, kBaseLineHeight * scale, kBaseChipHeight * scale, kBaseKeyLabelHeight * scale};
 }
 
 [[nodiscard]] float HeightScale(float height) noexcept
@@ -84,8 +83,7 @@ constexpr std::array kWidgetTypes{
 };
 
 // Colors cycled by the Color tap mode.
-constexpr std::array<uint32_t, 8> kPalette{0xE53935, 0xFB8C00, 0xFDD835, 0x43A047,
-                                           0x1E88E5, 0x8E24AA, 0x00ACC1, 0xF5F5F5};
+constexpr std::array<uint32_t, 8> kPalette{0xE53935, 0xFB8C00, 0xFDD835, 0x43A047, 0x1E88E5, 0x8E24AA, 0x00ACC1, 0xF5F5F5};
 
 enum class TapMode : uint8_t
 {
@@ -97,9 +95,9 @@ enum class TapMode : uint8_t
 
 struct Rect final
 {
-    float x = 0;
-    float y = 0;
-    float width = 0;
+    float x      = 0;
+    float y      = 0;
+    float width  = 0;
     float height = 0;
 
     [[nodiscard]] bool Contains(float px, float py) const noexcept
@@ -120,24 +118,22 @@ struct Layout final
     Rect brightnessDown{};
     Rect brightnessUp{};
     std::array<Rect, kDialpadButtonCount> dialButtons{};
-    float textX = 0;
-    float textY = 0;
+    float textX     = 0;
+    float textY     = 0;
     float textWidth = 0;
-    float dialpadY = 0;
-    float traceY = 0;
-    float bottom = 0;
+    float dialpadY  = 0;
+    float traceY    = 0;
+    float bottom    = 0;
 };
 
 // Lays out `count` equal chips across the text column at y.
 void PlaceChipRow(const Layout& layout, float y, Rect* chips, uint32_t count) noexcept
 {
-    constexpr float gap = 6.0f;
-    const float chipWidth =
-        std::max((layout.textWidth - static_cast<float>(count - 1) * gap) / static_cast<float>(count), 40.0f);
+    constexpr float gap   = 6.0f;
+    const float chipWidth = std::max((layout.textWidth - static_cast<float>(count - 1) * gap) / static_cast<float>(count), 40.0f);
     for (uint32_t index = 0; index < count; ++index)
     {
-        chips[index] =
-            Rect{layout.textX + static_cast<float>(index) * (chipWidth + gap), y, chipWidth, layout.metrics.chip};
+        chips[index] = Rect{layout.textX + static_cast<float>(index) * (chipWidth + gap), y, chipWidth, layout.metrics.chip};
     }
 }
 
@@ -146,28 +142,26 @@ void PlaceChipRow(const Layout& layout, float y, Rect* chips, uint32_t count) no
     Layout layout{};
     // The panel side follows the height-only scale so the page-button row below it always fits; the final metrics
     // may only be smaller (a narrow column), never larger.
-    const float pageRow = std::max(kPageButtonRowHeight, ScaledMetrics(HeightScale(height)).chip + 8.0f);
-    const float available = std::max(height - 2.0f * kPadding - pageRow, 60.0f);
-    const float side = std::max(std::min(available, width * 0.5f), 60.0f);
-    layout.metrics = ComputeMetrics(height, std::max(width - side - 3.0f * kPadding, 80.0f));
+    const float pageRow    = std::max(kPageButtonRowHeight, ScaledMetrics(HeightScale(height)).chip + 8.0f);
+    const float available  = std::max(height - 2.0f * kPadding - pageRow, 60.0f);
+    const float side       = std::max(std::min(available, width * 0.5f), 60.0f);
+    layout.metrics         = ComputeMetrics(height, std::max(width - side - 3.0f * kPadding, 80.0f));
     const Metrics& metrics = layout.metrics;
-    layout.panel = Rect{kPadding, kPadding, side, side};
-    const float scale = side / static_cast<float>(kPanelSize);
-    layout.grid = Rect{layout.panel.x + kGridOriginX * scale, layout.panel.y + kGridOriginY * scale, kGridSize * scale,
-                       kGridSize * scale};
+    layout.panel           = Rect{kPadding, kPadding, side, side};
+    const float scale      = side / static_cast<float>(kPanelSize);
+    layout.grid            = Rect{layout.panel.x + kGridOriginX * scale, layout.panel.y + kGridOriginY * scale, kGridSize * scale, kGridSize * scale};
     for (uint32_t slot = 0; slot < kKeyCount; ++slot)
     {
         const ImageRegion region = KeyRegion(slot);
-        layout.keys[slot] = Rect{layout.panel.x + region.x * scale, layout.panel.y + region.y * scale,
-                                 region.width * scale, region.height * scale};
+        layout.keys[slot]        = Rect{layout.panel.x + region.x * scale, layout.panel.y + region.y * scale, region.width * scale, region.height * scale};
     }
-    const float buttonY = layout.panel.y + side + 6.0f;
+    const float buttonY     = layout.panel.y + side + 6.0f;
     const float buttonWidth = (side - 8.0f) * 0.5f;
-    layout.pageButtons[0] = Rect{layout.panel.x, buttonY, buttonWidth, metrics.chip};
-    layout.pageButtons[1] = Rect{layout.panel.x + buttonWidth + 8.0f, buttonY, buttonWidth, metrics.chip};
+    layout.pageButtons[0]   = Rect{layout.panel.x, buttonY, buttonWidth, metrics.chip};
+    layout.pageButtons[1]   = Rect{layout.panel.x + buttonWidth + 8.0f, buttonY, buttonWidth, metrics.chip};
 
-    layout.textX = layout.panel.x + side + kPadding;
-    layout.textY = kPadding;
+    layout.textX     = layout.panel.x + side + kPadding;
+    layout.textY     = kPadding;
     layout.textWidth = std::max(width - layout.textX - kPadding, 80.0f);
     // Six status lines, then the tap-mode chips, then the toggles.
     const float chipY = layout.textY + 6.0f * metrics.line + 4.0f;
@@ -175,13 +169,12 @@ void PlaceChipRow(const Layout& layout, float y, Rect* chips, uint32_t count) no
     const float toggleY = chipY + metrics.chip + 6.0f;
     std::array<Rect, 3> toggles{};
     PlaceChipRow(layout, toggleY, toggles.data(), static_cast<uint32_t>(toggles.size()));
-    layout.syntheticChip = toggles[0];
+    layout.syntheticChip  = toggles[0];
     layout.brightnessDown = toggles[1];
-    layout.brightnessUp = toggles[2];
+    layout.brightnessUp   = toggles[2];
     // Dialpad: a status line, one line per wheel, then its four buttons as chips.
     layout.dialpadY = toggleY + metrics.chip + 10.0f;
-    PlaceChipRow(layout, layout.dialpadY + 3.0f * metrics.line + 2.0f, layout.dialButtons.data(),
-                 static_cast<uint32_t>(layout.dialButtons.size()));
+    PlaceChipRow(layout, layout.dialpadY + 3.0f * metrics.line + 2.0f, layout.dialButtons.data(), static_cast<uint32_t>(layout.dialButtons.size()));
     layout.traceY = layout.dialButtons[0].y + metrics.chip + 8.0f;
     layout.bottom = height - kPadding;
     return layout;
@@ -189,7 +182,7 @@ void PlaceChipRow(const Layout& layout, float y, Rect* chips, uint32_t count) no
 
 class MonitorGpu final
 {
-  public:
+public:
     ~MonitorGpu()
     {
         Reset();
@@ -197,7 +190,7 @@ class MonitorGpu final
 
     [[nodiscard]] HRESULT Initialize(ID3D11Device* device) noexcept
     {
-        if (!device)
+        if (! device)
         {
             return E_POINTER;
         }
@@ -212,34 +205,32 @@ class MonitorGpu final
             return result;
         }
         _viewerAcquired = true;
-        result = device->CreateVertexShader(g_LogiconMonitorVertexShader, sizeof(g_LogiconMonitorVertexShader), nullptr,
-                                            _vertexShader.put());
+        result          = device->CreateVertexShader(g_LogiconMonitorVertexShader, sizeof(g_LogiconMonitorVertexShader), nullptr, _vertexShader.put());
         if (SUCCEEDED(result))
         {
-            result = device->CreatePixelShader(g_LogiconMonitorPixelShader, sizeof(g_LogiconMonitorPixelShader),
-                                               nullptr, _pixelShader.put());
+            result = device->CreatePixelShader(g_LogiconMonitorPixelShader, sizeof(g_LogiconMonitorPixelShader), nullptr, _pixelShader.put());
         }
         if (SUCCEEDED(result))
         {
             D3D11_BUFFER_DESC constants{};
-            constants.ByteWidth = sizeof(Constants);
-            constants.Usage = D3D11_USAGE_DYNAMIC;
-            constants.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            constants.ByteWidth      = sizeof(Constants);
+            constants.Usage          = D3D11_USAGE_DYNAMIC;
+            constants.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
             constants.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-            result = device->CreateBuffer(&constants, nullptr, _constants.put());
+            result                   = device->CreateBuffer(&constants, nullptr, _constants.put());
         }
         if (SUCCEEDED(result))
         {
             D3D11_TEXTURE2D_DESC texture{};
-            texture.Width = kGridSize;
-            texture.Height = kGridSize;
-            texture.MipLevels = 1;
-            texture.ArraySize = 1;
-            texture.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            texture.Width            = kGridSize;
+            texture.Height           = kGridSize;
+            texture.MipLevels        = 1;
+            texture.ArraySize        = 1;
+            texture.Format           = DXGI_FORMAT_B8G8R8A8_UNORM;
             texture.SampleDesc.Count = 1;
-            texture.Usage = D3D11_USAGE_DEFAULT;
-            texture.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-            result = device->CreateTexture2D(&texture, nullptr, _texture.put());
+            texture.Usage            = D3D11_USAGE_DEFAULT;
+            texture.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
+            result                   = device->CreateTexture2D(&texture, nullptr, _texture.put());
         }
         if (SUCCEEDED(result))
         {
@@ -248,34 +239,34 @@ class MonitorGpu final
         if (SUCCEEDED(result))
         {
             D3D11_SAMPLER_DESC sampler{};
-            sampler.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+            sampler.Filter   = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
             sampler.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
             sampler.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
             sampler.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-            sampler.MaxLOD = D3D11_FLOAT32_MAX;
-            result = device->CreateSamplerState(&sampler, _sampler.put());
+            sampler.MaxLOD   = D3D11_FLOAT32_MAX;
+            result           = device->CreateSamplerState(&sampler, _sampler.put());
         }
         if (SUCCEEDED(result))
         {
             D3D11_RASTERIZER_DESC rasterizer{};
-            rasterizer.FillMode = D3D11_FILL_SOLID;
-            rasterizer.CullMode = D3D11_CULL_NONE;
+            rasterizer.FillMode        = D3D11_FILL_SOLID;
+            rasterizer.CullMode        = D3D11_CULL_NONE;
             rasterizer.DepthClipEnable = TRUE;
-            result = device->CreateRasterizerState(&rasterizer, _rasterizer.put());
+            result                     = device->CreateRasterizerState(&rasterizer, _rasterizer.put());
         }
         if (SUCCEEDED(result))
         {
             D3D11_BLEND_DESC blend{};
             blend.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-            result = device->CreateBlendState(&blend, _blend.put());
+            result                                      = device->CreateBlendState(&blend, _blend.put());
         }
         if (SUCCEEDED(result))
         {
             D3D11_DEPTH_STENCIL_DESC depth{};
-            depth.DepthEnable = FALSE;
+            depth.DepthEnable    = FALSE;
             depth.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-            depth.DepthFunc = D3D11_COMPARISON_ALWAYS;
-            result = device->CreateDepthStencilState(&depth, _depth.put());
+            depth.DepthFunc      = D3D11_COMPARISON_ALWAYS;
+            result               = device->CreateDepthStencilState(&depth, _depth.put());
         }
         if (FAILED(result))
         {
@@ -322,7 +313,7 @@ class MonitorGpu final
 
     [[nodiscard]] HRESULT DrawFaces(ID3D11DeviceContext* context, float width, float height, const Rect& rect) noexcept
     {
-        if (!context || !_texture)
+        if (! context || ! _texture)
         {
             return E_UNEXPECTED;
         }
@@ -332,20 +323,20 @@ class MonitorGpu final
         {
             return result;
         }
-        auto* constants = static_cast<Constants*>(mapped.pData);
-        constants->rect[0] = rect.x;
-        constants->rect[1] = rect.y;
-        constants->rect[2] = rect.width;
-        constants->rect[3] = rect.height;
+        auto* constants          = static_cast<Constants*>(mapped.pData);
+        constants->rect[0]       = rect.x;
+        constants->rect[1]       = rect.y;
+        constants->rect[2]       = rect.width;
+        constants->rect[3]       = rect.height;
         constants->targetSize[0] = width;
         constants->targetSize[1] = height;
         constants->targetSize[2] = 0.0f;
         constants->targetSize[3] = 0.0f;
         context->Unmap(_constants.get(), 0);
-        ID3D11Buffer* buffer = _constants.get();
+        ID3D11Buffer* buffer           = _constants.get();
         ID3D11ShaderResourceView* view = _textureView.get();
-        ID3D11SamplerState* sampler = _sampler.get();
-        const float blendFactor[4] = {};
+        ID3D11SamplerState* sampler    = _sampler.get();
+        const float blendFactor[4]     = {};
         context->IASetInputLayout(nullptr);
         context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         context->VSSetShader(_vertexShader.get(), nullptr, 0);
@@ -362,7 +353,7 @@ class MonitorGpu final
         return S_OK;
     }
 
-  private:
+private:
     struct Constants final
     {
         float rect[4];
@@ -370,7 +361,7 @@ class MonitorGpu final
     };
 
     ID3D11Device* _deviceIdentity = nullptr;
-    bool _viewerAcquired = false;
+    bool _viewerAcquired          = false;
     wil::com_ptr_nothrow<ID3D11VertexShader> _vertexShader;
     wil::com_ptr_nothrow<ID3D11PixelShader> _pixelShader;
     wil::com_ptr_nothrow<ID3D11Buffer> _constants;
@@ -383,11 +374,19 @@ class MonitorGpu final
 };
 
 // Near-white body text, a dimmer grey for secondary lines: the column sits on the dashboard background.
-constexpr float kTextPrimary = 0.96f;
+constexpr float kTextPrimary   = 0.96f;
 constexpr float kTextSecondary = 0.82f;
 
-void AppendLine(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& metrics, float x, float& y,
-                float maxWidth, const wchar_t* text, float red, float green, float blue) noexcept
+void AppendLine(ViewerGpuResources& gpu,
+                ViewerDrawList& list,
+                const Metrics& metrics,
+                float x,
+                float& y,
+                float maxWidth,
+                const wchar_t* text,
+                float red,
+                float green,
+                float blue) noexcept
 {
     uint32_t characters = static_cast<uint32_t>(wcsnlen_s(text, kMaximumTextCharacters));
     while (characters > 0 && gpu.MeasureText(text, characters, metrics.text) > maxWidth)
@@ -401,22 +400,26 @@ void AppendLine(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& me
     y += metrics.line;
 }
 
-void AppendChip(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& metrics, const Rect& rect,
-                const wchar_t* text, bool active) noexcept
+void AppendChip(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& metrics, const Rect& rect, const wchar_t* text, bool active) noexcept
 {
-    (void)list.AddFill(rect.x, rect.y, rect.width, rect.height, active ? 0.20f : 0.16f, active ? 0.50f : 0.18f,
-                       active ? 0.90f : 0.22f, 1.0f, 6.0f);
-    (void)list.AddStroke(rect.x, rect.y, rect.width, rect.height, 0.70f, 0.75f, 0.85f, active ? 1.0f : 0.7f, 6.0f,
-                         1.5f);
+    (void)list.AddFill(rect.x, rect.y, rect.width, rect.height, active ? 0.20f : 0.16f, active ? 0.50f : 0.18f, active ? 0.90f : 0.22f, 1.0f, 6.0f);
+    (void)list.AddStroke(rect.x, rect.y, rect.width, rect.height, 0.70f, 0.75f, 0.85f, active ? 1.0f : 0.7f, 6.0f, 1.5f);
     uint32_t characters = static_cast<uint32_t>(wcsnlen_s(text, 32));
-    float textWidth = gpu.MeasureText(text, characters, metrics.text);
+    float textWidth     = gpu.MeasureText(text, characters, metrics.text);
     while (characters > 1 && textWidth > rect.width - 6.0f)
     {
         --characters;
         textWidth = gpu.MeasureText(text, characters, metrics.text);
     }
-    (void)gpu.AppendText(list, rect.x + std::max((rect.width - textWidth) * 0.5f, 3.0f),
-                         rect.y + (rect.height - metrics.text) * 0.5f, metrics.text, 1.0f, 1.0f, 1.0f, 1.0f, text,
+    (void)gpu.AppendText(list,
+                         rect.x + std::max((rect.width - textWidth) * 0.5f, 3.0f),
+                         rect.y + (rect.height - metrics.text) * 0.5f,
+                         metrics.text,
+                         1.0f,
+                         1.0f,
+                         1.0f,
+                         1.0f,
+                         text,
                          characters);
 }
 
@@ -424,7 +427,7 @@ void AppendChip(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& me
 [[nodiscard]] const char* ActionLabel(const ActionName& action) noexcept
 {
     const char* name = action.data();
-    const char* dot = std::strchr(name, '.');
+    const char* dot  = std::strchr(name, '.');
     return dot ? dot + 1 : name;
 }
 
@@ -432,13 +435,12 @@ void AppendChip(ViewerGpuResources& gpu, ViewerDrawList& list, const Metrics& me
 // Owner: RedXe maintainers; review: 2027-01-31.
 #pragma warning(push)
 #pragma warning(disable : 4625 4626)
-class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, IRedXeGpuWidget, IRedXePreparedGpuWidget,
-                                                  IRedXeInteractiveWidget>
+class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, IRedXeGpuWidget, IRedXePreparedGpuWidget, IRedXeInteractiveWidget>
 {
-  public:
-    MonitorWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, IRedXeHost* host,
-                  const char* instanceId) noexcept
-        : _providerOwner(std::move(providerOwner)), _host(host)
+public:
+    MonitorWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, IRedXeHost* host, const char* instanceId) noexcept
+        : _providerOwner(std::move(providerOwner)),
+          _host(host)
     {
         strncpy_s(_instanceId.data(), _instanceId.size(), instanceId, _TRUNCATE);
         if (LogiconService* service = LogiconService::Current())
@@ -464,11 +466,11 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     {
         if (_visible != (visible != FALSE))
         {
-            _snapshotValid = false;
+            _snapshotValid     = false;
             _preparationFailed = false;
         }
         _visible = visible != FALSE;
-        if (!_visible)
+        if (! _visible)
             ReleaseFaceCopy();
         if (_visible && _host)
         {
@@ -477,24 +479,23 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
-                                                        uint32_t* writtenBytes) noexcept override
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes, uint32_t* writtenBytes) noexcept override
     {
         return RedXeCollectNoPersistentSettings(jsonUtf8, capacityBytes, writtenBytes);
     }
 
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
-        if (context->sizeBytes != sizeof(RedXeGpuDeviceContext) || !context->device)
+        if (context->sizeBytes != sizeof(RedXeGpuDeviceContext) || ! context->device)
         {
             return E_INVALIDARG;
         }
         ReleaseFaceCopy();
-        _snapshotValid = false;
+        _snapshotValid     = false;
         _preparationFailed = false;
         return _gpu.Initialize(context->device);
     }
@@ -503,13 +504,13 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     {
         _gpu.Reset();
         ReleaseFaceCopy();
-        _snapshotValid = false;
+        _snapshotValid     = false;
         _preparationFailed = false;
     }
 
     HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
     {
-        if (!context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
+        if (! context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
         {
             return E_INVALIDARG;
         }
@@ -518,37 +519,34 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
 
     HRESULT STDMETHODCALLTYPE Prepare(const RedXeGpuPreparationContext* context) noexcept override
     {
-        if (!context || context->sizeBytes != sizeof(RedXeGpuPreparationContext))
+        if (! context || context->sizeBytes != sizeof(RedXeGpuPreparationContext))
         {
             return E_INVALIDARG;
         }
-        if (!_visible || !_gpu.Ready())
+        if (! _visible || ! _gpu.Ready())
             return S_FALSE;
-        _snapshotValid = false;
+        _snapshotValid          = false;
         LogiconService* service = LogiconService::Current();
-        if (!service)
+        if (! service)
         {
             _snapshotValid = false;
             return S_FALSE;
         }
         uint64_t visibleStamp = 0;
         service->CopyMonitorSnapshot(_snapshot, &visibleStamp);
-        const std::array extents{context->dpi, context->tileWidthPixels, context->tileHeightPixels,
-                                 context->raisedWidthPixels, context->raisedHeightPixels};
-        if (_preparationFailed && _failedPreparation.visibleStamp == visibleStamp &&
-            _failedPreparation.extents == extents)
+        const std::array extents{context->dpi, context->tileWidthPixels, context->tileHeightPixels, context->raisedWidthPixels, context->raisedHeightPixels};
+        if (_preparationFailed && _failedPreparation.visibleStamp == visibleStamp && _failedPreparation.extents == extents)
             return S_FALSE;
         // Every failure below is suppressed until the published visible state, extent or lifecycle changes.
-        _failedPreparation = PreparationKey{visibleStamp, extents};
-        _preparationFailed = true;
-        const bool newFaceCopy = !_faces;
-        if (!_faces)
+        _failedPreparation     = PreparationKey{visibleStamp, extents};
+        _preparationFailed     = true;
+        const bool newFaceCopy = ! _faces;
+        if (! _faces)
         {
             if (g_failNextFacePreparationForTest.exchange(false, std::memory_order_relaxed))
                 return E_OUTOFMEMORY;
-            _faces.reset(static_cast<uint32_t*>(
-                VirtualAlloc(nullptr, kGridPixels * sizeof(uint32_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
-            if (!_faces)
+            _faces.reset(static_cast<uint32_t*>(VirtualAlloc(nullptr, kGridPixels * sizeof(uint32_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
+            if (! _faces)
             {
                 return E_OUTOFMEMORY;
             }
@@ -564,51 +562,49 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         // Every other generated monitor label is ASCII (including validated action names and hex traces).
         // The copied dashboard name and the separator are the bounded UTF-16 inputs.
         auto* gpu = ViewerGpuGet();
-        if (!gpu)
+        if (! gpu)
             return E_UNEXPECTED;
         const auto releaseFonts = wil::scope_exit([gpu]() noexcept { gpu->ReleasePreparationFonts(); });
-        HRESULT result = gpu->EnsureGlyphs(L"\u00b7", 1);
+        HRESULT result          = gpu->EnsureGlyphs(L"\u00b7", 1);
         if (SUCCEEDED(result))
-            result = gpu->EnsureGlyphs(
-                _snapshot.host.pageName.data(),
-                static_cast<uint32_t>(wcsnlen_s(_snapshot.host.pageName.data(), _snapshot.host.pageName.size())));
+            result = gpu->EnsureGlyphs(_snapshot.host.pageName.data(),
+                                       static_cast<uint32_t>(wcsnlen_s(_snapshot.host.pageName.data(), _snapshot.host.pageName.size())));
         if (FAILED(result))
             return result;
         gpu->UploadDirtyGlyphs();
         _preparationFailed = false;
-        _snapshotValid = true;
+        _snapshotValid     = true;
         return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
-        if (!context || !context->widget)
+        if (! context || ! context->widget)
         {
             return E_POINTER;
         }
         const RedXeWidgetFrameContext& widget = *context->widget;
-        if (context->sizeBytes != sizeof(RedXeGpuFrameContext) || widget.sizeBytes != sizeof(RedXeWidgetFrameContext) ||
-            !context->deviceContext || widget.widthPixels == 0 || widget.heightPixels == 0)
+        if (context->sizeBytes != sizeof(RedXeGpuFrameContext) || widget.sizeBytes != sizeof(RedXeWidgetFrameContext) || ! context->deviceContext ||
+            widget.widthPixels == 0 || widget.heightPixels == 0)
         {
             return E_INVALIDARG;
         }
-        if (!_gpu.Ready())
+        if (! _gpu.Ready())
         {
             return E_UNEXPECTED;
         }
-        if (!_visible || !_snapshotValid)
+        if (! _visible || ! _snapshotValid)
             return S_FALSE;
-        const float width = static_cast<float>(widget.widthPixels);
-        const float height = static_cast<float>(widget.heightPixels);
-        const Layout layout = ComputeLayout(width, height);
+        const float width       = static_cast<float>(widget.widthPixels);
+        const float height      = static_cast<float>(widget.heightPixels);
+        const Layout layout     = ComputeLayout(width, height);
         ViewerGpuResources* gpu = ViewerGpuGet();
-        if (!gpu)
+        if (! gpu)
         {
             return E_UNEXPECTED;
         }
         _list.Reset();
-        (void)_list.AddFill(layout.panel.x, layout.panel.y, layout.panel.width, layout.panel.height, 0.07f, 0.07f,
-                            0.08f, 1.0f, 8.0f);
+        (void)_list.AddFill(layout.panel.x, layout.panel.y, layout.panel.width, layout.panel.height, 0.07f, 0.07f, 0.08f, 1.0f, 8.0f);
         HRESULT result = gpu->Render(context->deviceContext, width, height, _list);
         if (SUCCEEDED(result))
         {
@@ -625,12 +621,11 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
 
     HRESULT STDMETHODCALLTYPE OnPointer(const RedXePointerEvent* event) noexcept override
     {
-        if (!event || event->sizeBytes != sizeof(RedXePointerEvent))
+        if (! event || event->sizeBytes != sizeof(RedXePointerEvent))
         {
             return E_INVALIDARG;
         }
-        if (event->phase != RedXePointerPhaseDown && event->phase != RedXePointerPhaseUp &&
-            event->phase != RedXePointerPhaseCancel)
+        if (event->phase != RedXePointerPhaseDown && event->phase != RedXePointerPhaseUp && event->phase != RedXePointerPhaseCancel)
         {
             return S_FALSE;
         }
@@ -642,13 +637,12 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
                 (void)service->InjectControl(_heldKind, _heldIndex, false);
             }
             const bool consumed = _heldKind != 0xFF;
-            _heldKind = 0xFF;
+            _heldKind           = 0xFF;
             return consumed ? S_OK : S_FALSE;
         }
-        if (!_visible || !_snapshotValid || !_gpu.Ready())
+        if (! _visible || ! _snapshotValid || ! _gpu.Ready())
             return S_FALSE;
-        const Layout layout =
-            ComputeLayout(static_cast<float>(event->widthPixels), static_cast<float>(event->heightPixels));
+        const Layout layout = ComputeLayout(static_cast<float>(event->widthPixels), static_cast<float>(event->heightPixels));
         for (uint32_t slot = 0; slot < kKeyCount; ++slot)
         {
             if (layout.keys[slot].Contains(event->x, event->y))
@@ -662,7 +656,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             {
                 if (service && SUCCEEDED(service->InjectControl(kInjectKindPageButton, button, true)))
                 {
-                    _heldKind = kInjectKindPageButton;
+                    _heldKind  = kInjectKindPageButton;
                     _heldIndex = static_cast<uint8_t>(button);
                 }
                 return S_OK;
@@ -674,7 +668,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             {
                 if (service && SUCCEEDED(service->InjectControl(kInjectKindDialButton, button, true)))
                 {
-                    _heldKind = kInjectKindDialButton;
+                    _heldKind  = kInjectKindDialButton;
                     _heldIndex = static_cast<uint8_t>(button);
                 }
                 return S_OK;
@@ -693,7 +687,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         {
             if (service)
             {
-                (void)service->SetSynthetic(!_snapshot.synthetic);
+                (void)service->SetSynthetic(! _snapshot.synthetic);
             }
             return S_OK;
         }
@@ -702,8 +696,8 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             if (service)
             {
                 const int delta = layout.brightnessUp.Contains(event->x, event->y) ? 10 : -10;
-                const int next = std::clamp(static_cast<int>(_snapshot.brightness) + delta,
-                                            static_cast<int>(kMinimumBrightness), static_cast<int>(kMaximumBrightness));
+                const int next =
+                    std::clamp(static_cast<int>(_snapshot.brightness) + delta, static_cast<int>(kMinimumBrightness), static_cast<int>(kMaximumBrightness));
                 (void)service->SetBrightness(static_cast<uint32_t>(next));
             }
             return S_OK;
@@ -726,7 +720,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         return S_FALSE;
     }
 
-  private:
+private:
     void ReleaseFaceCopy() noexcept
     {
         if (_faces)
@@ -747,45 +741,38 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
 
     [[nodiscard]] HRESULT TapKey(LogiconService* service, uint32_t slot) noexcept
     {
-        if (!service)
+        if (! service)
         {
             return S_OK;
         }
         switch (_mode)
         {
-        case TapMode::Press:
-            if (SUCCEEDED(service->InjectControl(kInjectKindKey, slot, true)))
-            {
-                _heldKind = kInjectKindKey;
-                _heldIndex = static_cast<uint8_t>(slot);
-            }
-            break;
-        case TapMode::Color:
-            (void)service->SetFaceOverride(slot, OverrideKind::Color, kPalette[_paletteIndex]);
-            _paletteIndex = (_paletteIndex + 1) % static_cast<uint32_t>(kPalette.size());
-            break;
-        case TapMode::Picture:
-            (void)service->SetFaceOverride(slot, OverrideKind::Picture, 0);
-            break;
-        case TapMode::Clear:
-            (void)service->SetFaceOverride(slot, OverrideKind::None, 0);
-            break;
+            case TapMode::Press:
+                if (SUCCEEDED(service->InjectControl(kInjectKindKey, slot, true)))
+                {
+                    _heldKind  = kInjectKindKey;
+                    _heldIndex = static_cast<uint8_t>(slot);
+                }
+                break;
+            case TapMode::Color:
+                (void)service->SetFaceOverride(slot, OverrideKind::Color, kPalette[_paletteIndex]);
+                _paletteIndex = (_paletteIndex + 1) % static_cast<uint32_t>(kPalette.size());
+                break;
+            case TapMode::Picture: (void)service->SetFaceOverride(slot, OverrideKind::Picture, 0); break;
+            case TapMode::Clear: (void)service->SetFaceOverride(slot, OverrideKind::None, 0); break;
         }
         return S_OK;
     }
 
     // Appends one HID++ frame as hex. prefix names the device and direction.
-    void AppendTraceLine(ViewerGpuResources& gpu, const Layout& layout, float& y, const wchar_t* prefix,
-                         const TraceEntry& entry) noexcept
+    void AppendTraceLine(ViewerGpuResources& gpu, const Layout& layout, float& y, const wchar_t* prefix, const TraceEntry& entry) noexcept
     {
         std::array<wchar_t, kMaximumTextCharacters> text{};
-        int written = swprintf_s(text.data(), text.size(), L"%s", prefix);
+        int written          = swprintf_s(text.data(), text.size(), L"%s", prefix);
         const uint32_t shown = std::min<uint32_t>(entry.length, 12);
-        for (uint32_t byteIndex = 0; byteIndex < shown && written > 0 && static_cast<size_t>(written) + 3 < text.size();
-             ++byteIndex)
+        for (uint32_t byteIndex = 0; byteIndex < shown && written > 0 && static_cast<size_t>(written) + 3 < text.size(); ++byteIndex)
         {
-            const int appended = swprintf_s(text.data() + written, text.size() - static_cast<size_t>(written), L"%02X ",
-                                            entry.bytes[byteIndex]);
+            const int appended = swprintf_s(text.data() + written, text.size() - static_cast<size_t>(written), L"%02X ", entry.bytes[byteIndex]);
             if (appended <= 0)
             {
                 break;
@@ -798,17 +785,16 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     void DrawOverlay(ViewerGpuResources& gpu, const Layout& layout) noexcept
     {
         const MonitorSnapshot& snapshot = _snapshot;
-        const Metrics& metrics = layout.metrics;
+        const Metrics& metrics          = layout.metrics;
         std::array<wchar_t, kMaximumTextCharacters> text{};
         // Key overlays: slot number, action, pressed and override state, on a dark pill so faces never hide them.
         for (uint32_t slot = 0; slot < kKeyCount; ++slot)
         {
-            const Rect& key = layout.keys[slot];
+            const Rect& key    = layout.keys[slot];
             const bool pressed = (snapshot.keys & (1U << slot)) != 0;
             if (pressed)
             {
-                (void)_list.AddStroke(key.x - 2.0f, key.y - 2.0f, key.width + 4.0f, key.height + 4.0f, 1.0f, 0.85f,
-                                      0.2f, 1.0f, 6.0f, 3.0f);
+                (void)_list.AddStroke(key.x - 2.0f, key.y - 2.0f, key.width + 4.0f, key.height + 4.0f, 1.0f, 0.85f, 0.2f, 1.0f, 6.0f, 3.0f);
             }
             else if (snapshot.invalid[slot])
             {
@@ -820,79 +806,103 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
             }
             (void)swprintf_s(text.data(), text.size(), L"%u %S", slot + 1U, ActionLabel(snapshot.actions[slot]));
             const uint32_t characters = static_cast<uint32_t>(wcsnlen_s(text.data(), text.size()));
-            const float labelWidth = gpu.MeasureText(text.data(), characters, metrics.keyLabel);
-            (void)_list.AddFill(key.x + 2.0f, key.y + 2.0f, labelWidth + 8.0f, metrics.keyLabel + 4.0f, 0.0f, 0.0f,
-                                0.0f, 0.55f, 4.0f);
-            (void)gpu.AppendText(_list, key.x + 6.0f, key.y + 4.0f, metrics.keyLabel, 1.0f, 1.0f, 1.0f, 1.0f,
-                                 text.data(), characters);
+            const float labelWidth    = gpu.MeasureText(text.data(), characters, metrics.keyLabel);
+            (void)_list.AddFill(key.x + 2.0f, key.y + 2.0f, labelWidth + 8.0f, metrics.keyLabel + 4.0f, 0.0f, 0.0f, 0.0f, 0.55f, 4.0f);
+            (void)gpu.AppendText(_list, key.x + 6.0f, key.y + 4.0f, metrics.keyLabel, 1.0f, 1.0f, 1.0f, 1.0f, text.data(), characters);
         }
         // Page buttons.
         for (uint32_t button = 0; button < 2; ++button)
         {
-            const Rect& rect = layout.pageButtons[button];
+            const Rect& rect   = layout.pageButtons[button];
             const bool pressed = (snapshot.pageButtons & (1U << button)) != 0;
             AppendChip(gpu, _list, metrics, rect, button == 0 ? L"< page" : L"page >", pressed);
         }
 
         // Status column.
-        float y = layout.textY;
-        const float x = layout.textX;
+        float y              = layout.textY;
+        const float x        = layout.textX;
         const float maxWidth = layout.textWidth;
-        const wchar_t* link = snapshot.connected ? (snapshot.synthetic ? L"synthetic" : L"usb") : L"disconnected";
-        (void)swprintf_s(text.data(), text.size(), L"Keypad %s · lane %s · access %s", link,
-                         snapshot.laneRunning ? L"on" : L"off", snapshot.deviceAccess ? L"yes" : L"no");
-        AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), snapshot.connected ? 0.65f : 1.0f,
-                   snapshot.connected ? 1.0f : 0.55f, 0.65f);
-        (void)swprintf_s(text.data(), text.size(), L"19A1@%02X 1B04@%02X 8040@%02X · ports %u · page %u/%u",
-                         snapshot.features.display, snapshot.features.reprogControls, snapshot.features.brightness,
-                         snapshot.portCount, snapshot.keyPage + 1U, snapshot.keyPageCount);
+        const wchar_t* link  = snapshot.connected ? (snapshot.synthetic ? L"synthetic" : L"usb") : L"disconnected";
+        (void)swprintf_s(
+            text.data(), text.size(), L"Keypad %s · lane %s · access %s", link, snapshot.laneRunning ? L"on" : L"off", snapshot.deviceAccess ? L"yes" : L"no");
+        AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), snapshot.connected ? 0.65f : 1.0f, snapshot.connected ? 1.0f : 0.55f, 0.65f);
+        (void)swprintf_s(text.data(),
+                         text.size(),
+                         L"19A1@%02X 1B04@%02X 8040@%02X · ports %u · page %u/%u",
+                         snapshot.features.display,
+                         snapshot.features.reprogControls,
+                         snapshot.features.brightness,
+                         snapshot.portCount,
+                         snapshot.keyPage + 1U,
+                         snapshot.keyPageCount);
         AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextPrimary, kTextPrimary, kTextPrimary);
-        (void)swprintf_s(text.data(), text.size(), L"bright %u · faces %u (gen %u) · img %u", snapshot.brightness,
-                         snapshot.facesWritten, snapshot.faceGeneration, snapshot.counters.imagesWritten);
+        (void)swprintf_s(text.data(),
+                         text.size(),
+                         L"bright %u · faces %u (gen %u) · img %u",
+                         snapshot.brightness,
+                         snapshot.facesWritten,
+                         snapshot.faceGeneration,
+                         snapshot.counters.imagesWritten);
         AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextPrimary, kTextPrimary, kTextPrimary);
-        (void)swprintf_s(text.data(), text.size(), L"in %u · out %u · errors %u · hid++ 0x%02X",
-                         snapshot.counters.reportsIn, snapshot.counters.reportsOut, snapshot.counters.commandErrors,
+        (void)swprintf_s(text.data(),
+                         text.size(),
+                         L"in %u · out %u · errors %u · hid++ 0x%02X",
+                         snapshot.counters.reportsIn,
+                         snapshot.counters.reportsOut,
+                         snapshot.counters.commandErrors,
                          snapshot.counters.lastHidppError);
         AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextPrimary, kTextPrimary, kTextPrimary);
-        (void)swprintf_s(text.data(), text.size(), L"host %u/%u %s%s · actions %u (last %S)",
-                         snapshot.host.pageIndex + 1U, snapshot.host.pageCount, snapshot.host.pageName.data(),
+        (void)swprintf_s(text.data(),
+                         text.size(),
+                         L"host %u/%u %s%s · actions %u (last %S)",
+                         snapshot.host.pageIndex + 1U,
+                         snapshot.host.pageCount,
+                         snapshot.host.pageName.data(),
                          (snapshot.host.flags & RedXeHostStateRaised) != 0 ? L" [raised]" : L"",
-                         snapshot.actionsRequested, snapshot.lastAction.data());
+                         snapshot.actionsRequested,
+                         snapshot.lastAction.data());
         AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextPrimary, kTextPrimary, kTextPrimary);
         if (snapshot.competingWriter)
         {
-            AppendLine(gpu, _list, metrics, x, y, maxWidth, L"Logi Options+ is running: faces may be repainted", 1.0f,
-                       0.78f, 0.35f);
+            AppendLine(gpu, _list, metrics, x, y, maxWidth, L"Logi Options+ is running: faces may be repainted", 1.0f, 0.78f, 0.35f);
         }
         else if (FAILED(snapshot.lastFailure))
         {
-            (void)swprintf_s(text.data(), text.size(), L"last failure 0x%08X after %u attempt(s)",
-                             static_cast<unsigned>(snapshot.lastFailure), snapshot.connectAttempts);
+            (void)swprintf_s(
+                text.data(), text.size(), L"last failure 0x%08X after %u attempt(s)", static_cast<unsigned>(snapshot.lastFailure), snapshot.connectAttempts);
             AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), 1.0f, 0.6f, 0.6f);
         }
         else if (snapshot.systemFeed)
         {
-            (void)swprintf_s(text.data(), text.size(), L"faces: %s · system cpu %d%% mem %d%% gpu %d%%",
-                             snapshot.rendererReady ? L"ok" : L"unavailable", snapshot.system.cpuPercent,
-                             snapshot.system.memoryPercent, snapshot.system.gpuPercent);
-            AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextSecondary, kTextSecondary,
-                       kTextSecondary);
+            (void)swprintf_s(text.data(),
+                             text.size(),
+                             L"faces: %s · system cpu %d%% mem %d%% gpu %d%%",
+                             snapshot.rendererReady ? L"ok" : L"unavailable",
+                             snapshot.system.cpuPercent,
+                             snapshot.system.memoryPercent,
+                             snapshot.system.gpuPercent);
+            AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextSecondary, kTextSecondary, kTextSecondary);
         }
         else
         {
-            AppendLine(gpu, _list, metrics, x, y, maxWidth,
-                       snapshot.rendererReady ? (snapshot.iconFont ? L"faces: DirectWrite + Fluent icons"
-                                                                   : L"faces: DirectWrite (no icon font)")
+            AppendLine(gpu,
+                       _list,
+                       metrics,
+                       x,
+                       y,
+                       maxWidth,
+                       snapshot.rendererReady ? (snapshot.iconFont ? L"faces: DirectWrite + Fluent icons" : L"faces: DirectWrite (no icon font)")
                                               : L"faces: unavailable",
-                       kTextSecondary, kTextSecondary, kTextSecondary);
+                       kTextSecondary,
+                       kTextSecondary,
+                       kTextSecondary);
         }
 
         // Tap mode chips and toggles.
         const wchar_t* modes[] = {L"Press", L"Color", L"Picture", L"Clear"};
         for (uint32_t index = 0; index < layout.modeChips.size(); ++index)
         {
-            AppendChip(gpu, _list, metrics, layout.modeChips[index], modes[index],
-                       static_cast<uint32_t>(_mode) == index);
+            AppendChip(gpu, _list, metrics, layout.modeChips[index], modes[index], static_cast<uint32_t>(_mode) == index);
         }
         AppendChip(gpu, _list, metrics, layout.syntheticChip, L"Synthetic", snapshot.synthetic);
         AppendChip(gpu, _list, metrics, layout.brightnessDown, L"Bright -", false);
@@ -901,35 +911,49 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         // Dialpad: the HID++ vendor collection carries the four buttons; the dial and roller are the wheels of its
         // mouse collection, read through Raw Input.
         const DialpadSnapshot& dialpad = snapshot.dialpad;
-        y = layout.dialpadY;
+        y                              = layout.dialpadY;
         if (dialpad.connected)
         {
-            (void)swprintf_s(text.data(), text.size(), L"Dialpad bluetooth · 1B04@%02X · in %u · presses %u",
-                             dialpad.features.reprogControls, dialpad.counters.reportsIn, dialpad.buttonPresses);
+            (void)swprintf_s(text.data(),
+                             text.size(),
+                             L"Dialpad bluetooth · 1B04@%02X · in %u · presses %u",
+                             dialpad.features.reprogControls,
+                             dialpad.counters.reportsIn,
+                             dialpad.buttonPresses);
             AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), 0.65f, 1.0f, 0.65f);
         }
         else if (FAILED(dialpad.lastFailure) && dialpad.lastFailure != HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED))
         {
-            (void)swprintf_s(text.data(), text.size(), L"Dialpad failed 0x%08X after %u attempt(s)",
-                             static_cast<unsigned>(dialpad.lastFailure), dialpad.connectAttempts);
+            (void)swprintf_s(
+                text.data(), text.size(), L"Dialpad failed 0x%08X after %u attempt(s)", static_cast<unsigned>(dialpad.lastFailure), dialpad.connectAttempts);
             AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), 1.0f, 0.6f, 0.6f);
         }
         else
         {
-            AppendLine(gpu, _list, metrics, x, y, maxWidth, L"Dialpad not connected (Bluetooth, PID BC00)", 1.0f, 0.55f,
-                       0.65f);
+            AppendLine(gpu, _list, metrics, x, y, maxWidth, L"Dialpad not connected (Bluetooth, PID BC00)", 1.0f, 0.55f, 0.65f);
         }
         const WheelState& wheels = dialpad.wheels;
         if (dialpad.wheelsListening)
         {
             // Detents = raw / kWheelDetentUnits; the raw sum and the action bound to each wheel stay visible.
-            (void)swprintf_s(text.data(), text.size(), L"dial %+d (raw %+d, %u ev) -> %S / %S · steps %u",
-                             wheels.dialRaw / static_cast<int32_t>(kWheelDetentUnits), wheels.dialRaw,
-                             wheels.dialEvents, dialpad.turns[0].data(), dialpad.turns[1].data(), dialpad.wheelSteps);
+            (void)swprintf_s(text.data(),
+                             text.size(),
+                             L"dial %+d (raw %+d, %u ev) -> %S / %S · steps %u",
+                             wheels.dialRaw / static_cast<int32_t>(kWheelDetentUnits),
+                             wheels.dialRaw,
+                             wheels.dialEvents,
+                             dialpad.turns[0].data(),
+                             dialpad.turns[1].data(),
+                             dialpad.wheelSteps);
             AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextPrimary, kTextPrimary, kTextPrimary);
-            (void)swprintf_s(text.data(), text.size(), L"roller %+d (raw %+d, %u ev) -> %S / %S",
-                             wheels.rollerRaw / static_cast<int32_t>(kWheelDetentUnits), wheels.rollerRaw,
-                             wheels.rollerEvents, dialpad.turns[2].data(), dialpad.turns[3].data());
+            (void)swprintf_s(text.data(),
+                             text.size(),
+                             L"roller %+d (raw %+d, %u ev) -> %S / %S",
+                             wheels.rollerRaw / static_cast<int32_t>(kWheelDetentUnits),
+                             wheels.rollerRaw,
+                             wheels.rollerEvents,
+                             dialpad.turns[2].data(),
+                             dialpad.turns[3].data());
             AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextPrimary, kTextPrimary, kTextPrimary);
         }
         else if (dialpad.wheelsWanted)
@@ -939,42 +963,39 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         }
         else
         {
-            AppendLine(gpu, _list, metrics, x, y, maxWidth, L"wheels: idle (no dialpad or no turn bound)",
-                       kTextSecondary, kTextSecondary, kTextSecondary);
+            AppendLine(gpu, _list, metrics, x, y, maxWidth, L"wheels: idle (no dialpad or no turn bound)", kTextSecondary, kTextSecondary, kTextSecondary);
         }
         // Unbound buttons are not diverted (they keep working as Back/Forward and their keyboard usages) and are
         // shown in brackets; a tap still injects the press so a binding can be exercised without hardware.
-        const wchar_t* dialNames[kDialpadButtonCount] = {L"Back", L"Forward", L"Btn 6", L"Btn 7"};
+        const wchar_t* dialNames[kDialpadButtonCount]   = {L"Back", L"Forward", L"Btn 6", L"Btn 7"};
         const wchar_t* nativeNames[kDialpadButtonCount] = {L"[Back]", L"[Forward]", L"[Btn 6]", L"[Btn 7]"};
         for (uint32_t button = 0; button < kDialpadButtonCount; ++button)
         {
             const bool diverted = (dialpad.divertedButtons & (1U << button)) != 0;
-            AppendChip(gpu, _list, metrics, layout.dialButtons[button],
-                       diverted ? dialNames[button] : nativeNames[button], (dialpad.buttons & (1U << button)) != 0);
+            AppendChip(
+                gpu, _list, metrics, layout.dialButtons[button], diverted ? dialNames[button] : nativeNames[button], (dialpad.buttons & (1U << button)) != 0);
         }
 
         // Trace: the newest frames of both devices, merged by tick, as many as fit.
         y = layout.traceY;
-        (void)swprintf_s(text.data(), text.size(), L"HID++ trace · mouse 0x%02X motion %u other %u", wheels.buttonMask,
-                         wheels.motionEvents, wheels.otherReports);
+        (void)swprintf_s(
+            text.data(), text.size(), L"HID++ trace · mouse 0x%02X motion %u other %u", wheels.buttonMask, wheels.motionEvents, wheels.otherReports);
         AppendLine(gpu, _list, metrics, x, y, maxWidth, text.data(), kTextSecondary, kTextSecondary, kTextSecondary);
-        const uint32_t room =
-            y + metrics.line <= layout.bottom ? static_cast<uint32_t>((layout.bottom - y) / metrics.line) : 0U;
+        const uint32_t room  = y + metrics.line <= layout.bottom ? static_cast<uint32_t>((layout.bottom - y) / metrics.line) : 0U;
         const uint32_t lines = std::min(room, kTraceLines);
         // Pick the newest `lines` entries from the two oldest-first arrays, then print them oldest first.
         struct Pick final
         {
             const TraceEntry* entry = nullptr;
-            bool dialpad = false;
+            bool dialpad            = false;
         };
         std::array<Pick, kTraceLines> picks{};
-        uint32_t picked = 0;
-        uint32_t keypadIndex = snapshot.traceCount;
+        uint32_t picked       = 0;
+        uint32_t keypadIndex  = snapshot.traceCount;
         uint32_t dialpadIndex = dialpad.traceCount;
         while (picked < lines && (keypadIndex > 0 || dialpadIndex > 0))
         {
-            const bool takeDialpad = keypadIndex == 0 || (dialpadIndex > 0 && dialpad.trace[dialpadIndex - 1].tick >=
-                                                                                  snapshot.trace[keypadIndex - 1].tick);
+            const bool takeDialpad = keypadIndex == 0 || (dialpadIndex > 0 && dialpad.trace[dialpadIndex - 1].tick >= snapshot.trace[keypadIndex - 1].tick);
             if (takeDialpad)
             {
                 picks[picked++] = Pick{&dialpad.trace[--dialpadIndex], true};
@@ -987,10 +1008,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
         for (uint32_t index = picked; index > 0; --index)
         {
             const Pick& pick = picks[index - 1];
-            AppendTraceLine(gpu, layout, y,
-                            pick.dialpad ? (pick.entry->outbound ? L"d> " : L"d< ")
-                                         : (pick.entry->outbound ? L"k> " : L"k< "),
-                            *pick.entry);
+            AppendTraceLine(gpu, layout, y, pick.dialpad ? (pick.entry->outbound ? L"d> " : L"d< ") : (pick.entry->outbound ? L"k> " : L"k< "), *pick.entry);
         }
     }
 
@@ -1000,7 +1018,7 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     MonitorGpu _gpu;
     ViewerDrawList _list;
     MonitorSnapshot _snapshot{};
-    bool _snapshotValid = false;
+    bool _snapshotValid     = false;
     bool _preparationFailed = false;
     struct PreparationKey final
     {
@@ -1011,12 +1029,12 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
     PreparationKey _failedPreparation{};
     wil::unique_virtualalloc_ptr<uint32_t> _faces;
     uint32_t _faceGeneration = 0;
-    bool _visible = false;
-    bool _attached = false;
-    TapMode _mode = TapMode::Press;
-    uint32_t _paletteIndex = 0;
-    uint8_t _heldKind = 0xFF;
-    uint8_t _heldIndex = 0;
+    bool _visible            = false;
+    bool _attached           = false;
+    TapMode _mode            = TapMode::Press;
+    uint32_t _paletteIndex   = 0;
+    uint8_t _heldKind        = 0xFF;
+    uint8_t _heldIndex       = 0;
 };
 #pragma warning(pop)
 
@@ -1026,11 +1044,12 @@ class MonitorWidget final : public RedXeComObject<MonitorWidget, IRedXeWidget, I
 #pragma warning(disable : 4625 4626 5026 5027)
 class MonitorProvider final : public RedXeComObject<MonitorProvider, IRedXeWidgetProvider>
 {
-  public:
-    explicit MonitorProvider(IRedXeHost* host) noexcept : _host(host) {}
+public:
+    explicit MonitorProvider(IRedXeHost* host) noexcept : _host(host)
+    {
+    }
 
-    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             uint32_t* count) noexcept override
+    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -1040,40 +1059,38 @@ class MonitorProvider final : public RedXeComObject<MonitorProvider, IRedXeWidge
         {
             *count = 0;
         }
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
         {
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<uint32_t>(kWidgetTypes.size());
+        *count       = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
-                                           IRedXeWidget** widget) noexcept override
+    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId, IRedXeWidget** widget) noexcept override
     {
-        if (!widget)
+        if (! widget)
         {
             return E_POINTER;
         }
         *widget = nullptr;
-        if (!typeId || !instanceId || instanceId[0] == '\0')
+        if (! typeId || ! instanceId || instanceId[0] == '\0')
         {
             return E_INVALIDARG;
         }
-        if (!RedXeAsciiEqualsIgnoreCase(typeId, kMonitorWidgetTypeId))
+        if (! RedXeAsciiEqualsIgnoreCase(typeId, kMonitorWidgetTypeId))
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
         wil::com_ptr_nothrow<IRedXeWidgetProvider> providerOwner;
-        const HRESULT result =
-            QueryInterface(__uuidof(IRedXeWidgetProvider), reinterpret_cast<void**>(providerOwner.put()));
+        const HRESULT result = QueryInterface(__uuidof(IRedXeWidgetProvider), reinterpret_cast<void**>(providerOwner.put()));
         if (FAILED(result))
         {
             return result;
         }
         auto* created = new (std::nothrow) MonitorWidget(std::move(providerOwner), _host, instanceId);
-        if (!created)
+        if (! created)
         {
             return E_OUTOFMEMORY;
         }
@@ -1081,7 +1098,7 @@ class MonitorProvider final : public RedXeComObject<MonitorProvider, IRedXeWidge
         return S_OK;
     }
 
-  private:
+private:
     IRedXeHost* _host;
 };
 #pragma warning(pop)
@@ -1102,8 +1119,7 @@ void FailNextMonitorFacePreparationForTest() noexcept
     g_failNextFacePreparationForTest.store(true, std::memory_order_relaxed);
 }
 
-HRESULT CreateMonitorProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                              void** result) noexcept
+HRESULT CreateMonitorProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, void** result) noexcept
 {
     if (interfaceId != __uuidof(IRedXeWidgetProvider))
     {
@@ -1115,7 +1131,7 @@ HRESULT CreateMonitorProvider(REFIID interfaceId, const RedXeFactoryOptions* opt
         return configurationResult;
     }
     auto* provider = new (std::nothrow) MonitorProvider(host);
-    if (!provider)
+    if (! provider)
     {
         return E_OUTOFMEMORY;
     }

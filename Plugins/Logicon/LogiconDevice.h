@@ -17,15 +17,15 @@
 namespace Logicon
 {
 inline constexpr uint32_t kCommandTimeoutMilliseconds = 1000;
-inline constexpr uint32_t kWriteTimeoutMilliseconds = 1000;
-inline constexpr uint32_t kTraceSlots = 32;
-inline constexpr uint32_t kTraceBytes = 24;
+inline constexpr uint32_t kWriteTimeoutMilliseconds   = 1000;
+inline constexpr uint32_t kTraceSlots                 = 32;
+inline constexpr uint32_t kTraceBytes                 = 24;
 
 struct DeviceFeatures final
 {
-    uint8_t display = 0;
+    uint8_t display        = 0;
     uint8_t reprogControls = 0;
-    uint8_t brightness = 0;
+    uint8_t brightness     = 0;
     // The display index came from the reference observation because neither lookup named 0x19A1.
     bool displayAssumed = false;
 };
@@ -45,7 +45,7 @@ enum class DeviceRole : uint8_t
 // dialButtons = dialpad button n (kDialpadControls order) held.
 struct ControlState final
 {
-    uint32_t keys = 0;
+    uint32_t keys        = 0;
     uint32_t pageButtons = 0;
     uint32_t dialButtons = 0;
 };
@@ -54,7 +54,7 @@ struct ControlState final
 // one drain still counts as a press.
 struct ControlEdges final
 {
-    uint32_t keysDown = 0;
+    uint32_t keysDown        = 0;
     uint32_t pageButtonsDown = 0;
     uint32_t dialButtonsDown = 0;
 };
@@ -63,37 +63,37 @@ inline constexpr uint32_t kMaximumSavedControls = 4;
 
 struct TraceEntry final
 {
-    uint32_t tick = 0;
+    uint32_t tick   = 0;
     uint32_t length = 0;
-    bool outbound = false;
+    bool outbound   = false;
     std::array<uint8_t, kTraceBytes> bytes{};
 };
 
 // What the last root feature lookup asked and answered; kept for the connect-failed diagnostic.
 struct LookupRecord final
 {
-    uint16_t featureId = 0;
-    HRESULT result = S_OK;
+    uint16_t featureId  = 0;
+    HRESULT result      = S_OK;
     uint32_t paramBytes = 0;
     std::array<uint8_t, 8> params{};
 };
 
 struct DeviceCounters final
 {
-    uint32_t reportsIn = 0;
-    uint32_t reportsOut = 0;
-    uint32_t imagePackets = 0;
-    uint32_t imagesWritten = 0;
-    uint32_t commandErrors = 0;
+    uint32_t reportsIn      = 0;
+    uint32_t reportsOut     = 0;
+    uint32_t imagePackets   = 0;
+    uint32_t imagesWritten  = 0;
+    uint32_t commandErrors  = 0;
     uint32_t lastHidppError = 0;
-    HRESULT lastFailure = S_OK;
+    HRESULT lastFailure     = S_OK;
 };
 
 class DeviceSession final
 {
-  public:
-    DeviceSession() = default;
-    DeviceSession(const DeviceSession&) = delete;
+public:
+    DeviceSession()                                = default;
+    DeviceSession(const DeviceSession&)            = delete;
     DeviceSession& operator=(const DeviceSession&) = delete;
 
     // Takes ownership of one opened port. Ports are routed by the report ids their collection describes.
@@ -124,8 +124,7 @@ class DeviceSession final
 
     [[nodiscard]] HRESULT SetBrightness(uint32_t percent, HANDLE stopEvent) noexcept;
     // Streams one JPEG to a panel region. Checks stopEvent between packets.
-    [[nodiscard]] HRESULT WriteImage(const ImageRegion& region, const uint8_t* jpeg, uint32_t bytes, bool deferUpdate,
-                                     HANDLE stopEvent) noexcept;
+    [[nodiscard]] HRESULT WriteImage(const ImageRegion& region, const uint8_t* jpeg, uint32_t bytes, bool deferUpdate, HANDLE stopEvent) noexcept;
 
     // Read events of every attached port, for the lane's wait set.
     [[nodiscard]] uint32_t ReadEvents(HANDLE* handles, uint32_t capacity) const noexcept;
@@ -146,14 +145,19 @@ class DeviceSession final
     // Copies up to capacity trace entries, oldest first. Returns the count.
     [[nodiscard]] uint32_t CopyTrace(TraceEntry* entries, uint32_t capacity) const noexcept;
 
-  private:
+private:
     [[nodiscard]] HidPort* PortForOutput(uint8_t reportId) const noexcept;
     [[nodiscard]] HidPort* PortForFeature(uint8_t reportId) const noexcept;
     [[nodiscard]] HRESULT WriteReport(const uint8_t* report, uint32_t bytes, HANDLE stopEvent) noexcept;
     // Sends one long report and waits for the matching response, dispatching unrelated input meanwhile.
-    [[nodiscard]] HRESULT SendCommand(uint8_t featureIndex, uint8_t function, const uint8_t* params,
-                                      uint32_t paramBytes, HANDLE stopEvent, HidppFrame& response,
-                                      uint8_t* responseBuffer, uint32_t responseCapacity) noexcept;
+    [[nodiscard]] HRESULT SendCommand(uint8_t featureIndex,
+                                      uint8_t function,
+                                      const uint8_t* params,
+                                      uint32_t paramBytes,
+                                      HANDLE stopEvent,
+                                      HidppFrame& response,
+                                      uint8_t* responseBuffer,
+                                      uint32_t responseCapacity) noexcept;
     [[nodiscard]] HRESULT ResolveFeature(uint16_t featureId, HANDLE stopEvent, uint8_t& index) noexcept;
     // Walks IFeatureSet (0x0001) for a feature the root hides. At most 64 entries are examined.
     [[nodiscard]] HRESULT ResolveFeatureThroughSet(uint16_t featureId, HANDLE stopEvent, uint8_t& index) noexcept;
@@ -164,19 +168,19 @@ class DeviceSession final
 
     std::array<std::unique_ptr<HidPort>, kMaximumHidCollections> _ports{};
     uint32_t _portCount = 0;
-    DeviceRole _role = DeviceRole::Keypad;
+    DeviceRole _role    = DeviceRole::Keypad;
     DeviceFeatures _features{};
     ControlState _controls{};
     ControlEdges _edges{};
     DeviceCounters _counters{};
     LookupRecord _lastLookup{};
     std::array<CidReporting, kMaximumSavedControls> _savedControls{};
-    uint32_t _savedControlCount = 0;
+    uint32_t _savedControlCount   = 0;
     uint32_t _divertedDialButtons = 0;
-    bool _connected = false;
-    bool _restored = true;
+    bool _connected               = false;
+    bool _restored                = true;
     std::array<TraceEntry, kTraceSlots> _trace{};
-    uint32_t _traceHead = 0;
+    uint32_t _traceHead  = 0;
     uint32_t _traceCount = 0;
     std::array<uint8_t, kVlpImageReportBytes> _packet{};
 };

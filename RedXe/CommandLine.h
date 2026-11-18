@@ -67,66 +67,148 @@ struct RedXeCommandLineSwitch final
 inline constexpr std::array<const wchar_t*, 4> kRedXeHelpArguments{L"--help", L"-h", L"/?", L"-?"};
 
 inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwitch::Count)> kRedXeCommandLineSwitches{
-    RedXeCommandLineSwitch{RedXeSwitch::Help, L"--help", L"-h, /?, -?", RedXeSwitchValue::None, nullptr,
-                           L"Show this text and exit.", L"General", true},
-    RedXeCommandLineSwitch{RedXeSwitch::RedMonitor, L"--redmonitor", nullptr, RedXeSwitchValue::None, nullptr,
+    RedXeCommandLineSwitch{RedXeSwitch::Help, L"--help", L"-h, /?, -?", RedXeSwitchValue::None, nullptr, L"Show this text and exit.", L"General", true},
+    RedXeCommandLineSwitch{RedXeSwitch::RedMonitor,
+                           L"--redmonitor",
+                           nullptr,
+                           RedXeSwitchValue::None,
+                           nullptr,
                            L"Start the separately installed Release RedMonitor viewer and exit: 0 when it runs, 1 "
                            L"with what is missing or failed. Use it alone.",
-                           L"General", true},
-    RedXeCommandLineSwitch{RedXeSwitch::Settings, L"--settings", nullptr, RedXeSwitchValue::Separate, L"<path>",
+                           L"General",
+                           true},
+    RedXeCommandLineSwitch{RedXeSwitch::Settings,
+                           L"--settings",
+                           nullptr,
+                           RedXeSwitchValue::Separate,
+                           L"<path>",
                            L"Use one portable settings file instead of the one under %LocalAppData%\\RedXe\\Settings; "
                            L"its Logs folder sits beside it.",
                            L"General"},
-    RedXeCommandLineSwitch{RedXeSwitch::Warp, L"--warp", nullptr, RedXeSwitchValue::None, nullptr,
-                           L"Render on the Microsoft Basic Render Driver (WARP) instead of the GPU.", L"General"},
-    RedXeCommandLineSwitch{RedXeSwitch::Dock, L"--dock", nullptr, RedXeSwitchValue::Separate, L"<edge>[@<monitor>]",
+    RedXeCommandLineSwitch{RedXeSwitch::Warp,
+                           L"--warp",
+                           nullptr,
+                           RedXeSwitchValue::None,
+                           nullptr,
+                           L"Render on the Microsoft Basic Render Driver (WARP) instead of the GPU.",
+                           L"General"},
+    RedXeCommandLineSwitch{RedXeSwitch::Dock,
+                           L"--dock",
+                           nullptr,
+                           RedXeSwitchValue::Separate,
+                           L"<edge>[@<monitor>]",
                            L"Run as a bar on that screen edge: none, top, bottom, left, or right, on monitor primary, "
                            L"secondary, xeneon, <n>, or name:<substring> (default primary). Overrides the settings "
                            L"dock.edge/monitor.",
                            L"Dock"},
-    RedXeCommandLineSwitch{RedXeSwitch::DockMode, L"--dock-mode", nullptr, RedXeSwitchValue::Separate, L"<mode>",
-                           L"fixed (always on screen) or autohide (collapses to a peek strip).", L"Dock"},
-    RedXeCommandLineSwitch{RedXeSwitch::DockThickness, L"--dock-thickness", nullptr, RedXeSwitchValue::Separate,
-                           L"<dips>", L"Bar thickness in DIPs, 32 through 1080 (default 180).", L"Dock"},
-    RedXeCommandLineSwitch{
-        RedXeSwitch::DockReserve, L"--dock-reserve", nullptr, RedXeSwitchValue::Separate, L"<on|off>",
-        L"Fixed bars only: shrink the maximize area so windows stop at the bar (default on).", L"Dock"},
-    RedXeCommandLineSwitch{RedXeSwitch::DockPeek, L"--dock-peek", nullptr, RedXeSwitchValue::Separate, L"<pixels>",
-                           L"Autohide only: pixels that stay visible while hidden, 1 through 64 (default 4).", L"Dock"},
-    RedXeCommandLineSwitch{
-        RedXeSwitch::Screenshot, L"--screenshot", nullptr, RedXeSwitchValue::Separate, L"<png>",
-        L"Start normally, wait, save the window (or one widget) as PNG, and exit: 0 written, 8 not written.",
-        L"Screenshot", true},
-    RedXeCommandLineSwitch{RedXeSwitch::Page, L"--page", nullptr, RedXeSwitchValue::Separate, L"<id>",
-                           L"Page to show before the capture (default: the first page).", L"Screenshot"},
-    RedXeCommandLineSwitch{RedXeSwitch::Widget, L"--widget", nullptr, RedXeSwitchValue::Separate, L"<ordinal>",
-                           L"Crop the capture to the 0-based widget on that page.", L"Screenshot"},
-    RedXeCommandLineSwitch{RedXeSwitch::After, L"--after", nullptr, RedXeSwitchValue::Separate, L"<milliseconds>",
-                           L"Settle time before the capture, 1 through 120000 (default 3000).", L"Screenshot"},
-    RedXeCommandLineSwitch{RedXeSwitch::Probe, L"--probe", nullptr, RedXeSwitchValue::OptionalJoined, L"[=seconds]",
+    RedXeCommandLineSwitch{RedXeSwitch::DockMode,
+                           L"--dock-mode",
+                           nullptr,
+                           RedXeSwitchValue::Separate,
+                           L"<mode>",
+                           L"fixed (always on screen) or autohide (collapses to a peek strip).",
+                           L"Dock"},
+    RedXeCommandLineSwitch{RedXeSwitch::DockThickness,
+                           L"--dock-thickness",
+                           nullptr,
+                           RedXeSwitchValue::Separate,
+                           L"<dips>",
+                           L"Bar thickness in DIPs, 32 through 1080 (default 180).",
+                           L"Dock"},
+    RedXeCommandLineSwitch{RedXeSwitch::DockReserve,
+                           L"--dock-reserve",
+                           nullptr,
+                           RedXeSwitchValue::Separate,
+                           L"<on|off>",
+                           L"Fixed bars only: shrink the maximize area so windows stop at the bar (default on).",
+                           L"Dock"},
+    RedXeCommandLineSwitch{RedXeSwitch::DockPeek,
+                           L"--dock-peek",
+                           nullptr,
+                           RedXeSwitchValue::Separate,
+                           L"<pixels>",
+                           L"Autohide only: pixels that stay visible while hidden, 1 through 64 (default 4).",
+                           L"Dock"},
+    RedXeCommandLineSwitch{RedXeSwitch::Screenshot,
+                           L"--screenshot",
+                           nullptr,
+                           RedXeSwitchValue::Separate,
+                           L"<png>",
+                           L"Start normally, wait, save the window (or one widget) as PNG, and exit: 0 written, 8 not written.",
+                           L"Screenshot",
+                           true},
+    RedXeCommandLineSwitch{RedXeSwitch::Page,
+                           L"--page",
+                           nullptr,
+                           RedXeSwitchValue::Separate,
+                           L"<id>",
+                           L"Page to show before the capture (default: the first page).",
+                           L"Screenshot"},
+    RedXeCommandLineSwitch{RedXeSwitch::Widget,
+                           L"--widget",
+                           nullptr,
+                           RedXeSwitchValue::Separate,
+                           L"<ordinal>",
+                           L"Crop the capture to the 0-based widget on that page.",
+                           L"Screenshot"},
+    RedXeCommandLineSwitch{RedXeSwitch::After,
+                           L"--after",
+                           nullptr,
+                           RedXeSwitchValue::Separate,
+                           L"<milliseconds>",
+                           L"Settle time before the capture, 1 through 120000 (default 3000).",
+                           L"Screenshot"},
+    RedXeCommandLineSwitch{RedXeSwitch::Probe,
+                           L"--probe",
+                           nullptr,
+                           RedXeSwitchValue::OptionalJoined,
+                           L"[=seconds]",
                            L"Log production resource samples every 1 through 3600 seconds (default 5); keeps running.",
                            L"Diagnostics"},
-    RedXeCommandLineSwitch{RedXeSwitch::SelfTest, L"--self-test", nullptr, RedXeSwitchValue::None, nullptr,
+    RedXeCommandLineSwitch{RedXeSwitch::SelfTest,
+                           L"--self-test",
+                           nullptr,
+                           RedXeSwitchValue::None,
+                           nullptr,
                            L"Hidden startup validation with the deployed template; exits 0 when the host works and 6 "
                            L"when a check fails, which it names on stderr.",
-                           L"Diagnostics", true},
-    RedXeCommandLineSwitch{RedXeSwitch::CrashTest, L"--crash-test", nullptr, RedXeSwitchValue::None, nullptr,
-                           L"Raise a test crash to exercise the dump writer.", L"Diagnostics", true},
-    RedXeCommandLineSwitch{RedXeSwitch::CrashTestStackOverflow, L"--crash-test-stack-overflow", nullptr,
-                           RedXeSwitchValue::None, nullptr, L"Raise a stack-overflow test crash.", L"Diagnostics",
+                           L"Diagnostics",
                            true},
-    RedXeCommandLineSwitch{RedXeSwitch::CrashTestDirectory, L"--crash-test-directory", nullptr,
-                           RedXeSwitchValue::Joined, L"<directory>",
-                           L"Where a test crash writes its dump instead of the user's crash folder.", L"Diagnostics"},
-    RedXeCommandLineSwitch{
-        RedXeSwitch::RedMonitorProbe, L"--redmonitor-probe", nullptr, RedXeSwitchValue::None, nullptr,
-        L"Wait up to 2 seconds for a RedMonitor listener, send RedMonitor's test messages, and exit: "
-        L"0 sent, 1 no provider, 2 no listener. Use it alone.",
-        L"Diagnostics", true},
+    RedXeCommandLineSwitch{RedXeSwitch::CrashTest,
+                           L"--crash-test",
+                           nullptr,
+                           RedXeSwitchValue::None,
+                           nullptr,
+                           L"Raise a test crash to exercise the dump writer.",
+                           L"Diagnostics",
+                           true},
+    RedXeCommandLineSwitch{RedXeSwitch::CrashTestStackOverflow,
+                           L"--crash-test-stack-overflow",
+                           nullptr,
+                           RedXeSwitchValue::None,
+                           nullptr,
+                           L"Raise a stack-overflow test crash.",
+                           L"Diagnostics",
+                           true},
+    RedXeCommandLineSwitch{RedXeSwitch::CrashTestDirectory,
+                           L"--crash-test-directory",
+                           nullptr,
+                           RedXeSwitchValue::Joined,
+                           L"<directory>",
+                           L"Where a test crash writes its dump instead of the user's crash folder.",
+                           L"Diagnostics"},
+    RedXeCommandLineSwitch{RedXeSwitch::RedMonitorProbe,
+                           L"--redmonitor-probe",
+                           nullptr,
+                           RedXeSwitchValue::None,
+                           nullptr,
+                           L"Wait up to 2 seconds for a RedMonitor listener, send RedMonitor's test messages, and exit: "
+                           L"0 sent, 1 no provider, 2 no listener. Use it alone.",
+                           L"Diagnostics",
+                           true},
 };
 
-inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General", L"Dock", L"Screenshot",
-                                                                       L"Diagnostics"};
+inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General", L"Dock", L"Screenshot", L"Diagnostics"};
 
 [[nodiscard]] constexpr const RedXeCommandLineSwitch& RedXeSwitchInfo(RedXeSwitch id) noexcept
 {
@@ -164,8 +246,8 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General
         if (entry.valueKind == RedXeSwitchValue::Joined || entry.valueKind == RedXeSwitchValue::OptionalJoined)
         {
             if ((entry.valueKind == RedXeSwitchValue::OptionalJoined && argument == name) ||
-                (argument.size() >= name.size() + (entry.valueKind == RedXeSwitchValue::OptionalJoined ? 1 : 2) &&
-                 argument.starts_with(name) && argument[name.size()] == L'='))
+                (argument.size() >= name.size() + (entry.valueKind == RedXeSwitchValue::OptionalJoined ? 1 : 2) && argument.starts_with(name) &&
+                 argument[name.size()] == L'='))
             {
                 return &entry;
             }
@@ -194,7 +276,7 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General
             ++i;
             continue;
         }
-        if (!entry || entry->id != RedXeSwitch::Probe)
+        if (! entry || entry->id != RedXeSwitch::Probe)
             continue;
         if (seconds != 0)
             return false;
@@ -227,7 +309,7 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General
     for (int index = 1; index < argumentCount; ++index)
     {
         const RedXeCommandLineSwitch* entry = RedXeFindSwitch(arguments[index]);
-        if (!entry)
+        if (! entry)
         {
             return arguments[index];
         }
@@ -257,20 +339,13 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General
 {
     switch (exitCode)
     {
-    case 1:
-        return "settings";
-    case 2:
-        return "command line or window";
-    case 3:
-        return "plugins";
-    case 5:
-        return "graphics";
-    case 7:
-        return "settings watcher";
-    case 8:
-        return "screenshot capture";
-    default:
-        return "startup";
+        case 1: return "settings";
+        case 2: return "command line or window";
+        case 3: return "plugins";
+        case 5: return "graphics";
+        case 7: return "settings watcher";
+        case 8: return "screenshot capture";
+        default: return "startup";
     }
 }
 
@@ -289,7 +364,7 @@ inline constexpr int kRedXeScreenshotFailedExitCode = 8;
 // run that is not unattended (RedXeIsUnattendedRun), whatever its exit code.
 [[nodiscard]] constexpr bool RedXeShowsExitCodeBox(int exitCode, bool selfTest, bool screenshot) noexcept
 {
-    return exitCode != 0 && !RedXeIsUnattendedRun(selfTest, screenshot);
+    return exitCode != 0 && ! RedXeIsUnattendedRun(selfTest, screenshot);
 }
 
 // The `--help` text: usage line, one block per group, and the exit codes Main.cpp reports.
@@ -300,11 +375,9 @@ inline constexpr int kRedXeScreenshotFailedExitCode = 8;
     text += L"Usage: RedXe.exe [--settings <path>] [--dock <edge>[@<monitor>] [dock options]]\n";
     text += L"                 [--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]] [--warp]\n";
     text += L"       RedXe.exe --help\n";
-    text +=
-        L"\nWithout switches RedXe follows the settings file under %LocalAppData%\\RedXe\\Settings and watches it for "
-        L"edits:\n";
-    text +=
-        L"the XENEON window (fullscreen in Release, titled in Debug), a titled window without a XENEON (Release asks\n";
+    text += L"\nWithout switches RedXe follows the settings file under %LocalAppData%\\RedXe\\Settings and watches it for "
+            L"edits:\n";
+    text += L"the XENEON window (fullscreen in Release, titled in Debug), a titled window without a XENEON (Release asks\n";
     text += L"first), or a bar on a screen edge when the file sets a dock. A first start without a XENEON writes an\n";
     text += L"auto-hiding bar into the new file. Every switch overrides the file for this run only.\n";
     for (const wchar_t* group : kRedXeCommandLineGroups)
@@ -333,7 +406,7 @@ inline constexpr int kRedXeScreenshotFailedExitCode = 8;
                 lead += L")";
             }
             constexpr size_t kColumn = 32;
-            constexpr size_t kWidth = 110;
+            constexpr size_t kWidth  = 110;
             if (lead.size() < kColumn)
             {
                 lead.append(kColumn - lead.size(), L' ');
@@ -347,9 +420,9 @@ inline constexpr int kRedXeScreenshotFailedExitCode = 8;
             // Word-wrap the summary under itself so a narrow console still reads one switch per block.
             std::wstring_view summary{entry.summary};
             size_t lineLength = 0;
-            while (!summary.empty())
+            while (! summary.empty())
             {
-                const size_t space = summary.find(L' ');
+                const size_t space           = summary.find(L' ');
                 const std::wstring_view word = summary.substr(0, space);
                 if (lineLength != 0 && lineLength + 1 + word.size() > kWidth - kColumn)
                 {

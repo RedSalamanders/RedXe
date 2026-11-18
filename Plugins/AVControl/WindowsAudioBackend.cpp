@@ -34,10 +34,10 @@ Availability Unavailable(HRESULT hr) noexcept
 }
 bool EncodeId(PCWSTR id, DeviceId& destination) noexcept
 {
-    if (!id)
+    if (! id)
         return false;
-    const int count = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, id, -1, destination.bytes.data(),
-                                          static_cast<int>(destination.bytes.size()), nullptr, nullptr);
+    const int count =
+        WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, id, -1, destination.bytes.data(), static_cast<int>(destination.bytes.size()), nullptr, nullptr);
     if (count <= 1)
         return false;
     destination.length = static_cast<uint32_t>(count - 1);
@@ -47,8 +47,8 @@ bool DecodeId(const DeviceId& id, std::array<wchar_t, MaximumDeviceIdBytes + 1>&
 {
     if (id.length == 0 || id.length > MaximumDeviceIdBytes || id.View().find('\0') != std::string_view::npos)
         return false;
-    const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, id.bytes.data(), static_cast<int>(id.length),
-                                          destination.data(), static_cast<int>(destination.size() - 1));
+    const int count = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, id.bytes.data(), static_cast<int>(id.length), destination.data(), static_cast<int>(destination.size() - 1));
     if (count <= 0)
         return false;
     destination[static_cast<size_t>(count)] = 0;
@@ -57,7 +57,7 @@ bool DecodeId(const DeviceId& id, std::array<wchar_t, MaximumDeviceIdBytes + 1>&
 const Endpoint* Find(const Inventory& inventory, DeviceKind kind, const DeviceId& id) noexcept
 {
     const auto& endpoints = kind == DeviceKind::Output ? inventory.outputs : inventory.inputs;
-    const uint32_t count = kind == DeviceKind::Output ? inventory.outputCount : inventory.inputCount;
+    const uint32_t count  = kind == DeviceKind::Output ? inventory.outputCount : inventory.inputCount;
     for (uint32_t i = 0; i < count; ++i)
         if (endpoints[i].id == id)
             return &endpoints[i];
@@ -69,8 +69,10 @@ const Endpoint* Find(const Inventory& inventory, DeviceKind kind, const DeviceId
 #pragma warning(disable : 4625 4626 5026 5027)
 class Notifications final : public RedXeComObject<Notifications, IMMNotificationClient>
 {
-  public:
-    explicit Notifications(HANDLE event) noexcept : _event(event) {}
+public:
+    explicit Notifications(HANDLE event) noexcept : _event(event)
+    {
+    }
     std::array<std::atomic<uint64_t>, 6> roleChanges{};
     static constexpr uint32_t NoDevice = UINT32_MAX;
     uint32_t Track(const DeviceId& id, uint64_t& revision) noexcept
@@ -81,7 +83,7 @@ class Notifications final : public RedXeComObject<Notifications, IMMNotification
             if (_devices[i].id.length)
                 continue;
             _devices[i].id = id;
-            revision = ++_devices[i].revision;
+            revision       = ++_devices[i].revision;
             return i;
         }
         return NoDevice;
@@ -120,7 +122,7 @@ class Notifications final : public RedXeComObject<Notifications, IMMNotification
         return Changed();
     }
 
-  private:
+private:
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
@@ -161,19 +163,21 @@ class Notifications final : public RedXeComObject<Notifications, IMMNotification
 #pragma warning(disable : 4625 4626 5026 5027)
 class VolumeNotifications final : public RedXeComObject<VolumeNotifications, IAudioEndpointVolumeCallback>
 {
-  public:
-    explicit VolumeNotifications(HANDLE event) noexcept : _event(event) {}
+public:
+    explicit VolumeNotifications(HANDLE event) noexcept : _event(event)
+    {
+    }
     AudioRevisionState revisions;
     HRESULT STDMETHODCALLTYPE OnNotify(PAUDIO_VOLUME_NOTIFICATION_DATA notification) noexcept override
     {
-        if (!notification)
+        if (! notification)
             return E_POINTER;
         (void)revisions.Observe(notification->fMasterVolume, notification->bMuted != FALSE);
         (void)SetEvent(_event);
         return S_OK;
     }
 
-  private:
+private:
     HANDLE _event;
 };
 #pragma warning(pop)
@@ -189,10 +193,10 @@ struct WindowsAudioBackend::State final
         wil::com_ptr_nothrow<IAudioEndpointVolume> volume;
         wil::com_ptr_nothrow<VolumeNotifications> callback;
         wil::com_ptr_nothrow<Notifications> notifications;
-        uint32_t deviceToken = Notifications::NoDevice;
+        uint32_t deviceToken    = Notifications::NoDevice;
         uint64_t deviceRevision = 0;
-        bool seen = false;
-        uint64_t generation = 0;
+        bool seen               = false;
+        uint64_t generation     = 0;
         void Reset() noexcept
         {
             if (volume && callback)
@@ -203,7 +207,7 @@ struct WindowsAudioBackend::State final
             deviceToken = Notifications::NoDevice;
             volume.reset();
             callback.reset();
-            id = {};
+            id   = {};
             seen = false;
         }
         ~Watch()
@@ -218,7 +222,7 @@ struct WindowsAudioBackend::State final
     std::array<uint64_t, 6> observedRoleChanges{};
     Inventory current;
     Inventory scratch;
-    uint64_t generation = 0;
+    uint64_t generation          = 0;
     bool notificationsRegistered = false;
     ~State()
     {
@@ -234,7 +238,7 @@ struct WindowsAudioBackend::State final
             if (watch.id == id && watch.volume)
             {
                 watch.seen = true;
-                output = &watch;
+                output     = &watch;
                 return S_OK;
             }
         for (auto& watch : watched)
@@ -246,7 +250,7 @@ struct WindowsAudioBackend::State final
                 return HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_QUOTA);
             watch.notifications = callbacks;
             watch.callback.attach(new (std::nothrow) VolumeNotifications(changedEvent));
-            if (!watch.callback)
+            if (! watch.callback)
             {
                 watch.Reset();
                 return E_OUTOFMEMORY;
@@ -257,20 +261,19 @@ struct WindowsAudioBackend::State final
                 watch.Reset();
                 return result;
             }
-            watch.volume = volume;
-            watch.id = id;
-            watch.seen = true;
+            watch.volume     = volume;
+            watch.id         = id;
+            watch.seen       = true;
             watch.generation = ++generation;
-            output = &watch;
+            output           = &watch;
             return S_OK;
         }
         return HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_QUOTA);
     }
-    HRESULT Resolve(const DeviceId& id, wil::com_ptr_nothrow<IMMDevice>& device,
-                    wil::com_ptr_nothrow<IAudioEndpointVolume>& volume) noexcept
+    HRESULT Resolve(const DeviceId& id, wil::com_ptr_nothrow<IMMDevice>& device, wil::com_ptr_nothrow<IAudioEndpointVolume>& volume) noexcept
     {
         std::array<wchar_t, MaximumDeviceIdBytes + 1> wide{};
-        if (!DecodeId(id, wide))
+        if (! DecodeId(id, wide))
             return E_INVALIDARG;
         RETURN_IF_FAILED(enumerator->GetDevice(wide.data(), device.put()));
         DWORD state = 0;
@@ -281,9 +284,9 @@ struct WindowsAudioBackend::State final
     }
     HRESULT Enumerate(EDataFlow flow, const InventoryPreferences& preferences) noexcept
     {
-        auto& destination = flow == eRender ? scratch.outputs : scratch.inputs;
-        auto& count = flow == eRender ? scratch.outputCount : scratch.inputCount;
-        const auto& defaults = flow == eRender ? scratch.state.outputDefaults : scratch.state.inputDefaults;
+        auto& destination      = flow == eRender ? scratch.outputs : scratch.inputs;
+        auto& count            = flow == eRender ? scratch.outputCount : scratch.inputCount;
+        const auto& defaults   = flow == eRender ? scratch.state.outputDefaults : scratch.state.inputDefaults;
         const auto& references = flow == eRender ? preferences.outputs : preferences.inputs;
         RankedInventory selection(destination, count);
         wil::com_ptr_nothrow<IMMDeviceCollection> collection;
@@ -299,7 +302,7 @@ struct WindowsAudioBackend::State final
             if (FAILED(device->GetId(id.put())))
                 continue;
             Endpoint endpoint;
-            if (!EncodeId(id.get(), endpoint.id))
+            if (! EncodeId(id.get(), endpoint.id))
             {
                 scratch.truncated = true;
                 continue;
@@ -320,8 +323,7 @@ struct WindowsAudioBackend::State final
             if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, properties.put())))
             {
                 wil::unique_prop_variant name;
-                if (SUCCEEDED(properties->GetValue(PKEY_Device_FriendlyName, &name)) && name.vt == VT_LPWSTR &&
-                    name.pwszVal)
+                if (SUCCEEDED(properties->GetValue(PKEY_Device_FriendlyName, &name)) && name.vt == VT_LPWSTR && name.pwszVal)
                 {
                     size_t length = wcsnlen_s(name.pwszVal, endpoint.name.size() - 1);
                     if (length && name.pwszVal[length - 1] >= 0xd800 && name.pwszVal[length - 1] <= 0xdbff)
@@ -336,44 +338,43 @@ struct WindowsAudioBackend::State final
         if (watch)
             endpoint.generation = watch->generation;
         float scalar = 0;
-        BOOL muted = FALSE;
+        BOOL muted   = FALSE;
         if (SUCCEEDED(hr))
             hr = volume->GetMasterVolumeLevelScalar(&scalar);
         if (SUCCEEDED(hr))
             hr = volume->GetMute(&muted);
-        if (SUCCEEDED(hr) && (!std::isfinite(scalar) || scalar < 0 || scalar > 1))
+        if (SUCCEEDED(hr) && (! std::isfinite(scalar) || scalar < 0 || scalar > 1))
             hr = E_UNEXPECTED;
         endpoint.availability = SUCCEEDED(hr) ? Availability::Ready : Unavailable(hr);
         if (SUCCEEDED(hr))
         {
-            endpoint.level = static_cast<uint32_t>(std::lround(scalar * 100));
-            endpoint.muted = muted != FALSE;
-            const auto revisions = watch->callback->revisions.Observe(scalar, muted != FALSE);
+            endpoint.level         = static_cast<uint32_t>(std::lround(scalar * 100));
+            endpoint.muted         = muted != FALSE;
+            const auto revisions   = watch->callback->revisions.Observe(scalar, muted != FALSE);
             endpoint.levelRevision = revisions.level;
-            endpoint.muteRevision = revisions.mute;
+            endpoint.muteRevision  = revisions.mute;
         }
     }
     HRESULT Refresh(const InventoryPreferences& preferences) noexcept
     {
-        scratch = current;
+        scratch           = current;
         scratch.truncated = preferences.truncated != 0;
         std::array<uint64_t, 6> nextRoleChanges{};
         // Read every role before bounded admission; a late-enumerated communications endpoint remains usable.
         for (uint32_t flow = 0; flow < 2; ++flow)
         {
-            auto& defaults = flow ? scratch.state.inputDefaults : scratch.state.outputDefaults;
+            auto& defaults       = flow ? scratch.state.inputDefaults : scratch.state.outputDefaults;
             const auto& previous = flow ? current.state.inputDefaults : current.state.outputDefaults;
-            auto& revisions = flow ? scratch.inputRoleRevisions : scratch.outputRoleRevisions;
+            auto& revisions      = flow ? scratch.inputRoleRevisions : scratch.outputRoleRevisions;
             for (uint32_t role = 0; role < 3; ++role)
             {
                 DeviceId id;
                 wil::com_ptr_nothrow<IMMDevice> device;
                 wil::unique_cotaskmem_string wide;
-                if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(flow ? eCapture : eRender, static_cast<ERole>(role),
-                                                                  device.put())) &&
+                if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(flow ? eCapture : eRender, static_cast<ERole>(role), device.put())) &&
                     SUCCEEDED(device->GetId(wide.put())))
                     (void)EncodeId(wide.get(), id);
-                const size_t index = flow * 3U + role;
+                const size_t index           = flow * 3U + role;
                 const uint64_t notifications = callbacks->roleChanges[index].load();
                 revisions[role] += notifications - observedRoleChanges[index];
                 nextRoleChanges[index] = notifications;
@@ -389,9 +390,8 @@ struct WindowsAudioBackend::State final
         for (auto& watch : watched)
         {
             watch.seen = false;
-            if (watch.volume &&
-                ((!Find(scratch, DeviceKind::Output, watch.id) && !Find(scratch, DeviceKind::Microphone, watch.id)) ||
-                 watch.notifications->DeviceRevision(watch.deviceToken) != watch.deviceRevision))
+            if (watch.volume && ((! Find(scratch, DeviceKind::Output, watch.id) && ! Find(scratch, DeviceKind::Microphone, watch.id)) ||
+                                 watch.notifications->DeviceRevision(watch.deviceToken) != watch.deviceRevision))
                 watch.Reset();
         }
         for (uint32_t i = 0; i < scratch.outputCount; ++i)
@@ -399,23 +399,23 @@ struct WindowsAudioBackend::State final
         for (uint32_t i = 0; i < scratch.inputCount; ++i)
             ReadEndpoint(scratch.inputs[i]);
         for (auto& watch : watched)
-            if (!watch.seen)
+            if (! watch.seen)
                 watch.Reset();
         for (uint32_t flow = 0; flow < 2; ++flow)
         {
             const auto& defaults = flow ? scratch.state.inputDefaults : scratch.state.outputDefaults;
-            auto& selected = flow ? scratch.state.microphone : scratch.state.output;
+            auto& selected       = flow ? scratch.state.microphone : scratch.state.output;
             const auto* endpoint = Find(scratch, flow ? DeviceKind::Microphone : DeviceKind::Output, defaults[0]);
             if (endpoint)
                 selected = *endpoint;
             else
             {
-                selected = {};
+                selected              = {};
                 selected.availability = Availability::Missing;
             }
         }
         ++scratch.state.revision;
-        current = scratch;
+        current             = scratch;
         observedRoleChanges = nextRoleChanges;
         return S_OK;
     }
@@ -426,7 +426,7 @@ struct WindowsAudioBackend::State final
         if (command.device != DeviceKind::Output && command.device != DeviceKind::Microphone)
             return E_NOTIMPL;
         const auto* endpoint = Find(current, command.device, command.id);
-        if (!endpoint || endpoint->availability != Availability::Ready)
+        if (! endpoint || endpoint->availability != Availability::Ready)
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         if (endpoint->generation != command.expectedGeneration)
             return HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH);
@@ -442,7 +442,7 @@ struct WindowsAudioBackend::State final
             RETURN_IF_FAILED(Resolve(command.id, device, volume));
             for (auto& watch : watched)
             {
-                if (watch.id != command.id || !watch.callback)
+                if (watch.id != command.id || ! watch.callback)
                     continue;
                 if (watch.notifications->DeviceRevision(watch.deviceToken) != watch.deviceRevision)
                     return HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH);
@@ -452,41 +452,39 @@ struct WindowsAudioBackend::State final
                 break;
             }
             return mute ? volume->SetMute(command.value != 0, &OwnVolumeContext)
-                        : volume->SetMasterVolumeLevelScalar(static_cast<float>(command.value) / 100.0f,
-                                                             &OwnVolumeContext);
+                        : volume->SetMasterVolumeLevelScalar(static_cast<float>(command.value) / 100.0f, &OwnVolumeContext);
         }
         if (command.operation == BrokerOperation::SetDefault)
         {
-            if (!(current.capabilities & CapabilityAudioDefaults))
+            if (! (current.capabilities & CapabilityAudioDefaults))
                 return E_NOTIMPL;
             if (command.role >= 3)
                 return E_INVALIDARG;
-            const auto& revisions =
-                command.device == DeviceKind::Output ? current.outputRoleRevisions : current.inputRoleRevisions;
+            const auto& revisions = command.device == DeviceKind::Output ? current.outputRoleRevisions : current.inputRoleRevisions;
             if (command.expectedRevision != revisions[command.role])
                 return HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH);
             const size_t index = (command.device == DeviceKind::Microphone ? 3U : 0U) + command.role;
             if (callbacks->roleChanges[index].load() != observedRoleChanges[index])
                 return HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH);
             for (const auto& watch : watched)
-                if (watch.id == command.id && watch.notifications &&
-                    watch.notifications->DeviceRevision(watch.deviceToken) != watch.deviceRevision)
+                if (watch.id == command.id && watch.notifications && watch.notifications->DeviceRevision(watch.deviceToken) != watch.deviceRevision)
                     return HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH);
             std::array<wchar_t, MaximumDeviceIdBytes + 1> wide{};
-            if (!DecodeId(command.id, wide))
+            if (! DecodeId(command.id, wide))
                 return E_INVALIDARG;
             return SetAudioDefault(wide.data(), static_cast<ERole>(command.role));
         }
         return E_NOTIMPL;
     }
 };
-WindowsAudioBackend::WindowsAudioBackend() : _state(std::make_unique<State>()) {}
+WindowsAudioBackend::WindowsAudioBackend() : _state(std::make_unique<State>())
+{
+}
 WindowsAudioBackend::~WindowsAudioBackend() = default;
 HRESULT WindowsAudioBackend::Initialize(HANDLE changedEvent) noexcept
 {
     wil::com_ptr_nothrow<IMMDeviceEnumerator> enumerator;
-    RETURN_IF_FAILED(
-        CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(enumerator.put())));
+    RETURN_IF_FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(enumerator.put())));
     RETURN_IF_FAILED(InitializeWithEnumerator(changedEvent, enumerator.get()));
     if (AudioPolicyAvailable())
         _state->current.capabilities |= CapabilityAudioDefaults;
@@ -494,54 +492,52 @@ HRESULT WindowsAudioBackend::Initialize(HANDLE changedEvent) noexcept
 }
 HRESULT WindowsAudioBackend::InitializeWithEnumerator(HANDLE changedEvent, IMMDeviceEnumerator* enumerator) noexcept
 {
-    if (!changedEvent || !enumerator)
+    if (! changedEvent || ! enumerator)
         return E_INVALIDARG;
     if (_state->enumerator)
         return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
     _state->changedEvent = changedEvent;
-    _state->enumerator = enumerator;
+    _state->enumerator   = enumerator;
     _state->callbacks.attach(new (std::nothrow) Notifications(changedEvent));
-    if (!_state->callbacks)
+    if (! _state->callbacks)
         return E_OUTOFMEMORY;
     RETURN_IF_FAILED(_state->enumerator->RegisterEndpointNotificationCallback(_state->callbacks.get()));
-    _state->notificationsRegistered = true;
-    _state->current.capabilities = CapabilityAudioLevels;
+    _state->notificationsRegistered           = true;
+    _state->current.capabilities              = CapabilityAudioLevels;
     _state->current.state.camera.availability = Availability::Unsupported;
     return S_OK;
 }
-HRESULT WindowsAudioBackend::Execute(const BrokerCommand& command, const InventoryPreferences& preferences,
-                                     Inventory& inventory) noexcept
+HRESULT WindowsAudioBackend::Execute(const BrokerCommand& command, const InventoryPreferences& preferences, Inventory& inventory) noexcept
 {
-    if (!_state->enumerator)
+    if (! _state->enumerator)
         return E_UNEXPECTED;
     HRESULT result = _state->Refresh(preferences);
-    bool observed = SUCCEEDED(result);
+    bool observed  = SUCCEEDED(result);
     if (SUCCEEDED(result))
         result = _state->Mutate(command);
     if (command.operation != BrokerOperation::Observe)
     {
         const HRESULT refreshed = _state->Refresh(preferences);
-        observed = SUCCEEDED(refreshed);
+        observed                = SUCCEEDED(refreshed);
         if (SUCCEEDED(result) && FAILED(refreshed))
             result = refreshed;
         if (SUCCEEDED(result) && command.operation == BrokerOperation::SetDefault)
         {
-            const auto& defaults = command.device == DeviceKind::Output ? _state->current.state.outputDefaults
-                                                                        : _state->current.state.inputDefaults;
+            const auto& defaults = command.device == DeviceKind::Output ? _state->current.state.outputDefaults : _state->current.state.inputDefaults;
             if (defaults[command.role] != command.id)
                 result = HRESULT_FROM_WIN32(ERROR_WRITE_FAULT);
         }
         if (SUCCEEDED(result) && command.operation == BrokerOperation::SetMute)
         {
             const auto* endpoint = Find(_state->current, command.device, command.id);
-            if (!endpoint || endpoint->muted != (command.value != 0))
+            if (! endpoint || endpoint->muted != (command.value != 0))
                 result = HRESULT_FROM_WIN32(ERROR_WRITE_FAULT);
         }
     }
     inventory = _state->current;
-    if (!observed)
+    if (! observed)
     {
-        inventory.state.output.availability = Availability::Unknown;
+        inventory.state.output.availability     = Availability::Unknown;
         inventory.state.microphone.availability = Availability::Unknown;
         for (uint32_t i = 0; i < inventory.outputCount; ++i)
             inventory.outputs[i].availability = Availability::Unknown;

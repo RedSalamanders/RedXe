@@ -112,16 +112,13 @@ static_assert(sizeof(LauncherIconCacheDiagnostics) == 40);
 extern "C"
 {
     REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherSetTestPinDirectory(const wchar_t* directory) noexcept;
-    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherGetTestDiagnostics(
-        LauncherTestDiagnostics* diagnostics) noexcept;
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherGetTestDiagnostics(LauncherTestDiagnostics* diagnostics) noexcept;
     REDXE_LAUNCHER_TEST_API void __stdcall RedXeLauncherResetTestDiagnostics() noexcept;
     // 0 clears; 1 fails replacement texture creation; 2 fails its view, after texture allocation. Automated hosts only.
     REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherSetTestIconFailure(uint32_t phase) noexcept;
     // Automated hosts only, UI thread. Borrows the extractor only for this call; exercises the production
     // handler/decode path. Outputs are zero on refusal/failure. Adds no retained test override or COM owner.
-    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestShellHandler(IExtractIconW* extractor,
-                                                                            uint64_t* pixelHash,
-                                                                            uint32_t* sourceEdge) noexcept;
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestShellHandler(IExtractIconW* extractor, uint64_t* pixelHash, uint32_t* sourceEdge) noexcept;
     // Automated hosts only, UI-thread/STA. Exactly one of target/extractor is non-null. Borrows them for
     // this call through the production path; no retained override, owner or timing state. Exact-size output
     // records clear before validation, then retain completed failure phases; failed pixels stay zero.
@@ -132,7 +129,8 @@ extern "C"
     // Size validation is atomic and leaves every record untouched on mismatch. Otherwise all records
     // clear before authorization/target validation; no target is processed until every target is valid.
     // Attempts all targets and returns the first failure. Shared folder ownership ends before return.
-    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestShellBatch(const wchar_t* const* targets, uint32_t count,
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestShellBatch(const wchar_t* const* targets,
+                                                                          uint32_t count,
                                                                           LauncherShellTimings* timings) noexcept;
     // Automated hosts only, UI-thread/STA. One diagnostic metadata-assisted refresh with a call-local setup fault.
     // Ordinary host/batch refreshes never select this rejected alternative. The fault and all temporary
@@ -141,40 +139,41 @@ extern "C"
                                                                            LauncherShellParentFailure failure,
                                                                            LauncherShellTimings* timings) noexcept;
     // Automated hosts only, UI-thread/STA. Borrows a real file target and extractor for the cache path.
-    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestCachedShellHandler(
-        const wchar_t* target, IExtractIconW* extractor, LauncherShellTimings* timings) noexcept;
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestCachedShellHandler(const wchar_t* target,
+                                                                                  IExtractIconW* extractor,
+                                                                                  LauncherShellTimings* timings) noexcept;
     // Automated-only call-local cancellation of the production native phase path. No override or owner retained.
-    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestCanceledShellHandler(
-        IExtractIconW* extractor, HANDLE cancellation, uint32_t budgetMilliseconds,
-        LauncherShellTimings* timings) noexcept;
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestCanceledShellHandler(IExtractIconW* extractor,
+                                                                                    HANDLE cancellation,
+                                                                                    uint32_t budgetMilliseconds,
+                                                                                    LauncherShellTimings* timings) noexcept;
     // Automated hosts only, UI thread. 0 reads; 1 clears; 2 fails the next clone; 3 fails the next store.
     // Exact-size records clear before authorization/operation checks. Shutdown releases all cached bytes.
-    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestIconCache(
-        uint32_t operation, LauncherIconCacheDiagnostics* diagnostics) noexcept;
+    REDXE_LAUNCHER_TEST_API HRESULT __stdcall RedXeLauncherTestIconCache(uint32_t operation, LauncherIconCacheDiagnostics* diagnostics) noexcept;
 }
 
-using LauncherSetTestPinDirectoryFn = decltype(&RedXeLauncherSetTestPinDirectory);
-using LauncherGetTestDiagnosticsFn = decltype(&RedXeLauncherGetTestDiagnostics);
-using LauncherResetTestDiagnosticsFn = decltype(&RedXeLauncherResetTestDiagnostics);
-using LauncherSetTestIconFailureFn = decltype(&RedXeLauncherSetTestIconFailure);
-using LauncherTestShellHandlerFn = decltype(&RedXeLauncherTestShellHandler);
-using LauncherTestShellIconFn = decltype(&RedXeLauncherTestShellIcon);
-using LauncherTestShellBatchFn = decltype(&RedXeLauncherTestShellBatch);
-using LauncherTestShellParentFn = decltype(&RedXeLauncherTestShellParent);
-using LauncherTestCachedShellHandlerFn = decltype(&RedXeLauncherTestCachedShellHandler);
+using LauncherSetTestPinDirectoryFn      = decltype(&RedXeLauncherSetTestPinDirectory);
+using LauncherGetTestDiagnosticsFn       = decltype(&RedXeLauncherGetTestDiagnostics);
+using LauncherResetTestDiagnosticsFn     = decltype(&RedXeLauncherResetTestDiagnostics);
+using LauncherSetTestIconFailureFn       = decltype(&RedXeLauncherSetTestIconFailure);
+using LauncherTestShellHandlerFn         = decltype(&RedXeLauncherTestShellHandler);
+using LauncherTestShellIconFn            = decltype(&RedXeLauncherTestShellIcon);
+using LauncherTestShellBatchFn           = decltype(&RedXeLauncherTestShellBatch);
+using LauncherTestShellParentFn          = decltype(&RedXeLauncherTestShellParent);
+using LauncherTestCachedShellHandlerFn   = decltype(&RedXeLauncherTestCachedShellHandler);
 using LauncherTestCanceledShellHandlerFn = decltype(&RedXeLauncherTestCanceledShellHandler);
-using LauncherTestIconCacheFn = decltype(&RedXeLauncherTestIconCache);
+using LauncherTestIconCacheFn            = decltype(&RedXeLauncherTestIconCache);
 
-inline constexpr char kLauncherSetTestPinDirectoryExport[] = "RedXeLauncherSetTestPinDirectory";
-inline constexpr char kLauncherGetTestDiagnosticsExport[] = "RedXeLauncherGetTestDiagnostics";
-inline constexpr char kLauncherResetTestDiagnosticsExport[] = "RedXeLauncherResetTestDiagnostics";
-inline constexpr char kLauncherSetTestIconFailureExport[] = "RedXeLauncherSetTestIconFailure";
-inline constexpr char kLauncherTestShellHandlerExport[] = "RedXeLauncherTestShellHandler";
-inline constexpr char kLauncherTestShellIconExport[] = "RedXeLauncherTestShellIcon";
-inline constexpr char kLauncherTestShellBatchExport[] = "RedXeLauncherTestShellBatch";
-inline constexpr char kLauncherTestShellParentExport[] = "RedXeLauncherTestShellParent";
-inline constexpr char kLauncherTestCachedShellHandlerExport[] = "RedXeLauncherTestCachedShellHandler";
+inline constexpr char kLauncherSetTestPinDirectoryExport[]      = "RedXeLauncherSetTestPinDirectory";
+inline constexpr char kLauncherGetTestDiagnosticsExport[]       = "RedXeLauncherGetTestDiagnostics";
+inline constexpr char kLauncherResetTestDiagnosticsExport[]     = "RedXeLauncherResetTestDiagnostics";
+inline constexpr char kLauncherSetTestIconFailureExport[]       = "RedXeLauncherSetTestIconFailure";
+inline constexpr char kLauncherTestShellHandlerExport[]         = "RedXeLauncherTestShellHandler";
+inline constexpr char kLauncherTestShellIconExport[]            = "RedXeLauncherTestShellIcon";
+inline constexpr char kLauncherTestShellBatchExport[]           = "RedXeLauncherTestShellBatch";
+inline constexpr char kLauncherTestShellParentExport[]          = "RedXeLauncherTestShellParent";
+inline constexpr char kLauncherTestCachedShellHandlerExport[]   = "RedXeLauncherTestCachedShellHandler";
 inline constexpr char kLauncherTestCanceledShellHandlerExport[] = "RedXeLauncherTestCanceledShellHandler";
-inline constexpr char kLauncherTestIconCacheExport[] = "RedXeLauncherTestIconCache";
+inline constexpr char kLauncherTestIconCacheExport[]            = "RedXeLauncherTestIconCache";
 
 #undef REDXE_LAUNCHER_TEST_API

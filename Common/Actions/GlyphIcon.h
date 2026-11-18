@@ -22,20 +22,20 @@ namespace RedXeActions
 // to the largest clipped glyph in this batch (at most 512*512*3 bytes). All owners release at scope exit.
 class FluentGlyphRasterizer final
 {
-  public:
-    FluentGlyphRasterizer() noexcept = default;
-    FluentGlyphRasterizer(const FluentGlyphRasterizer&) = delete;
+public:
+    FluentGlyphRasterizer() noexcept                               = default;
+    FluentGlyphRasterizer(const FluentGlyphRasterizer&)            = delete;
     FluentGlyphRasterizer& operator=(const FluentGlyphRasterizer&) = delete;
     [[nodiscard]] HRESULT Rasterize(wchar_t glyph, uint32_t edge, uint32_t* bgra) noexcept;
 
-  private:
+private:
     [[nodiscard]] HRESULT EnsureFace() noexcept;
     wil::com_ptr_nothrow<IDWriteFactory> _factory;
     wil::com_ptr_nothrow<IDWriteFontFace> _face;
     std::unique_ptr<uint8_t[]> _coverage;
     size_t _coverageCapacity = 0;
-    HRESULT _fontResult = E_UNEXPECTED;
-    bool _fontAttempted = false;
+    HRESULT _fontResult      = E_UNEXPECTED;
+    bool _fontAttempted      = false;
 };
 
 // Draws `glyph` centered in an edge×edge premultiplied BGRA square. Falls back from Segoe Fluent Icons to Segoe

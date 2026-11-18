@@ -12,9 +12,9 @@ struct yyjson_val;
 
 namespace Zoom
 {
-inline constexpr char kPluginId[] = "builtin.zoom";
+inline constexpr char kPluginId[]        = "builtin.zoom";
 inline constexpr char kActionNamespace[] = "zoom";
-inline constexpr char kWebJoinPage[] = "https://app.zoom.us/wc";
+inline constexpr char kWebJoinPage[]     = "https://app.zoom.us/wc";
 
 struct Settings final
 {
@@ -22,8 +22,6 @@ struct Settings final
 };
 
 // Accepts an object holding only the retired v1.0.102 members, each with any value; any other member is an error.
-[[nodiscard]] HRESULT ParseSettings(yyjson_val* object, Settings& settings, char* diagnostic,
-                                    size_t diagnosticCapacity) noexcept;
-[[nodiscard]] HRESULT ParseSettingsJson(std::string_view json, Settings& settings, char* diagnostic,
-                                        size_t diagnosticCapacity) noexcept;
+[[nodiscard]] HRESULT ParseSettings(yyjson_val* object, Settings& settings, char* diagnostic, size_t diagnosticCapacity) noexcept;
+[[nodiscard]] HRESULT ParseSettingsJson(std::string_view json, Settings& settings, char* diagnostic, size_t diagnosticCapacity) noexcept;
 } // namespace Zoom

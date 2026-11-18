@@ -15,7 +15,7 @@
 
 // Band width and chevron size in DIPs. Band width is the single tuning point: a wider band is easier to hit but takes
 // more of the outer tile away from double-click raise.
-inline constexpr int kPageEdgeBandWidthDips = 56;
+inline constexpr int kPageEdgeBandWidthDips     = 56;
 inline constexpr int kPageEdgeChevronHeightDips = 22;
 
 // Layered alpha of a revealed band. The band window exists only while revealed, so there is no transparent state to
@@ -24,7 +24,7 @@ inline constexpr BYTE kPageEdgeRevealedAlpha = 210;
 
 // Direction values match the page-navigation convention: -1 returns to the previous page, +1 advances.
 inline constexpr int kPageEdgeDirectionPrevious = -1;
-inline constexpr int kPageEdgeDirectionNext = 1;
+inline constexpr int kPageEdgeDirectionNext     = 1;
 
 [[nodiscard]] inline LONG PageEdgeDipPixels(int dips, UINT dpi) noexcept
 {
@@ -54,19 +54,17 @@ inline constexpr size_t kPageEdgeMaximumWorkAreas = 8;
 {
     switch (message)
     {
-    case WM_NCCREATE:
-    case WM_CREATE:
-    case WM_NCDESTROY:
-    case WM_MOVE:
-    case WM_SIZE:
-    case WM_WINDOWPOSCHANGED:
-    case WM_DPICHANGED:
-    case WM_DISPLAYCHANGE:
-    case WM_SETTINGCHANGE:
-    case WM_STYLECHANGED:
-        return true;
-    default:
-        return false;
+        case WM_NCCREATE:
+        case WM_CREATE:
+        case WM_NCDESTROY:
+        case WM_MOVE:
+        case WM_SIZE:
+        case WM_WINDOWPOSCHANGED:
+        case WM_DPICHANGED:
+        case WM_DISPLAYCHANGE:
+        case WM_SETTINGCHANGE:
+        case WM_STYLECHANGED: return true;
+        default: return false;
     }
 }
 
@@ -87,7 +85,7 @@ inline constexpr size_t kPageEdgeMaximumWorkAreas = 8;
     {
         return RECT{};
     }
-    if (!workAreas || count == 0)
+    if (! workAreas || count == 0)
     {
         return client;
     }
@@ -101,24 +99,23 @@ inline constexpr size_t kPageEdgeMaximumWorkAreas = 8;
         {
             continue;
         }
-        if (!any)
+        if (! any)
         {
             combined = area;
-            any = true;
+            any      = true;
             continue;
         }
-        combined.left = std::min(combined.left, area.left);
-        combined.top = std::min(combined.top, area.top);
-        combined.right = std::max(combined.right, area.right);
+        combined.left   = std::min(combined.left, area.left);
+        combined.top    = std::min(combined.top, area.top);
+        combined.right  = std::max(combined.right, area.right);
         combined.bottom = std::max(combined.bottom, area.bottom);
     }
-    if (!any)
+    if (! any)
     {
         return client;
     }
 
-    const RECT reachable{std::max(client.left, combined.left), client.top, std::min(client.right, combined.right),
-                         client.bottom};
+    const RECT reachable{std::max(client.left, combined.left), client.top, std::min(client.right, combined.right), client.bottom};
     // A window fully outside every work area horizontally leaves nothing reachable; fall back to the client so the
     // bands still exist rather than vanishing.
     return (reachable.right > reachable.left && reachable.bottom > reachable.top) ? reachable : client;
@@ -135,10 +132,9 @@ inline constexpr size_t kPageEdgeMaximumWorkAreas = 8;
 [[nodiscard]] inline RECT PageEdgeBandRectIn(const RECT& reachable, int direction, UINT dpi) noexcept
 {
     RECT band{};
-    const LONG reachableWidth = reachable.right - reachable.left;
+    const LONG reachableWidth  = reachable.right - reachable.left;
     const LONG reachableHeight = reachable.bottom - reachable.top;
-    if (reachableWidth <= 0 || reachableHeight <= 0 ||
-        (direction != kPageEdgeDirectionPrevious && direction != kPageEdgeDirectionNext))
+    if (reachableWidth <= 0 || reachableHeight <= 0 || (direction != kPageEdgeDirectionPrevious && direction != kPageEdgeDirectionNext))
     {
         return band;
     }
@@ -172,21 +168,21 @@ inline constexpr size_t kPageEdgeMaximumWorkAreas = 8;
 // Host state that decides whether an edge band exists at all. Every field maps to state Application already tracks.
 struct PageEdgeState final
 {
-    bool rendererReady = false;
-    bool windowVisible = false;
-    bool displayPoweredOn = false;
-    bool rendererSuspended = true;
-    bool rendererOccluded = false;
-    bool widgetRaised = false;
+    bool rendererReady           = false;
+    bool windowVisible           = false;
+    bool displayPoweredOn        = false;
+    bool rendererSuspended       = true;
+    bool rendererOccluded        = false;
+    bool widgetRaised            = false;
     bool pointerNavigationActive = false;
-    bool settleActive = false;
+    bool settleActive            = false;
     // True while a neighbor is staged or a settle/promote is still holding the transition direction. Distinct from
     // settleActive so an interrupted settle cannot suppress both bands forever after the pointer has already gone.
     bool transitionStaged = false;
-    bool wrapPages = false;
-    bool atFirstPage = true;
-    bool atLastPage = true;
-    uint32_t pageCount = 0;
+    bool wrapPages        = false;
+    bool atFirstPage      = true;
+    bool atLastPage       = true;
+    uint32_t pageCount    = 0;
 
     bool operator==(const PageEdgeState&) const noexcept = default;
 };
@@ -199,8 +195,7 @@ struct PageEdgeState final
     {
         return false;
     }
-    if (!state.rendererReady || !state.windowVisible || !state.displayPoweredOn || state.rendererSuspended ||
-        state.rendererOccluded)
+    if (! state.rendererReady || ! state.windowVisible || ! state.displayPoweredOn || state.rendererSuspended || state.rendererOccluded)
     {
         return false;
     }
@@ -215,14 +210,14 @@ struct PageEdgeState final
     // PageSwipeBlocksDirection speaks in pointer offsets: a positive offset drags the current page right, which
     // returns to the previous page. Map the direction onto that convention so both input paths share one end-stop.
     const LONG offset = direction == kPageEdgeDirectionPrevious ? 1 : -1;
-    return !PageSwipeBlocksDirection(offset, state.wrapPages, state.atFirstPage, state.atLastPage);
+    return ! PageSwipeBlocksDirection(offset, state.wrapPages, state.atFirstPage, state.atLastPage);
 }
 
 // Windows tags mouse messages synthesized from a touch or pen contact. Those belong to the WM_POINTER path.
 [[nodiscard]] inline bool IsPointerSynthesizedMouseMessage() noexcept
 {
     constexpr ULONG_PTR kPointerSignatureMask = 0xFFFFFF00;
-    constexpr ULONG_PTR kPointerSignature = 0xFF515700;
+    constexpr ULONG_PTR kPointerSignature     = 0xFF515700;
     return (static_cast<ULONG_PTR>(GetMessageExtraInfo()) & kPointerSignatureMask) == kPointerSignature;
 }
 
@@ -245,17 +240,16 @@ struct PageEdgeState final
 [[nodiscard]] inline RECT PageEdgeChevronCell(const RECT& band, UINT dpi) noexcept
 {
     RECT cell{};
-    const LONG bandWidth = band.right - band.left;
+    const LONG bandWidth  = band.right - band.left;
     const LONG bandHeight = band.bottom - band.top;
     if (bandWidth <= 0 || bandHeight <= 0)
     {
         return cell;
     }
-    const LONG size =
-        std::max(1L, std::min({PageEdgeDipPixels(kPageEdgeChevronHeightDips, dpi), bandWidth, bandHeight}));
+    const LONG size    = std::max(1L, std::min({PageEdgeDipPixels(kPageEdgeChevronHeightDips, dpi), bandWidth, bandHeight}));
     const LONG centreX = band.left + bandWidth / 2;
     const LONG centreY = band.top + bandHeight / 2;
-    cell = {centreX - size / 2, centreY - size / 2, centreX + size / 2, centreY + size / 2};
+    cell               = {centreX - size / 2, centreY - size / 2, centreX + size / 2, centreY + size / 2};
     return cell;
 }
 
@@ -266,14 +260,12 @@ struct PageEdgeState final
 
 [[nodiscard]] constexpr bool PageEdgeBandContains(const RECT& band, POINT point) noexcept
 {
-    return band.right > band.left && band.bottom > band.top && point.x >= band.left && point.x < band.right &&
-           point.y >= band.top && point.y < band.bottom;
+    return band.right > band.left && band.bottom > band.top && point.x >= band.left && point.x < band.right && point.y >= band.top && point.y < band.bottom;
 }
 
 // Parent-owned click fallback. A child created under the cursor often does not receive WM_SETCURSOR or
 // WM_LBUTTONUP until the mouse moves, so the top-level window navigates when this predicate is true.
-[[nodiscard]] constexpr bool PageEdgeClickNavigates(const PageEdgeState& state, int direction, const RECT& band,
-                                                    POINT point) noexcept
+[[nodiscard]] constexpr bool PageEdgeClickNavigates(const PageEdgeState& state, int direction, const RECT& band, POINT point) noexcept
 {
     return ShouldShowEdgeAffordance(state, direction) && PageEdgeBandContains(band, point);
 }

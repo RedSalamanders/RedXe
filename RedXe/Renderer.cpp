@@ -17,13 +17,13 @@ namespace
 // Float clear color for a 0xRRGGBB document value.
 [[nodiscard]] constexpr std::array<float, 4> RgbToClearColor(uint32_t rgb) noexcept
 {
-    return {static_cast<float>((rgb >> 16U) & 0xFFU) / 255.0f, static_cast<float>((rgb >> 8U) & 0xFFU) / 255.0f,
-            static_cast<float>(rgb & 0xFFU) / 255.0f, 1.0f};
+    return {
+        static_cast<float>((rgb >> 16U) & 0xFFU) / 255.0f, static_cast<float>((rgb >> 8U) & 0xFFU) / 255.0f, static_cast<float>(rgb & 0xFFU) / 255.0f, 1.0f};
 }
 
-constexpr UINT kSwapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+constexpr UINT kSwapChainFlags              = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 constexpr size_t kMaximumEnumeratedAdapters = 8;
-constexpr size_t kMaximumEnumeratedOutputs = 32;
+constexpr size_t kMaximumEnumeratedOutputs  = 32;
 } // namespace
 
 Renderer::~Renderer()
@@ -33,7 +33,7 @@ Renderer::~Renderer()
 
 HRESULT Renderer::Initialize(HWND window, bool forceWarp, DashboardHost& dashboardHost) noexcept
 {
-    if (_window || _dashboardHost || !window || dashboardHost.WidgetCount() > kMaximumWidgetViewports)
+    if (_window || _dashboardHost || ! window || dashboardHost.WidgetCount() > kMaximumWidgetViewports)
     {
         return E_INVALIDARG;
     }
@@ -44,37 +44,37 @@ HRESULT Renderer::Initialize(HWND window, bool forceWarp, DashboardHost& dashboa
         return HRESULT_FROM_WIN32(GetLastError());
     }
 
-    _window = window;
-    _forceWarp = forceWarp;
+    _window        = window;
+    _forceWarp     = forceWarp;
     _dashboardHost = &dashboardHost;
-    _dpi = dpi;
+    _dpi           = dpi;
     return CreateDeviceResources();
 }
 
 void Renderer::SetDockPresentation(bool enabled, UINT width, UINT height) noexcept
 {
     _dockPresentation = enabled;
-    _dockWidth = enabled ? width : 0;
-    _dockHeight = enabled ? height : 0;
+    _dockWidth        = enabled ? width : 0;
+    _dockHeight       = enabled ? height : 0;
 }
 
 void Renderer::Shutdown() noexcept
 {
     ReleaseDeviceResources();
-    _window = nullptr;
-    _dashboardHost = nullptr;
-    _transitionDashboardHost = nullptr;
-    _forceWarp = false;
-    _dpi = USER_DEFAULT_SCREEN_DPI;
-    _lastFrameWidgetCount = 0;
+    _window                         = nullptr;
+    _dashboardHost                  = nullptr;
+    _transitionDashboardHost        = nullptr;
+    _forceWarp                      = false;
+    _dpi                            = USER_DEFAULT_SCREEN_DPI;
+    _lastFrameWidgetCount           = 0;
     _lastFrameSuccessfulWidgetCount = 0;
-    _raisedOverlayActive = false;
-    _raisedOverlayIndex = SIZE_MAX;
-    _raisedContent = {};
-    _raisedTargetSize = {};
-    _raisedViewport = {};
-    _lastLoggedRenderFailure = {};
-    _failedWidgetMask = 0;
+    _raisedOverlayActive            = false;
+    _raisedOverlayIndex             = SIZE_MAX;
+    _raisedContent                  = {};
+    _raisedTargetSize               = {};
+    _raisedViewport                 = {};
+    _lastLoggedRenderFailure        = {};
+    _failedWidgetMask               = 0;
 }
 
 HRESULT Renderer::DropTransitionDashboard() noexcept
@@ -86,12 +86,12 @@ HRESULT Renderer::DropTransitionDashboard() noexcept
         if (_pagePreparationProbe->Empty())
             _pagePreparationProbe.reset();
     }
-    const bool ready = _transitionWidgetsDeviceReady;
-    _transitionDashboardHost = nullptr;
+    const bool ready              = _transitionWidgetsDeviceReady;
+    _transitionDashboardHost      = nullptr;
     _transitionWidgetsDeviceReady = false;
-    _transitionTargetSizes = {};
-    _transitionWidgetViewports = {};
-    const HRESULT result = previous ? previous->SetWidgetsVisible(false) : S_OK;
+    _transitionTargetSizes        = {};
+    _transitionWidgetViewports    = {};
+    const HRESULT result          = previous ? previous->SetWidgetsVisible(false) : S_OK;
     if (previous && ready)
     {
         if (_context)
@@ -103,8 +103,7 @@ HRESULT Renderer::DropTransitionDashboard() noexcept
     return result;
 }
 
-HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost, RuntimePageCallbackContext* callbacks,
-                                         HRESULT* preparationTraceResult) noexcept
+HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost, RuntimePageCallbackContext* callbacks, HRESULT* preparationTraceResult) noexcept
 {
     if (preparationTraceResult)
         *preparationTraceResult = S_FALSE;
@@ -123,11 +122,11 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost, RuntimePa
     if (FAILED(retired))
         return retired;
     _transitionDashboardHost = dashboardHost;
-    if (!dashboardHost)
+    if (! dashboardHost)
     {
         return S_OK;
     }
-    if (!_device || !_gpuWidgetsDeviceReady)
+    if (! _device || ! _gpuWidgetsDeviceReady)
     {
         return S_OK;
     }
@@ -136,14 +135,17 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost, RuntimePa
     {
         if (IRedXeGpuWidget* widget = dashboardHost->GpuWidgetAt(index))
         {
-            const HRESULT result = TraceRuntimePageCallback(callbacks, static_cast<uint32_t>(index),
-                                                            RuntimePageCallbackKind::DeviceCreated, [&]() noexcept
-                                                            { return widget->OnDeviceCreated(&context); });
+            const HRESULT result = TraceRuntimePageCallback(
+                callbacks, static_cast<uint32_t>(index), RuntimePageCallbackKind::DeviceCreated, [&]() noexcept { return widget->OnDeviceCreated(&context); });
             if (FAILED(result))
             {
-                (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
-                                   dashboardHost->WidgetInstanceIdAt(index), "gpu-device-create-failed",
-                                   "IRedXeGpuWidget::OnDeviceCreated failed.", result);
+                (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                                   RedXeLogLevelError,
+                                   nullptr,
+                                   dashboardHost->WidgetInstanceIdAt(index),
+                                   "gpu-device-create-failed",
+                                   "IRedXeGpuWidget::OnDeviceCreated failed.",
+                                   result);
                 for (size_t previous = 0; previous < index; ++previous)
                 {
                     if (IRedXeGpuWidget* initialized = dashboardHost->GpuWidgetAt(previous))
@@ -162,10 +164,9 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost, RuntimePa
         for (size_t index = 0; index < dashboardHost->WidgetCount(); ++index)
             if (dashboardHost->PreparedGpuWidgetAt(index))
                 pending |= uint32_t{1} << index;
-        if (!_pagePreparationProbe)
+        if (! _pagePreparationProbe)
             _pagePreparationProbe.reset(new (std::nothrow) RuntimePagePreparationProbe());
-        const HRESULT traced =
-            _pagePreparationProbe ? _pagePreparationProbe->Arm(dashboardHost, *callbacks, pending) : E_OUTOFMEMORY;
+        const HRESULT traced = _pagePreparationProbe ? _pagePreparationProbe->Arm(dashboardHost, *callbacks, pending) : E_OUTOFMEMORY;
         if (preparationTraceResult)
             *preparationTraceResult = traced;
         if (_pagePreparationProbe && _pagePreparationProbe->Empty())
@@ -187,7 +188,7 @@ HRESULT Renderer::SetTransitionDashboard(DashboardHost* dashboardHost, RuntimePa
 
 HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
 {
-    if (!_window || !_device || dashboardHost.WidgetCount() > kMaximumWidgetViewports)
+    if (! _window || ! _device || dashboardHost.WidgetCount() > kMaximumWidgetViewports)
     {
         return E_INVALIDARG;
     }
@@ -199,33 +200,33 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
             if (_pagePreparationProbe->Empty())
                 _pagePreparationProbe.reset();
         }
-        _transitionDashboardHost = nullptr;
+        _transitionDashboardHost      = nullptr;
         _transitionWidgetsDeviceReady = false;
         return (_width == 0 || _height == 0) ? S_OK : UpdateCachedViewports();
     }
 
-    const bool keepDevice = _transitionDashboardHost == &dashboardHost && _transitionWidgetsDeviceReady;
+    const bool keepDevice      = _transitionDashboardHost == &dashboardHost && _transitionWidgetsDeviceReady;
     const bool incomingVisible = dashboardHost.WidgetsVisible();
-    if (!keepDevice)
+    if (! keepDevice)
     {
         const HRESULT hidden = dashboardHost.SetWidgetsVisible(false);
         if (FAILED(hidden))
             return hidden;
     }
-    DashboardHost* const previousPrimary = _dashboardHost;
+    DashboardHost* const previousPrimary    = _dashboardHost;
     DashboardHost* const previousTransition = _transitionDashboardHost;
-    const bool previousTransitionReady = _transitionWidgetsDeviceReady;
-    const bool previousGpuReady = _gpuWidgetsDeviceReady;
-    const auto previousTargets = _widgetTargetSizes;
-    const auto incomingTargets = _transitionTargetSizes;
+    const bool previousTransitionReady      = _transitionWidgetsDeviceReady;
+    const bool previousGpuReady             = _gpuWidgetsDeviceReady;
+    const auto previousTargets              = _widgetTargetSizes;
+    const auto incomingTargets              = _transitionTargetSizes;
 
-    _dashboardHost = &dashboardHost;
-    _transitionDashboardHost = nullptr;
+    _dashboardHost                = &dashboardHost;
+    _transitionDashboardHost      = nullptr;
     _transitionWidgetsDeviceReady = false;
     if (keepDevice)
     {
         _gpuWidgetsDeviceReady = true;
-        _widgetTargetSizes = incomingTargets;
+        _widgetTargetSizes     = incomingTargets;
     }
 
     HRESULT result = S_OK;
@@ -236,7 +237,7 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
     else
     {
         _gpuWidgetsDeviceReady = false;
-        result = NotifyDeviceCreated();
+        result                 = NotifyDeviceCreated();
         if (SUCCEEDED(result))
         {
             result = UpdateCachedViewports();
@@ -248,7 +249,7 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
     }
     if (FAILED(result))
     {
-        if (!keepDevice)
+        if (! keepDevice)
         {
             for (size_t index = 0; index < dashboardHost.WidgetCount(); ++index)
             {
@@ -258,12 +259,12 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
                 }
             }
         }
-        _dashboardHost = previousPrimary;
-        _transitionDashboardHost = previousTransition;
+        _dashboardHost                = previousPrimary;
+        _transitionDashboardHost      = previousTransition;
         _transitionWidgetsDeviceReady = previousTransitionReady;
-        _gpuWidgetsDeviceReady = previousGpuReady;
-        _widgetTargetSizes = previousTargets;
-        _transitionTargetSizes = incomingTargets;
+        _gpuWidgetsDeviceReady        = previousGpuReady;
+        _widgetTargetSizes            = previousTargets;
+        _transitionTargetSizes        = incomingTargets;
         return result;
     }
 
@@ -310,20 +311,19 @@ HRESULT Renderer::AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept
         }
     }
     _lastLoggedRenderFailure = {};
-    _failedWidgetMask = 0;
+    _failedWidgetMask        = 0;
     return S_OK;
 }
 
 HRESULT Renderer::SetRaisedOverlay(size_t widgetIndex, const RECT& content, SIZE targetPixels) noexcept
 {
-    if (!_dashboardHost || widgetIndex >= _dashboardHost->WidgetCount() || content.right <= content.left ||
-        content.bottom <= content.top)
+    if (! _dashboardHost || widgetIndex >= _dashboardHost->WidgetCount() || content.right <= content.left || content.bottom <= content.top)
     {
         return E_INVALIDARG;
     }
     _raisedOverlayActive = true;
-    _raisedOverlayIndex = widgetIndex;
-    _raisedContent = content;
+    _raisedOverlayIndex  = widgetIndex;
+    _raisedContent       = content;
     if (targetPixels.cx > 0 && targetPixels.cy > 0)
     {
         _raisedTargetSize = targetPixels;
@@ -333,17 +333,17 @@ HRESULT Renderer::SetRaisedOverlay(size_t widgetIndex, const RECT& content, SIZE
         _raisedTargetSize = SIZE{content.right - content.left, content.bottom - content.top};
     }
     _raisedViewport = {};
-    return (!_suspended && _width != 0 && _height != 0) ? UpdateCachedViewports() : S_OK;
+    return (! _suspended && _width != 0 && _height != 0) ? UpdateCachedViewports() : S_OK;
 }
 
 void Renderer::ClearRaisedOverlay() noexcept
 {
     _raisedOverlayActive = false;
-    _raisedOverlayIndex = SIZE_MAX;
-    _raisedContent = {};
-    _raisedTargetSize = {};
-    _raisedViewport = {};
-    if (!_suspended && _dashboardHost && _width != 0 && _height != 0)
+    _raisedOverlayIndex  = SIZE_MAX;
+    _raisedContent       = {};
+    _raisedTargetSize    = {};
+    _raisedViewport      = {};
+    if (! _suspended && _dashboardHost && _width != 0 && _height != 0)
     {
         (void)UpdateCachedViewports();
     }
@@ -365,7 +365,7 @@ HRESULT Renderer::SetDpi(UINT dpi) noexcept
         // Re-rasterizes the three chrome glyphs for the new DPI; never per frame.
         (void)_hostChrome.SetDpi(dpi);
     }
-    if (_gpuWidgetsDeviceReady && !_suspended)
+    if (_gpuWidgetsDeviceReady && ! _suspended)
     {
         NotifyTargetSizes();
     }
@@ -399,12 +399,12 @@ size_t Renderer::LastFrameChromeQuadCount() const noexcept
 
 HRESULT Renderer::CreateDeviceResources() noexcept
 {
-    const bool primaryVisible = _dashboardHost && _dashboardHost->WidgetsVisible();
+    const bool primaryVisible    = _dashboardHost && _dashboardHost->WidgetsVisible();
     const bool transitionVisible = _transitionDashboardHost && _transitionDashboardHost->WidgetsVisible();
     ReleaseDeviceResources();
 
     HRESULT result = CreateDevice(_forceWarp);
-    if (FAILED(result) && !_forceWarp)
+    if (FAILED(result) && ! _forceWarp)
     {
         OutputDebugStringW(L"Hardware Direct3D initialization failed; trying WARP.\n");
         result = CreateDevice(true);
@@ -433,17 +433,17 @@ HRESULT Renderer::CreateDeviceResources() noexcept
     }
 
     RECT client{};
-    if (!GetClientRect(_window, &client))
+    if (! GetClientRect(_window, &client))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
 
-    UINT width = static_cast<UINT>(client.right - client.left);
+    UINT width  = static_cast<UINT>(client.right - client.left);
     UINT height = static_cast<UINT>(client.bottom - client.top);
     if (_dockPresentation && _dockWidth != 0 && _dockHeight != 0)
     {
         // The client may be the peek strip at this moment; the back buffer is always the full bar.
-        width = _dockWidth;
+        width  = _dockWidth;
         height = _dockHeight;
     }
     if (width == 0 || height == 0)
@@ -464,12 +464,11 @@ HRESULT Renderer::CreateDeviceResources() noexcept
     return result;
 }
 
-HRESULT Renderer::FindAdapterForMonitor(HMONITOR monitor, wil::com_ptr_nothrow<IDXGIAdapter1>& adapter,
-                                        LUID& adapterLuid) noexcept
+HRESULT Renderer::FindAdapterForMonitor(HMONITOR monitor, wil::com_ptr_nothrow<IDXGIAdapter1>& adapter, LUID& adapterLuid) noexcept
 {
     adapter.reset();
     adapterLuid = {};
-    if (!monitor)
+    if (! monitor)
     {
         return E_INVALIDARG;
     }
@@ -510,29 +509,27 @@ HRESULT Renderer::FindAdapterForMonitor(HMONITOR monitor, wil::com_ptr_nothrow<I
             {
                 continue;
             }
-            records[recordCount] =
-                RedXeAdapterOutputRecord{description.AdapterLuid, outputDescription.Monitor, software};
+            records[recordCount]        = RedXeAdapterOutputRecord{description.AdapterLuid, outputDescription.Monitor, software};
             recordAdapters[recordCount] = adapterIndex;
             ++recordCount;
         }
         adapters[adapterIndex] = std::move(candidate);
     }
 
-    const size_t selected = RedXeSelectAdapterRecordForMonitor(
-        std::span<const RedXeAdapterOutputRecord>(records.data(), recordCount), monitor);
+    const size_t selected = RedXeSelectAdapterRecordForMonitor(std::span<const RedXeAdapterOutputRecord>(records.data(), recordCount), monitor);
     if (selected == SIZE_MAX)
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
-    adapter = adapters[recordAdapters[selected]];
+    adapter     = adapters[recordAdapters[selected]];
     adapterLuid = records[selected].adapterLuid;
     return S_OK;
 }
 
 void Renderer::RecordDeviceIdentity(bool warp, bool adapterOwnsWindowMonitor) noexcept
 {
-    _deviceInfo = {};
-    _deviceInfo.warp = warp;
+    _deviceInfo                          = {};
+    _deviceInfo.warp                     = warp;
     _deviceInfo.adapterOwnsWindowMonitor = adapterOwnsWindowMonitor;
     wil::com_ptr_nothrow<IDXGIDevice> dxgiDevice;
     wil::com_ptr_nothrow<IDXGIAdapter> adapter;
@@ -551,16 +548,18 @@ void Renderer::RecordDeviceIdentity(bool warp, bool adapterOwnsWindowMonitor) no
     for (size_t index = 0; index + 1 < name.size() && _deviceInfo.adapterName[index] != L'\0'; ++index)
     {
         const wchar_t character = _deviceInfo.adapterName[index];
-        name[index] = character < 0x80 ? static_cast<char>(character) : '?';
+        name[index]             = character < 0x80 ? static_cast<char>(character) : '?';
     }
     std::array<char, 320> message{};
-    (void)std::snprintf(message.data(), message.size(),
+    (void)std::snprintf(message.data(),
+                        message.size(),
                         "Direct3D device created on %s (LUID %08lX-%08lX, %s, adapter owns window monitor: %s).",
-                        name.data(), static_cast<unsigned long>(_deviceInfo.adapterLuid.HighPart),
-                        static_cast<unsigned long>(_deviceInfo.adapterLuid.LowPart), warp ? "WARP" : "hardware",
+                        name.data(),
+                        static_cast<unsigned long>(_deviceInfo.adapterLuid.HighPart),
+                        static_cast<unsigned long>(_deviceInfo.adapterLuid.LowPart),
+                        warp ? "WARP" : "hardware",
                         adapterOwnsWindowMonitor ? "yes" : "no");
-    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "device-created",
-                       message.data());
+    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "device-created", message.data());
 }
 
 HRESULT Renderer::CreateDevice(bool useWarp) noexcept
@@ -579,7 +578,7 @@ HRESULT Renderer::CreateDevice(bool useWarp) noexcept
     // adapters. A window on no monitor (hidden test host) keeps the default-adapter path.
     _deviceMonitor = nullptr;
     wil::com_ptr_nothrow<IDXGIAdapter1> adapter;
-    if (!useWarp)
+    if (! useWarp)
     {
         const HMONITOR monitor = MonitorFromWindow(_window, MONITOR_DEFAULTTONULL);
         LUID adapterLuid{};
@@ -592,17 +591,23 @@ HRESULT Renderer::CreateDevice(bool useWarp) noexcept
             adapter.reset();
         }
     }
-    const D3D_DRIVER_TYPE driverType =
-        useWarp ? D3D_DRIVER_TYPE_WARP : (adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE);
+    const D3D_DRIVER_TYPE driverType = useWarp ? D3D_DRIVER_TYPE_WARP : (adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE);
 
     auto create = [&](UINT requestedFlags) noexcept
     {
         _device.reset();
         _context.reset();
         _context1.reset();
-        return D3D11CreateDevice(adapter.get(), driverType, nullptr, requestedFlags, featureLevels.data(),
-                                 static_cast<UINT>(featureLevels.size()), D3D11_SDK_VERSION, _device.put(),
-                                 &_featureLevel, _context.put());
+        return D3D11CreateDevice(adapter.get(),
+                                 driverType,
+                                 nullptr,
+                                 requestedFlags,
+                                 featureLevels.data(),
+                                 static_cast<UINT>(featureLevels.size()),
+                                 D3D11_SDK_VERSION,
+                                 _device.put(),
+                                 &_featureLevel,
+                                 _context.put());
     };
 
     HRESULT result = create(flags);
@@ -632,12 +637,12 @@ HRESULT Renderer::CreateDevice(bool useWarp) noexcept
 
 HRESULT Renderer::EnsureDeviceForWindowMonitor() noexcept
 {
-    if (!_window || !_device || _forceWarp || _deviceInfo.warp)
+    if (! _window || ! _device || _forceWarp || _deviceInfo.warp)
     {
         return S_FALSE;
     }
     const HMONITOR monitor = MonitorFromWindow(_window, MONITOR_DEFAULTTONULL);
-    if (!monitor || monitor == _deviceMonitor)
+    if (! monitor || monitor == _deviceMonitor)
     {
         return S_FALSE;
     }
@@ -667,10 +672,10 @@ Renderer::DeviceIdentity Renderer::DeviceInfo() const noexcept
 RuntimeProbeGraphics Renderer::QueryProbeGraphics() const noexcept
 {
     RuntimeProbeGraphics sample;
-    if (!_swapChain || !_device)
+    if (! _swapChain || ! _device)
         return sample;
-    sample.generation = _swapChainGeneration;
-    sample.presentResult = _swapChain->GetLastPresentCount(&sample.presentCount);
+    sample.generation       = _swapChainGeneration;
+    sample.presentResult    = _swapChain->GetLastPresentCount(&sample.presentCount);
     sample.statisticsResult = _swapChain->GetFrameStatistics(&sample.statistics);
     wil::com_ptr_nothrow<IDXGIDevice> device;
     wil::com_ptr_nothrow<IDXGIAdapter> adapter;
@@ -683,9 +688,8 @@ RuntimeProbeGraphics Renderer::QueryProbeGraphics() const noexcept
     sample.localResult = sample.nonLocalResult = result;
     if (SUCCEEDED(result))
     {
-        sample.localResult = adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &sample.local);
-        sample.nonLocalResult =
-            adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &sample.nonLocal);
+        sample.localResult    = adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &sample.local);
+        sample.nonLocalResult = adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &sample.nonLocal);
     }
     return sample;
 }
@@ -725,22 +729,22 @@ HRESULT Renderer::CreateSwapChain() noexcept
     }
 
     DXGI_SWAP_CHAIN_DESC1 description{};
-    description.Format = kTargetFormat;
+    description.Format           = kTargetFormat;
     description.SampleDesc.Count = 1;
-    description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    description.BufferCount = 2;
+    description.BufferUsage      = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    description.BufferCount      = 2;
     // The dock keeps a full-size back buffer while its window is the peek strip: no scaling, top-left aligned,
     // clipped by DWM. With equal buffer and client sizes the two modes are indistinguishable. The buffer is sized to
     // the full bar explicitly, because the window may be the strip when the swap chain is (re)created.
     description.Scaling = _dockPresentation ? DXGI_SCALING_NONE : DXGI_SCALING_STRETCH;
     if (_dockPresentation && _dockWidth != 0 && _dockHeight != 0)
     {
-        description.Width = _dockWidth;
+        description.Width  = _dockWidth;
         description.Height = _dockHeight;
     }
     description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-    description.Flags = kSwapChainFlags;
+    description.AlphaMode  = DXGI_ALPHA_MODE_IGNORE;
+    description.Flags      = kSwapChainFlags;
 
     result = factory->CreateSwapChainForHwnd(_device.get(), _window, &description, nullptr, nullptr, _swapChain.put());
     if (FAILED(result))
@@ -763,7 +767,7 @@ HRESULT Renderer::CreateSwapChain() noexcept
         return result;
     }
     _frameLatencyWaitable.reset(swapChain2->GetFrameLatencyWaitableObject());
-    if (!_frameLatencyWaitable)
+    if (! _frameLatencyWaitable)
     {
         return E_UNEXPECTED;
     }
@@ -776,14 +780,14 @@ HRESULT Renderer::CreateSwapChain() noexcept
     }
 
     DWORD occlusionStatusCookie = 0;
-    result = factory->RegisterOcclusionStatusWindow(_window, kOcclusionStatusMessage, &occlusionStatusCookie);
+    result                      = factory->RegisterOcclusionStatusWindow(_window, kOcclusionStatusMessage, &occlusionStatusCookie);
     if (FAILED(result))
     {
         return result;
     }
 
-    _factory = std::move(factory);
-    _occlusionStatusCookie = occlusionStatusCookie;
+    _factory                   = std::move(factory);
+    _occlusionStatusCookie     = occlusionStatusCookie;
     _occlusionStatusRegistered = true;
     return S_OK;
 }
@@ -803,23 +807,23 @@ HRESULT Renderer::CreateRenderTarget(UINT width, UINT height) noexcept
         return result;
     }
 
-    _width = width;
-    _height = height;
+    _width     = width;
+    _height    = height;
     _suspended = false;
-    _occluded = false;
+    _occluded  = false;
     return UpdateCachedViewports();
 }
 
 #if defined(_DEBUG)
 void Renderer::ValidateWidgetPipelineState(size_t index) noexcept
 {
-    if (!_context)
+    if (! _context)
     {
         return;
     }
     wil::com_ptr_nothrow<ID3D11RasterizerState> rasterizer;
     _context->RSGetState(rasterizer.put());
-    if (!rasterizer)
+    if (! rasterizer)
     {
         return;
     }
@@ -836,12 +840,13 @@ void Renderer::ValidateWidgetPipelineState(size_t index) noexcept
 
 void Renderer::DrawPlaceholder(const D3D11_VIEWPORT& viewport) noexcept
 {
-    if (!_context1 || !_renderTarget || viewport.Width < 1.0f || viewport.Height < 1.0f)
+    if (! _context1 || ! _renderTarget || viewport.Width < 1.0f || viewport.Height < 1.0f)
     {
         return;
     }
     constexpr std::array placeholderColor{0.180f, 0.055f, 0.075f, 1.0f};
-    const D3D11_RECT rect{static_cast<LONG>(viewport.TopLeftX), static_cast<LONG>(viewport.TopLeftY),
+    const D3D11_RECT rect{static_cast<LONG>(viewport.TopLeftX),
+                          static_cast<LONG>(viewport.TopLeftY),
                           static_cast<LONG>(viewport.TopLeftX + viewport.Width),
                           static_cast<LONG>(viewport.TopLeftY + viewport.Height)};
     _context1->ClearView(_renderTarget.get(), placeholderColor.data(), &rect, 1);
@@ -850,13 +855,13 @@ void Renderer::DrawPlaceholder(const D3D11_VIEWPORT& viewport) noexcept
 void Renderer::FillTileBackground(const DashboardHost& dashboard, size_t index, const D3D11_VIEWPORT& viewport) noexcept
 {
     const uint32_t rgb = dashboard.WidgetBackgroundRgbAt(index);
-    if (rgb == dashboard.BackgroundRgb() || !_context1 || !_renderTarget || viewport.Width < 1.0f ||
-        viewport.Height < 1.0f)
+    if (rgb == dashboard.BackgroundRgb() || ! _context1 || ! _renderTarget || viewport.Width < 1.0f || viewport.Height < 1.0f)
     {
         return;
     }
     const std::array<float, 4> color = RgbToClearColor(rgb);
-    const D3D11_RECT rect{static_cast<LONG>(viewport.TopLeftX), static_cast<LONG>(viewport.TopLeftY),
+    const D3D11_RECT rect{static_cast<LONG>(viewport.TopLeftX),
+                          static_cast<LONG>(viewport.TopLeftY),
                           static_cast<LONG>(viewport.TopLeftX + viewport.Width),
                           static_cast<LONG>(viewport.TopLeftY + viewport.Height)};
     _context1->ClearView(_renderTarget.get(), color.data(), &rect, 1);
@@ -864,7 +869,7 @@ void Renderer::FillTileBackground(const DashboardHost& dashboard, size_t index, 
 
 void Renderer::ResetTargetSizes() noexcept
 {
-    _widgetTargetSizes = {};
+    _widgetTargetSizes     = {};
     _transitionTargetSizes = {};
 }
 
@@ -875,7 +880,7 @@ void Renderer::NotifyTargetSizes(RuntimePageCallbackContext* callbacks) noexcept
                                           std::array<ReportedTarget, kMaximumWidgetViewports>& reported,
                                           bool includeRaised) noexcept
     {
-        if (!dashboard)
+        if (! dashboard)
         {
             return;
         }
@@ -888,20 +893,17 @@ void Renderer::NotifyTargetSizes(RuntimePageCallbackContext* callbacks) noexcept
             // larger of the two: the smaller draw is a minification the sampler already handles well.
             if (includeRaised && _raisedOverlayActive && index == _raisedOverlayIndex)
             {
-                const LONG raisedWidth =
-                    _raisedTargetSize.cx > 0 ? _raisedTargetSize.cx : static_cast<LONG>(_raisedViewport.Width + 0.5f);
-                const LONG raisedHeight =
-                    _raisedTargetSize.cy > 0 ? _raisedTargetSize.cy : static_cast<LONG>(_raisedViewport.Height + 0.5f);
-                size.cx = std::max(size.cx, raisedWidth);
-                size.cy = std::max(size.cy, raisedHeight);
+                const LONG raisedWidth  = _raisedTargetSize.cx > 0 ? _raisedTargetSize.cx : static_cast<LONG>(_raisedViewport.Width + 0.5f);
+                const LONG raisedHeight = _raisedTargetSize.cy > 0 ? _raisedTargetSize.cy : static_cast<LONG>(_raisedViewport.Height + 0.5f);
+                size.cx                 = std::max(size.cx, raisedWidth);
+                size.cy                 = std::max(size.cy, raisedHeight);
             }
-            if (size.cx <= 0 || size.cy <= 0 ||
-                (size.cx == reported[index].cx && size.cy == reported[index].cy && _dpi == reported[index].dpi))
+            if (size.cx <= 0 || size.cy <= 0 || (size.cx == reported[index].cx && size.cy == reported[index].cy && _dpi == reported[index].dpi))
             {
                 continue;
             }
             IRedXeGpuWidget* widget = dashboard->GpuWidgetAt(index);
-            if (!widget)
+            if (! widget)
             {
                 reported[index] = {size.cx, size.cy, _dpi};
                 continue;
@@ -913,16 +915,20 @@ void Renderer::NotifyTargetSizes(RuntimePageCallbackContext* callbacks) noexcept
                 _dpi,
             };
             // A failed rebuild is isolated: the widget keeps whatever resources it already had and still renders.
-            const HRESULT sized = TraceRuntimePageCallback(
-                dashboard == _transitionDashboardHost ? callbacks : nullptr, static_cast<uint32_t>(index),
-                RuntimePageCallbackKind::TargetSize, [&]() noexcept { return widget->OnTargetSizeChanged(&context); });
+            const HRESULT sized = TraceRuntimePageCallback(dashboard == _transitionDashboardHost ? callbacks : nullptr,
+                                                           static_cast<uint32_t>(index),
+                                                           RuntimePageCallbackKind::TargetSize,
+                                                           [&]() noexcept { return widget->OnTargetSizeChanged(&context); });
             if (FAILED(sized))
             {
                 OutputDebugStringW(L"A GPU widget failed to resize its resources; keeping the previous ones.\n");
-                (void)RedXeHostLog(
-                    PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr,
-                    dashboard->WidgetInstanceIdAt(index), "gpu-target-size-failed",
-                    "IRedXeGpuWidget::OnTargetSizeChanged failed; the widget keeps its previous resources.", sized);
+                (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                                   RedXeLogLevelWarning,
+                                   nullptr,
+                                   dashboard->WidgetInstanceIdAt(index),
+                                   "gpu-target-size-failed",
+                                   "IRedXeGpuWidget::OnTargetSizeChanged failed; the widget keeps its previous resources.",
+                                   sized);
             }
             reported[index] = {size.cx, size.cy, _dpi};
         }
@@ -938,14 +944,14 @@ HRESULT Renderer::UpdateCachedViewports(RuntimePageCallbackContext* callbacks) n
     // not drift apart. Raising kMaximumWidgetsPerPage alone fails here instead of overrunning a frame.
     static_assert(PluginManager::kMaximumWidgetInstances <= kMaximumWidgetViewports);
 
-    if (!_dashboardHost || _dashboardHost->WidgetCount() > _widgetViewports.size() || _width == 0 || _height == 0)
+    if (! _dashboardHost || _dashboardHost->WidgetCount() > _widgetViewports.size() || _width == 0 || _height == 0)
     {
         return E_UNEXPECTED;
     }
 
     for (size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
     {
-        const RECT bounds = _dashboardHost->PixelBoundsAt(index, _width, _height);
+        const RECT bounds        = _dashboardHost->PixelBoundsAt(index, _width, _height);
         D3D11_VIEWPORT& viewport = _widgetViewports[index];
         if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
         {
@@ -955,19 +961,19 @@ HRESULT Renderer::UpdateCachedViewports(RuntimePageCallbackContext* callbacks) n
 
         viewport.TopLeftX = static_cast<float>(bounds.left);
         viewport.TopLeftY = static_cast<float>(bounds.top);
-        viewport.Width = static_cast<float>(bounds.right - bounds.left);
-        viewport.Height = static_cast<float>(bounds.bottom - bounds.top);
+        viewport.Width    = static_cast<float>(bounds.right - bounds.left);
+        viewport.Height   = static_cast<float>(bounds.bottom - bounds.top);
         viewport.MinDepth = 0.0f;
         viewport.MaxDepth = 1.0f;
     }
     _raisedViewport = {};
-    if (_raisedOverlayActive && _raisedOverlayIndex < _dashboardHost->WidgetCount() &&
-        _raisedContent.right > _raisedContent.left && _raisedContent.bottom > _raisedContent.top)
+    if (_raisedOverlayActive && _raisedOverlayIndex < _dashboardHost->WidgetCount() && _raisedContent.right > _raisedContent.left &&
+        _raisedContent.bottom > _raisedContent.top)
     {
         _raisedViewport.TopLeftX = static_cast<float>(_raisedContent.left);
         _raisedViewport.TopLeftY = static_cast<float>(_raisedContent.top);
-        _raisedViewport.Width = static_cast<float>(_raisedContent.right - _raisedContent.left);
-        _raisedViewport.Height = static_cast<float>(_raisedContent.bottom - _raisedContent.top);
+        _raisedViewport.Width    = static_cast<float>(_raisedContent.right - _raisedContent.left);
+        _raisedViewport.Height   = static_cast<float>(_raisedContent.bottom - _raisedContent.top);
         _raisedViewport.MinDepth = 0.0f;
         _raisedViewport.MaxDepth = 1.0f;
     }
@@ -975,7 +981,7 @@ HRESULT Renderer::UpdateCachedViewports(RuntimePageCallbackContext* callbacks) n
     {
         for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
         {
-            const RECT bounds = _transitionDashboardHost->PixelBoundsAt(index, _width, _height);
+            const RECT bounds        = _transitionDashboardHost->PixelBoundsAt(index, _width, _height);
             D3D11_VIEWPORT& viewport = _transitionWidgetViewports[index];
             if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
             {
@@ -984,8 +990,8 @@ HRESULT Renderer::UpdateCachedViewports(RuntimePageCallbackContext* callbacks) n
             }
             viewport.TopLeftX = static_cast<float>(bounds.left);
             viewport.TopLeftY = static_cast<float>(bounds.top);
-            viewport.Width = static_cast<float>(bounds.right - bounds.left);
-            viewport.Height = static_cast<float>(bounds.bottom - bounds.top);
+            viewport.Width    = static_cast<float>(bounds.right - bounds.left);
+            viewport.Height   = static_cast<float>(bounds.bottom - bounds.top);
             viewport.MinDepth = 0.0f;
             viewport.MaxDepth = 1.0f;
         }
@@ -996,7 +1002,7 @@ HRESULT Renderer::UpdateCachedViewports(RuntimePageCallbackContext* callbacks) n
 
 HRESULT Renderer::NotifyDeviceCreated() noexcept
 {
-    if (!_dashboardHost || !_device || _gpuWidgetsDeviceReady)
+    if (! _dashboardHost || ! _device || _gpuWidgetsDeviceReady)
     {
         return E_UNEXPECTED;
     }
@@ -1012,16 +1018,20 @@ HRESULT Renderer::NotifyDeviceCreated() noexcept
     for (size_t index = 0; index < _dashboardHost->WidgetCount(); ++index)
     {
         IRedXeGpuWidget* widget = _dashboardHost->GpuWidgetAt(index);
-        if (!widget)
+        if (! widget)
         {
             continue;
         }
         const HRESULT result = widget->OnDeviceCreated(&context);
         if (FAILED(result))
         {
-            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
-                               _dashboardHost->WidgetInstanceIdAt(index), "gpu-device-create-failed",
-                               "IRedXeGpuWidget::OnDeviceCreated failed.", result);
+            (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                               RedXeLogLevelError,
+                               nullptr,
+                               _dashboardHost->WidgetInstanceIdAt(index),
+                               "gpu-device-create-failed",
+                               "IRedXeGpuWidget::OnDeviceCreated failed.",
+                               result);
             for (size_t previous = 0; previous < initializedCount; ++previous)
             {
                 IRedXeGpuWidget* initializedWidget = _dashboardHost->GpuWidgetAt(previous);
@@ -1052,7 +1062,7 @@ void Renderer::NotifyDeviceLost() noexcept
         _pagePreparationProbe->Retain(nullptr);
         _pagePreparationProbe.reset();
     }
-    if (!_gpuWidgetsDeviceReady || !_dashboardHost)
+    if (! _gpuWidgetsDeviceReady || ! _dashboardHost)
     {
         return;
     }
@@ -1080,30 +1090,30 @@ void Renderer::NotifyDeviceLost() noexcept
 
 HRESULT Renderer::Resize(UINT width, UINT height) noexcept
 {
-    if (!_swapChain)
+    if (! _swapChain)
     {
         return E_UNEXPECTED;
     }
 
     if (width == 0 || height == 0)
     {
-        _width = 0;
-        _height = 0;
+        _width     = 0;
+        _height    = 0;
         _suspended = true;
-        _occluded = false;
+        _occluded  = false;
         return S_OK;
     }
 
     if (_dockPresentation)
     {
         // The dock is only ever resized to its full bar; a later device rebuild recreates the buffer at this size.
-        _dockWidth = width;
+        _dockWidth  = width;
         _dockHeight = height;
     }
     if (width == _width && height == _height && _renderTarget)
     {
         _suspended = false;
-        _occluded = false;
+        _occluded  = false;
         return S_OK;
     }
 
@@ -1126,7 +1136,7 @@ HRESULT Renderer::Resize(UINT width, UINT height) noexcept
 
 HRESULT Renderer::RefreshLayout() noexcept
 {
-    return !_suspended && _renderTarget ? UpdateCachedViewports() : S_OK;
+    return ! _suspended && _renderTarget ? UpdateCachedViewports() : S_OK;
 }
 
 HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, uint64_t* changedWidgets) noexcept
@@ -1139,17 +1149,17 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
     // hidden frame.
     if (_suspended || _occluded || _hostChromeState.dockHidden)
         return S_FALSE;
-    if (!_context || !_dashboardHost || !_gpuWidgetsDeviceReady)
+    if (! _context || ! _dashboardHost || ! _gpuWidgetsDeviceReady)
         return E_UNEXPECTED;
-    bool unbound = false;
+    bool unbound       = false;
     const auto prepare = [&](DashboardHost* dashboard, const auto& viewports, bool includeRaised) noexcept -> HRESULT
     {
-        if (!dashboard)
+        if (! dashboard)
             return S_OK;
         for (size_t index = 0; index < dashboard->WidgetCount(); ++index)
         {
             IRedXePreparedGpuWidget* widget = dashboard->PreparedGpuWidgetAt(index);
-            if (!widget || dashboard->RequiresPlaceholderAt(index))
+            if (! widget || dashboard->RequiresPlaceholderAt(index))
                 continue;
             bool constructionPending = false;
             if (auto* construction = dashboard->ConstructionStateWidgetAt(index))
@@ -1159,44 +1169,35 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
                     continue;
                 constructionPending = state == RedXeConstructionStatePending;
             }
-            if (!unbound)
+            if (! unbound)
             {
                 _context->OMSetRenderTargets(0, nullptr, nullptr);
                 unbound = true;
             }
-            const bool raised = includeRaised && _raisedOverlayActive && index == _raisedOverlayIndex;
+            const bool raised          = includeRaised && _raisedOverlayActive && index == _raisedOverlayIndex;
             const D3D11_VIEWPORT& tile = viewports[index];
             const RedXeGpuPreparationContext context{
                 sizeof(RedXeGpuPreparationContext),
                 _dpi,
                 static_cast<uint32_t>(std::max(0.0f, tile.Width) + 0.5f),
                 static_cast<uint32_t>(std::max(0.0f, tile.Height) + 0.5f),
-                raised ? static_cast<uint32_t>(_raisedTargetSize.cx > 0 ? _raisedTargetSize.cx
-                                                                        : _raisedViewport.Width + 0.5f)
-                       : 0U,
-                raised ? static_cast<uint32_t>(_raisedTargetSize.cy > 0 ? _raisedTargetSize.cy
-                                                                        : _raisedViewport.Height + 0.5f)
-                       : 0U,
+                raised ? static_cast<uint32_t>(_raisedTargetSize.cx > 0 ? _raisedTargetSize.cx : _raisedViewport.Width + 0.5f) : 0U,
+                raised ? static_cast<uint32_t>(_raisedTargetSize.cy > 0 ? _raisedTargetSize.cy : _raisedViewport.Height + 0.5f) : 0U,
                 _appearance};
             RuntimePageCallbackContext* const probeContext =
-                _pagePreparationProbe && !constructionPending
-                    ? _pagePreparationProbe->Take(dashboard, static_cast<uint32_t>(index))
-                    : nullptr;
-            auto* host = constructionPending ? &PluginHost::Instance() : nullptr;
+                _pagePreparationProbe && ! constructionPending ? _pagePreparationProbe->Take(dashboard, static_cast<uint32_t>(index)) : nullptr;
+            auto* host                            = constructionPending ? &PluginHost::Instance() : nullptr;
             const bool previousConstructionAccess = host && host->ConstructionAccessEnabled();
             if (host)
-                host->SetConstructionAccessEnabled(
-                    dashboard == _transitionDashboardHost &&
-                    (tile.TopLeftX >= static_cast<float>(_width) || tile.TopLeftX + tile.Width <= 0));
-            const auto restoreConstructionAccess = wil::scope_exit(
-                [&]() noexcept
-                {
-                    if (host)
-                        host->SetConstructionAccessEnabled(previousConstructionAccess);
-                });
-            const HRESULT result = TraceRuntimePageCallback(probeContext, static_cast<uint32_t>(index),
-                                                            RuntimePageCallbackKind::FirstPreparation,
-                                                            [&]() noexcept { return widget->Prepare(&context); });
+                host->SetConstructionAccessEnabled(dashboard == _transitionDashboardHost &&
+                                                   (tile.TopLeftX >= static_cast<float>(_width) || tile.TopLeftX + tile.Width <= 0));
+            const auto restoreConstructionAccess = wil::scope_exit([&]() noexcept
+            {
+                if (host)
+                    host->SetConstructionAccessEnabled(previousConstructionAccess);
+            });
+            const HRESULT result                 = TraceRuntimePageCallback(
+                probeContext, static_cast<uint32_t>(index), RuntimePageCallbackKind::FirstPreparation, [&]() noexcept { return widget->Prepare(&context); });
             if (observedChanged && dashboard == _dashboardHost && index == observedWidget && result == S_OK)
                 *observedChanged = true;
             if (changedWidgets && dashboard == _dashboardHost && index < 64 && result == S_OK)
@@ -1214,7 +1215,7 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
         return S_OK;
     };
     HRESULT result = prepare(_dashboardHost, _widgetViewports, true);
-    if (SUCCEEDED(result) && !_raisedOverlayActive && _transitionWidgetsDeviceReady)
+    if (SUCCEEDED(result) && ! _raisedOverlayActive && _transitionWidgetsDeviceReady)
         result = prepare(_transitionDashboardHost, _transitionWidgetViewports, false);
     if (IsDeviceLost(result))
     {
@@ -1226,20 +1227,20 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
 
 HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
 {
-    _lastFrameWidgetCount = 0;
+    _lastFrameWidgetCount           = 0;
     _lastFrameSuccessfulWidgetCount = 0;
-    _lastFrameChromeQuadCount = 0;
+    _lastFrameChromeQuadCount       = 0;
     if (_suspended)
     {
         return S_OK;
     }
-    if (!_context || !_swapChain || !_renderTarget || !_dashboardHost || !_gpuWidgetsDeviceReady ||
-        !std::isfinite(elapsedSeconds) || !std::isfinite(deltaSeconds) || elapsedSeconds < 0.0f || deltaSeconds < 0.0f)
+    if (! _context || ! _swapChain || ! _renderTarget || ! _dashboardHost || ! _gpuWidgetsDeviceReady || ! std::isfinite(elapsedSeconds) ||
+        ! std::isfinite(deltaSeconds) || elapsedSeconds < 0.0f || deltaSeconds < 0.0f)
     {
         return E_UNEXPECTED;
     }
 
-    const std::array<float, 4> clearColor = RgbToClearColor(_dashboardHost->BackgroundRgb());
+    const std::array<float, 4> clearColor   = RgbToClearColor(_dashboardHost->BackgroundRgb());
     ID3D11RenderTargetView* renderTargets[] = {_renderTarget.get()};
     _context->OMSetRenderTargets(1, renderTargets, nullptr);
     _context->ClearRenderTargetView(_renderTarget.get(), clearColor.data());
@@ -1249,8 +1250,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         // The grip frame of a hidden autohide dock: background plus the host grip strip, no widget draws. The
         // dashboard widgets are not visible and the host blocks after this single frame.
         const HRESULT gripResult =
-            _hostChrome.Draw(_context.get(), _renderTarget.get(), _width, _height, _hostChromeState,
-                             HostChromePhase::AboveRaised, _lastFrameChromeQuadCount);
+            _hostChrome.Draw(_context.get(), _renderTarget.get(), _width, _height, _hostChromeState, HostChromePhase::AboveRaised, _lastFrameChromeQuadCount);
         if (IsDeviceLost(gripResult))
         {
             const HRESULT recoveryResult = RecoverDevice();
@@ -1267,8 +1267,8 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     }
 
     const size_t widgetCount = _dashboardHost->WidgetCount();
-    uint32_t failedWidgets = 0;
-    const auto drawWidget = [&](size_t index, const D3D11_VIEWPORT& viewport, uint32_t viewId) noexcept -> HRESULT
+    uint32_t failedWidgets   = 0;
+    const auto drawWidget    = [&](size_t index, const D3D11_VIEWPORT& viewport, uint32_t viewId) noexcept -> HRESULT
     {
         if (viewport.Width < 1.0f || viewport.Height < 1.0f)
         {
@@ -1280,7 +1280,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
             return S_FALSE;
         }
         IRedXeGpuWidget* widget = _dashboardHost->GpuWidgetAt(index);
-        if (!widget)
+        if (! widget)
         {
             return S_FALSE;
         }
@@ -1294,7 +1294,11 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
             deltaSeconds,
         };
         const RedXeGpuFrameContext gpuFrame{
-            sizeof(RedXeGpuFrameContext), &widgetFrame, _context.get(), viewport, viewId,
+            sizeof(RedXeGpuFrameContext),
+            &widgetFrame,
+            _context.get(),
+            viewport,
+            viewId,
         };
 
         ++_lastFrameWidgetCount;
@@ -1313,9 +1317,13 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
             {
                 _lastLoggedRenderFailure[index] = widgetResult;
                 OutputDebugStringW(L"A GPU widget failed to render; continuing with remaining widgets.\n");
-                (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
-                                   _dashboardHost->WidgetInstanceIdAt(index), "gpu-render-failed",
-                                   "IRedXeGpuWidget::Render failed.", widgetResult);
+                (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                                   RedXeLogLevelError,
+                                   nullptr,
+                                   _dashboardHost->WidgetInstanceIdAt(index),
+                                   "gpu-render-failed",
+                                   "IRedXeGpuWidget::Render failed.",
+                                   widgetResult);
             }
             return S_FALSE;
         }
@@ -1337,15 +1345,14 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     }
     // Raise dim and shadow go under the raised draw so plugin pixels stay undimmed; close control and edge bands go
     // over it. Both phases are host quads in the swap chain, so no child HWND ever sits over the presentation.
-    HRESULT chromeResult = _hostChrome.Draw(_context.get(), _renderTarget.get(), _width, _height, _hostChromeState,
-                                            HostChromePhase::BelowRaised, _lastFrameChromeQuadCount);
+    HRESULT chromeResult =
+        _hostChrome.Draw(_context.get(), _renderTarget.get(), _width, _height, _hostChromeState, HostChromePhase::BelowRaised, _lastFrameChromeQuadCount);
     if (IsDeviceLost(chromeResult))
     {
         const HRESULT recoveryResult = RecoverDevice();
         return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
     }
-    if (_raisedOverlayActive && _raisedOverlayIndex < widgetCount && _raisedViewport.Width >= 1.0f &&
-        _raisedViewport.Height >= 1.0f)
+    if (_raisedOverlayActive && _raisedOverlayIndex < widgetCount && _raisedViewport.Width >= 1.0f && _raisedViewport.Height >= 1.0f)
     {
         const HRESULT raisedResult = drawWidget(_raisedOverlayIndex, _raisedViewport, 1);
         if (IsDeviceLost(raisedResult))
@@ -1354,8 +1361,8 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
             return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
         }
     }
-    chromeResult = _hostChrome.Draw(_context.get(), _renderTarget.get(), _width, _height, _hostChromeState,
-                                    HostChromePhase::AboveRaised, _lastFrameChromeQuadCount);
+    chromeResult =
+        _hostChrome.Draw(_context.get(), _renderTarget.get(), _width, _height, _hostChromeState, HostChromePhase::AboveRaised, _lastFrameChromeQuadCount);
     if (IsDeviceLost(chromeResult))
     {
         const HRESULT recoveryResult = RecoverDevice();
@@ -1372,7 +1379,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     }
     _failedWidgetMask = failedWidgets;
 
-    if (!_raisedOverlayActive && _transitionDashboardHost && _transitionWidgetsDeviceReady)
+    if (! _raisedOverlayActive && _transitionDashboardHost && _transitionWidgetsDeviceReady)
     {
         for (size_t index = 0; index < _transitionDashboardHost->WidgetCount(); ++index)
         {
@@ -1385,7 +1392,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
                 continue;
             }
             IRedXeGpuWidget* widget = _transitionDashboardHost->GpuWidgetAt(index);
-            if (!widget)
+            if (! widget)
                 continue;
             const RedXeWidgetFrameContext widgetFrame{sizeof(RedXeWidgetFrameContext),
                                                       static_cast<UINT>(viewport.Width + 0.5f),
@@ -1420,15 +1427,15 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
     // A host-owned native child that covers the swap chain makes DXGI report OCCLUDED even though the window is
     // still the foreground dashboard. Treating that as real occlusion parked page-settle and hid the edge bands for
     // the rest of the session on any page that includes a window widget.
-    const bool nativeCover = (_dashboardHost && _dashboardHost->HasWindowWidgets()) ||
-                             (_transitionDashboardHost && _transitionDashboardHost->HasWindowWidgets());
-    _occluded = result == DXGI_STATUS_OCCLUDED && !nativeCover;
+    const bool nativeCover =
+        (_dashboardHost && _dashboardHost->HasWindowWidgets()) || (_transitionDashboardHost && _transitionDashboardHost->HasWindowWidgets());
+    _occluded = result == DXGI_STATUS_OCCLUDED && ! nativeCover;
     return _occluded ? S_OK : result;
 }
 
 HRESULT Renderer::ProbeOcclusion() noexcept
 {
-    if (!_swapChain || !_occluded)
+    if (! _swapChain || ! _occluded)
     {
         return E_UNEXPECTED;
     }
@@ -1508,7 +1515,7 @@ void Renderer::ReleaseDeviceResources() noexcept
     if (_factory && _occlusionStatusRegistered)
     {
         _factory->UnregisterOcclusionStatus(_occlusionStatusCookie);
-        _occlusionStatusCookie = 0;
+        _occlusionStatusCookie     = 0;
         _occlusionStatusRegistered = false;
     }
     if (_context)
@@ -1526,16 +1533,15 @@ void Renderer::ReleaseDeviceResources() noexcept
     _context1.reset();
     _context.reset();
     _device.reset();
-    _deviceInfo = {};
+    _deviceInfo    = {};
     _deviceMonitor = nullptr;
-    _width = 0;
-    _height = 0;
-    _suspended = true;
-    _occluded = false;
+    _width         = 0;
+    _height        = 0;
+    _suspended     = true;
+    _occluded      = false;
 }
 
 bool Renderer::IsDeviceLost(HRESULT result) noexcept
 {
-    return result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET ||
-           result == DXGI_ERROR_DRIVER_INTERNAL_ERROR;
+    return result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET || result == DXGI_ERROR_DRIVER_INTERNAL_ERROR;
 }

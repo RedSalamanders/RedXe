@@ -11,7 +11,7 @@
 
 namespace Logicon
 {
-inline constexpr uint32_t kMaximumRawDevices = 8;
+inline constexpr uint32_t kMaximumRawDevices              = 8;
 inline constexpr uint32_t kMaximumRawDeviceNameCharacters = 512;
 
 // What the dialpad's wheels reported since the listener started; all zero while it is stopped. Raw units are the
@@ -22,31 +22,31 @@ struct WheelState final
     // Horizontal wheel (AC Pan).
     int32_t dialRaw = 0;
     // Vertical wheel.
-    int32_t rollerRaw = 0;
-    uint32_t dialEvents = 0;
+    int32_t rollerRaw     = 0;
+    uint32_t dialEvents   = 0;
     uint32_t rollerEvents = 0;
     // X/Y motion packets; none are expected from the dialpad.
     uint32_t motionEvents = 0;
     // Raw mouse buttons currently held (bit n = button n+1); populated only while the buttons are not diverted.
     uint32_t buttonMask = 0;
     // Every matched raw packet, and packets from other mice (a diagnostic that the sink is alive).
-    uint32_t reports = 0;
+    uint32_t reports      = 0;
     uint32_t otherReports = 0;
 };
 
 // Wheel movement since the previous take.
 struct WheelDeltas final
 {
-    int32_t dial = 0;
+    int32_t dial   = 0;
     int32_t roller = 0;
 };
 
 class RawWheelListener final
 {
-  public:
+public:
     RawWheelListener() = default;
     ~RawWheelListener();
-    RawWheelListener(const RawWheelListener&) = delete;
+    RawWheelListener(const RawWheelListener&)            = delete;
     RawWheelListener& operator=(const RawWheelListener&) = delete;
 
     // Creates the hidden window on the calling thread and registers it as a mouse input sink. Pump, Wait, and Stop
@@ -75,11 +75,11 @@ class RawWheelListener final
     // Folds one raw mouse packet into the state and the pending deltas.
     static void FoldMouse(const RAWMOUSE& mouse, WheelState& state, WheelDeltas& pending) noexcept;
 
-  private:
+private:
     struct DeviceMatch final
     {
         HANDLE device = nullptr;
-        bool matched = false;
+        bool matched  = false;
     };
 
     static LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
@@ -88,12 +88,12 @@ class RawWheelListener final
     void HandleInput(HRAWINPUT input) noexcept;
     [[nodiscard]] bool Matches(HANDLE device) noexcept;
 
-    HWND _window = nullptr;
-    HMODULE _module = nullptr;
+    HWND _window          = nullptr;
+    HMODULE _module       = nullptr;
     bool _classRegistered = false;
-    bool _sinkRegistered = false;
-    uint16_t _vendorId = 0;
-    uint16_t _productId = 0;
+    bool _sinkRegistered  = false;
+    uint16_t _vendorId    = 0;
+    uint16_t _productId   = 0;
     WheelState _state{};
     WheelDeltas _pending{};
     bool _arrived = false;

@@ -91,84 +91,68 @@ struct WeatherTestSnapshot final
 #define REDXE_WEATHER_TEST_API
 #endif
 
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherGetTestDiagnostics(
-    WeatherTestDiagnostics* diagnostics) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherGetTestCacheDiagnostics(
-    WeatherHttpCacheTestDiagnostics* diagnostics) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherGetTestDiagnostics(WeatherTestDiagnostics* diagnostics) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherGetTestCacheDiagnostics(WeatherHttpCacheTestDiagnostics* diagnostics) noexcept;
 // Lower offline transport and direct cache-path probe are restricted to automated hosts. Controls change only
 // while no network callback is active; tick zero restores the real monotonic clock.
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherSetTestCacheTransport(
-    WeatherHttpTestTransportFn transport, uint64_t tick) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherSetTestCacheTransport(WeatherHttpTestTransportFn transport, uint64_t tick) noexcept;
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherFailTestCacheAllocation(BOOL fail) noexcept;
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherTestCachedHttpGet(
-    const char* url, uint32_t urlBytes, HANDLE cancelEvent, char* body, uint32_t bodyCapacity,
-    WeatherHttpTestGetResult* result) noexcept;
+    const char* url, uint32_t urlBytes, HANDLE cancelEvent, char* body, uint32_t bodyCapacity, WeatherHttpTestGetResult* result) noexcept;
 extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherFailNextAtlasInitialization() noexcept;
 extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherFailNextGlyphPreparation() noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherApplyTestSnapshot(
-    const WeatherTestSnapshot* snapshot) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherParseTestForecast(const char* json, uint32_t bytes,
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherApplyTestSnapshot(const WeatherTestSnapshot* snapshot) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherParseTestForecast(const char* json,
+                                                                                  uint32_t bytes,
                                                                                   float* temperatureCelsius,
                                                                                   uint32_t* dailyCount) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherParseTestAlerts(const char* json, uint32_t bytes,
-                                                                                uint32_t region, uint32_t* alertCount,
-                                                                                uint32_t* highestSeverity,
-                                                                                uint32_t* provider) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherParseTestAlerts(
+    const char* json, uint32_t bytes, uint32_t region, uint32_t* alertCount, uint32_t* highestSeverity, uint32_t* provider) noexcept;
 // region is a WeatherAlertRegion value; S_FALSE for a region without a provider.
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherBuildTestAlertUrl(uint32_t region, const char* country,
-                                                                                  double latitude, double longitude,
-                                                                                  char* url,
-                                                                                  uint32_t capacity) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherFormatTestUnits(
-    float celsius, float metersPerSecond, BOOL fahrenheit, BOOL milesPerHour, wchar_t* temperature,
-    uint32_t temperatureCapacity, wchar_t* wind, uint32_t windCapacity) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherBuildTestAlertUrl(
+    uint32_t region, const char* country, double latitude, double longitude, char* url, uint32_t capacity) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherFormatTestUnits(float celsius,
+                                                                                float metersPerSecond,
+                                                                                BOOL fahrenheit,
+                                                                                BOOL milesPerHour,
+                                                                                wchar_t* temperature,
+                                                                                uint32_t temperatureCapacity,
+                                                                                wchar_t* wind,
+                                                                                uint32_t windCapacity) noexcept;
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherFormatTestClockAndDay(
-    uint64_t fileTime100ns, uint64_t nowFileTime100ns, wchar_t* clock, uint32_t clockCapacity, wchar_t* day,
-    uint32_t dayCapacity) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherParseTestIso8601(const char* text,
-                                                                                 uint64_t* fileTime100ns) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherConditionIntentColor(uint32_t condition, float* red,
-                                                                                     float* green,
-                                                                                     float* blue) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherParseTestLatLon(const char* text, double* latitude,
-                                                                                double* longitude) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherAlertRegionForCountry(const char* country,
-                                                                                      uint32_t* region) noexcept;
+    uint64_t fileTime100ns, uint64_t nowFileTime100ns, wchar_t* clock, uint32_t clockCapacity, wchar_t* day, uint32_t dayCapacity) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherParseTestIso8601(const char* text, uint64_t* fileTime100ns) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherConditionIntentColor(uint32_t condition, float* red, float* green, float* blue) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherParseTestLatLon(const char* text, double* latitude, double* longitude) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherAlertRegionForCountry(const char* country, uint32_t* region) noexcept;
 extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherTryAutomaticLocation(
-    wchar_t* name, uint32_t nameCapacity, char* country, uint32_t countryCapacity, double* latitude,
-    double* longitude) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherProbeHttpGetOnSmallStack(
-    uint32_t stackReserveBytes) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherBuildTestLocationSearchUrl(const char* location,
-                                                                                           char* url,
-                                                                                           uint32_t capacity) noexcept;
+    wchar_t* name, uint32_t nameCapacity, char* country, uint32_t countryCapacity, double* latitude, double* longitude) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherProbeHttpGetOnSmallStack(uint32_t stackReserveBytes) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherBuildTestLocationSearchUrl(const char* location, char* url, uint32_t capacity) noexcept;
 extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherSetTestTime(uint64_t now) noexcept;
 // Forecast times convert in this Windows time zone (registry key name); null restores the active zone.
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherSetTestTimeZone(
-    const wchar_t* timeZoneKeyName) noexcept;
-extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherSetTestServices(WeatherHttpTestResponseFn response,
-                                                                             uint32_t helperMode) noexcept;
-extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherTestLocationHelper(HANDLE cancelEvent,
-                                                                                   uint32_t mode) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherSetTestTimeZone(const wchar_t* timeZoneKeyName) noexcept;
+extern "C" REDXE_WEATHER_TEST_API void __stdcall RedXeWeatherSetTestServices(WeatherHttpTestResponseFn response, uint32_t helperMode) noexcept;
+extern "C" REDXE_WEATHER_TEST_API HRESULT __stdcall RedXeWeatherTestLocationHelper(HANDLE cancelEvent, uint32_t mode) noexcept;
 
-using WeatherGetTestDiagnosticsFn = decltype(&RedXeWeatherGetTestDiagnostics);
-using WeatherApplyTestSnapshotFn = decltype(&RedXeWeatherApplyTestSnapshot);
-using WeatherProbeHttpGetOnSmallStackFn = decltype(&RedXeWeatherProbeHttpGetOnSmallStack);
-using WeatherFormatTestClockAndDayFn = decltype(&RedXeWeatherFormatTestClockAndDay);
-inline constexpr char kWeatherGetTestDiagnosticsExport[] = "RedXeWeatherGetTestDiagnostics";
-inline constexpr char kWeatherApplyTestSnapshotExport[] = "RedXeWeatherApplyTestSnapshot";
-inline constexpr char kWeatherParseTestForecastExport[] = "RedXeWeatherParseTestForecast";
-inline constexpr char kWeatherParseTestAlertsExport[] = "RedXeWeatherParseTestAlerts";
-inline constexpr char kWeatherBuildTestAlertUrlExport[] = "RedXeWeatherBuildTestAlertUrl";
-inline constexpr char kWeatherFormatTestUnitsExport[] = "RedXeWeatherFormatTestUnits";
-inline constexpr char kWeatherFormatTestClockAndDayExport[] = "RedXeWeatherFormatTestClockAndDay";
-inline constexpr char kWeatherParseTestIso8601Export[] = "RedXeWeatherParseTestIso8601";
-inline constexpr char kWeatherConditionIntentColorExport[] = "RedXeWeatherConditionIntentColor";
-inline constexpr char kWeatherParseTestLatLonExport[] = "RedXeWeatherParseTestLatLon";
-inline constexpr char kWeatherAlertRegionForCountryExport[] = "RedXeWeatherAlertRegionForCountry";
-inline constexpr char kWeatherTryAutomaticLocationExport[] = "RedXeWeatherTryAutomaticLocation";
-inline constexpr char kWeatherProbeHttpGetOnSmallStackExport[] = "RedXeWeatherProbeHttpGetOnSmallStack";
+using WeatherGetTestDiagnosticsFn                                = decltype(&RedXeWeatherGetTestDiagnostics);
+using WeatherApplyTestSnapshotFn                                 = decltype(&RedXeWeatherApplyTestSnapshot);
+using WeatherProbeHttpGetOnSmallStackFn                          = decltype(&RedXeWeatherProbeHttpGetOnSmallStack);
+using WeatherFormatTestClockAndDayFn                             = decltype(&RedXeWeatherFormatTestClockAndDay);
+inline constexpr char kWeatherGetTestDiagnosticsExport[]         = "RedXeWeatherGetTestDiagnostics";
+inline constexpr char kWeatherApplyTestSnapshotExport[]          = "RedXeWeatherApplyTestSnapshot";
+inline constexpr char kWeatherParseTestForecastExport[]          = "RedXeWeatherParseTestForecast";
+inline constexpr char kWeatherParseTestAlertsExport[]            = "RedXeWeatherParseTestAlerts";
+inline constexpr char kWeatherBuildTestAlertUrlExport[]          = "RedXeWeatherBuildTestAlertUrl";
+inline constexpr char kWeatherFormatTestUnitsExport[]            = "RedXeWeatherFormatTestUnits";
+inline constexpr char kWeatherFormatTestClockAndDayExport[]      = "RedXeWeatherFormatTestClockAndDay";
+inline constexpr char kWeatherParseTestIso8601Export[]           = "RedXeWeatherParseTestIso8601";
+inline constexpr char kWeatherConditionIntentColorExport[]       = "RedXeWeatherConditionIntentColor";
+inline constexpr char kWeatherParseTestLatLonExport[]            = "RedXeWeatherParseTestLatLon";
+inline constexpr char kWeatherAlertRegionForCountryExport[]      = "RedXeWeatherAlertRegionForCountry";
+inline constexpr char kWeatherTryAutomaticLocationExport[]       = "RedXeWeatherTryAutomaticLocation";
+inline constexpr char kWeatherProbeHttpGetOnSmallStackExport[]   = "RedXeWeatherProbeHttpGetOnSmallStack";
 inline constexpr char kWeatherBuildTestLocationSearchUrlExport[] = "RedXeWeatherBuildTestLocationSearchUrl";
-inline constexpr char kWeatherSetTestTimeZoneExport[] = "RedXeWeatherSetTestTimeZone";
+inline constexpr char kWeatherSetTestTimeZoneExport[]            = "RedXeWeatherSetTestTimeZone";
 
 #undef REDXE_WEATHER_TEST_API

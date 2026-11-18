@@ -21,9 +21,9 @@
 
 namespace Logicon
 {
-inline constexpr uint32_t kMaximumHidCollections = 4;
+inline constexpr uint32_t kMaximumHidCollections    = 4;
 inline constexpr uint32_t kMaximumHidPathCharacters = 512;
-inline constexpr uint32_t kMaximumHidReportBytes = 4096;
+inline constexpr uint32_t kMaximumHidReportBytes    = 4096;
 // HID I/O blocks one process holds, open or retired: every collection of the keypad and the dialpad fits while none
 // is retired, and retired blocks can never exceed it.
 inline constexpr uint32_t kMaximumHidIoBlocks = 2 * kMaximumHidCollections;
@@ -32,16 +32,16 @@ inline constexpr uint32_t kMaximumHidIoBlocks = 2 * kMaximumHidCollections;
 // id (0x11, 0x13, 0x14, 0x03) fits.
 struct HidCollectionInfo final
 {
-    uint16_t vendorId = 0;
-    uint16_t productId = 0;
-    uint16_t usagePage = 0;
-    uint16_t usage = 0;
-    uint32_t inputReportBytes = 0;
-    uint32_t outputReportBytes = 0;
+    uint16_t vendorId           = 0;
+    uint16_t productId          = 0;
+    uint16_t usagePage          = 0;
+    uint16_t usage              = 0;
+    uint32_t inputReportBytes   = 0;
+    uint32_t outputReportBytes  = 0;
     uint32_t featureReportBytes = 0;
-    uint32_t inputReportMask = 0;
-    uint32_t outputReportMask = 0;
-    uint32_t featureReportMask = 0;
+    uint32_t inputReportMask    = 0;
+    uint32_t outputReportMask   = 0;
+    uint32_t featureReportMask  = 0;
     std::array<wchar_t, kMaximumHidPathCharacters> path{};
 
     [[nodiscard]] bool SupportsInput(uint8_t reportId) const noexcept
@@ -67,17 +67,16 @@ struct HidCollections final
 // Lists every present HID collection of vendorId:productId on usagePage. Allocation happens only here, on the
 // discovery path; the result is bounded to kMaximumHidCollections. productId 0 and usagePage 0 are wildcards
 // (discovery probe only).
-[[nodiscard]] HRESULT EnumerateVendorCollections(uint16_t vendorId, uint16_t productId, uint16_t usagePage,
-                                                 HidCollections& collections) noexcept;
-[[nodiscard]] HRESULT EnumerateVendorCollections(uint16_t vendorId, uint16_t productId, uint16_t usagePage,
-                                                 HidCollectionInfo* items, uint32_t capacity, uint32_t& count) noexcept;
+[[nodiscard]] HRESULT EnumerateVendorCollections(uint16_t vendorId, uint16_t productId, uint16_t usagePage, HidCollections& collections) noexcept;
+[[nodiscard]] HRESULT EnumerateVendorCollections(
+    uint16_t vendorId, uint16_t productId, uint16_t usagePage, HidCollectionInfo* items, uint32_t capacity, uint32_t& count) noexcept;
 
 // Transport seam. Every method runs on the device lane; nothing blocks except Write and SetFeature, which honor
 // stopEvent and their timeout. Reports carry the report id in byte 0.
 class HidPort
 {
-  public:
-    virtual ~HidPort() = default;
+public:
+    virtual ~HidPort()                                                   = default;
     [[nodiscard]] virtual const HidCollectionInfo& Info() const noexcept = 0;
     // Signaled while an input report is ready for TakeReport.
     [[nodiscard]] virtual HANDLE ReadEvent() const noexcept = 0;
@@ -88,13 +87,11 @@ class HidPort
     // fires first and ERROR_TIMEOUT when the write does not complete in time; both cancel the I/O before returning.
     // A canceled request the driver has not finished keeps the port's one request slot: later writes and feature
     // reports return ERROR_BUSY until it finishes.
-    [[nodiscard]] virtual HRESULT Write(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
-                                        uint32_t timeoutMilliseconds) noexcept = 0;
+    [[nodiscard]] virtual HRESULT Write(const uint8_t* report, uint32_t bytes, HANDLE stopEvent, uint32_t timeoutMilliseconds) noexcept = 0;
     // Sends one feature report, padded to the collection's feature length, with Write's request slot, timeout, and
     // cancellation.
-    [[nodiscard]] virtual HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
-                                             uint32_t timeoutMilliseconds) noexcept = 0;
-    [[nodiscard]] virtual bool Disconnected() const noexcept = 0;
+    [[nodiscard]] virtual HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent, uint32_t timeoutMilliseconds) noexcept = 0;
+    [[nodiscard]] virtual bool Disconnected() const noexcept                                                                                 = 0;
 };
 
 // Units of HID I/O blocks. A WindowsHidPort reserves one in Open before it allocates its block and releases it only
@@ -102,9 +99,11 @@ class HidPort
 // together never exceed the capacity.
 class HidIoBudget final
 {
-  public:
-    explicit constexpr HidIoBudget(uint32_t capacity) noexcept : _capacity(capacity) {}
-    HidIoBudget(const HidIoBudget&) = delete;
+public:
+    explicit constexpr HidIoBudget(uint32_t capacity) noexcept : _capacity(capacity)
+    {
+    }
+    HidIoBudget(const HidIoBudget&)            = delete;
     HidIoBudget& operator=(const HidIoBudget&) = delete;
 
     // The process's budget of kMaximumHidIoBlocks units, used by every WindowsHidPort not given another.
@@ -115,18 +114,20 @@ class HidIoBudget final
     void Release() noexcept;
     [[nodiscard]] uint32_t Held() const noexcept;
 
-  private:
+private:
     const uint32_t _capacity;
     std::atomic<uint32_t> _held{0};
 };
 
 class WindowsHidPort final : public HidPort
 {
-  public:
+public:
     // budget MUST outlive the port.
-    explicit WindowsHidPort(HidIoBudget& budget = HidIoBudget::Process()) noexcept : _budget(&budget) {}
+    explicit WindowsHidPort(HidIoBudget& budget = HidIoBudget::Process()) noexcept : _budget(&budget)
+    {
+    }
     ~WindowsHidPort() override;
-    WindowsHidPort(const WindowsHidPort&) = delete;
+    WindowsHidPort(const WindowsHidPort&)            = delete;
     WindowsHidPort& operator=(const WindowsHidPort&) = delete;
 
     // Returns ERROR_TOO_MANY_OPEN_FILES when the budget has no unit left.
@@ -136,20 +137,18 @@ class WindowsHidPort final : public HidPort
     [[nodiscard]] const HidCollectionInfo& Info() const noexcept override;
     [[nodiscard]] HANDLE ReadEvent() const noexcept override;
     [[nodiscard]] HRESULT TakeReport(uint8_t* buffer, uint32_t capacity, uint32_t& bytes) noexcept override;
-    [[nodiscard]] HRESULT Write(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
-                                uint32_t timeoutMilliseconds) noexcept override;
-    [[nodiscard]] HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
-                                     uint32_t timeoutMilliseconds) noexcept override;
+    [[nodiscard]] HRESULT Write(const uint8_t* report, uint32_t bytes, HANDLE stopEvent, uint32_t timeoutMilliseconds) noexcept override;
+    [[nodiscard]] HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent, uint32_t timeoutMilliseconds) noexcept override;
     [[nodiscard]] bool Disconnected() const noexcept override;
 
-  private:
+private:
     [[nodiscard]] HRESULT ArmRead() noexcept;
     void NoteFailure(DWORD error) noexcept;
     // Sends the report zero padded to paddedBytes as an output report (WriteFile) or a feature report
     // (IOCTL_HID_SET_FEATURE) through the port's one request slot, and waits with the shared timeout, cancellation,
     // and drain.
-    [[nodiscard]] HRESULT Submit(bool feature, const uint8_t* report, uint32_t bytes, uint32_t paddedBytes,
-                                 HANDLE stopEvent, uint32_t timeoutMilliseconds) noexcept;
+    [[nodiscard]] HRESULT Submit(
+        bool feature, const uint8_t* report, uint32_t bytes, uint32_t paddedBytes, HANDLE stopEvent, uint32_t timeoutMilliseconds) noexcept;
 
     // Keep every buffer, OVERLAPPED, event, and file handle in one backing block, which holds one budget unit while
     // it exists. If a broken driver does not complete canceled I/O within the close drain, that block is retired
@@ -167,7 +166,7 @@ class WindowsHidPort final : public HidPort
         OVERLAPPED writeOverlapped{};
         std::array<uint8_t, kMaximumHidReportBytes> readBuffer{};
         std::array<uint8_t, kMaximumHidReportBytes> writeBuffer{};
-        bool readArmed = false;
+        bool readArmed  = false;
         bool writeArmed = false;
     };
 #pragma warning(pop)
@@ -182,10 +181,10 @@ class WindowsHidPort final : public HidPort
 // unregistration run on the device lane; the callback does nothing else.
 class HotplugWatcher final
 {
-  public:
+public:
     HotplugWatcher() = default;
     ~HotplugWatcher();
-    HotplugWatcher(const HotplugWatcher&) = delete;
+    HotplugWatcher(const HotplugWatcher&)            = delete;
     HotplugWatcher& operator=(const HotplugWatcher&) = delete;
 
     [[nodiscard]] HRESULT Start(HANDLE wakeEvent) noexcept;
@@ -194,12 +193,11 @@ class HotplugWatcher final
     // True once per arrival or removal seen since the previous call, so the lane re-enumerates only for those wakes.
     [[nodiscard]] bool TakeChange() noexcept;
 
-  private:
-    static DWORD CALLBACK Notify(HCMNOTIFICATION notification, void* context, CM_NOTIFY_ACTION action,
-                                 CM_NOTIFY_EVENT_DATA* data, DWORD dataBytes) noexcept;
+private:
+    static DWORD CALLBACK Notify(HCMNOTIFICATION notification, void* context, CM_NOTIFY_ACTION action, CM_NOTIFY_EVENT_DATA* data, DWORD dataBytes) noexcept;
 
     HCMNOTIFICATION _notification = nullptr;
-    HANDLE _wakeEvent = nullptr;
+    HANDLE _wakeEvent             = nullptr;
     std::atomic<uint32_t> _changes{0};
 };
 } // namespace Logicon

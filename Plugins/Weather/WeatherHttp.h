@@ -6,14 +6,13 @@
 #include <string_view>
 #include <windows.h>
 
-inline constexpr uint32_t kWeatherMaximumUrlBytes = 2048;
-inline constexpr uint32_t kWeatherMaximumBodyBytes = 256U * 1024U;
-inline constexpr uint32_t kWeatherHttpCacheEntries = 8;
+inline constexpr uint32_t kWeatherMaximumUrlBytes            = 2048;
+inline constexpr uint32_t kWeatherMaximumBodyBytes           = 256U * 1024U;
+inline constexpr uint32_t kWeatherHttpCacheEntries           = 8;
 inline constexpr uint32_t kWeatherDefaultTimeoutMilliseconds = 10'000;
 inline constexpr uint32_t kWeatherMaximumTimeoutMilliseconds = 30'000;
-inline constexpr size_t kWeatherHttpResponseMaximumBytes = 64;
-inline constexpr char kWeatherUserAgent[] =
-    "RedXe/0.1.0 (XENEON EDGE dashboard weather; +https://api.met.no/doc/TermsOfService)";
+inline constexpr size_t kWeatherHttpResponseMaximumBytes     = 64;
+inline constexpr char kWeatherUserAgent[]                    = "RedXe/0.1.0 (XENEON EDGE dashboard weather; +https://api.met.no/doc/TermsOfService)";
 
 // Heap-owned body. Putting kWeatherMaximumBodyBytes on the network-worker stack overflows (0xC00000FD / __chkstk)
 // once FetchLive keeps more than one response live and WeatherHttpGet value-resets another.
@@ -24,11 +23,11 @@ inline constexpr char kWeatherUserAgent[] =
 struct WeatherHttpResponse final
 {
     std::unique_ptr<char[]> body;
-    uint32_t capacity = 0;
-    uint32_t bytes = 0;
-    uint32_t status = 0;
+    uint32_t capacity                 = 0;
+    uint32_t bytes                    = 0;
+    uint32_t status                   = 0;
     uint32_t expiresDelayMilliseconds = 0;
-    bool notModified = false;
+    bool notModified                  = false;
 };
 #pragma warning(pop)
 
@@ -36,7 +35,7 @@ static_assert(sizeof(WeatherHttpResponse) <= kWeatherHttpResponseMaximumBytes);
 
 [[nodiscard]] inline std::string_view WeatherHttpBody(const WeatherHttpResponse& response) noexcept
 {
-    if (!response.body || response.bytes == 0)
+    if (! response.body || response.bytes == 0)
     {
         return {};
     }
@@ -49,8 +48,7 @@ static_assert(sizeof(WeatherHttpResponse) <= kWeatherHttpResponseMaximumBytes);
 void WeatherHttpShutdown() noexcept;
 [[nodiscard]] uint32_t WeatherHttpGetCount() noexcept;
 [[nodiscard]] HRESULT WeatherHttpGet(std::string_view url, HANDLE cancelEvent, WeatherHttpResponse& response) noexcept;
-using WeatherHttpTestResponseFn = HRESULT(__stdcall*)(const char* url, uint32_t urlBytes, const char** body,
-                                                      uint32_t* bodyBytes) noexcept;
+using WeatherHttpTestResponseFn = HRESULT(__stdcall*)(const char* url, uint32_t urlBytes, const char** body, uint32_t* bodyBytes) noexcept;
 // Offline harness hook; set/clear only while no network callback is active.
 void WeatherHttpSetTestResponse(WeatherHttpTestResponseFn response) noexcept;
 
@@ -68,9 +66,8 @@ struct WeatherHttpTestTransportResponse final
 static_assert(sizeof(WeatherHttpTestTransportResponse) == 32);
 static_assert(offsetof(WeatherHttpTestTransportResponse, body) == 8);
 static_assert(offsetof(WeatherHttpTestTransportResponse, headers) == 24);
-using WeatherHttpTestTransportFn = HRESULT(__stdcall*)(const char* url, uint32_t urlBytes, const char* etag,
-                                                       const char* lastModified, HANDLE cancelEvent,
-                                                       WeatherHttpTestTransportResponse* response) noexcept;
+using WeatherHttpTestTransportFn = HRESULT(__stdcall*)(
+    const char* url, uint32_t urlBytes, const char* etag, const char* lastModified, HANDLE cancelEvent, WeatherHttpTestTransportResponse* response) noexcept;
 // Test controls change only with no network callback active. Tick zero restores the real monotonic clock.
 void WeatherHttpSetTestTransport(WeatherHttpTestTransportFn transport) noexcept;
 void WeatherHttpSetTestCacheTick(uint64_t tick) noexcept;

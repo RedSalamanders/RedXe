@@ -32,19 +32,19 @@ enum class DockMode : uint8_t
 // Settings ranges and defaults (Core_Settings.md "dock"). Thickness is DIPs across the edge; peek is physical pixels
 // because the strip is a screen-edge target the pointer reaches at any size: its size sets only how visible it is and
 // how much of the work area it reserves.
-inline constexpr uint32_t kDockMinimumThicknessDips = 32;
-inline constexpr uint32_t kDockMaximumThicknessDips = 1080;
-inline constexpr uint32_t kDockDefaultThicknessDips = 180;
-inline constexpr uint32_t kDockMinimumPeekPixels = 1;
-inline constexpr uint32_t kDockMaximumPeekPixels = 64;
-inline constexpr uint32_t kDockDefaultPeekPixels = 4;
+inline constexpr uint32_t kDockMinimumThicknessDips           = 32;
+inline constexpr uint32_t kDockMaximumThicknessDips           = 1080;
+inline constexpr uint32_t kDockDefaultThicknessDips           = 180;
+inline constexpr uint32_t kDockMinimumPeekPixels              = 1;
+inline constexpr uint32_t kDockMaximumPeekPixels              = 64;
+inline constexpr uint32_t kDockDefaultPeekPixels              = 4;
 inline constexpr uint32_t kDockMaximumRevealDelayMilliseconds = 2000;
 inline constexpr uint32_t kDockDefaultRevealDelayMilliseconds = 150;
-inline constexpr uint32_t kDockMaximumHideDelayMilliseconds = 10000;
-inline constexpr uint32_t kDockDefaultHideDelayMilliseconds = 800;
-inline constexpr uint32_t kDockMaximumAnimationMilliseconds = 1000;
-inline constexpr uint32_t kDockDefaultAnimationMilliseconds = 200;
-inline constexpr std::string_view kDockDefaultMonitor = "primary";
+inline constexpr uint32_t kDockMaximumHideDelayMilliseconds   = 10000;
+inline constexpr uint32_t kDockDefaultHideDelayMilliseconds   = 800;
+inline constexpr uint32_t kDockMaximumAnimationMilliseconds   = 1000;
+inline constexpr uint32_t kDockDefaultAnimationMilliseconds   = 200;
+inline constexpr std::string_view kDockDefaultMonitor         = "primary";
 // The second screen: the first display in enumeration order that is neither the primary nor a XENEON, else the XENEON
 // (RedXeActions::SecondaryMonitorRank; settings minor 3).
 inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
@@ -70,17 +70,12 @@ inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
 {
     switch (edge)
     {
-    case DockEdge::Top:
-        return "top";
-    case DockEdge::Bottom:
-        return "bottom";
-    case DockEdge::Left:
-        return "left";
-    case DockEdge::Right:
-        return "right";
-    case ::DockEdge::None:
-    default:
-        return "none";
+        case DockEdge::Top: return "top";
+        case DockEdge::Bottom: return "bottom";
+        case DockEdge::Left: return "left";
+        case DockEdge::Right: return "right";
+        case ::DockEdge::None:
+        default: return "none";
     }
 }
 
@@ -106,17 +101,12 @@ inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
 {
     switch (edge)
     {
-    case DockEdge::Top:
-        return 1; // ABE_TOP
-    case DockEdge::Bottom:
-        return 3; // ABE_BOTTOM
-    case DockEdge::Left:
-        return 0; // ABE_LEFT
-    case DockEdge::Right:
-        return 2; // ABE_RIGHT
-    case ::DockEdge::None:
-    default:
-        return 3;
+        case DockEdge::Top: return 1;    // ABE_TOP
+        case DockEdge::Bottom: return 3; // ABE_BOTTOM
+        case DockEdge::Left: return 0;   // ABE_LEFT
+        case DockEdge::Right: return 2;  // ABE_RIGHT
+        case ::DockEdge::None:
+        default: return 3;
     }
 }
 
@@ -127,12 +117,11 @@ inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
 }
 
 // At least half of the monitor's cross dimension stays free. Returns the clamped thickness; `clamped` reports it.
-[[nodiscard]] constexpr LONG DockClampThickness(LONG thicknessPx, const RECT& monitor, DockEdge edge,
-                                                bool& clamped) noexcept
+[[nodiscard]] constexpr LONG DockClampThickness(LONG thicknessPx, const RECT& monitor, DockEdge edge, bool& clamped) noexcept
 {
-    const LONG cross = DockEdgeIsHorizontal(edge) ? monitor.bottom - monitor.top : monitor.right - monitor.left;
-    const LONG limit = cross > 1 ? cross / 2 : 1;
-    clamped = thicknessPx > limit;
+    const LONG cross  = DockEdgeIsHorizontal(edge) ? monitor.bottom - monitor.top : monitor.right - monitor.left;
+    const LONG limit  = cross > 1 ? cross / 2 : 1;
+    clamped           = thicknessPx > limit;
     const LONG result = clamped ? limit : thicknessPx;
     return result < 1 ? 1 : result;
 }
@@ -143,31 +132,27 @@ inline constexpr std::string_view kDockSecondaryMonitor = "secondary";
 // (DockThicknessPixels) stays within the pixels measured here and is not clamped. The one exception is a display
 // under 64 DIPs across the edge, where even the 32-DIP settings minimum is more than half of it: the runtime clamps
 // that bar (one dock-thickness-clamped record) like any other.
-inline constexpr LONG kDockDesignLongSideDips = 2560;
+inline constexpr LONG kDockDesignLongSideDips  = 2560;
 inline constexpr LONG kDockDesignShortSideDips = 720;
 
-[[nodiscard]] inline uint32_t DockFirstRunThicknessDips(const RECT& monitor, const RECT& work, DockEdge edge,
-                                                        UINT dpi) noexcept
+[[nodiscard]] inline uint32_t DockFirstRunThicknessDips(const RECT& monitor, const RECT& work, DockEdge edge, UINT dpi) noexcept
 {
     const LONG span = DockEdgeIsHorizontal(edge) ? work.right - work.left : work.bottom - work.top;
-    bool clamped = false;
-    const LONG pixels = DockClampThickness(
-        std::max(1L, static_cast<LONG>(MulDiv(span, kDockDesignShortSideDips, kDockDesignLongSideDips))), monitor, edge,
-        clamped);
+    bool clamped    = false;
+    const LONG pixels =
+        DockClampThickness(std::max(1L, static_cast<LONG>(MulDiv(span, kDockDesignShortSideDips, kDockDesignLongSideDips))), monitor, edge, clamped);
     const LONG scaleDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : static_cast<LONG>(dpi);
-    const LONG dips = pixels * USER_DEFAULT_SCREEN_DPI / scaleDpi;
-    return static_cast<uint32_t>(
-        std::clamp(dips, static_cast<LONG>(kDockMinimumThicknessDips), static_cast<LONG>(kDockMaximumThicknessDips)));
+    const LONG dips     = pixels * USER_DEFAULT_SCREEN_DPI / scaleDpi;
+    return static_cast<uint32_t>(std::clamp(dips, static_cast<LONG>(kDockMinimumThicknessDips), static_cast<LONG>(kDockMaximumThicknessDips)));
 }
 
 // First start without a XENEON (UI_XeneonDisplayWindowing.md "First start without a XENEON"): only a default file
 // installed because it was missing gets the first-run bar, and only when discovery succeeded without finding a XENEON
 // in a session at the machine's own displays. A remote session sees only the remote client's displays, so a bar decided
 // there would stay in the file for the XENEON at the desk.
-[[nodiscard]] constexpr bool DockFirstRunOffered(bool discoverySucceeded, bool xeneonFound, bool settingsFileGiven,
-                                                 bool remoteSession) noexcept
+[[nodiscard]] constexpr bool DockFirstRunOffered(bool discoverySucceeded, bool xeneonFound, bool settingsFileGiven, bool remoteSession) noexcept
 {
-    return discoverySucceeded && !xeneonFound && !settingsFileGiven && !remoteSession;
+    return discoverySucceeded && ! xeneonFound && ! settingsFileGiven && ! remoteSession;
 }
 
 // First start without a XENEON: with more than one display the bar goes to the second screen (`secondary`, which
@@ -185,15 +170,12 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     const bool overlaps = other.left < monitor.right && monitor.left < other.right;
     switch (edge)
     {
-    case DockEdge::Top:
-        return overlaps && other.bottom == monitor.top;
-    case DockEdge::Bottom:
-        return overlaps && other.top == monitor.bottom;
-    case ::DockEdge::Left:
-    case ::DockEdge::None:
-    case ::DockEdge::Right:
-    default:
-        return false;
+        case DockEdge::Top: return overlaps && other.bottom == monitor.top;
+        case DockEdge::Bottom: return overlaps && other.top == monitor.bottom;
+        case ::DockEdge::Left:
+        case ::DockEdge::None:
+        case ::DockEdge::Right:
+        default: return false;
     }
 }
 
@@ -204,11 +186,11 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
 // area is trimmed on that side (a taskbar that stays visible, any reserving app bar) or an autohide bar is registered
 // on that edge of that monitor (an auto-hiding taskbar); an edge another display shares (DockDisplayTouchesEdge),
 // whatever holds it, because the pointer crosses it between the displays.
-[[nodiscard]] constexpr DockEdge DockFirstRunEdge(const RECT& monitor, const RECT& work, bool autohideTop,
-                                                  bool autohideBottom, bool sharedTop, bool sharedBottom) noexcept
+[[nodiscard]] constexpr DockEdge DockFirstRunEdge(
+    const RECT& monitor, const RECT& work, bool autohideTop, bool autohideBottom, bool sharedTop, bool sharedBottom) noexcept
 {
-    const auto rank = [](bool taken, bool shared) noexcept { return shared ? 0 : (taken ? 1 : 2); };
-    const int top = rank(work.top > monitor.top || autohideTop, sharedTop);
+    const auto rank  = [](bool taken, bool shared) noexcept { return shared ? 0 : (taken ? 1 : 2); };
+    const int top    = rank(work.top > monitor.top || autohideTop, sharedTop);
     const int bottom = rank(work.bottom < monitor.bottom || autohideBottom, sharedBottom);
     return bottom >= top ? DockEdge::Bottom : DockEdge::Top;
 }
@@ -231,21 +213,12 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     RECT rect = bounds;
     switch (edge)
     {
-    case DockEdge::Top:
-        rect.bottom = rect.top + thicknessPx;
-        break;
-    case DockEdge::Bottom:
-        rect.top = rect.bottom - thicknessPx;
-        break;
-    case DockEdge::Left:
-        rect.right = rect.left + thicknessPx;
-        break;
-    case DockEdge::Right:
-        rect.left = rect.right - thicknessPx;
-        break;
-    case ::DockEdge::None:
-    default:
-        break;
+        case DockEdge::Top: rect.bottom = rect.top + thicknessPx; break;
+        case DockEdge::Bottom: rect.top = rect.bottom - thicknessPx; break;
+        case DockEdge::Left: rect.right = rect.left + thicknessPx; break;
+        case DockEdge::Right: rect.left = rect.right - thicknessPx; break;
+        case ::DockEdge::None:
+        default: break;
     }
     return rect;
 }
@@ -271,21 +244,12 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     RECT rect = full;
     switch (edge)
     {
-    case DockEdge::Top:
-        rect.bottom = rect.top + peekPx;
-        break;
-    case DockEdge::Bottom:
-        rect.top = rect.bottom - peekPx;
-        break;
-    case DockEdge::Left:
-        rect.right = rect.left + peekPx;
-        break;
-    case DockEdge::Right:
-        rect.left = rect.right - peekPx;
-        break;
-    case ::DockEdge::None:
-    default:
-        break;
+        case DockEdge::Top: rect.bottom = rect.top + peekPx; break;
+        case DockEdge::Bottom: rect.top = rect.bottom - peekPx; break;
+        case DockEdge::Left: rect.right = rect.left + peekPx; break;
+        case DockEdge::Right: rect.left = rect.right - peekPx; break;
+        case ::DockEdge::None:
+        default: break;
     }
     return rect;
 }
@@ -320,20 +284,16 @@ enum class DockReservation : uint8_t
 {
     switch (reservation)
     {
-    case DockReservation::Bar:
-        return thicknessPx;
-    case DockReservation::Strip:
-        return peekPx;
-    case ::DockReservation::None:
-    default:
-        return 0;
+        case DockReservation::Bar: return thicknessPx;
+        case DockReservation::Strip: return peekPx;
+        case ::DockReservation::None:
+        default: return 0;
     }
 }
 
 // The rectangle proposed to the shell with ABM_QUERYPOS: the monitor trimmed to the reserved pixels on the edge side.
 // An empty rectangle for an overlay, which reserves nothing.
-[[nodiscard]] constexpr RECT DockReservationProposal(DockReservation reservation, const RECT& monitor, DockEdge edge,
-                                                     LONG thicknessPx, LONG peekPx) noexcept
+[[nodiscard]] constexpr RECT DockReservationProposal(DockReservation reservation, const RECT& monitor, DockEdge edge, LONG thicknessPx, LONG peekPx) noexcept
 {
     const LONG reservedPx = DockReservedPixels(reservation, thicknessPx, peekPx);
     return reservedPx > 0 ? DockTrimToThickness(monitor, edge, reservedPx) : RECT{};
@@ -357,10 +317,10 @@ enum class DockReservation : uint8_t
 // reservation it was asked for and the rectangle it committed. Removing the registration resets it.
 struct DockAppBarState final
 {
-    bool registered = false;
+    bool registered             = false;
     DockReservation reservation = DockReservation::None;
-    DockEdge edge = DockEdge::None;
-    UINT dpi = 0;
+    DockEdge edge               = DockEdge::None;
+    UINT dpi                    = 0;
     // The rectangle proposed with the last ABM_QUERYPOS, and the one ABM_SETPOS committed (DockFullRectFromReserved).
     RECT proposal{};
     RECT reserved{};
@@ -368,10 +328,10 @@ struct DockAppBarState final
 
 // The shell messages of one placement pass, as SHAppBarMessage values (shellapi.h), in the order Application sends
 // them. ABM_SETAUTOHIDEBAREX is never one of them.
-inline constexpr DWORD kDockAppBarNew = 0x0;      // ABM_NEW
-inline constexpr DWORD kDockAppBarRemove = 0x1;   // ABM_REMOVE
+inline constexpr DWORD kDockAppBarNew      = 0x0; // ABM_NEW
+inline constexpr DWORD kDockAppBarRemove   = 0x1; // ABM_REMOVE
 inline constexpr DWORD kDockAppBarQueryPos = 0x2; // ABM_QUERYPOS
-inline constexpr DWORD kDockAppBarSetPos = 0x3;   // ABM_SETPOS
+inline constexpr DWORD kDockAppBarSetPos   = 0x3; // ABM_SETPOS
 
 struct DockAppBarPlan final
 {
@@ -386,26 +346,24 @@ struct DockAppBarPlan final
 // one ABM_QUERYPOS and ABM_SETPOS; and a pass that changes nothing reserved and follows no shell change sends nothing,
 // so the release of an autohide bar's thickness drag and a reload that leaves the reservation alone never reset the
 // work area. A reveal, a hide, and a slide step make no placement pass at all.
-[[nodiscard]] constexpr DockAppBarPlan PlanDockAppBar(const DockAppBarState& current, DockReservation reservation,
-                                                      DockEdge edge, const RECT& proposal, UINT dpi,
-                                                      bool stale) noexcept
+[[nodiscard]] constexpr DockAppBarPlan PlanDockAppBar(
+    const DockAppBarState& current, DockReservation reservation, DockEdge edge, const RECT& proposal, UINT dpi, bool stale) noexcept
 {
     DockAppBarPlan plan{};
-    bool registered = current.registered;
+    bool registered      = current.registered;
     DockReservation held = registered ? current.reservation : DockReservation::None;
     if (held != DockReservation::None && reservation == DockReservation::None)
     {
         plan.messages[plan.count++] = kDockAppBarRemove;
-        registered = false;
-        held = DockReservation::None;
+        registered                  = false;
+        held                        = DockReservation::None;
     }
-    if (!registered)
+    if (! registered)
     {
         plan.messages[plan.count++] = kDockAppBarNew;
     }
-    const bool changed = held != reservation || current.edge != edge || current.dpi != dpi ||
-                         !DockRectEquals(current.proposal, proposal);
-    if (reservation != DockReservation::None && (!registered || stale || changed))
+    const bool changed = held != reservation || current.edge != edge || current.dpi != dpi || ! DockRectEquals(current.proposal, proposal);
+    if (reservation != DockReservation::None && (! registered || stale || changed))
     {
         plan.messages[plan.count++] = kDockAppBarQueryPos;
         plan.messages[plan.count++] = kDockAppBarSetPos;
@@ -414,14 +372,14 @@ struct DockAppBarPlan final
 }
 
 // The record after ABM_SETPOS committed `reserved` for the reservation a plan was made for.
-constexpr void DockAppBarCommitted(DockAppBarState& state, DockReservation reservation, DockEdge edge,
-                                   const RECT& proposal, UINT dpi, const RECT& reserved) noexcept
+constexpr void DockAppBarCommitted(
+    DockAppBarState& state, DockReservation reservation, DockEdge edge, const RECT& proposal, UINT dpi, const RECT& reserved) noexcept
 {
     state.reservation = reservation;
-    state.edge = edge;
-    state.dpi = dpi;
-    state.proposal = proposal;
-    state.reserved = reserved;
+    state.edge        = edge;
+    state.dpi         = dpi;
+    state.proposal    = proposal;
+    state.reserved    = reserved;
 }
 
 // Cross-axis size of a bar rectangle: its height for a top or bottom dock, its width for a side dock.
@@ -447,18 +405,16 @@ constexpr void DockAppBarCommitted(DockAppBarState& state, DockReservation reser
 // thickness travels between the peek strip and the full bar, one SetWindowPos per presented frame (the window is
 // DockHiddenRect of the full bar at the visible thickness). A slide covering part of the travel, such as one that
 // reverses halfway, takes that share of the time; 0 is no animation (one step, as without a slide).
-[[nodiscard]] constexpr uint32_t DockSlideDurationMilliseconds(uint32_t animationMilliseconds, LONG fromPx, LONG toPx,
-                                                               LONG peekPx, LONG fullPx) noexcept
+[[nodiscard]] constexpr uint32_t DockSlideDurationMilliseconds(uint32_t animationMilliseconds, LONG fromPx, LONG toPx, LONG peekPx, LONG fullPx) noexcept
 {
-    const LONG travel = fullPx - peekPx;
+    const LONG travel   = fullPx - peekPx;
     const LONG distance = std::min(fromPx > toPx ? fromPx - toPx : toPx - fromPx, travel);
     if (animationMilliseconds == 0 || travel <= 0 || distance <= 0)
     {
         return 0;
     }
-    const uint64_t share = (static_cast<uint64_t>(animationMilliseconds) * static_cast<uint64_t>(distance) +
-                            static_cast<uint64_t>(travel) / 2) /
-                           static_cast<uint64_t>(travel);
+    const uint64_t share =
+        (static_cast<uint64_t>(animationMilliseconds) * static_cast<uint64_t>(distance) + static_cast<uint64_t>(travel) / 2) / static_cast<uint64_t>(travel);
     return static_cast<uint32_t>(std::max<uint64_t>(share, 1));
 }
 
@@ -466,10 +422,10 @@ constexpr void DockAppBarCommitted(DockAppBarState& state, DockReservation reser
 // full bar), a hide eases in (slow, then quickly into the edge).
 [[nodiscard]] constexpr LONG DockSlideVisiblePixels(LONG fromPx, LONG toPx, float t, bool revealing) noexcept
 {
-    const float progress = t <= 0.0f ? 0.0f : (t >= 1.0f ? 1.0f : t);
+    const float progress  = t <= 0.0f ? 0.0f : (t >= 1.0f ? 1.0f : t);
     const float remaining = 1.0f - progress;
-    const float eased = revealing ? 1.0f - remaining * remaining * remaining : progress * progress * progress;
-    const float mixed = static_cast<float>(fromPx) + static_cast<float>(toPx - fromPx) * eased;
+    const float eased     = revealing ? 1.0f - remaining * remaining * remaining : progress * progress * progress;
+    const float mixed     = static_cast<float>(fromPx) + static_cast<float>(toPx - fromPx) * eased;
     return static_cast<LONG>(mixed >= 0.0f ? mixed + 0.5f : mixed - 0.5f);
 }
 
@@ -481,15 +437,12 @@ constexpr void DockAppBarCommitted(DockAppBarState& state, DockReservation reser
     const LONG hidden = fullPx > visiblePx ? fullPx - visiblePx : 0;
     switch (edge)
     {
-    case DockEdge::Top:
-        return POINT{0, -hidden};
-    case DockEdge::Left:
-        return POINT{-hidden, 0};
-    case ::DockEdge::Bottom:
-    case ::DockEdge::None:
-    case ::DockEdge::Right:
-    default:
-        return POINT{0, 0};
+        case DockEdge::Top: return POINT{0, -hidden};
+        case DockEdge::Left: return POINT{-hidden, 0};
+        case ::DockEdge::Bottom:
+        case ::DockEdge::None:
+        case ::DockEdge::Right:
+        default: return POINT{0, 0};
     }
 }
 
@@ -502,17 +455,12 @@ constexpr void DockAppBarCommitted(DockAppBarState& state, DockReservation reser
     const LONG hidden = fullPx > visiblePx ? fullPx - visiblePx : 0;
     switch (edge)
     {
-    case DockEdge::Top:
-        return POINT{0, hidden};
-    case DockEdge::Bottom:
-        return POINT{0, -hidden};
-    case DockEdge::Left:
-        return POINT{hidden, 0};
-    case DockEdge::Right:
-        return POINT{-hidden, 0};
-    case ::DockEdge::None:
-    default:
-        return POINT{0, 0};
+        case DockEdge::Top: return POINT{0, hidden};
+        case DockEdge::Bottom: return POINT{0, -hidden};
+        case DockEdge::Left: return POINT{hidden, 0};
+        case DockEdge::Right: return POINT{-hidden, 0};
+        case ::DockEdge::None:
+        default: return POINT{0, 0};
     }
 }
 
@@ -571,26 +519,17 @@ enum class DockInputRoute : uint8_t
     {
         return RECT{};
     }
-    RECT rect = grip;
+    RECT rect         = grip;
     const LONG height = grip.bottom - grip.top;
-    const LONG width = grip.right - grip.left;
+    const LONG width  = grip.right - grip.left;
     switch (edge)
     {
-    case DockEdge::Top:
-        rect.top = grip.bottom - std::min(accentPx, height);
-        break;
-    case DockEdge::Bottom:
-        rect.bottom = grip.top + std::min(accentPx, height);
-        break;
-    case DockEdge::Left:
-        rect.left = grip.right - std::min(accentPx, width);
-        break;
-    case DockEdge::Right:
-        rect.right = grip.left + std::min(accentPx, width);
-        break;
-    case ::DockEdge::None:
-    default:
-        return RECT{};
+        case DockEdge::Top: rect.top = grip.bottom - std::min(accentPx, height); break;
+        case DockEdge::Bottom: rect.bottom = grip.top + std::min(accentPx, height); break;
+        case DockEdge::Left: rect.left = grip.right - std::min(accentPx, width); break;
+        case DockEdge::Right: rect.right = grip.left + std::min(accentPx, width); break;
+        case ::DockEdge::None:
+        default: return RECT{};
     }
     return rect;
 }
@@ -601,8 +540,7 @@ enum class DockInputRoute : uint8_t
 inline constexpr int kDockResizeBandDips = 6;
 
 // The band in client coordinates of the full bar, or an empty rectangle when the client is too thin to hold it.
-[[nodiscard]] constexpr RECT DockResizeBandRect(LONG clientWidth, LONG clientHeight, DockEdge edge,
-                                                LONG bandPx) noexcept
+[[nodiscard]] constexpr RECT DockResizeBandRect(LONG clientWidth, LONG clientHeight, DockEdge edge, LONG bandPx) noexcept
 {
     if (clientWidth <= 0 || clientHeight <= 0 || bandPx <= 0 || edge == DockEdge::None)
     {
@@ -611,64 +549,46 @@ inline constexpr int kDockResizeBandDips = 6;
     const LONG band = std::min(bandPx, DockEdgeIsHorizontal(edge) ? clientHeight / 2 : clientWidth / 2);
     switch (edge)
     {
-    case DockEdge::Top:
-        return RECT{0, clientHeight - band, clientWidth, clientHeight};
-    case DockEdge::Bottom:
-        return RECT{0, 0, clientWidth, band};
-    case DockEdge::Left:
-        return RECT{clientWidth - band, 0, clientWidth, clientHeight};
-    case DockEdge::Right:
-        return RECT{0, 0, band, clientHeight};
-    case ::DockEdge::None:
-    default:
-        return RECT{};
+        case DockEdge::Top: return RECT{0, clientHeight - band, clientWidth, clientHeight};
+        case DockEdge::Bottom: return RECT{0, 0, clientWidth, band};
+        case DockEdge::Left: return RECT{clientWidth - band, 0, clientWidth, clientHeight};
+        case DockEdge::Right: return RECT{0, 0, band, clientHeight};
+        case ::DockEdge::None:
+        default: return RECT{};
     }
 }
 
 // Thickness in DIPs for a cursor at `screenPoint` while dragging the inner edge of `full` (screen coordinates), the
 // outer edge staying put: the distance from the outer edge, converted from pixels at `dpi`, clamped to the settings
 // range and to half of the monitor's cross dimension.
-[[nodiscard]] inline uint32_t DockThicknessFromDrag(const RECT& full, const RECT& monitor, DockEdge edge,
-                                                    POINT screenPoint, UINT dpi) noexcept
+[[nodiscard]] inline uint32_t DockThicknessFromDrag(const RECT& full, const RECT& monitor, DockEdge edge, POINT screenPoint, UINT dpi) noexcept
 {
     LONG pixels = 0;
     switch (edge)
     {
-    case DockEdge::Top:
-        pixels = screenPoint.y - full.top;
-        break;
-    case DockEdge::Bottom:
-        pixels = full.bottom - screenPoint.y;
-        break;
-    case DockEdge::Left:
-        pixels = screenPoint.x - full.left;
-        break;
-    case DockEdge::Right:
-        pixels = full.right - screenPoint.x;
-        break;
-    case ::DockEdge::None:
-    default:
-        return kDockDefaultThicknessDips;
+        case DockEdge::Top: pixels = screenPoint.y - full.top; break;
+        case DockEdge::Bottom: pixels = full.bottom - screenPoint.y; break;
+        case DockEdge::Left: pixels = screenPoint.x - full.left; break;
+        case DockEdge::Right: pixels = full.right - screenPoint.x; break;
+        case ::DockEdge::None:
+        default: return kDockDefaultThicknessDips;
     }
-    bool clamped = false;
-    pixels = DockClampThickness(std::max(1L, pixels), monitor, edge, clamped);
+    bool clamped       = false;
+    pixels             = DockClampThickness(std::max(1L, pixels), monitor, edge, clamped);
     const int scaleDpi = dpi == 0 ? USER_DEFAULT_SCREEN_DPI : static_cast<int>(dpi);
-    const LONG dips = MulDiv(pixels, USER_DEFAULT_SCREEN_DPI, scaleDpi);
-    return static_cast<uint32_t>(
-        std::clamp(dips, static_cast<LONG>(kDockMinimumThicknessDips), static_cast<LONG>(kDockMaximumThicknessDips)));
+    const LONG dips    = MulDiv(pixels, USER_DEFAULT_SCREEN_DPI, scaleDpi);
+    return static_cast<uint32_t>(std::clamp(dips, static_cast<LONG>(kDockMinimumThicknessDips), static_cast<LONG>(kDockMaximumThicknessDips)));
 }
 
 // MINMAXINFO for the dock window. Windows applies ptMinTrackSize to SetWindowPos as well as to user tracking, so the
 // titled window's 480×320 minimum would refuse the peek strip; the dock answers with the strip as its minimum and
 // the monitor as its maximum.
-constexpr void DockMinMaxInfo(const RECT& monitor, DockEdge edge, LONG peekPx, bool autohide, const RECT& full,
-                              MINMAXINFO& info) noexcept
+constexpr void DockMinMaxInfo(const RECT& monitor, DockEdge edge, LONG peekPx, bool autohide, const RECT& full, MINMAXINFO& info) noexcept
 {
     const RECT smallest = autohide ? DockHiddenRect(full, edge, peekPx) : full;
-    info.ptMinTrackSize =
-        POINT{std::max(1L, smallest.right - smallest.left), std::max(1L, smallest.bottom - smallest.top)};
+    info.ptMinTrackSize = POINT{std::max(1L, smallest.right - smallest.left), std::max(1L, smallest.bottom - smallest.top)};
     info.ptMaxTrackSize = POINT{std::max(1L, monitor.right - monitor.left), std::max(1L, monitor.bottom - monitor.top)};
-    info.ptMaxSize = info.ptMaxTrackSize;
+    info.ptMaxSize      = info.ptMaxTrackSize;
 }
 
 // Full-screen yield (UI_XeneonDisplayWindowing.md "Window"): ABN_FULLSCREENAPP names no monitor, so the bar steps
@@ -677,12 +597,10 @@ constexpr void DockMinMaxInfo(const RECT& monitor, DockEdge edge, LONG peekPx, b
 // monitor (no taskbar there, or an auto-hiding one) by about 8 px on every side, yet it is an ordinary maximized
 // window, never a full-screen one. A captionless window that covers the monitor (a game, a video, a browser in full
 // screen) counts, maximized or not, and so does one spanning several monitors.
-[[nodiscard]] constexpr bool DockForegroundCoversMonitor(const RECT& windowBounds, const RECT& monitor,
-                                                         bool maximizedWithCaption) noexcept
+[[nodiscard]] constexpr bool DockForegroundCoversMonitor(const RECT& windowBounds, const RECT& monitor, bool maximizedWithCaption) noexcept
 {
-    return !maximizedWithCaption && monitor.right > monitor.left && monitor.bottom > monitor.top &&
-           windowBounds.left <= monitor.left && windowBounds.top <= monitor.top &&
-           windowBounds.right >= monitor.right && windowBounds.bottom >= monitor.bottom;
+    return ! maximizedWithCaption && monitor.right > monitor.left && monitor.bottom > monitor.top && windowBounds.left <= monitor.left &&
+           windowBounds.top <= monitor.top && windowBounds.right >= monitor.right && windowBounds.bottom >= monitor.bottom;
 }
 
 // Placement requests (UI_XeneonDisplayWindowing.md "Monitor and placement"). A placement makes cross-process shell
@@ -696,8 +614,8 @@ struct DockPlacementRequests final
 {
     bool placing = false;
     // A request arrived during the running pass; `againResizes` when any of them asked the dashboard to follow.
-    bool again = false;
-    bool againResizes = false;
+    bool again           = false;
+    bool againResizes    = false;
     uint32_t extraPasses = 0;
 };
 
@@ -707,11 +625,11 @@ struct DockPlacementRequests final
 {
     if (requests.placing)
     {
-        requests.again = true;
+        requests.again        = true;
         requests.againResizes = requests.againResizes || resizeDashboard;
         return false;
     }
-    requests = DockPlacementRequests{};
+    requests         = DockPlacementRequests{};
     requests.placing = true;
     return true;
 }
@@ -720,13 +638,13 @@ struct DockPlacementRequests final
 // false ends the placement, dropping a request recorded after the last allowed pass.
 [[nodiscard]] constexpr bool NextDockPlacementPass(DockPlacementRequests& requests, bool& resizeDashboard) noexcept
 {
-    if (!requests.placing || !requests.again || requests.extraPasses >= kDockMaximumExtraPlacementPasses)
+    if (! requests.placing || ! requests.again || requests.extraPasses >= kDockMaximumExtraPlacementPasses)
     {
         requests = DockPlacementRequests{};
         return false;
     }
-    resizeDashboard = requests.againResizes;
-    requests.again = false;
+    resizeDashboard       = requests.againResizes;
+    requests.again        = false;
     requests.againResizes = false;
     ++requests.extraPasses;
     return true;
@@ -738,9 +656,9 @@ struct DockMonitorCandidate final
 {
     RECT monitor{};
     RECT work{};
-    UINT dpi = USER_DEFAULT_SCREEN_DPI;
+    UINT dpi     = USER_DEFAULT_SCREEN_DPI;
     bool primary = false;
-    bool xeneon = false;
+    bool xeneon  = false;
     std::wstring_view friendlyName;
     std::wstring_view deviceName;
 };
@@ -753,8 +671,7 @@ struct DockMonitorCandidate final
     }
     for (size_t offset = 0; offset + needle.size() <= haystack.size(); ++offset)
     {
-        if (CompareStringOrdinal(haystack.data() + offset, static_cast<int>(needle.size()), needle.data(),
-                                 static_cast<int>(needle.size()), TRUE) == CSTR_EQUAL)
+        if (CompareStringOrdinal(haystack.data() + offset, static_cast<int>(needle.size()), needle.data(), static_cast<int>(needle.size()), TRUE) == CSTR_EQUAL)
         {
             return true;
         }
@@ -766,12 +683,11 @@ struct DockMonitorCandidate final
 // SIZE_MAX only when there is no candidate at all. `index` selectors are 1-based in enumeration order; `secondary`
 // is the first candidate in enumeration order that is neither the primary nor the XENEON, else the XENEON when it is
 // the only candidate that is not the primary (RedXeActions::SecondaryMonitorRank).
-[[nodiscard]] inline size_t SelectDockMonitor(const RedXeActions::MonitorSelector& selector,
-                                              std::wstring_view nameNeedle, const DockMonitorCandidate* candidates,
-                                              size_t count, bool& fellBack) noexcept
+[[nodiscard]] inline size_t SelectDockMonitor(
+    const RedXeActions::MonitorSelector& selector, std::wstring_view nameNeedle, const DockMonitorCandidate* candidates, size_t count, bool& fellBack) noexcept
 {
     fellBack = false;
-    if (!candidates || count == 0)
+    if (! candidates || count == 0)
     {
         return SIZE_MAX;
     }
@@ -787,56 +703,52 @@ struct DockMonitorCandidate final
     using Kind = RedXeActions::MonitorSelector::Kind;
     switch (selector.kind)
     {
-    case Kind::Primary:
-        return primary;
-    case Kind::Secondary:
-    {
-        size_t best = SIZE_MAX;
-        uint32_t bestRank = 0;
-        for (size_t index = 0; index < count && bestRank < RedXeActions::kSecondaryMonitorTopRank; ++index)
+        case Kind::Primary: return primary;
+        case Kind::Secondary:
         {
-            const uint32_t rank =
-                RedXeActions::SecondaryMonitorRank(candidates[index].primary, candidates[index].xeneon);
-            if (rank > bestRank)
+            size_t best       = SIZE_MAX;
+            uint32_t bestRank = 0;
+            for (size_t index = 0; index < count && bestRank < RedXeActions::kSecondaryMonitorTopRank; ++index)
             {
-                best = index;
-                bestRank = rank;
+                const uint32_t rank = RedXeActions::SecondaryMonitorRank(candidates[index].primary, candidates[index].xeneon);
+                if (rank > bestRank)
+                {
+                    best     = index;
+                    bestRank = rank;
+                }
             }
-        }
-        if (best != SIZE_MAX)
-        {
-            return best;
-        }
-        break;
-    }
-    case Kind::Xeneon:
-        for (size_t index = 0; index < count; ++index)
-        {
-            if (candidates[index].xeneon)
+            if (best != SIZE_MAX)
             {
-                return index;
+                return best;
             }
+            break;
         }
-        break;
-    case Kind::Index:
-        if (selector.index >= 1 && selector.index <= count)
-        {
-            return selector.index - 1;
-        }
-        break;
-    case Kind::Name:
-        for (size_t index = 0; index < count; ++index)
-        {
-            if (DockNameContains(candidates[index].friendlyName, nameNeedle) ||
-                DockNameContains(candidates[index].deviceName, nameNeedle))
+        case Kind::Xeneon:
+            for (size_t index = 0; index < count; ++index)
             {
-                return index;
+                if (candidates[index].xeneon)
+                {
+                    return index;
+                }
             }
-        }
-        break;
-    case ::RedXeActions::MonitorSelector::Kind::All:
-    default:
-        break;
+            break;
+        case Kind::Index:
+            if (selector.index >= 1 && selector.index <= count)
+            {
+                return selector.index - 1;
+            }
+            break;
+        case Kind::Name:
+            for (size_t index = 0; index < count; ++index)
+            {
+                if (DockNameContains(candidates[index].friendlyName, nameNeedle) || DockNameContains(candidates[index].deviceName, nameNeedle))
+                {
+                    return index;
+                }
+            }
+            break;
+        case ::RedXeActions::MonitorSelector::Kind::All:
+        default: break;
     }
     fellBack = true;
     return primary;
@@ -880,11 +792,11 @@ enum class DockRevealEvent : uint8_t
 struct DockHolds final
 {
     bool pointerInside = false;
-    bool windowActive = false;
+    bool windowActive  = false;
     // Pointer pan, settle, staged neighbour, interactive capture, or raise settle.
     bool captureActive = false;
-    bool widgetRaised = false;
-    bool dialogShown = false;
+    bool widgetRaised  = false;
+    bool dialogShown   = false;
     // Screenshot pending or a fixed-mode / capture pin.
     bool pinned = false;
     // redxe.dock.show revealed the bar with nothing holding it: it stays until some other hold appears and clears.
@@ -914,45 +826,35 @@ struct DockHolds final
     return state == DockRevealState::Hidden || state == DockRevealState::RevealPending;
 }
 
-[[nodiscard]] constexpr DockRevealState NextDockRevealState(DockRevealState current, DockRevealEvent event,
-                                                            const DockHolds& holds, uint32_t revealDelayMilliseconds,
-                                                            uint32_t hideDelayMilliseconds) noexcept
+[[nodiscard]] constexpr DockRevealState NextDockRevealState(
+    DockRevealState current, DockRevealEvent event, const DockHolds& holds, uint32_t revealDelayMilliseconds, uint32_t hideDelayMilliseconds) noexcept
 {
-    const DockRevealState hideTarget =
-        hideDelayMilliseconds == 0 ? DockRevealState::Hidden : DockRevealState::HidePending;
-    const DockRevealState revealTarget =
-        revealDelayMilliseconds == 0 ? DockRevealState::Revealed : DockRevealState::RevealPending;
+    const DockRevealState hideTarget   = hideDelayMilliseconds == 0 ? DockRevealState::Hidden : DockRevealState::HidePending;
+    const DockRevealState revealTarget = revealDelayMilliseconds == 0 ? DockRevealState::Revealed : DockRevealState::RevealPending;
     switch (event)
     {
-    case DockRevealEvent::Pin:
-        return DockRevealState::Revealed;
-    case DockRevealEvent::PointerEnteredStrip:
-        return current == DockRevealState::Hidden ? revealTarget : current;
-    case DockRevealEvent::DwellElapsed:
-        return current == DockRevealState::RevealPending ? DockRevealState::Revealed : current;
-    case DockRevealEvent::PointerLeft:
-        return current == DockRevealState::RevealPending ? DockRevealState::Hidden : current;
-    case DockRevealEvent::TouchOnStrip:
-    case DockRevealEvent::ActionShow:
-    case DockRevealEvent::PageOrWidgetChange:
-        return DockRevealState::Revealed;
-    case DockRevealEvent::ActionHide:
-        if (DockStateShowsStrip(current))
-            return DockRevealState::Hidden;
-        return holds.RefusesHide() ? current : DockRevealState::Hidden;
-    case DockRevealEvent::ActionToggle:
-        if (DockStateShowsStrip(current))
-            return DockRevealState::Revealed;
-        return holds.RefusesHide() ? current : DockRevealState::Hidden;
-    case DockRevealEvent::HideElapsed:
-        return current == DockRevealState::HidePending ? DockRevealState::Hidden : current;
-    case DockRevealEvent::HoldsChanged:
-        if (current == DockRevealState::Revealed)
-            return holds.Any() ? current : hideTarget;
-        if (current == DockRevealState::HidePending)
-            return holds.Any() ? DockRevealState::Revealed : current;
-        return current;
-    default:
-        return current;
+        case DockRevealEvent::Pin: return DockRevealState::Revealed;
+        case DockRevealEvent::PointerEnteredStrip: return current == DockRevealState::Hidden ? revealTarget : current;
+        case DockRevealEvent::DwellElapsed: return current == DockRevealState::RevealPending ? DockRevealState::Revealed : current;
+        case DockRevealEvent::PointerLeft: return current == DockRevealState::RevealPending ? DockRevealState::Hidden : current;
+        case DockRevealEvent::TouchOnStrip:
+        case DockRevealEvent::ActionShow:
+        case DockRevealEvent::PageOrWidgetChange: return DockRevealState::Revealed;
+        case DockRevealEvent::ActionHide:
+            if (DockStateShowsStrip(current))
+                return DockRevealState::Hidden;
+            return holds.RefusesHide() ? current : DockRevealState::Hidden;
+        case DockRevealEvent::ActionToggle:
+            if (DockStateShowsStrip(current))
+                return DockRevealState::Revealed;
+            return holds.RefusesHide() ? current : DockRevealState::Hidden;
+        case DockRevealEvent::HideElapsed: return current == DockRevealState::HidePending ? DockRevealState::Hidden : current;
+        case DockRevealEvent::HoldsChanged:
+            if (current == DockRevealState::Revealed)
+                return holds.Any() ? current : hideTarget;
+            if (current == DockRevealState::HidePending)
+                return holds.Any() ? DockRevealState::Revealed : current;
+            return current;
+        default: return current;
     }
 }

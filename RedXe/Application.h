@@ -36,22 +36,22 @@ class TextInputServices;
 
 class Application final
 {
-  public:
+public:
     // Posted by a host-owned native container when the pointer moves over it, so edge-band hover works over a
     // window widget as well as over a GPU tile. The container cannot forward WM_MOUSEMOVE directly because its
     // coordinates are in the container's client space.
     static constexpr UINT kPageEdgeHoverMessage = WM_APP + 4;
     // App-bar callback registered with the shell for the dock window kind (ABN_POSCHANGED, ABN_FULLSCREENAPP, ...).
-    static constexpr UINT kDockAppBarMessage = WM_APP + 6;
+    static constexpr UINT kDockAppBarMessage         = WM_APP + 6;
     static constexpr UINT kScreenshotCompleteMessage = WM_APP + 7;
 
     Application(HINSTANCE instance, bool forceWarp) noexcept;
     ~Application();
 
-    Application(const Application&) = delete;
+    Application(const Application&)            = delete;
     Application& operator=(const Application&) = delete;
-    Application(Application&&) = delete;
-    Application& operator=(Application&&) = delete;
+    Application(Application&&)                 = delete;
+    Application& operator=(Application&&)      = delete;
 
     friend class ApplicationDropTarget;
 
@@ -66,8 +66,8 @@ class Application final
     // and captures its own window through Windows.Graphics.Capture into pngPath. Only closeWhenDone (the command
     // line) closes the window after the capture; an action capture keeps RedXe running. ERROR_BUSY while another
     // request is pending.
-    HRESULT RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
-                              uint32_t widgetOrdinal, bool closeWhenDone) noexcept;
+    HRESULT RequestScreenshot(
+        std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds, uint32_t widgetOrdinal, bool closeWhenDone) noexcept;
     // After Run returns for `--screenshot`: joins a capture worker the closed window left running and returns the
     // request's result, ERROR_CANCELLED when the run ended before the capture finished.
     [[nodiscard]] HRESULT FinishScreenshot() noexcept;
@@ -91,8 +91,8 @@ class Application final
         _dockOverrides = overrides;
     }
 
-  private:
-    static constexpr wchar_t kWindowClassName[] = L"RedXe.Window";
+private:
+    static constexpr wchar_t kWindowClassName[]         = L"RedXe.Window";
     static constexpr wchar_t kSettingsDialogClassName[] = L"RedXe.SettingsError";
     static LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     static LRESULT CALLBACK SettingsDialogProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
@@ -107,7 +107,7 @@ class Application final
     {
         RECT monitor{};
         RECT work{};
-        UINT dpi = USER_DEFAULT_SCREEN_DPI;
+        UINT dpi      = USER_DEFAULT_SCREEN_DPI;
         bool fellBack = false;
     };
     HRESULT CreateDockWindow(bool visible) noexcept;
@@ -206,7 +206,7 @@ class Application final
     // bar sliding out stays visible until its slide ends.
     [[nodiscard]] bool DockHidden() const noexcept
     {
-        return DockHiddenOrHiding() && !_dockSlideActive;
+        return DockHiddenOrHiding() && ! _dockSlideActive;
     }
     // Autohide slide (DockPlacement.h DockSlide*): the window's visible thickness travels between the peek strip and
     // the full bar over dock.animationMilliseconds, one SetWindowPos per presented frame, with the full-size
@@ -233,8 +233,8 @@ class Application final
     // at. The mouse (pointer id 0 here) and one touch or pen contact each keep a record; their next press replaces it.
     struct DockPress final
     {
-        bool active = false;
-        bool revealOnly = false;
+        bool active      = false;
+        bool revealOnly  = false;
         UINT32 pointerId = 0;
         POINT shift{};
     };
@@ -244,9 +244,7 @@ class Application final
     // `client` of contact `pointerId` plus the shift its press recorded; unchanged for any other contact.
     [[nodiscard]] static POINT DockPressPoint(const DockPress& press, UINT32 pointerId, POINT client) noexcept
     {
-        return press.active && !press.revealOnly && press.pointerId == pointerId
-                   ? POINT{client.x + press.shift.x, client.y + press.shift.y}
-                   : client;
+        return press.active && ! press.revealOnly && press.pointerId == pointerId ? POINT{client.x + press.shift.x, client.y + press.shift.y} : client;
     }
     // What follows a reveal or hide reaching its window size: focus and hover cleanup for a hidden bar, dashboard
     // visibility, host chrome (the grip), and one frame.
@@ -336,8 +334,7 @@ class Application final
     HRESULT TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept;
     void DismissWidgetRaise(bool animate = true) noexcept;
     HRESULT ApplyRaiseVisual(const RaisedLayout& layout, BYTE dimAlpha) noexcept;
-    void BeginRaiseSettle(const RaisedLayout& from, const RaisedLayout& to, BYTE dimFrom, BYTE dimTo,
-                          bool dismissing) noexcept;
+    void BeginRaiseSettle(const RaisedLayout& from, const RaisedLayout& to, BYTE dimFrom, BYTE dimTo, bool dismissing) noexcept;
     void TickRaiseSettle() noexcept;
     void CompleteRaiseSettle() noexcept;
     void CompleteDismissImmediate() noexcept;
@@ -372,20 +369,22 @@ class Application final
     HRESULT PromoteTransitionPage() noexcept;
     // Stages the adjacent page in `direction`, or, when targetPageIndex is supplied, that page directly (a host
     // action jump); the direction then only decides which side the staged page slides in from.
-    HRESULT StageTransitionPage(int direction, const uint32_t* targetPageIndex = nullptr,
-                                bool allowConstruction = false) noexcept;
+    HRESULT StageTransitionPage(int direction, const uint32_t* targetPageIndex = nullptr, bool allowConstruction = false) noexcept;
     void ClearTransitionPage() noexcept;
-    [[nodiscard]] bool TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc,
-                                                LPARAM lParam) const noexcept;
+    [[nodiscard]] bool TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc, LPARAM lParam) const noexcept;
     [[nodiscard]] bool PointInPageEdgeBand(HWND window, POINT position) const noexcept;
-    [[nodiscard]] bool HitInteractiveLocal(POINT client, size_t& widgetIndex, float& localX,
-                                           float& localY) const noexcept;
+    [[nodiscard]] bool HitInteractiveLocal(POINT client, size_t& widgetIndex, float& localX, float& localY) const noexcept;
     // Widget-local pixels of a client point for a known slot: the overlay content rectangle while that widget is
     // raised, otherwise its current tile bounds.
     void WidgetLocalPoint(size_t widgetIndex, POINT client, float& localX, float& localY) const noexcept;
     // targetWidget bypasses hit testing for a wheel sample that belongs to an already latched widget.
-    HRESULT ForwardInteractivePointer(POINT client, uint32_t pointerId, uint32_t kind, uint32_t phase, bool* consumed,
-                                      uint32_t modifiers = 0, float wheelDelta = 0,
+    HRESULT ForwardInteractivePointer(POINT client,
+                                      uint32_t pointerId,
+                                      uint32_t kind,
+                                      uint32_t phase,
+                                      bool* consumed,
+                                      uint32_t modifiers  = 0,
+                                      float wheelDelta    = 0,
                                       size_t targetWidget = SIZE_MAX) noexcept;
     void CancelInteractivePointer() noexcept;
     void ClearDoubleActivateCandidate() noexcept;
@@ -405,12 +404,10 @@ class Application final
     HRESULT HandleOleDragOver(POINT client, DWORD* effect) noexcept;
     void HandleOleDragLeave() noexcept;
     HRESULT HandleOleDrop(POINT client, const wchar_t* const* targets, uint32_t count, DWORD* effect) noexcept;
-    HRESULT ApplyWidgetSettingsPersist(const char* instanceId, const char* settingsJsonUtf8,
-                                       uint32_t settingsBytes) noexcept;
+    HRESULT ApplyWidgetSettingsPersist(const char* instanceId, const char* settingsJsonUtf8, uint32_t settingsBytes) noexcept;
     // One Warning record per on-disk state that made the store keep a persist in memory instead of writing it.
     void LogDeferredSettingsPersist() noexcept;
-    static HRESULT SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,
-                                        uint32_t settingsBytes) noexcept;
+    static HRESULT SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8, uint32_t settingsBytes) noexcept;
     // The page, widget, and redxe action namespaces (HostActionCatalog.h), executed on the UI thread from the
     // host-action drain or from IRedXeHost::ExecuteAction inside a widget's own input callback. Actions that release
     // widgets (redxe.settings.reload, redxe.quit) are therefore only posted and return S_FALSE. A page or widget
@@ -444,10 +441,10 @@ class Application final
     bool _pageEdgeApplyValid = false;
     // ReachableClientRect is also queried by hit testing. All accesses and invalidations remain on the UI thread.
     mutable RECT _reachableClientCache{};
-    mutable bool _reachableClientCacheValid = false;
+    mutable bool _reachableClientCacheValid       = false;
     mutable uint32_t _reachableClientDisplayWalks = 0;
-    HWND _settingsErrorDialog = nullptr;
-    HWND _actionNoticeDialog = nullptr;
+    HWND _settingsErrorDialog                     = nullptr;
+    HWND _actionNoticeDialog                      = nullptr;
     wil::unique_hpowernotify _displayPowerNotification;
     std::unique_ptr<PluginManager> _pluginManager;
     std::unique_ptr<DashboardHost> _dashboardHost;
@@ -480,18 +477,18 @@ class Application final
         uint32_t delayMilliseconds = 3000;
         // Crop to this widget ordinal on the captured page; UINT32_MAX captures the whole window.
         uint32_t widgetOrdinal = UINT32_MAX;
-        bool pending = false;
+        bool pending           = false;
         // Set only by the `--screenshot` command line: the window closes once the capture has run.
         bool closeWhenDone = false;
-        bool navigated = false;
-        bool complete = false;
-        ULONGLONG dueTick = 0;
+        bool navigated     = false;
+        bool complete      = false;
+        ULONGLONG dueTick  = 0;
         // A request that ends before its capture finishes reports this; the capture's own result replaces it.
         HRESULT result = HRESULT_FROM_WIN32(ERROR_CANCELLED);
     };
     static constexpr UINT_PTR kScreenshotTimerId = 0x5C5;
     // One-shot dwell or hide timer of the autohide dock; at most one is armed and every state exit kills it.
-    static constexpr UINT_PTR kDockTimerId = 0x5C6;
+    static constexpr UINT_PTR kDockTimerId                = 0x5C6;
     static constexpr UINT_PTR kDockDashboardResizeTimerId = 0x5C8;
 
     ScreenshotRequest _screenshot{};
@@ -515,27 +512,27 @@ class Application final
     // The shell may have moved the reservation (ABN_POSCHANGED, ABN_STATECHANGE, WM_DISPLAYCHANGE): the next placement
     // pass reserves again even when nothing on RedXe's side changed. A pass clears it before its shell calls, so a
     // notification heard during them marks the pass it asks for.
-    bool _dockAppBarStale = false;
-    bool _dockMonitorFellBack = false;
+    bool _dockAppBarStale      = false;
+    bool _dockMonitorFellBack  = false;
     bool _dockThicknessClamped = false;
     // The last ABN_FULLSCREENAPP state, for any monitor; DockYieldsToFullscreen narrows it to the dock's.
     bool _dockFullscreenAppActive = false;
-    DockRevealState _dockReveal = DockRevealState::Revealed;
-    bool _dockSlideActive = false;
-    LONG _dockSlideFromPx = 0;
+    DockRevealState _dockReveal   = DockRevealState::Revealed;
+    bool _dockSlideActive         = false;
+    LONG _dockSlideFromPx         = 0;
     // The window's cross size while a slide runs, so a reversal starts where the bar is.
-    LONG _dockVisiblePx = 0;
-    UINT64 _dockSlideStartQpc = 0;
+    LONG _dockVisiblePx          = 0;
+    UINT64 _dockSlideStartQpc    = 0;
     UINT64 _dockSlideDurationQpc = 0;
     // Set around the host's own SetWindowPos of the bar (a placement, a reveal or hide, every slide step, a drag
     // preview), so WM_WINDOWPOSCHANGED sends the shell no ABM_WINDOWPOSCHANGED for it: a placement sends its own once,
     // and the others send none, never one per slide frame.
     bool _dockResizing = false;
     DockPlacementRequests _dockPlacement{};
-    bool _dockPointerInside = false;
+    bool _dockPointerInside  = false;
     bool _dockPinnedByAction = false;
-    bool _dockTimerArmed = false;
-    bool _dockResizeDrag = false;
+    bool _dockTimerArmed     = false;
+    bool _dockResizeDrag     = false;
     // A dashboard resize the drag preview still owes; kDockDashboardResizeTimerId is armed exactly while it is pending.
     bool _dockDashboardResizePending = false;
     // Distance from the inner edge to the pointer at the press, so the edge keeps its offset under the pointer.
@@ -546,81 +543,81 @@ class Application final
     // Between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE: the system move/size loop owns the window's rectangle.
     bool _inSizeMove = false;
     // A settings reload waits for the end of the move/size loop or for the restore of a minimized window.
-    bool _settingsReloadDeferred = false;
-    bool _forceWarp = false;
-    bool _unattended = false;
-    bool _classRegistered = false;
-    bool _rendererReady = false;
-    bool _windowVisible = false;
-    bool _displayPoweredOn = true;
-    bool _occlusionStatusChanged = false;
-    bool _frameInvalidated = true;
+    bool _settingsReloadDeferred          = false;
+    bool _forceWarp                       = false;
+    bool _unattended                      = false;
+    bool _classRegistered                 = false;
+    bool _rendererReady                   = false;
+    bool _windowVisible                   = false;
+    bool _displayPoweredOn                = true;
+    bool _occlusionStatusChanged          = false;
+    bool _frameInvalidated                = true;
     ULONGLONG _scheduledFrameDeadlineTick = 0;
     ContinuousFramePacer _continuousFramePacer;
     ContinuousFrameWait _continuousFrameWait;
-    HRESULT _runtimeFailure = S_OK;
-    UINT64 _pagePointerQpc = 0;
-    UINT64 _qpcFrequency = 0;
-    float _pageVelocityPxPerSec = 0.0f;
+    HRESULT _runtimeFailure                        = S_OK;
+    UINT64 _pagePointerQpc                         = 0;
+    UINT64 _qpcFrequency                           = 0;
+    float _pageVelocityPxPerSec                    = 0.0f;
     static constexpr uint32_t kPageSwipeMaxTouches = 3;
     struct PageSwipeTouch final
     {
-        UINT32 id = 0;
-        LONG startX = 0;
-        LONG startY = 0;
-        LONG x = 0;
-        LONG y = 0;
+        UINT32 id     = 0;
+        LONG startX   = 0;
+        LONG startY   = 0;
+        LONG x        = 0;
+        LONG y        = 0;
         bool captured = false;
     };
     std::array<PageSwipeTouch, kPageSwipeMaxTouches> _pageTouches{};
-    uint32_t _pageTouchCount = 0;
-    LONG _pageCentroidX = 0;
-    LONG _pageCurrentOffset = 0;
-    bool _pagePointerActive = false;
-    bool _pagePointerCaptured = false;
-    bool _pagePanStarted = false;
-    bool _pageGestureIgnored = false;
-    bool _pageSettleActive = false;
-    bool _pageSettleWaiting = false;
+    uint32_t _pageTouchCount               = 0;
+    LONG _pageCentroidX                    = 0;
+    LONG _pageCurrentOffset                = 0;
+    bool _pagePointerActive                = false;
+    bool _pagePointerCaptured              = false;
+    bool _pagePanStarted                   = false;
+    bool _pageGestureIgnored               = false;
+    bool _pageSettleActive                 = false;
+    bool _pageSettleWaiting                = false;
     uint64_t _pageConstructionDeadlineTick = 0;
-    bool _pageSettleCommit = false;
-    LONG _pageSettleStart = 0;
-    LONG _pageSettleTarget = 0;
-    UINT64 _pageSettleStartQpc = 0;
-    UINT64 _pageSettleDurationQpc = 0;
-    int _pageStagePendingDirection = 0;
-    int _pageTransitionDirection = 0;
-    bool _raisedActive = false;
-    size_t _raisedWidgetIndex = SIZE_MAX;
+    bool _pageSettleCommit                 = false;
+    LONG _pageSettleStart                  = 0;
+    LONG _pageSettleTarget                 = 0;
+    UINT64 _pageSettleStartQpc             = 0;
+    UINT64 _pageSettleDurationQpc          = 0;
+    int _pageStagePendingDirection         = 0;
+    int _pageTransitionDirection           = 0;
+    bool _raisedActive                     = false;
+    size_t _raisedWidgetIndex              = SIZE_MAX;
     RaisedLayout _raisedLayout{};
     RECT _raiseTile{};
     SIZE _raiseTargetPixels{};
-    BYTE _raiseDimAlpha = 0;
+    BYTE _raiseDimAlpha     = 0;
     bool _raiseSettleActive = false;
-    bool _raiseDismissing = false;
+    bool _raiseDismissing   = false;
     RaisedLayout _raiseSettleFrom{};
     RaisedLayout _raiseSettleTo{};
-    BYTE _raiseDimFrom = 0;
-    BYTE _raiseDimTo = 0;
-    UINT64 _raiseSettleStartQpc = 0;
+    BYTE _raiseDimFrom             = 0;
+    BYTE _raiseDimTo               = 0;
+    UINT64 _raiseSettleStartQpc    = 0;
     UINT64 _raiseSettleDurationQpc = 0;
-    bool _raiseCloseHovered = false;
-    ULONGLONG _activateTick = 0;
+    bool _raiseCloseHovered        = false;
+    ULONGLONG _activateTick        = 0;
     POINT _activatePoint{};
     size_t _activateWidgetIndex = SIZE_MAX;
     WheelNavigator _wheel{};
     size_t _interactivePointerWidget = SIZE_MAX;
     bool _interactivePointerConsumed = false;
-    bool _interactiveOwnsPointer = false;
-    uint32_t _interactivePointerId = 0;
+    bool _interactiveOwnsPointer     = false;
+    uint32_t _interactivePointerId   = 0;
     uint32_t _interactivePointerKind = RedXePointerKindMouse;
     wil::com_ptr_nothrow<IRedXeKeyboardWidget> _keyboardWidget;
     std::unique_ptr<DxUi::TextInputServices> _textServices;
     std::shared_ptr<WidgetTextClient> _textClient;
     size_t _keyboardWidgetIndex = SIZE_MAX;
-    uint32_t _keyboardView = 0;
-    size_t _dragWidgetIndex = SIZE_MAX;
-    bool _oleInitialized = false;
-    bool _dropRegistered = false;
+    uint32_t _keyboardView      = 0;
+    size_t _dragWidgetIndex     = SIZE_MAX;
+    bool _oleInitialized        = false;
+    bool _dropRegistered        = false;
     std::unique_ptr<ApplicationDropTarget> _dropTarget;
 };

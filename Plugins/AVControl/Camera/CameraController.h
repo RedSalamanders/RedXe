@@ -8,10 +8,10 @@ namespace AVControl::Camera
 // redundant base vftable (and v145's conflicting largest-COMDAT emission across the two synthetic consumers).
 class __declspec(novtable) CaptureSession
 {
-  public:
-    virtual ~CaptureSession() = default;
-    virtual HRESULT Open(const DeviceId& id, HANDLE wake) noexcept = 0;
-    virtual void Close() noexcept = 0;
+public:
+    virtual ~CaptureSession()                                                       = default;
+    virtual HRESULT Open(const DeviceId& id, HANDLE wake) noexcept                  = 0;
+    virtual void Close() noexcept                                                   = 0;
     virtual HRESULT ReadFrame(std::span<BYTE> output, LONGLONG& timestamp) noexcept = 0;
 };
 // Device-independent control/lifetime policy, shared by the real helper and explicitly injected synthetic
@@ -23,7 +23,7 @@ class __declspec(novtable) CaptureSession
 #pragma warning(disable : 4625 4626)
 class CameraController final : private BridgeObserver
 {
-  public:
+public:
     CameraController(BridgeIdentity identity, std::unique_ptr<CaptureSession> capture);
     ~CameraController();
     HRESULT Initialize(HANDLE changed) noexcept;
@@ -40,7 +40,7 @@ class CameraController final : private BridgeObserver
     [[nodiscard]] DWORD WatchdogTimeout() const noexcept;
     void Shutdown() noexcept;
 
-  private:
+private:
     BridgeIdentity _identity;
     std::unique_ptr<CaptureSession> _capture;
     BridgeServer _bridge;
@@ -57,7 +57,7 @@ class CameraController final : private BridgeObserver
     // Acquisition-thread state; no UI/host reference or HWND is retained.
     DeviceId _capturedId;
     bool _capturing = false, _published = false;
-    uint64_t _gate = 1;
+    uint64_t _gate                     = 1;
     static constexpr size_t FrameBytes = static_cast<size_t>(FrameWidth) * FrameHeight * 3 / 2;
     std::unique_ptr<std::array<BYTE, FrameBytes>> _frame;
     HRESULT Change(const DeviceId* source, bool enabled, uint64_t expectedRevision) noexcept;

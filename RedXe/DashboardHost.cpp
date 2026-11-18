@@ -38,7 +38,7 @@ LRESULT CALLBACK PointerForwardProcedure(HWND window, UINT message, WPARAM wPara
             (void)PostMessageW(root, Application::kPageEdgeHoverMessage, 0, 0);
         }
     }
-    if (message == WM_LBUTTONUP && !IsPointerSynthesizedMouseMessage())
+    if (message == WM_LBUTTONUP && ! IsPointerSynthesizedMouseMessage())
     {
         // Double-activate raise/dismiss is owned by the top-level window. GPU tiles already deliver WM_LBUTTONUP
         // there; native containers would otherwise swallow the mouse click. Touch and pen stay on the pointer path.
@@ -52,8 +52,7 @@ LRESULT CALLBACK PointerForwardProcedure(HWND window, UINT message, WPARAM wPara
             }
         }
     }
-    if (message == WM_POINTERDOWN || message == WM_POINTERUPDATE || message == WM_POINTERUP ||
-        message == WM_POINTERCAPTURECHANGED)
+    if (message == WM_POINTERDOWN || message == WM_POINTERUPDATE || message == WM_POINTERUP || message == WM_POINTERCAPTURECHANGED)
     {
         const HWND root = GetAncestor(window, GA_ROOT);
         if (root && root != window)
@@ -66,7 +65,7 @@ LRESULT CALLBACK PointerForwardProcedure(HWND window, UINT message, WPARAM wPara
         }
     }
 
-    if (!previous)
+    if (! previous)
     {
         return DefWindowProcW(window, message, wParam, lParam);
     }
@@ -87,19 +86,18 @@ LRESULT CALLBACK PointerForwardProcedure(HWND window, UINT message, WPARAM wPara
 
 void SubclassPointerForwarder(HWND window) noexcept
 {
-    if (!window || GetPropW(window, kPointerForwardPrevProc))
+    if (! window || GetPropW(window, kPointerForwardPrevProc))
     {
         return;
     }
 
     SetLastError(ERROR_SUCCESS);
-    const LONG_PTR previous =
-        SetWindowLongPtrW(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(PointerForwardProcedure));
+    const LONG_PTR previous = SetWindowLongPtrW(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(PointerForwardProcedure));
     if (previous == 0 && GetLastError() != ERROR_SUCCESS)
     {
         return;
     }
-    if (!SetPropW(window, kPointerForwardPrevProc, reinterpret_cast<HANDLE>(previous)))
+    if (! SetPropW(window, kPointerForwardPrevProc, reinterpret_cast<HANDLE>(previous)))
     {
         SetWindowLongPtrW(window, GWLP_WNDPROC, previous);
     }
@@ -117,18 +115,15 @@ void InstallPointerForwarding(HWND container) noexcept
     EnumChildWindows(container, EnumPointerForwardSubclass, 0);
 }
 
-constexpr float kDesignWidth = 2560.0f;
+constexpr float kDesignWidth  = 2560.0f;
 constexpr float kDesignHeight = 720.0f;
 
-[[nodiscard]] WidgetPlacement ToDesignPlacement(const WidgetGridPlacement& placement, uint32_t columns,
-                                                uint32_t rows) noexcept
+[[nodiscard]] WidgetPlacement ToDesignPlacement(const WidgetGridPlacement& placement, uint32_t columns, uint32_t rows) noexcept
 {
-    const float left = kDesignWidth * static_cast<float>(placement.column) / static_cast<float>(columns);
-    const float top = kDesignHeight * static_cast<float>(placement.row) / static_cast<float>(rows);
-    const float right =
-        kDesignWidth * static_cast<float>(placement.column + placement.columnSpan) / static_cast<float>(columns);
-    const float bottom =
-        kDesignHeight * static_cast<float>(placement.row + placement.rowSpan) / static_cast<float>(rows);
+    const float left   = kDesignWidth * static_cast<float>(placement.column) / static_cast<float>(columns);
+    const float top    = kDesignHeight * static_cast<float>(placement.row) / static_cast<float>(rows);
+    const float right  = kDesignWidth * static_cast<float>(placement.column + placement.columnSpan) / static_cast<float>(columns);
+    const float bottom = kDesignHeight * static_cast<float>(placement.row + placement.rowSpan) / static_cast<float>(rows);
     return WidgetPlacement{left, top, right - left, bottom - top};
 }
 
@@ -138,8 +133,7 @@ constexpr float kDesignHeight = 720.0f;
     return static_cast<LONG>((doubled + divisions) / (static_cast<uint64_t>(divisions) * 2U));
 }
 
-[[nodiscard]] RECT ToPixelBounds(const WidgetGridPlacement& placement, uint32_t columns, uint32_t rows, UINT width,
-                                 UINT height) noexcept
+[[nodiscard]] RECT ToPixelBounds(const WidgetGridPlacement& placement, uint32_t columns, uint32_t rows, UINT width, UINT height) noexcept
 {
     return RECT{
         RoundGridEdge(placement.column, width, columns),
@@ -161,20 +155,18 @@ constexpr float kDesignHeight = 720.0f;
             return RECT{};
         }
         const bool horizontal = (step.axis == LayoutAxis::LongSide) == landscape;
-        const LONG origin = horizontal ? bounds.left : bounds.top;
-        const LONG extent = horizontal ? bounds.right - bounds.left : bounds.bottom - bounds.top;
-        const LONG first =
-            origin + static_cast<LONG>(static_cast<uint64_t>(extent) * step.precedingRatio / step.totalRatio);
-        const LONG last = origin + static_cast<LONG>(static_cast<uint64_t>(extent) *
-                                                     (step.precedingRatio + step.sizeRatio) / step.totalRatio);
+        const LONG origin     = horizontal ? bounds.left : bounds.top;
+        const LONG extent     = horizontal ? bounds.right - bounds.left : bounds.bottom - bounds.top;
+        const LONG first      = origin + static_cast<LONG>(static_cast<uint64_t>(extent) * step.precedingRatio / step.totalRatio);
+        const LONG last       = origin + static_cast<LONG>(static_cast<uint64_t>(extent) * (step.precedingRatio + step.sizeRatio) / step.totalRatio);
         if (horizontal)
         {
-            bounds.left = first;
+            bounds.left  = first;
             bounds.right = last;
         }
         else
         {
-            bounds.top = first;
+            bounds.top    = first;
             bounds.bottom = last;
         }
     }
@@ -187,18 +179,16 @@ DashboardHost::~DashboardHost()
     Shutdown();
 }
 
-HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UINT width, UINT height, UINT dpi,
-                                  bool visible) noexcept
+HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UINT width, UINT height, UINT dpi, bool visible) noexcept
 {
-    if (_pluginManager || !parent || width == 0 || height == 0 || dpi == 0 ||
-        pluginManager.WidgetCount() > PluginManager::kMaximumWidgetInstances)
+    if (_pluginManager || ! parent || width == 0 || height == 0 || dpi == 0 || pluginManager.WidgetCount() > PluginManager::kMaximumWidgetInstances)
     {
         return E_INVALIDARG;
     }
 
     const auto widgetCount = static_cast<uint32_t>(pluginManager.WidgetCount());
     const uint32_t columns = pluginManager.GridColumns();
-    const uint32_t rows = pluginManager.GridRows();
+    const uint32_t rows    = pluginManager.GridRows();
     if (columns == 0 || rows == 0 || columns > kMaximumDashboardGridDimension || rows > kMaximumDashboardGridDimension)
     {
         return E_INVALIDARG;
@@ -212,35 +202,32 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
     bool continuous = false;
     for (uint32_t index = 0; index < widgetCount; ++index)
     {
-        IRedXeGpuWidget* gpuWidget = pluginManager.GpuWidgetAt(index);
+        IRedXeGpuWidget* gpuWidget       = pluginManager.GpuWidgetAt(index);
         IRedXeWindowWidget* windowWidget = pluginManager.WindowWidgetAt(index);
-        if (!gpuWidget && !windowWidget && !pluginManager.IsPlaceholderAt(index))
+        if (! gpuWidget && ! windowWidget && ! pluginManager.IsPlaceholderAt(index))
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         }
 
-        const WidgetGridPlacement gridPlacement = pluginManager.WidgetGridPlacementAt(index);
-        const bool adaptive = pluginManager.UsesAdaptivePlacementAt(index);
+        const WidgetGridPlacement gridPlacement         = pluginManager.WidgetGridPlacementAt(index);
+        const bool adaptive                             = pluginManager.UsesAdaptivePlacementAt(index);
         const AdaptiveWidgetPlacement adaptivePlacement = pluginManager.AdaptivePlacementAt(index);
-        if ((!adaptive &&
-             (gridPlacement.column >= columns || gridPlacement.row >= rows || gridPlacement.columnSpan == 0 ||
-              gridPlacement.rowSpan == 0 || gridPlacement.columnSpan > columns - gridPlacement.column ||
-              gridPlacement.rowSpan > rows - gridPlacement.row)) ||
+        if ((! adaptive && (gridPlacement.column >= columns || gridPlacement.row >= rows || gridPlacement.columnSpan == 0 || gridPlacement.rowSpan == 0 ||
+                            gridPlacement.columnSpan > columns - gridPlacement.column || gridPlacement.rowSpan > rows - gridPlacement.row)) ||
             (adaptive && (adaptivePlacement.depth == 0 || adaptivePlacement.depth > kMaximumLayoutDepth)))
         {
             return E_INVALIDARG;
         }
-        gridPlacements[index] = gridPlacement;
-        adaptivePlacements[index] = adaptivePlacement;
+        gridPlacements[index]        = gridPlacement;
+        adaptivePlacements[index]    = adaptivePlacement;
         usesAdaptivePlacement[index] = adaptive;
         if (adaptive)
         {
-            const RECT designBounds = ToAdaptivePixelBounds(adaptivePlacement, static_cast<UINT>(kDesignWidth),
-                                                            static_cast<UINT>(kDesignHeight));
-            placements[index] =
-                WidgetPlacement{static_cast<float>(designBounds.left), static_cast<float>(designBounds.top),
-                                static_cast<float>(designBounds.right - designBounds.left),
-                                static_cast<float>(designBounds.bottom - designBounds.top)};
+            const RECT designBounds = ToAdaptivePixelBounds(adaptivePlacement, static_cast<UINT>(kDesignWidth), static_cast<UINT>(kDesignHeight));
+            placements[index]       = WidgetPlacement{static_cast<float>(designBounds.left),
+                                                      static_cast<float>(designBounds.top),
+                                                      static_cast<float>(designBounds.right - designBounds.left),
+                                                      static_cast<float>(designBounds.bottom - designBounds.top)};
         }
         else
         {
@@ -248,20 +235,27 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
         }
         continuous = continuous || (pluginManager.WidgetFlagsAt(index) & RedXeWidgetFlagContinuousAnimation) != 0;
 
-        if (!windowWidget)
+        if (! windowWidget)
         {
             continue;
         }
 
-        const RECT bounds = adaptive ? ToAdaptivePixelBounds(adaptivePlacement, width, height)
-                                     : ToPixelBounds(gridPlacement, columns, rows, width, height);
+        const RECT bounds = adaptive ? ToAdaptivePixelBounds(adaptivePlacement, width, height) : ToPixelBounds(gridPlacement, columns, rows, width, height);
         // A layered child owns its own DWM surface, so the top-level window needs no redirection bitmap for it and
         // the container can be dimmed with the Direct3D chrome while another widget is raised.
-        const HWND container =
-            CreateWindowExW(WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED, L"STATIC", L"",
-                            WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, bounds.left, bounds.top,
-                            bounds.right - bounds.left, bounds.bottom - bounds.top, parent, nullptr, nullptr, nullptr);
-        if (!container || !SetLayeredWindowAttributes(container, 0, 255, LWA_ALPHA))
+        const HWND container = CreateWindowExW(WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED,
+                                               L"STATIC",
+                                               L"",
+                                               WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+                                               bounds.left,
+                                               bounds.top,
+                                               bounds.right - bounds.left,
+                                               bounds.bottom - bounds.top,
+                                               parent,
+                                               nullptr,
+                                               nullptr,
+                                               nullptr);
+        if (! container || ! SetLayeredWindowAttributes(container, 0, 255, LWA_ALPHA))
         {
             const HRESULT result = HRESULT_FROM_WIN32(GetLastError());
             if (container)
@@ -289,9 +283,13 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
         HRESULT result = windowWidget->Attach(&context);
         if (FAILED(result))
         {
-            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr,
-                               pluginManager.WidgetInstanceIdAt(index), "window-attach-failed",
-                               "native window widget Attach failed.", result);
+            (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                               RedXeLogLevelError,
+                               nullptr,
+                               pluginManager.WidgetInstanceIdAt(index),
+                               "window-attach-failed",
+                               "native window widget Attach failed.",
+                               result);
             windowWidget->Detach();
             for (uint32_t previous = 0; previous < index; ++previous)
             {
@@ -302,8 +300,11 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
             }
             return result;
         }
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr,
-                           pluginManager.WidgetInstanceIdAt(index), "window-attached",
+        (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                           RedXeLogLevelInfo,
+                           nullptr,
+                           pluginManager.WidgetInstanceIdAt(index),
+                           "window-attached",
                            "native window widget attached to host container.");
         InstallPointerForwarding(container);
     }
@@ -311,7 +312,7 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
     for (uint32_t index = 0; index < widgetCount; ++index)
     {
         IRedXeWidget* widget = pluginManager.WidgetAt(index);
-        if (!widget && pluginManager.IsPlaceholderAt(index))
+        if (! widget && pluginManager.IsPlaceholderAt(index))
         {
             // A placeholder tile has no plugin object to make visible; the host draws it.
             continue;
@@ -352,25 +353,25 @@ HRESULT DashboardHost::Initialize(PluginManager& pluginManager, HWND parent, UIN
         }
     }
 
-    _pluginManager = &pluginManager;
-    _placements = placements;
-    _gridPlacements = gridPlacements;
-    _adaptivePlacements = adaptivePlacements;
-    _usesAdaptivePlacement = usesAdaptivePlacement;
-    _windowContainers = std::move(containers);
-    _widgetCount = widgetCount;
-    _gridColumns = columns;
-    _gridRows = rows;
+    _pluginManager            = &pluginManager;
+    _placements               = placements;
+    _gridPlacements           = gridPlacements;
+    _adaptivePlacements       = adaptivePlacements;
+    _usesAdaptivePlacement    = usesAdaptivePlacement;
+    _windowContainers         = std::move(containers);
+    _widgetCount              = widgetCount;
+    _gridColumns              = columns;
+    _gridRows                 = rows;
     _requiresContinuousFrames = continuous;
-    _widgetsVisible = visible;
-    _clientWidth = width;
-    _clientHeight = height;
+    _widgetsVisible           = visible;
+    _clientWidth              = width;
+    _clientHeight             = height;
     return S_OK;
 }
 
 HRESULT DashboardHost::Resize(UINT width, UINT height, UINT dpi) noexcept
 {
-    if (!_pluginManager || dpi == 0)
+    if (! _pluginManager || dpi == 0)
     {
         return E_UNEXPECTED;
     }
@@ -378,20 +379,25 @@ HRESULT DashboardHost::Resize(UINT width, UINT height, UINT dpi) noexcept
     {
         return SetWidgetsVisible(false);
     }
-    _clientWidth = width;
+    _clientWidth  = width;
     _clientHeight = height;
 
     for (size_t index = 0; index < _widgetCount; ++index)
     {
         IRedXeWindowWidget* widget = _pluginManager->WindowWidgetAt(index);
-        if (!widget)
+        if (! widget)
         {
             continue;
         }
 
         const RECT bounds = PixelBoundsAt(index, width, height);
-        if (!SetWindowPos(_windowContainers[index].get(), nullptr, bounds.left, bounds.top, bounds.right - bounds.left,
-                          bounds.bottom - bounds.top, SWP_NOACTIVATE | SWP_NOZORDER))
+        if (! SetWindowPos(_windowContainers[index].get(),
+                           nullptr,
+                           bounds.left,
+                           bounds.top,
+                           bounds.right - bounds.left,
+                           bounds.bottom - bounds.top,
+                           SWP_NOACTIVATE | SWP_NOZORDER))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -413,35 +419,35 @@ HRESULT DashboardHost::Resize(UINT width, UINT height, UINT dpi) noexcept
 
 HRESULT DashboardHost::SetHorizontalOffset(LONG offset) noexcept
 {
-    if (!_pluginManager)
+    if (! _pluginManager)
     {
         return E_UNEXPECTED;
     }
-    if (_horizontalOffset == offset && !_nativeContainersStale)
+    if (_horizontalOffset == offset && ! _nativeContainersStale)
     {
         return S_OK;
     }
-    _horizontalOffset = offset;
-    const HRESULT result = MoveNativeContainers();
+    _horizontalOffset      = offset;
+    const HRESULT result   = MoveNativeContainers();
     _nativeContainersStale = FAILED(result);
     return result;
 }
 
 HRESULT DashboardHost::SetSlideOffset(POINT offset) noexcept
 {
-    if (!_pluginManager)
+    if (! _pluginManager)
     {
         return E_UNEXPECTED;
     }
-    if (_slideOffset.x == offset.x && _slideOffset.y == offset.y && !_nativeContainersStale)
+    if (_slideOffset.x == offset.x && _slideOffset.y == offset.y && ! _nativeContainersStale)
     {
         return S_OK;
     }
     // The offset is recorded before the move: the move and the renderer's viewports both read it through
     // PixelBoundsAt. A failed move leaves the containers stale, so the next call moves them again even with an
     // unchanged offset, such as the zero offset that ends a dock slide.
-    _slideOffset = offset;
-    const HRESULT result = MoveNativeContainers();
+    _slideOffset           = offset;
+    const HRESULT result   = MoveNativeContainers();
     _nativeContainersStale = FAILED(result);
     return result;
 }
@@ -462,18 +468,22 @@ HRESULT DashboardHost::MoveNativeContainers() noexcept
     }
 
     HDWP defer = BeginDeferWindowPos(static_cast<int>(nativeCount));
-    if (!defer)
+    if (! defer)
     {
         for (size_t index = 0; index < _widgetCount; ++index)
         {
-            if (!_windowContainers[index])
+            if (! _windowContainers[index])
             {
                 continue;
             }
             const RECT bounds = PixelBoundsAt(index, _clientWidth, _clientHeight);
-            if (!SetWindowPos(_windowContainers[index].get(), nullptr, bounds.left, bounds.top,
-                              bounds.right - bounds.left, bounds.bottom - bounds.top,
-                              SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE))
+            if (! SetWindowPos(_windowContainers[index].get(),
+                               nullptr,
+                               bounds.left,
+                               bounds.top,
+                               bounds.right - bounds.left,
+                               bounds.bottom - bounds.top,
+                               SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE))
             {
                 return HRESULT_FROM_WIN32(GetLastError());
             }
@@ -483,20 +493,25 @@ HRESULT DashboardHost::MoveNativeContainers() noexcept
 
     for (size_t index = 0; index < _widgetCount; ++index)
     {
-        if (!_windowContainers[index])
+        if (! _windowContainers[index])
         {
             continue;
         }
         const RECT bounds = PixelBoundsAt(index, _clientWidth, _clientHeight);
-        defer = DeferWindowPos(defer, _windowContainers[index].get(), nullptr, bounds.left, bounds.top,
-                               bounds.right - bounds.left, bounds.bottom - bounds.top,
-                               SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE);
-        if (!defer)
+        defer             = DeferWindowPos(defer,
+                                           _windowContainers[index].get(),
+                                           nullptr,
+                                           bounds.left,
+                                           bounds.top,
+                                           bounds.right - bounds.left,
+                                           bounds.bottom - bounds.top,
+                                           SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE);
+        if (! defer)
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
     }
-    if (!EndDeferWindowPos(defer))
+    if (! EndDeferWindowPos(defer))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -510,8 +525,7 @@ LONG DashboardHost::HorizontalOffset() const noexcept
 
 HRESULT DashboardHost::ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& content, UINT dpi) noexcept
 {
-    if (!_pluginManager || dpi == 0 || widgetIndex >= _widgetCount || content.right <= content.left ||
-        content.bottom <= content.top)
+    if (! _pluginManager || dpi == 0 || widgetIndex >= _widgetCount || content.right <= content.left || content.bottom <= content.top)
     {
         return E_INVALIDARG;
     }
@@ -526,7 +540,7 @@ HRESULT DashboardHost::ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& c
 
     for (size_t index = 0; index < _widgetCount; ++index)
     {
-        if (!_windowContainers[index])
+        if (! _windowContainers[index])
         {
             continue;
         }
@@ -536,14 +550,19 @@ HRESULT DashboardHost::ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& c
         }
 
         IRedXeWindowWidget* widget = _pluginManager->WindowWidgetAt(index);
-        if (!widget)
+        if (! widget)
         {
             continue;
         }
         // HWND_TOP keeps the raised native above sibling containers. The host restacks the raise overlay after this
         // call so the close control stays above the plugin HWND.
-        if (!SetWindowPos(_windowContainers[index].get(), HWND_TOP, content.left, content.top,
-                          content.right - content.left, content.bottom - content.top, SWP_NOACTIVATE))
+        if (! SetWindowPos(_windowContainers[index].get(),
+                           HWND_TOP,
+                           content.left,
+                           content.top,
+                           content.right - content.left,
+                           content.bottom - content.top,
+                           SWP_NOACTIVATE))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -569,19 +588,19 @@ HRESULT DashboardHost::ApplyRaisedNativeLayout(size_t widgetIndex, const RECT& c
 
 HRESULT DashboardHost::SetNativeDimAlpha(BYTE dimAlpha, size_t raisedIndex) noexcept
 {
-    if (!_pluginManager)
+    if (! _pluginManager)
     {
         return E_UNEXPECTED;
     }
     const BYTE dimmed = static_cast<BYTE>(255 - dimAlpha);
     for (size_t index = 0; index < _widgetCount; ++index)
     {
-        if (!_windowContainers[index])
+        if (! _windowContainers[index])
         {
             continue;
         }
         const BYTE alpha = index == raisedIndex ? BYTE{255} : dimmed;
-        if (!SetLayeredWindowAttributes(_windowContainers[index].get(), 0, alpha, LWA_ALPHA))
+        if (! SetLayeredWindowAttributes(_windowContainers[index].get(), 0, alpha, LWA_ALPHA))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -591,7 +610,7 @@ HRESULT DashboardHost::SetNativeDimAlpha(BYTE dimAlpha, size_t raisedIndex) noex
 
 HRESULT DashboardHost::ClearRaisedNativeLayout(UINT dpi) noexcept
 {
-    if (!_pluginManager)
+    if (! _pluginManager)
     {
         return E_UNEXPECTED;
     }
@@ -607,18 +626,23 @@ HRESULT DashboardHost::ClearRaisedNativeLayout(UINT dpi) noexcept
 
     for (size_t index = 0; index < _widgetCount; ++index)
     {
-        if (!_windowContainers[index])
+        if (! _windowContainers[index])
         {
             continue;
         }
         IRedXeWindowWidget* widget = _pluginManager->WindowWidgetAt(index);
-        if (!widget)
+        if (! widget)
         {
             continue;
         }
         const RECT bounds = PixelBoundsAt(index, _clientWidth, _clientHeight);
-        if (!SetWindowPos(_windowContainers[index].get(), nullptr, bounds.left, bounds.top, bounds.right - bounds.left,
-                          bounds.bottom - bounds.top, SWP_NOACTIVATE | SWP_NOZORDER))
+        if (! SetWindowPos(_windowContainers[index].get(),
+                           nullptr,
+                           bounds.left,
+                           bounds.top,
+                           bounds.right - bounds.left,
+                           bounds.bottom - bounds.top,
+                           SWP_NOACTIVATE | SWP_NOZORDER))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -641,7 +665,7 @@ HRESULT DashboardHost::ClearRaisedNativeLayout(UINT dpi) noexcept
 
 HRESULT DashboardHost::SetWidgetsVisible(bool visible, RuntimePageCallbackContext* callbacks) noexcept
 {
-    if (!_pluginManager)
+    if (! _pluginManager)
     {
         return E_UNEXPECTED;
     }
@@ -650,7 +674,7 @@ HRESULT DashboardHost::SetWidgetsVisible(bool visible, RuntimePageCallbackContex
         return S_OK;
     }
 
-    if (!visible)
+    if (! visible)
     {
         SetNetworkWidgetsActive(*_pluginManager, _widgetCount, false);
     }
@@ -659,14 +683,14 @@ HRESULT DashboardHost::SetWidgetsVisible(bool visible, RuntimePageCallbackContex
     for (size_t index = 0; index < _widgetCount; ++index)
     {
         IRedXeWidget* widget = _pluginManager->WidgetAt(index);
-        if (!widget)
+        if (! widget)
         {
             changedCount = index + 1;
             continue;
         }
-        const HRESULT result = TraceRuntimePageCallback(
-            callbacks, static_cast<uint32_t>(index), RuntimePageCallbackKind::Visibility,
-            [&]() noexcept { return widget->SetVisible(visible ? TRUE : FALSE); }, visible ? 1U : 0U);
+        const HRESULT result = TraceRuntimePageCallback(callbacks, static_cast<uint32_t>(index), RuntimePageCallbackKind::Visibility, [&]() noexcept {
+            return widget->SetVisible(visible ? TRUE : FALSE);
+        }, visible ? 1U : 0U);
         if (FAILED(result))
         {
             for (size_t previous = 0; previous < changedCount; ++previous)
@@ -703,7 +727,7 @@ HRESULT DashboardHost::SetWidgetsVisible(bool visible, RuntimePageCallbackContex
 
 void DashboardHost::Shutdown(bool persistCollectedSettings) noexcept
 {
-    if (!_pluginManager)
+    if (! _pluginManager)
     {
         return;
     }
@@ -711,14 +735,14 @@ void DashboardHost::Shutdown(bool persistCollectedSettings) noexcept
     (void)SetWidgetsVisible(false);
     for (size_t index = 0; index < _widgetCount; ++index)
     {
-        IRedXeWidget* widget = _pluginManager->WidgetAt(index);
+        IRedXeWidget* widget   = _pluginManager->WidgetAt(index);
         const char* instanceId = _pluginManager->WidgetInstanceIdAt(index);
-        if (!widget || !instanceId || !persistCollectedSettings)
+        if (! widget || ! instanceId || ! persistCollectedSettings)
         {
             continue;
         }
         std::array<char, kPrivateConfigurationCapacity + 1> json{};
-        uint32_t written = 0;
+        uint32_t written      = 0;
         const HRESULT collect = widget->CollectPersistentSettings(json.data(), kPrivateConfigurationCapacity, &written);
         if (collect == S_OK && written != 0)
         {
@@ -727,7 +751,7 @@ void DashboardHost::Shutdown(bool persistCollectedSettings) noexcept
     }
     for (size_t index = _widgetCount; index > 0; --index)
     {
-        const size_t widgetIndex = index - 1;
+        const size_t widgetIndex   = index - 1;
         IRedXeWindowWidget* widget = _pluginManager->WindowWidgetAt(widgetIndex);
         if (widget)
         {
@@ -736,18 +760,18 @@ void DashboardHost::Shutdown(bool persistCollectedSettings) noexcept
         _windowContainers[widgetIndex].reset();
     }
 
-    _pluginManager = nullptr;
-    _widgetCount = 0;
-    _gridColumns = 0;
-    _gridRows = 0;
+    _pluginManager            = nullptr;
+    _widgetCount              = 0;
+    _gridColumns              = 0;
+    _gridRows                 = 0;
     _requiresContinuousFrames = false;
-    _widgetsVisible = false;
-    _horizontalOffset = 0;
-    _slideOffset = POINT{};
-    _nativeContainersStale = false;
-    _clientWidth = 0;
-    _clientHeight = 0;
-    _raisedNativeIndex = SIZE_MAX;
+    _widgetsVisible           = false;
+    _horizontalOffset         = 0;
+    _slideOffset              = POINT{};
+    _nativeContainersStale    = false;
+    _clientWidth              = 0;
+    _clientHeight             = 0;
+    _raisedNativeIndex        = SIZE_MAX;
 }
 
 size_t DashboardHost::WidgetCount() const noexcept
@@ -784,8 +808,7 @@ bool DashboardHost::ConstructionReady() const noexcept
         if (auto* widget = ConstructionStateWidgetAt(index))
         {
             RedXeConstructionState state = RedXeConstructionStatePending;
-            if (FAILED(widget->GetConstructionState(&state)) ||
-                (state != RedXeConstructionStateReady && state != RedXeConstructionStateUnavailable))
+            if (FAILED(widget->GetConstructionState(&state)) || (state != RedXeConstructionStateReady && state != RedXeConstructionStateUnavailable))
                 return false;
         }
     }
@@ -842,9 +865,7 @@ RECT DashboardHost::PixelBoundsAt(size_t index, UINT width, UINT height) const n
     }
     RECT bounds = _usesAdaptivePlacement[index]
                       ? ToAdaptivePixelBounds(_adaptivePlacements[index], width, height)
-                      : (_gridColumns != 0 && _gridRows != 0
-                             ? ToPixelBounds(_gridPlacements[index], _gridColumns, _gridRows, width, height)
-                             : RECT{});
+                      : (_gridColumns != 0 && _gridRows != 0 ? ToPixelBounds(_gridPlacements[index], _gridColumns, _gridRows, width, height) : RECT{});
     bounds.left += _horizontalOffset + _slideOffset.x;
     bounds.right += _horizontalOffset + _slideOffset.x;
     bounds.top += _slideOffset.y;
@@ -881,7 +902,7 @@ uint32_t DashboardHost::WidgetBackgroundRgbAt(size_t index) const noexcept
 
 bool DashboardHost::RequiresPlaceholderAt(size_t index) const noexcept
 {
-    if (!_pluginManager || index >= _widgetCount)
+    if (! _pluginManager || index >= _widgetCount)
     {
         return false;
     }
@@ -895,37 +916,37 @@ bool DashboardHost::RequiresPlaceholderAt(size_t index) const noexcept
 
 HRESULT DashboardHost::GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) const noexcept
 {
-    if (!delayMilliseconds)
+    if (! delayMilliseconds)
     {
         return E_POINTER;
     }
     *delayMilliseconds = 0;
-    if (!_pluginManager)
+    if (! _pluginManager)
     {
         return S_FALSE;
     }
 
     uint32_t earliest = kRedXeMaximumScheduledFrameDelayMilliseconds;
-    bool found = false;
+    bool found        = false;
     for (size_t index = 0; index < _widgetCount; ++index)
     {
         IRedXeScheduledWidget* scheduledWidget = _pluginManager->ScheduledWidgetAt(index);
-        if (!scheduledWidget)
+        if (! scheduledWidget)
         {
             continue;
         }
 
-        uint32_t candidate = 0;
+        uint32_t candidate   = 0;
         const HRESULT result = scheduledWidget->GetNextFrameDelayMilliseconds(&candidate);
         if (result != S_OK || candidate == 0 || candidate > kRedXeMaximumScheduledFrameDelayMilliseconds)
         {
             continue;
         }
         earliest = candidate < earliest ? candidate : earliest;
-        found = true;
+        found    = true;
     }
 
-    if (!found)
+    if (! found)
     {
         return S_FALSE;
     }

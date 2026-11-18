@@ -21,7 +21,7 @@
 
 namespace
 {
-constexpr HRESULT kTestFailure = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+constexpr HRESULT kTestFailure          = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 constexpr uint32_t kHttpStackProbeBytes = 192U * 1024U;
 
 static_assert(sizeof(WeatherHttpResponse) <= kWeatherHttpResponseMaximumBytes);
@@ -43,7 +43,7 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         return HRESULT_FROM_WIN32(length == 0 ? GetLastError() : ERROR_INSUFFICIENT_BUFFER);
     }
     wchar_t* separator = std::wcsrchr(path.data(), L'\\');
-    if (!separator)
+    if (! separator)
     {
         return E_UNEXPECTED;
     }
@@ -73,13 +73,11 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     std::array<char, 1024> url{};
     for (const auto& item : cases)
     {
-        const std::string expected = std::string("https://nominatim.openstreetmap.org/search?q=") + item.encoded +
-                                     "&format=json&limit=1&addressdetails=1";
+        const std::string expected   = std::string("https://nominatim.openstreetmap.org/search?q=") + item.encoded + "&format=json&limit=1&addressdetails=1";
         const uint32_t exactCapacity = static_cast<uint32_t>(expected.size() + 1);
         if (build(item.location, url.data(), exactCapacity) != S_OK || std::strcmp(url.data(), expected.c_str()) != 0)
             return kTestFailure;
-        if (build(item.location, url.data(), exactCapacity - 1) != HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) ||
-            url[0] != '\0')
+        if (build(item.location, url.data(), exactCapacity - 1) != HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) || url[0] != '\0')
             return kTestFailure;
     }
     const std::string maximum(128, ' ');
@@ -87,8 +85,8 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     if (build(maximum.c_str(), url.data(), static_cast<uint32_t>(url.size())) != S_OK ||
         build(overlong.c_str(), url.data(), static_cast<uint32_t>(url.size())) != E_INVALIDARG ||
         build("", url.data(), static_cast<uint32_t>(url.size())) != E_INVALIDARG ||
-        build(nullptr, url.data(), static_cast<uint32_t>(url.size())) != E_INVALIDARG ||
-        SUCCEEDED(build("Paris", nullptr, 1024)) || SUCCEEDED(build("Paris", url.data(), 0)))
+        build(nullptr, url.data(), static_cast<uint32_t>(url.size())) != E_INVALIDARG || SUCCEEDED(build("Paris", nullptr, 1024)) ||
+        SUCCEEDED(build("Paris", url.data(), 0)))
         return kTestFailure;
     return S_OK;
 }
@@ -101,27 +99,20 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     {
         return result;
     }
-    wil::unique_hmodule module{
-        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
-    if (!module)
+    wil::unique_hmodule module{LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (! module)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
 
-    const WeatherGetTestDiagnosticsFn getDiagnostics =
-        Resolve<WeatherGetTestDiagnosticsFn>(module.get(), kWeatherGetTestDiagnosticsExport);
-    const WeatherProbeHttpGetOnSmallStackFn probe =
-        Resolve<WeatherProbeHttpGetOnSmallStackFn>(module.get(), kWeatherProbeHttpGetOnSmallStackExport);
-    const WeatherFormatTestClockAndDayFn formatClockDay =
-        Resolve<WeatherFormatTestClockAndDayFn>(module.get(), kWeatherFormatTestClockAndDayExport);
-    const auto formatUnits =
-        Resolve<decltype(&RedXeWeatherFormatTestUnits)>(module.get(), kWeatherFormatTestUnitsExport);
-    const auto parseIso =
-        Resolve<decltype(&RedXeWeatherParseTestIso8601)>(module.get(), kWeatherParseTestIso8601Export);
-    const RedXePluginShutdownFn shutdown = Resolve<RedXePluginShutdownFn>(module.get(), kRedXePluginShutdownExport);
-    const auto buildUrl = Resolve<decltype(&RedXeWeatherBuildTestLocationSearchUrl)>(
-        module.get(), kWeatherBuildTestLocationSearchUrlExport);
-    if (!getDiagnostics || !probe || !formatClockDay || !formatUnits || !parseIso || !shutdown || !buildUrl)
+    const WeatherGetTestDiagnosticsFn getDiagnostics    = Resolve<WeatherGetTestDiagnosticsFn>(module.get(), kWeatherGetTestDiagnosticsExport);
+    const WeatherProbeHttpGetOnSmallStackFn probe       = Resolve<WeatherProbeHttpGetOnSmallStackFn>(module.get(), kWeatherProbeHttpGetOnSmallStackExport);
+    const WeatherFormatTestClockAndDayFn formatClockDay = Resolve<WeatherFormatTestClockAndDayFn>(module.get(), kWeatherFormatTestClockAndDayExport);
+    const auto formatUnits                              = Resolve<decltype(&RedXeWeatherFormatTestUnits)>(module.get(), kWeatherFormatTestUnitsExport);
+    const auto parseIso                                 = Resolve<decltype(&RedXeWeatherParseTestIso8601)>(module.get(), kWeatherParseTestIso8601Export);
+    const RedXePluginShutdownFn shutdown                = Resolve<RedXePluginShutdownFn>(module.get(), kRedXePluginShutdownExport);
+    const auto buildUrl = Resolve<decltype(&RedXeWeatherBuildTestLocationSearchUrl)>(module.get(), kWeatherBuildTestLocationSearchUrlExport);
+    if (! getDiagnostics || ! probe || ! formatClockDay || ! formatUnits || ! parseIso || ! shutdown || ! buildUrl)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
@@ -144,11 +135,9 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 
     WeatherTestDiagnostics diagnostics{sizeof(WeatherTestDiagnostics)};
     result = getDiagnostics(&diagnostics);
-    if (FAILED(result) || diagnostics.httpResponseSizeBytes == 0 ||
-        diagnostics.httpResponseSizeBytes > kWeatherHttpResponseMaximumBytes)
+    if (FAILED(result) || diagnostics.httpResponseSizeBytes == 0 || diagnostics.httpResponseSizeBytes > kWeatherHttpResponseMaximumBytes)
     {
-        std::wprintf(L"Weather HTTP response is too large for the network-worker stack: %u bytes.\n",
-                     diagnostics.httpResponseSizeBytes);
+        std::wprintf(L"Weather HTTP response is too large for the network-worker stack: %u bytes.\n", diagnostics.httpResponseSizeBytes);
         shutdown();
         return FAILED(result) ? result : kTestFailure;
     }
@@ -163,10 +152,9 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 
     std::array<wchar_t, 16> temperature{};
     std::array<wchar_t, 16> wind{};
-    result = formatUnits(21.0f, 17.0f / 3.6f, FALSE, FALSE, temperature.data(),
-                         static_cast<uint32_t>(temperature.size()), wind.data(), static_cast<uint32_t>(wind.size()));
-    if (FAILED(result) || std::wcscmp(temperature.data(), L"21\u00B0C") != 0 ||
-        std::wcscmp(wind.data(), L"17km/h") != 0)
+    result = formatUnits(
+        21.0f, 17.0f / 3.6f, FALSE, FALSE, temperature.data(), static_cast<uint32_t>(temperature.size()), wind.data(), static_cast<uint32_t>(wind.size()));
+    if (FAILED(result) || std::wcscmp(temperature.data(), L"21\u00B0C") != 0 || std::wcscmp(wind.data(), L"17km/h") != 0)
     {
         std::wprintf(L"Weather unit format mismatch: %s %s\n", temperature.data(), wind.data());
         shutdown();
@@ -175,8 +163,7 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 
     std::array<wchar_t, 8> emptyClock{};
     std::array<wchar_t, 32> emptyDay{};
-    result = formatClockDay(0, 0, emptyClock.data(), static_cast<uint32_t>(emptyClock.size()), emptyDay.data(),
-                            static_cast<uint32_t>(emptyDay.size()));
+    result = formatClockDay(0, 0, emptyClock.data(), static_cast<uint32_t>(emptyClock.size()), emptyDay.data(), static_cast<uint32_t>(emptyDay.size()));
     if (FAILED(result) || emptyClock[0] != L'\0' || std::wcscmp(emptyDay.data(), L"Today") != 0)
     {
         std::wprintf(L"Weather empty clock/day format mismatch: %s %s\n", emptyClock.data(), emptyDay.data());
@@ -185,25 +172,22 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     }
 
     SYSTEMTIME local{};
-    local.wYear = 2026;
-    local.wMonth = 9;
-    local.wDay = 4;
-    local.wHour = 7;
+    local.wYear   = 2026;
+    local.wMonth  = 9;
+    local.wDay    = 4;
+    local.wHour   = 7;
     local.wMinute = 11;
     SYSTEMTIME utc{};
     FILETIME utcFileTime{};
-    if (TzSpecificLocalTimeToSystemTime(nullptr, &local, &utc) == FALSE ||
-        SystemTimeToFileTime(&utc, &utcFileTime) == FALSE)
+    if (TzSpecificLocalTimeToSystemTime(nullptr, &local, &utc) == FALSE || SystemTimeToFileTime(&utc, &utcFileTime) == FALSE)
     {
         shutdown();
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    const uint64_t fileTime =
-        (static_cast<uint64_t>(utcFileTime.dwHighDateTime) << 32) | static_cast<uint64_t>(utcFileTime.dwLowDateTime);
+    const uint64_t fileTime = (static_cast<uint64_t>(utcFileTime.dwHighDateTime) << 32) | static_cast<uint64_t>(utcFileTime.dwLowDateTime);
     std::array<wchar_t, 8> clock{};
     std::array<wchar_t, 32> day{};
-    result = formatClockDay(fileTime, fileTime, clock.data(), static_cast<uint32_t>(clock.size()), day.data(),
-                            static_cast<uint32_t>(day.size()));
+    result = formatClockDay(fileTime, fileTime, clock.data(), static_cast<uint32_t>(clock.size()), day.data(), static_cast<uint32_t>(day.size()));
     if (FAILED(result) || std::wcscmp(clock.data(), L"07:11") != 0 || std::wcscmp(day.data(), L"Today") != 0)
     {
         std::wprintf(L"Weather today clock/day format mismatch: %s %s\n", clock.data(), day.data());
@@ -216,19 +200,16 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     for (WORD month = 1; month <= 12; ++month)
     {
         SYSTEMTIME seasonalLocal = local;
-        seasonalLocal.wMonth = month;
+        seasonalLocal.wMonth     = month;
         SYSTEMTIME seasonalUtc{};
         FILETIME seasonalFileTime{};
-        if (TzSpecificLocalTimeToSystemTimeEx(nullptr, &seasonalLocal, &seasonalUtc) == FALSE ||
-            SystemTimeToFileTime(&seasonalUtc, &seasonalFileTime) == FALSE)
+        if (TzSpecificLocalTimeToSystemTimeEx(nullptr, &seasonalLocal, &seasonalUtc) == FALSE || SystemTimeToFileTime(&seasonalUtc, &seasonalFileTime) == FALSE)
         {
             shutdown();
             return HRESULT_FROM_WIN32(GetLastError());
         }
-        const uint64_t seasonalTime = (static_cast<uint64_t>(seasonalFileTime.dwHighDateTime) << 32) |
-                                      static_cast<uint64_t>(seasonalFileTime.dwLowDateTime);
-        result = formatClockDay(seasonalTime, seasonalTime, clock.data(), static_cast<uint32_t>(clock.size()),
-                                day.data(), static_cast<uint32_t>(day.size()));
+        const uint64_t seasonalTime = (static_cast<uint64_t>(seasonalFileTime.dwHighDateTime) << 32) | static_cast<uint64_t>(seasonalFileTime.dwLowDateTime);
+        result = formatClockDay(seasonalTime, seasonalTime, clock.data(), static_cast<uint32_t>(clock.size()), day.data(), static_cast<uint32_t>(day.size()));
         if (FAILED(result) || std::wcscmp(clock.data(), L"07:11") != 0 || std::wcscmp(day.data(), L"Today") != 0)
         {
             std::wprintf(L"Weather seasonal clock/day mismatch in month %u: %s %s\n", month, clock.data(), day.data());
@@ -239,8 +220,8 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 
     constexpr uint64_t kDay = 864000000000ULL;
     std::array<wchar_t, 32> tomorrow{};
-    result = formatClockDay(fileTime + kDay, fileTime, clock.data(), static_cast<uint32_t>(clock.size()),
-                            tomorrow.data(), static_cast<uint32_t>(tomorrow.size()));
+    result =
+        formatClockDay(fileTime + kDay, fileTime, clock.data(), static_cast<uint32_t>(clock.size()), tomorrow.data(), static_cast<uint32_t>(tomorrow.size()));
     if (FAILED(result) || std::wcscmp(tomorrow.data(), L"Tomorrow") != 0)
     {
         std::wprintf(L"Weather tomorrow label mismatch: %s\n", tomorrow.data());
@@ -249,8 +230,8 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     }
 
     std::array<wchar_t, 32> weekday{};
-    result = formatClockDay(fileTime, fileTime - kDay * 2, clock.data(), static_cast<uint32_t>(clock.size()),
-                            weekday.data(), static_cast<uint32_t>(weekday.size()));
+    result =
+        formatClockDay(fileTime, fileTime - kDay * 2, clock.data(), static_cast<uint32_t>(clock.size()), weekday.data(), static_cast<uint32_t>(weekday.size()));
     if (FAILED(result) || std::wcscmp(weekday.data(), L"Friday, 4") != 0)
     {
         std::wprintf(L"Weather weekday label mismatch: %s\n", weekday.data());
@@ -259,9 +240,9 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     }
 
     uint64_t offsetTime = 0;
-    uint64_t zuluTime = 0;
-    result = parseIso("2026-09-04T07:11+02:00", &offsetTime);
-    const HRESULT zulu = parseIso("2026-09-04T05:11:00Z", &zuluTime);
+    uint64_t zuluTime   = 0;
+    result              = parseIso("2026-09-04T07:11+02:00", &offsetTime);
+    const HRESULT zulu  = parseIso("2026-09-04T05:11:00Z", &zuluTime);
     if (FAILED(result) || FAILED(zulu) || offsetTime == 0 || offsetTime != zuluTime)
     {
         std::wprintf(L"Weather ISO-8601 offset parse mismatch.\n");
@@ -272,9 +253,8 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     // The active zone above may observe no daylight saving at all (hosted runners use UTC). Two fixed zones with
     // opposite seasons prove each timestamp's own rule through the production conversion: both minutes of every 2026
     // transition, and a Sydney local day that differs from the UTC day.
-    const auto setTimeZone =
-        Resolve<decltype(&RedXeWeatherSetTestTimeZone)>(module.get(), kWeatherSetTestTimeZoneExport);
-    if (!setTimeZone)
+    const auto setTimeZone = Resolve<decltype(&RedXeWeatherSetTestTimeZone)>(module.get(), kWeatherSetTestTimeZoneExport);
+    if (! setTimeZone)
     {
         shutdown();
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
@@ -309,20 +289,23 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     for (const ZoneCase& zoneCase : zoneCases)
     {
         uint64_t time = 0;
-        uint64_t now = 0;
-        result = setTimeZone(zoneCase.zone);
+        uint64_t now  = 0;
+        result        = setTimeZone(zoneCase.zone);
         if (SUCCEEDED(result))
             result = parseIso(zoneCase.time, &time);
         if (SUCCEEDED(result))
             result = parseIso(zoneCase.now, &now);
         if (SUCCEEDED(result))
-            result = formatClockDay(time, now, clock.data(), static_cast<uint32_t>(clock.size()), day.data(),
-                                    static_cast<uint32_t>(day.size()));
-        if (FAILED(result) || std::wcscmp(clock.data(), zoneCase.clock) != 0 ||
-            std::wcscmp(day.data(), zoneCase.day) != 0)
+            result = formatClockDay(time, now, clock.data(), static_cast<uint32_t>(clock.size()), day.data(), static_cast<uint32_t>(day.size()));
+        if (FAILED(result) || std::wcscmp(clock.data(), zoneCase.clock) != 0 || std::wcscmp(day.data(), zoneCase.day) != 0)
         {
-            std::wprintf(L"Weather %s clock/day mismatch at %hs: %s %s, expected %s %s\n", zoneCase.zone, zoneCase.time,
-                         clock.data(), day.data(), zoneCase.clock, zoneCase.day);
+            std::wprintf(L"Weather %s clock/day mismatch at %hs: %s %s, expected %s %s\n",
+                         zoneCase.zone,
+                         zoneCase.time,
+                         clock.data(),
+                         day.data(),
+                         zoneCase.clock,
+                         zoneCase.day);
             (void)setTimeZone(nullptr);
             shutdown();
             return FAILED(result) ? result : kTestFailure;

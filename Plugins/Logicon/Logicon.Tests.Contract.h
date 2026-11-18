@@ -87,8 +87,7 @@ static_assert(sizeof(RedXeLogiconMonitorTestDiagnostics) == 40);
 extern "C"
 {
     // Fills diagnostics from the current service. ERROR_NOT_READY when no service object exists.
-    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconGetTestDiagnostics(
-        RedXeLogiconTestDiagnostics* diagnostics) noexcept;
+    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconGetTestDiagnostics(RedXeLogiconTestDiagnostics* diagnostics) noexcept;
     // Routes the device lane to the in-memory synthetic keypad (TRUE) or back to USB discovery (FALSE).
     REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconUseSyntheticDevice(BOOL enabled) noexcept;
     // Presents an in-memory dialpad to the device lane, with or without device access: 0 none (Bluetooth discovery),
@@ -96,44 +95,38 @@ extern "C"
     REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconUseSyntheticDialpad(uint32_t mode) noexcept;
     // Simulates a control: kind 0 = LCD key slot 0..8, kind 1 = page button (0 previous, 1 next), kind 2 = dialpad
     // button 0..3.
-    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconInjectControl(uint32_t kind, uint32_t index,
-                                                                       BOOL down) noexcept;
+    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconInjectControl(uint32_t kind, uint32_t index, BOOL down) noexcept;
     // Queues a raw input report on the synthetic keypad (report id first).
-    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconInjectSyntheticReport(const uint8_t* report,
-                                                                               uint32_t bytes) noexcept;
+    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconInjectSyntheticReport(const uint8_t* report, uint32_t bytes) noexcept;
     // Face override for one slot: kind 0 none, 1 solid color (0xRRGGBB), 2 generated test picture.
-    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconSetFaceOverride(uint32_t slot, uint32_t kind,
-                                                                         uint32_t colorRgb) noexcept;
+    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconSetFaceOverride(uint32_t slot, uint32_t kind, uint32_t colorRgb) noexcept;
     REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconSetBrightness(uint32_t percent) noexcept;
     // E_NOTIMPL in Release, which ships no monitor drawing implementation.
-    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconGetMonitorTestDiagnostics(
-        RedXeLogiconMonitorTestDiagnostics* diagnostics) noexcept;
+    REDXE_LOGICON_TEST_API HRESULT __stdcall RedXeLogiconGetMonitorTestDiagnostics(RedXeLogiconMonitorTestDiagnostics* diagnostics) noexcept;
     REDXE_LOGICON_TEST_API void __stdcall RedXeLogiconFailNextMonitorGlyphPreparation() noexcept;
     REDXE_LOGICON_TEST_API void __stdcall RedXeLogiconFailNextMonitorFacePreparation() noexcept;
 }
 
-using RedXeLogiconGetTestDiagnosticsFn = decltype(&RedXeLogiconGetTestDiagnostics);
-using RedXeLogiconUseSyntheticDeviceFn = decltype(&RedXeLogiconUseSyntheticDevice);
-using RedXeLogiconUseSyntheticDialpadFn = decltype(&RedXeLogiconUseSyntheticDialpad);
-using RedXeLogiconInjectControlFn = decltype(&RedXeLogiconInjectControl);
-using RedXeLogiconInjectSyntheticReportFn = decltype(&RedXeLogiconInjectSyntheticReport);
-using RedXeLogiconSetFaceOverrideFn = decltype(&RedXeLogiconSetFaceOverride);
-using RedXeLogiconSetBrightnessFn = decltype(&RedXeLogiconSetBrightness);
-using RedXeLogiconGetMonitorTestDiagnosticsFn = decltype(&RedXeLogiconGetMonitorTestDiagnostics);
+using RedXeLogiconGetTestDiagnosticsFn              = decltype(&RedXeLogiconGetTestDiagnostics);
+using RedXeLogiconUseSyntheticDeviceFn              = decltype(&RedXeLogiconUseSyntheticDevice);
+using RedXeLogiconUseSyntheticDialpadFn             = decltype(&RedXeLogiconUseSyntheticDialpad);
+using RedXeLogiconInjectControlFn                   = decltype(&RedXeLogiconInjectControl);
+using RedXeLogiconInjectSyntheticReportFn           = decltype(&RedXeLogiconInjectSyntheticReport);
+using RedXeLogiconSetFaceOverrideFn                 = decltype(&RedXeLogiconSetFaceOverride);
+using RedXeLogiconSetBrightnessFn                   = decltype(&RedXeLogiconSetBrightness);
+using RedXeLogiconGetMonitorTestDiagnosticsFn       = decltype(&RedXeLogiconGetMonitorTestDiagnostics);
 using RedXeLogiconFailNextMonitorGlyphPreparationFn = decltype(&RedXeLogiconFailNextMonitorGlyphPreparation);
-using RedXeLogiconFailNextMonitorFacePreparationFn = decltype(&RedXeLogiconFailNextMonitorFacePreparation);
+using RedXeLogiconFailNextMonitorFacePreparationFn  = decltype(&RedXeLogiconFailNextMonitorFacePreparation);
 
-inline constexpr char kRedXeLogiconGetTestDiagnosticsExport[] = "RedXeLogiconGetTestDiagnostics";
-inline constexpr char kRedXeLogiconUseSyntheticDeviceExport[] = "RedXeLogiconUseSyntheticDevice";
-inline constexpr char kRedXeLogiconUseSyntheticDialpadExport[] = "RedXeLogiconUseSyntheticDialpad";
-inline constexpr char kRedXeLogiconInjectControlExport[] = "RedXeLogiconInjectControl";
-inline constexpr char kRedXeLogiconInjectSyntheticReportExport[] = "RedXeLogiconInjectSyntheticReport";
-inline constexpr char kRedXeLogiconSetFaceOverrideExport[] = "RedXeLogiconSetFaceOverride";
-inline constexpr char kRedXeLogiconSetBrightnessExport[] = "RedXeLogiconSetBrightness";
-inline constexpr char kRedXeLogiconGetMonitorTestDiagnosticsExport[] = "RedXeLogiconGetMonitorTestDiagnostics";
-inline constexpr char kRedXeLogiconFailNextMonitorGlyphPreparationExport[] =
-    "RedXeLogiconFailNextMonitorGlyphPreparation";
-inline constexpr char kRedXeLogiconFailNextMonitorFacePreparationExport[] =
-    "RedXeLogiconFailNextMonitorFacePreparation";
+inline constexpr char kRedXeLogiconGetTestDiagnosticsExport[]              = "RedXeLogiconGetTestDiagnostics";
+inline constexpr char kRedXeLogiconUseSyntheticDeviceExport[]              = "RedXeLogiconUseSyntheticDevice";
+inline constexpr char kRedXeLogiconUseSyntheticDialpadExport[]             = "RedXeLogiconUseSyntheticDialpad";
+inline constexpr char kRedXeLogiconInjectControlExport[]                   = "RedXeLogiconInjectControl";
+inline constexpr char kRedXeLogiconInjectSyntheticReportExport[]           = "RedXeLogiconInjectSyntheticReport";
+inline constexpr char kRedXeLogiconSetFaceOverrideExport[]                 = "RedXeLogiconSetFaceOverride";
+inline constexpr char kRedXeLogiconSetBrightnessExport[]                   = "RedXeLogiconSetBrightness";
+inline constexpr char kRedXeLogiconGetMonitorTestDiagnosticsExport[]       = "RedXeLogiconGetMonitorTestDiagnostics";
+inline constexpr char kRedXeLogiconFailNextMonitorGlyphPreparationExport[] = "RedXeLogiconFailNextMonitorGlyphPreparation";
+inline constexpr char kRedXeLogiconFailNextMonitorFacePreparationExport[]  = "RedXeLogiconFailNextMonitorFacePreparation";
 
 #undef REDXE_LOGICON_TEST_API

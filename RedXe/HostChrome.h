@@ -34,7 +34,7 @@ struct HostChromeState final
     RECT close{};
     RECT shadow{};
     // Dim wash alpha over everything except the raised content, 0..255 (kRaiseOverlayDimAlpha when settled).
-    BYTE dimAlpha = 0;
+    BYTE dimAlpha     = 0;
     bool closeHovered = false;
     std::array<HostChromeEdgeBand, 2> bands{};
     // Hidden autohide dock: the renderer draws one grip frame (wash over the visible strip plus an accent line on
@@ -49,28 +49,27 @@ struct HostChromeState final
 // Glyph slots in the host atlas, in atlas order.
 enum class HostChromeGlyph : uint32_t
 {
-    ChevronLeft = 0,
+    ChevronLeft  = 0,
     ChevronRight = 1,
-    Close = 2,
-    Count = 3,
+    Close        = 2,
+    Count        = 3,
 };
 
 // Dim strips: the parts of the client the raise dim covers, i.e. everything outside the content rectangle, as at
 // most four rectangles (left, right, top, bottom). Empty strips are omitted. Pure so tests can cover it.
-[[nodiscard]] inline size_t HostChromeDimStrips(UINT clientWidth, UINT clientHeight, const RECT& content, RECT* strips,
-                                                size_t capacity) noexcept
+[[nodiscard]] inline size_t HostChromeDimStrips(UINT clientWidth, UINT clientHeight, const RECT& content, RECT* strips, size_t capacity) noexcept
 {
-    if (!strips || capacity < 4 || clientWidth == 0 || clientHeight == 0)
+    if (! strips || capacity < 4 || clientWidth == 0 || clientHeight == 0)
     {
         return 0;
     }
-    const LONG width = static_cast<LONG>(clientWidth);
+    const LONG width  = static_cast<LONG>(clientWidth);
     const LONG height = static_cast<LONG>(clientHeight);
-    const LONG left = content.right > content.left ? content.left : 0;
-    const LONG right = content.right > content.left ? content.right : 0;
-    const LONG top = content.bottom > content.top ? content.top : 0;
+    const LONG left   = content.right > content.left ? content.left : 0;
+    const LONG right  = content.right > content.left ? content.right : 0;
+    const LONG top    = content.bottom > content.top ? content.top : 0;
     const LONG bottom = content.bottom > content.top ? content.bottom : 0;
-    size_t count = 0;
+    size_t count      = 0;
     if (left > 0)
     {
         strips[count++] = RECT{0, 0, left, height};
@@ -91,8 +90,7 @@ enum class HostChromeGlyph : uint32_t
 }
 
 // Number of quads one chrome state draws, for the renderer's per-frame counter and for tests.
-[[nodiscard]] inline size_t HostChromeQuadCount(const HostChromeState& state, UINT clientWidth, UINT clientHeight,
-                                                bool glyphsAvailable) noexcept
+[[nodiscard]] inline size_t HostChromeQuadCount(const HostChromeState& state, UINT clientWidth, UINT clientHeight, bool glyphsAvailable) noexcept
 {
     size_t count = 0;
     if (state.raised && state.dimAlpha != 0)
@@ -128,8 +126,7 @@ enum class HostChromeGlyph : uint32_t
         {
             ++count;
         }
-        if (state.dockGripAccent.right > state.dockGripAccent.left &&
-            state.dockGripAccent.bottom > state.dockGripAccent.top)
+        if (state.dockGripAccent.right > state.dockGripAccent.left && state.dockGripAccent.bottom > state.dockGripAccent.top)
         {
             ++count;
         }
@@ -147,14 +144,14 @@ enum class HostChromePhase
 
 class HostChromeResources final
 {
-  public:
+public:
     HostChromeResources() = default;
     ~HostChromeResources();
 
-    HostChromeResources(const HostChromeResources&) = delete;
+    HostChromeResources(const HostChromeResources&)            = delete;
     HostChromeResources& operator=(const HostChromeResources&) = delete;
-    HostChromeResources(HostChromeResources&&) = delete;
-    HostChromeResources& operator=(HostChromeResources&&) = delete;
+    HostChromeResources(HostChromeResources&&)                 = delete;
+    HostChromeResources& operator=(HostChromeResources&&)      = delete;
 
     // Creates the pipeline objects and rasterizes the glyph atlas for `dpi`. A missing DirectWrite face leaves the
     // pipeline usable for washes only.
@@ -163,15 +160,20 @@ class HostChromeResources final
     // Re-rasterizes the atlas when the DPI actually changed; never per frame.
     HRESULT SetDpi(UINT dpi) noexcept;
     // Draws the quads of one phase. `quadsDrawn` accumulates the count for the frame.
-    HRESULT Draw(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, UINT viewportWidth, UINT viewportHeight,
-                 const HostChromeState& state, HostChromePhase phase, size_t& quadsDrawn) noexcept;
+    HRESULT Draw(ID3D11DeviceContext* context,
+                 ID3D11RenderTargetView* target,
+                 UINT viewportWidth,
+                 UINT viewportHeight,
+                 const HostChromeState& state,
+                 HostChromePhase phase,
+                 size_t& quadsDrawn) noexcept;
 
     [[nodiscard]] bool Ready() const noexcept;
     [[nodiscard]] bool GlyphsAvailable() const noexcept;
     [[nodiscard]] FluentIcons::IconFont Font() const noexcept;
     [[nodiscard]] UINT Dpi() const noexcept;
 
-  private:
+private:
     struct Constants final
     {
         float rect[4];
@@ -182,8 +184,13 @@ class HostChromeResources final
     static_assert(sizeof(Constants) == 64);
 
     HRESULT BuildAtlas(UINT dpi) noexcept;
-    HRESULT DrawQuad(ID3D11DeviceContext* context, const RECT& rect, const float (&color)[4], UINT viewportWidth,
-                     UINT viewportHeight, const HostChromeGlyph* glyph, size_t& quadsDrawn) noexcept;
+    HRESULT DrawQuad(ID3D11DeviceContext* context,
+                     const RECT& rect,
+                     const float (&color)[4],
+                     UINT viewportWidth,
+                     UINT viewportHeight,
+                     const HostChromeGlyph* glyph,
+                     size_t& quadsDrawn) noexcept;
 
     wil::com_ptr_nothrow<ID3D11Device> _device;
     wil::com_ptr_nothrow<ID3D11VertexShader> _vertexShader;
@@ -199,7 +206,7 @@ class HostChromeResources final
     static constexpr uint32_t kGlyphCount = static_cast<uint32_t>(HostChromeGlyph::Count);
     std::array<RECT, kGlyphCount> _glyphInk{};
     FluentIcons::IconFont _font = FluentIcons::IconFont::TextFallback;
-    UINT _dpi = 0;
-    bool _glyphsAvailable = false;
-    bool _atlasFailureLogged = false;
+    UINT _dpi                   = 0;
+    bool _glyphsAvailable       = false;
+    bool _atlasFailureLogged    = false;
 };

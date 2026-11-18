@@ -11,7 +11,7 @@
 
 namespace StudioClock
 {
-inline constexpr char kPluginId[] = "builtin.studio-clock";
+inline constexpr char kPluginId[]     = "builtin.studio-clock";
 inline constexpr char kWidgetTypeId[] = "studio-clock";
 
 // The order of the date digits. kDateFormatNames holds the `dateFormat` value of each, in this order.
@@ -39,8 +39,14 @@ inline constexpr char kSchemaJson[] =
 
 // Every member; each is required once the host has merged the defaults.
 inline constexpr std::array<const char*, 8> kSettingsKeys{
-    "showSecondProgress", "externalDotsAlwaysOn", "showSeconds", "secondsColor",
-    "showDate",           "dateFormat",           "timeColor",   "glowPercent",
+    "showSecondProgress",
+    "externalDotsAlwaysOn",
+    "showSeconds",
+    "secondsColor",
+    "showDate",
+    "dateFormat",
+    "timeColor",
+    "glowPercent",
 };
 
 // Names are exact, like every other settings enum.

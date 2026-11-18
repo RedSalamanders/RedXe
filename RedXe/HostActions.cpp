@@ -25,11 +25,11 @@ using namespace RedXeActions;
 // SendInput refused. `expired` marks a hold the deadline released, so the matching `up` that follows injects nothing.
 struct Hold final
 {
-    ULONGLONG due = 0;
+    ULONGLONG due           = 0;
     uint32_t failedReleases = 0;
-    bool held = false;
-    bool deviceAccess = false;
-    bool expired = false;
+    bool held               = false;
+    bool deviceAccess       = false;
+    bool expired            = false;
 };
 
 // UI-thread state: the main window, the log, the discovered XENEON, the counters, and whatever keys.down / mouse.down
@@ -43,7 +43,7 @@ Counters g_counters{};
 KeyChord g_heldChord{};
 Hold g_chord{};
 uint32_t g_heldMouseFlags = 0;
-DWORD g_heldMouseData = 0;
+DWORD g_heldMouseData     = 0;
 Hold g_mouse{};
 #if defined(REDXE_HOST_PLUGIN_TESTS)
 HRESULT g_injectionFailure = S_OK;
@@ -58,7 +58,7 @@ void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
 
 [[nodiscard]] bool ContainsIgnoreCase(const wchar_t* haystack, const wchar_t* needle) noexcept
 {
-    const size_t needleLength = wcslen(needle);
+    const size_t needleLength   = wcslen(needle);
     const size_t haystackLength = wcslen(haystack);
     if (needleLength == 0 || needleLength > haystackLength)
     {
@@ -66,8 +66,7 @@ void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
     }
     for (size_t offset = 0; offset + needleLength <= haystackLength; ++offset)
     {
-        if (CompareStringOrdinal(haystack + offset, static_cast<int>(needleLength), needle,
-                                 static_cast<int>(needleLength), TRUE) == CSTR_EQUAL)
+        if (CompareStringOrdinal(haystack + offset, static_cast<int>(needleLength), needle, static_cast<int>(needleLength), TRUE) == CSTR_EQUAL)
         {
             return true;
         }
@@ -77,7 +76,7 @@ void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
 
 [[nodiscard]] bool Utf8ToWide(std::string_view text, wchar_t* buffer, int capacity) noexcept
 {
-    if (!buffer || capacity <= 0)
+    if (! buffer || capacity <= 0)
     {
         return false;
     }
@@ -86,8 +85,7 @@ void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
     {
         return true;
     }
-    const int written = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()),
-                                            buffer, capacity - 1);
+    const int written = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), buffer, capacity - 1);
     if (written <= 0)
     {
         return false;
@@ -113,7 +111,7 @@ void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
         return g_injectionFailure;
     }
 #endif
-    if (!deviceAccess)
+    if (! deviceAccess)
     {
         return S_OK;
     }
@@ -121,7 +119,7 @@ void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
     while (offset < count)
     {
         const uint32_t batch = std::min(kMaximumInputBatch, count - offset);
-        const UINT sent = SendInput(batch, const_cast<INPUT*>(inputs + offset), sizeof(INPUT));
+        const UINT sent      = SendInput(batch, const_cast<INPUT*>(inputs + offset), sizeof(INPUT));
         if (sent != batch)
         {
             return HRESULT_FROM_WIN32(GetLastError() == 0 ? ERROR_ACCESS_DENIED : GetLastError());
@@ -133,12 +131,12 @@ void CountExecution(const RedXeActionDescriptor& descriptor) noexcept
 
 void FillKey(INPUT& input, uint16_t virtualKey, bool extended, bool up) noexcept
 {
-    input = INPUT{};
-    input.type = INPUT_KEYBOARD;
+    input           = INPUT{};
+    input.type      = INPUT_KEYBOARD;
     const UINT scan = MapVirtualKeyW(virtualKey, MAPVK_VK_TO_VSC);
     if (scan != 0)
     {
-        input.ki.wScan = static_cast<WORD>(scan);
+        input.ki.wScan   = static_cast<WORD>(scan);
         input.ki.dwFlags = KEYEVENTF_SCANCODE;
     }
     else
@@ -181,7 +179,7 @@ void FillKey(INPUT& input, uint16_t virtualKey, bool extended, bool up) noexcept
             FillKey(inputs[count++], modifier.virtualKey, modifier.virtualKey == VK_LWIN, up);
         }
     }
-    if (!up)
+    if (! up)
     {
         FillKey(inputs[count++], chord.virtualKey, chord.extended, false);
     }
@@ -190,28 +188,28 @@ void FillKey(INPUT& input, uint16_t virtualKey, bool extended, bool up) noexcept
 
 void ArmHeldTimer() noexcept
 {
-    if (!g_hostWindow)
+    if (! g_hostWindow)
     {
         return;
     }
     (void)KillTimer(g_hostWindow, kHeldInputTimerId);
-    if (!g_chord.held && !g_mouse.held)
+    if (! g_chord.held && ! g_mouse.held)
     {
         return;
     }
     const ULONGLONG chordDue = g_chord.held ? g_chord.due : ULLONG_MAX;
     const ULONGLONG mouseDue = g_mouse.held ? g_mouse.due : ULLONG_MAX;
-    const ULONGLONG now = GetTickCount64();
-    const ULONGLONG due = std::min(chordDue, mouseDue);
-    const UINT delay = static_cast<UINT>(std::max<ULONGLONG>(1, due > now ? due - now : 1));
+    const ULONGLONG now      = GetTickCount64();
+    const ULONGLONG due      = std::min(chordDue, mouseDue);
+    const UINT delay         = static_cast<UINT>(std::max<ULONGLONG>(1, due > now ? due - now : 1));
     (void)SetTimer(g_hostWindow, kHeldInputTimerId, delay, nullptr);
 }
 
 void BeginHold(Hold& hold, bool deviceAccess) noexcept
 {
-    hold = Hold{};
-    hold.due = GetTickCount64() + kHeldReleaseMilliseconds;
-    hold.held = true;
+    hold              = Hold{};
+    hold.due          = GetTickCount64() + kHeldReleaseMilliseconds;
+    hold.held         = true;
     hold.deviceAccess = deviceAccess;
 }
 
@@ -225,23 +223,33 @@ void BeginHold(Hold& hold, bool deviceAccess) noexcept
     {
         if (hold.failedReleases == 1)
         {
-            (void)RedXeHostLog(g_log, RedXeLogLevelWarning, nullptr, nullptr, "held-release-failed",
-                               "a held key or button could not be released; RedXe retries the release.", result);
+            (void)RedXeHostLog(g_log,
+                               RedXeLogLevelWarning,
+                               nullptr,
+                               nullptr,
+                               "held-release-failed",
+                               "a held key or button could not be released; RedXe retries the release.",
+                               result);
         }
         hold.due = GetTickCount64() + kHeldReleaseRetryMilliseconds;
         return result;
     }
     if (FAILED(result))
     {
-        (void)RedXeHostLog(g_log, RedXeLogLevelWarning, nullptr, nullptr, "held-release-abandoned",
-                           "a held key or button could not be released and is no longer tracked.", result);
+        (void)RedXeHostLog(g_log,
+                           RedXeLogLevelWarning,
+                           nullptr,
+                           nullptr,
+                           "held-release-abandoned",
+                           "a held key or button could not be released and is no longer tracked.",
+                           result);
     }
     else
     {
         ++g_counters.heldReleases;
     }
-    hold.held = false;
-    hold.expired = expired && SUCCEEDED(result);
+    hold.held           = false;
+    hold.expired        = expired && SUCCEEDED(result);
     hold.failedReleases = 0;
     return result;
 }
@@ -249,7 +257,7 @@ void BeginHold(Hold& hold, bool deviceAccess) noexcept
 // `expired` is true when the deadline (or a retry the timer scheduled) releases the hold rather than an action.
 [[nodiscard]] HRESULT ReleaseChord(bool expired, bool retry) noexcept
 {
-    if (!g_chord.held)
+    if (! g_chord.held)
     {
         return S_FALSE;
     }
@@ -260,13 +268,13 @@ void BeginHold(Hold& hold, bool deviceAccess) noexcept
 
 [[nodiscard]] HRESULT ReleaseMouse(bool expired, bool retry) noexcept
 {
-    if (!g_mouse.held)
+    if (! g_mouse.held)
     {
         return S_FALSE;
     }
     INPUT input{};
-    input.type = INPUT_MOUSE;
-    input.mi.dwFlags = g_heldMouseFlags;
+    input.type         = INPUT_MOUSE;
+    input.mi.dwFlags   = g_heldMouseFlags;
     input.mi.mouseData = g_heldMouseData;
     return SettleRelease(g_mouse, Inject(&input, 1, g_mouse.deviceAccess), expired, retry);
 }
@@ -306,7 +314,7 @@ void ExpireHeld() noexcept
 [[nodiscard]] HRESULT TypeText(std::string_view text, bool deviceAccess) noexcept
 {
     std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> wide{};
-    if (!Utf8ToWide(text, wide.data(), static_cast<int>(wide.size())))
+    if (! Utf8ToWide(text, wide.data(), static_cast<int>(wide.size())))
     {
         return E_INVALIDARG;
     }
@@ -317,16 +325,16 @@ void ExpireHeld() noexcept
     {
         for (uint32_t phase = 0; phase < 2; ++phase)
         {
-            INPUT& input = inputs[count++];
-            input = INPUT{};
-            input.type = INPUT_KEYBOARD;
-            input.ki.wScan = static_cast<WORD>(*cursor);
+            INPUT& input     = inputs[count++];
+            input            = INPUT{};
+            input.type       = INPUT_KEYBOARD;
+            input.ki.wScan   = static_cast<WORD>(*cursor);
             input.ki.dwFlags = KEYEVENTF_UNICODE | (phase == 1 ? KEYEVENTF_KEYUP : 0U);
         }
         if (count == inputs.size())
         {
             result = Inject(inputs.data(), count, deviceAccess);
-            count = 0;
+            count  = 0;
         }
     }
     if (SUCCEEDED(result) && count != 0)
@@ -345,29 +353,26 @@ void ExpireHeld() noexcept
 }
 
 // Hands a validated, counted launch to the launch worker; S_FALSE once it is queued.
-[[nodiscard]] HRESULT QueueLaunch(LaunchWorker::Request& request, std::string_view verb,
-                                  LaunchWorker* launches) noexcept
+[[nodiscard]] HRESULT QueueLaunch(LaunchWorker::Request& request, std::string_view verb, LaunchWorker* launches) noexcept
 {
-    if (!launches)
+    if (! launches)
     {
         return E_NOT_VALID_STATE;
     }
-    (void)_snprintf_s(request.subject.data(), request.subject.size(), _TRUNCATE, "action \"system.%.*s\"",
-                      static_cast<int>(verb.size()), verb.data());
+    (void)_snprintf_s(request.subject.data(), request.subject.size(), _TRUNCATE, "action \"system.%.*s\"", static_cast<int>(verb.size()), verb.data());
     const HRESULT queued = launches->Enqueue(request);
     return SUCCEEDED(queued) ? S_FALSE : queued;
 }
 
-[[nodiscard]] HRESULT Launch(std::string_view verb, std::string_view target, bool deviceAccess,
-                             LaunchWorker* launches) noexcept
+[[nodiscard]] HRESULT Launch(std::string_view verb, std::string_view target, bool deviceAccess, LaunchWorker* launches) noexcept
 {
     LaunchWorker::Request request{};
-    if (!IsPathOrUri(target) || !Utf8ToWide(target, request.file.data(), static_cast<int>(request.file.size())))
+    if (! IsPathOrUri(target) || ! Utf8ToWide(target, request.file.data(), static_cast<int>(request.file.size())))
     {
         return E_INVALIDARG;
     }
     ++g_counters.launches;
-    if (!deviceAccess)
+    if (! deviceAccess)
     {
         return S_FALSE;
     }
@@ -376,27 +381,26 @@ void ExpireHeld() noexcept
     return QueueLaunch(request, verb, launches);
 }
 
-[[nodiscard]] HRESULT Run(std::string_view verb, std::string_view target, bool deviceAccess,
-                          LaunchWorker* launches) noexcept
+[[nodiscard]] HRESULT Run(std::string_view verb, std::string_view target, bool deviceAccess, LaunchWorker* launches) noexcept
 {
     CommandLine parsed{};
-    if (!ParseCommandLine(target, parsed))
+    if (! ParseCommandLine(target, parsed))
     {
         return E_INVALIDARG;
     }
     LaunchWorker::Request request{};
     request.kind = LaunchWorker::Kind::Process;
     std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> arguments{};
-    if (!Utf8ToWide(parsed.executable, request.file.data(), static_cast<int>(request.file.size())) ||
-        !Utf8ToWide(parsed.arguments, arguments.data(), static_cast<int>(arguments.size())))
+    if (! Utf8ToWide(parsed.executable, request.file.data(), static_cast<int>(request.file.size())) ||
+        ! Utf8ToWide(parsed.arguments, arguments.data(), static_cast<int>(arguments.size())))
     {
         return E_INVALIDARG;
     }
     // CreateProcessW wants the executable quoted in the mutable command line so a path with spaces stays one token.
-    swprintf_s(request.commandLine.data(), request.commandLine.size(), L"\"%s\"%s%s", request.file.data(),
-               arguments[0] != L'\0' ? L" " : L"", arguments.data());
+    swprintf_s(
+        request.commandLine.data(), request.commandLine.size(), L"\"%s\"%s%s", request.file.data(), arguments[0] != L'\0' ? L" " : L"", arguments.data());
     request.directory = request.file;
-    wchar_t* slash = wcsrchr(request.directory.data(), L'\\');
+    wchar_t* slash    = wcsrchr(request.directory.data(), L'\\');
     if (slash)
     {
         *slash = L'\0';
@@ -406,7 +410,7 @@ void ExpireHeld() noexcept
         request.directory[0] = L'\0';
     }
     ++g_counters.processes;
-    if (!deviceAccess)
+    if (! deviceAccess)
     {
         return S_FALSE;
     }
@@ -416,18 +420,18 @@ void ExpireHeld() noexcept
 [[nodiscard]] HRESULT EnableShutdownPrivilege() noexcept
 {
     wil::unique_handle token;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, token.addressof()))
+    if (! OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, token.addressof()))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
     TOKEN_PRIVILEGES privileges{};
-    privileges.PrivilegeCount = 1;
+    privileges.PrivilegeCount           = 1;
     privileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-    if (!LookupPrivilegeValueW(nullptr, SE_SHUTDOWN_NAME, &privileges.Privileges[0].Luid))
+    if (! LookupPrivilegeValueW(nullptr, SE_SHUTDOWN_NAME, &privileges.Privileges[0].Luid))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    if (!AdjustTokenPrivileges(token.get(), FALSE, &privileges, 0, nullptr, nullptr))
+    if (! AdjustTokenPrivileges(token.get(), FALSE, &privileges, 0, nullptr, nullptr))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -437,12 +441,12 @@ void ExpireHeld() noexcept
 [[nodiscard]] HRESULT Shutdown(std::string_view target, bool reboot, bool deviceAccess) noexcept
 {
     NowOrSeconds delay{};
-    if (!ParseNowOrSeconds(target, 0, 3600, delay))
+    if (! ParseNowOrSeconds(target, 0, 3600, delay))
     {
         return E_INVALIDARG;
     }
     ++g_counters.powerRequests;
-    if (!deviceAccess)
+    if (! deviceAccess)
     {
         return S_OK;
     }
@@ -451,8 +455,7 @@ void ExpireHeld() noexcept
     {
         return privilege;
     }
-    if (!InitiateSystemShutdownExW(nullptr, nullptr, delay.seconds, TRUE, reboot ? TRUE : FALSE,
-                                   SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_FLAG_PLANNED))
+    if (! InitiateSystemShutdownExW(nullptr, nullptr, delay.seconds, TRUE, reboot ? TRUE : FALSE, SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_FLAG_PLANNED))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -462,16 +465,16 @@ void ExpireHeld() noexcept
 [[nodiscard]] HRESULT CloseProcessWindows(std::string_view target, bool deviceAccess) noexcept
 {
     WindowSelector selector{};
-    if (!ParseWindowSelector(target, selector))
+    if (! ParseWindowSelector(target, selector))
     {
         return E_INVALIDARG;
     }
-    if (!deviceAccess)
+    if (! deviceAccess)
     {
         return S_OK;
     }
     SelectedWindows selected{};
-    if (!SelectWindows(selector, selector.kind == WindowSelector::Kind::Executable, selected))
+    if (! SelectWindows(selector, selector.kind == WindowSelector::Kind::Executable, selected))
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
@@ -522,12 +525,12 @@ void ExpireHeld() noexcept
 [[nodiscard]] HRESULT SetPowerPlan(std::string_view target, bool deviceAccess) noexcept
 {
     GUID plan{};
-    if (!ParsePowerPlan(target, plan))
+    if (! ParsePowerPlan(target, plan))
     {
         return E_INVALIDARG;
     }
     ++g_counters.powerRequests;
-    if (!deviceAccess)
+    if (! deviceAccess)
     {
         return S_OK;
     }
@@ -538,18 +541,17 @@ void ExpireHeld() noexcept
 [[nodiscard]] HRESULT SetTheme(std::string_view target, bool deviceAccess) noexcept
 {
     uint32_t option = 0;
-    if (!ParseEnum(target, "light|dark|toggle", option))
+    if (! ParseEnum(target, "light|dark|toggle", option))
     {
         return E_INVALIDARG;
     }
-    if (!deviceAccess)
+    if (! deviceAccess)
     {
         return S_OK;
     }
     wil::unique_hkey key;
-    LSTATUS status =
-        RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0,
-                      KEY_QUERY_VALUE | KEY_SET_VALUE, key.addressof());
+    LSTATUS status = RegOpenKeyExW(
+        HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_QUERY_VALUE | KEY_SET_VALUE, key.addressof());
     if (status != ERROR_SUCCESS)
     {
         return HRESULT_FROM_WIN32(static_cast<DWORD>(status));
@@ -559,8 +561,7 @@ void ExpireHeld() noexcept
     {
         DWORD size = sizeof(light);
         DWORD type = REG_DWORD;
-        if (RegQueryValueExW(key.get(), L"AppsUseLightTheme", nullptr, &type, reinterpret_cast<BYTE*>(&light), &size) !=
-            ERROR_SUCCESS)
+        if (RegQueryValueExW(key.get(), L"AppsUseLightTheme", nullptr, &type, reinterpret_cast<BYTE*>(&light), &size) != ERROR_SUCCESS)
         {
             light = 1;
         }
@@ -596,7 +597,7 @@ void ExpireHeld() noexcept
         return E_FAIL;
     }
     ++g_counters.launches;
-    if (!deviceAccess)
+    if (! deviceAccess)
     {
         return S_FALSE;
     }
@@ -606,7 +607,7 @@ void ExpireHeld() noexcept
 [[nodiscard]] HRESULT SwitchLayout(std::string_view target, bool deviceAccess) noexcept
 {
     std::array<wchar_t, 86> wide{};
-    if (target.empty() || target.size() > 84 || !Utf8ToWide(target, wide.data(), static_cast<int>(wide.size())))
+    if (target.empty() || target.size() > 84 || ! Utf8ToWide(target, wide.data(), static_cast<int>(wide.size())))
     {
         return E_INVALIDARG;
     }
@@ -614,8 +615,7 @@ void ExpireHeld() noexcept
     bool allHex = target.size() == 8;
     for (const char character : target)
     {
-        allHex = allHex && ((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') ||
-                            (character >= 'A' && character <= 'F'));
+        allHex = allHex && ((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F'));
     }
     if (allHex)
     {
@@ -630,12 +630,12 @@ void ExpireHeld() noexcept
         }
         swprintf_s(klid.data(), klid.size(), L"%08X", static_cast<unsigned>(locale));
     }
-    if (!deviceAccess)
+    if (! deviceAccess)
     {
         return S_OK;
     }
     const HKL layout = LoadKeyboardLayoutW(klid.data(), KLF_ACTIVATE);
-    if (!layout)
+    if (! layout)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -659,16 +659,16 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     MonitorWalk& walk = *reinterpret_cast<MonitorWalk*>(parameter);
     MONITORINFOEXW info{};
     info.cbSize = sizeof(info);
-    if (!GetMonitorInfoW(monitor, &info))
+    if (! GetMonitorInfoW(monitor, &info))
     {
         return VisitMonitor(walk.search, nullptr) ? TRUE : FALSE;
     }
     MonitorCandidate display{};
-    display.bounds = info.rcMonitor;
-    display.device = info.szDevice;
-    display.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+    display.bounds     = info.rcMonitor;
+    display.device     = info.szDevice;
+    display.primary    = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
     display.hostWindow = monitor == walk.hostMonitor;
-    display.xeneon = g_xeneonFound && EqualRect(&info.rcMonitor, &g_xeneonBounds);
+    display.xeneon     = g_xeneonFound && EqualRect(&info.rcMonitor, &g_xeneonBounds);
     return VisitMonitor(walk.search, &display) ? TRUE : FALSE;
 }
 
@@ -676,8 +676,8 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 {
     MonitorWalk walk{};
     walk.search.selector = selector;
-    walk.hostMonitor = g_hostWindow ? MonitorFromWindow(g_hostWindow, MONITOR_DEFAULTTOPRIMARY) : nullptr;
-    if (selector.kind == MonitorSelector::Kind::Xeneon && !walk.hostMonitor)
+    walk.hostMonitor     = g_hostWindow ? MonitorFromWindow(g_hostWindow, MONITOR_DEFAULTTOPRIMARY) : nullptr;
+    if (selector.kind == MonitorSelector::Kind::Xeneon && ! walk.hostMonitor)
     {
         return false;
     }
@@ -692,7 +692,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 [[nodiscard]] HRESULT MoveCursor(std::string_view target, bool deviceAccess) noexcept
 {
     Point point{};
-    if (!ParsePoint(target, point))
+    if (! ParsePoint(target, point))
     {
         return E_INVALIDARG;
     }
@@ -700,8 +700,8 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     input.type = INPUT_MOUSE;
     if (point.relative)
     {
-        input.mi.dx = point.x;
-        input.mi.dy = point.y;
+        input.mi.dx      = point.x;
+        input.mi.dy      = point.y;
         input.mi.dwFlags = MOUSEEVENTF_MOVE;
     }
     else
@@ -710,15 +710,15 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
         if (point.hasMonitor || point.center)
         {
             MonitorSelector selector = point.monitor;
-            if (!point.hasMonitor)
+            if (! point.hasMonitor)
             {
                 selector.kind = MonitorSelector::Kind::Primary;
             }
-            if (!deviceAccess)
+            if (! deviceAccess)
             {
                 area = RECT{0, 0, 1920, 1080};
             }
-            else if (!ResolveMonitor(selector, area))
+            else if (! ResolveMonitor(selector, area))
             {
                 return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
             }
@@ -735,13 +735,13 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
             x += area.left;
             y += area.top;
         }
-        const int virtualLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        const int virtualTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        const int virtualWidth = std::max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
+        const int virtualLeft   = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        const int virtualTop    = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        const int virtualWidth  = std::max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
         const int virtualHeight = std::max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
-        input.mi.dx = static_cast<LONG>((static_cast<int64_t>(x - virtualLeft) * 65535) / virtualWidth);
-        input.mi.dy = static_cast<LONG>((static_cast<int64_t>(y - virtualTop) * 65535) / virtualHeight);
-        input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        input.mi.dx             = static_cast<LONG>((static_cast<int64_t>(x - virtualLeft) * 65535) / virtualWidth);
+        input.mi.dy             = static_cast<LONG>((static_cast<int64_t>(y - virtualTop) * 65535) / virtualHeight);
+        input.mi.dwFlags        = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
     }
     return Inject(&input, 1, deviceAccess);
 }
@@ -749,30 +749,30 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 [[nodiscard]] bool ButtonFlags(std::string_view target, uint32_t& down, uint32_t& up, DWORD& data) noexcept
 {
     uint32_t index = 0;
-    if (!ParseEnum(target, "left|right|middle|x1|x2", index))
+    if (! ParseEnum(target, "left|right|middle|x1|x2", index))
     {
         return false;
     }
     data = 0;
     switch (index)
     {
-    case 0:
-        down = MOUSEEVENTF_LEFTDOWN;
-        up = MOUSEEVENTF_LEFTUP;
-        break;
-    case 1:
-        down = MOUSEEVENTF_RIGHTDOWN;
-        up = MOUSEEVENTF_RIGHTUP;
-        break;
-    case 2:
-        down = MOUSEEVENTF_MIDDLEDOWN;
-        up = MOUSEEVENTF_MIDDLEUP;
-        break;
-    default:
-        down = MOUSEEVENTF_XDOWN;
-        up = MOUSEEVENTF_XUP;
-        data = index == 3 ? XBUTTON1 : XBUTTON2;
-        break;
+        case 0:
+            down = MOUSEEVENTF_LEFTDOWN;
+            up   = MOUSEEVENTF_LEFTUP;
+            break;
+        case 1:
+            down = MOUSEEVENTF_RIGHTDOWN;
+            up   = MOUSEEVENTF_RIGHTUP;
+            break;
+        case 2:
+            down = MOUSEEVENTF_MIDDLEDOWN;
+            up   = MOUSEEVENTF_MIDDLEUP;
+            break;
+        default:
+            down = MOUSEEVENTF_XDOWN;
+            up   = MOUSEEVENTF_XUP;
+            data = index == 3 ? XBUTTON1 : XBUTTON2;
+            break;
     }
     return true;
 }
@@ -780,9 +780,9 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 [[nodiscard]] HRESULT ClickButton(std::string_view target, uint32_t clicks, bool deviceAccess) noexcept
 {
     uint32_t down = 0;
-    uint32_t up = 0;
-    DWORD data = 0;
-    if (!ButtonFlags(target, down, up, data))
+    uint32_t up   = 0;
+    DWORD data    = 0;
+    if (! ButtonFlags(target, down, up, data))
     {
         return E_INVALIDARG;
     }
@@ -792,10 +792,10 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     {
         for (const uint32_t flag : {down, up})
         {
-            INPUT& input = inputs[count++];
-            input = INPUT{};
-            input.type = INPUT_MOUSE;
-            input.mi.dwFlags = flag;
+            INPUT& input       = inputs[count++];
+            input              = INPUT{};
+            input.type         = INPUT_MOUSE;
+            input.mi.dwFlags   = flag;
             input.mi.mouseData = data;
         }
     }
@@ -805,9 +805,9 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 [[nodiscard]] HRESULT HoldButton(std::string_view target, bool release, bool deviceAccess) noexcept
 {
     uint32_t down = 0;
-    uint32_t up = 0;
-    DWORD data = 0;
-    if (!ButtonFlags(target, down, up, data))
+    uint32_t up   = 0;
+    DWORD data    = 0;
+    if (! ButtonFlags(target, down, up, data))
     {
         return E_INVALIDARG;
     }
@@ -825,7 +825,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
         g_mouse.expired = false;
         return S_FALSE;
     }
-    if (!release && g_mouse.held)
+    if (! release && g_mouse.held)
     {
         // A refused release keeps its hold for the retry; the new button is not pressed over it.
         if (const HRESULT released = ReleaseMouse(false, true); FAILED(released))
@@ -835,14 +835,14 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
         }
     }
     INPUT input{};
-    input.type = INPUT_MOUSE;
-    input.mi.dwFlags = release ? up : down;
-    input.mi.mouseData = data;
+    input.type           = INPUT_MOUSE;
+    input.mi.dwFlags     = release ? up : down;
+    input.mi.mouseData   = data;
     const HRESULT result = Inject(&input, 1, deviceAccess);
-    if (SUCCEEDED(result) && !release)
+    if (SUCCEEDED(result) && ! release)
     {
         g_heldMouseFlags = up;
-        g_heldMouseData = data;
+        g_heldMouseData  = data;
         BeginHold(g_mouse, deviceAccess);
     }
     ArmHeldTimer();
@@ -852,13 +852,13 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 [[nodiscard]] HRESULT Scroll(std::string_view target, bool horizontal, bool deviceAccess) noexcept
 {
     Delta delta{};
-    if (!ParseDelta(target, -100, 100, delta) || delta.value == 0)
+    if (! ParseDelta(target, -100, 100, delta) || delta.value == 0)
     {
         return E_INVALIDARG;
     }
     INPUT input{};
-    input.type = INPUT_MOUSE;
-    input.mi.dwFlags = horizontal ? MOUSEEVENTF_HWHEEL : MOUSEEVENTF_WHEEL;
+    input.type         = INPUT_MOUSE;
+    input.mi.dwFlags   = horizontal ? MOUSEEVENTF_HWHEEL : MOUSEEVENTF_WHEEL;
     input.mi.mouseData = static_cast<DWORD>(delta.value * WHEEL_DELTA);
     return Inject(&input, 1, deviceAccess);
 }
@@ -866,7 +866,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 [[nodiscard]] HRESULT HoldChord(std::string_view target, bool release, bool deviceAccess) noexcept
 {
     ChordSequence sequence{};
-    if (!ParseChords(target, sequence) || sequence.count != 1)
+    if (! ParseChords(target, sequence) || sequence.count != 1)
     {
         return E_INVALIDARG;
     }
@@ -885,7 +885,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
         g_chord.expired = false;
         return S_FALSE;
     }
-    if (!release && g_chord.held)
+    if (! release && g_chord.held)
     {
         // A refused release keeps its hold for the retry; the new chord is not pressed over it.
         if (const HRESULT released = ReleaseChord(false, true); FAILED(released))
@@ -897,7 +897,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     std::array<INPUT, 5> inputs{};
     const uint32_t count = FillChord(sequence.chords[0], release, inputs.data());
     const HRESULT result = Inject(inputs.data(), count, deviceAccess);
-    if (SUCCEEDED(result) && !release)
+    if (SUCCEEDED(result) && ! release)
     {
         g_heldChord = sequence.chords[0];
         BeginHold(g_chord, deviceAccess);
@@ -906,8 +906,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     return result;
 }
 
-[[nodiscard]] HRESULT ExecuteSystem(std::string_view verb, std::string_view target, bool deviceAccess,
-                                    LaunchWorker* launches) noexcept
+[[nodiscard]] HRESULT ExecuteSystem(std::string_view verb, std::string_view target, bool deviceAccess, LaunchWorker* launches) noexcept
 {
     if (verb == "launch" || verb == "open")
     {
@@ -920,24 +919,21 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     if (verb == "lock")
     {
         ++g_counters.powerRequests;
-        return !deviceAccess || LockWorkStation() ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+        return ! deviceAccess || LockWorkStation() ? S_OK : HRESULT_FROM_WIN32(GetLastError());
     }
     if (verb == "sleep" || verb == "hibernate")
     {
         ++g_counters.powerRequests;
-        if (!deviceAccess)
+        if (! deviceAccess)
         {
             return S_OK;
         }
-        return SetSuspendState(verb == "hibernate" ? TRUE : FALSE, FALSE, FALSE) ? S_OK
-                                                                                 : HRESULT_FROM_WIN32(GetLastError());
+        return SetSuspendState(verb == "hibernate" ? TRUE : FALSE, FALSE, FALSE) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
     }
     if (verb == "logoff")
     {
         ++g_counters.powerRequests;
-        return !deviceAccess || ExitWindowsEx(EWX_LOGOFF, SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_FLAG_PLANNED)
-                   ? S_OK
-                   : HRESULT_FROM_WIN32(GetLastError());
+        return ! deviceAccess || ExitWindowsEx(EWX_LOGOFF, SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_FLAG_PLANNED) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
     }
     if (verb == "shutdown" || verb == "restart")
     {
@@ -946,7 +942,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     if (verb == "shutdown.cancel")
     {
         ++g_counters.powerRequests;
-        if (!deviceAccess)
+        if (! deviceAccess)
         {
             return S_OK;
         }
@@ -981,7 +977,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     if (verb == "press")
     {
         ChordSequence sequence{};
-        if (!ParseChords(target, sequence))
+        if (! ParseChords(target, sequence))
         {
             return E_INVALIDARG;
         }
@@ -997,11 +993,10 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     }
     if (verb == "media")
     {
-        constexpr std::array<uint16_t, 7> kMediaKeys{VK_MEDIA_PLAY_PAUSE, VK_MEDIA_STOP, VK_MEDIA_NEXT_TRACK,
-                                                     VK_MEDIA_PREV_TRACK, VK_VOLUME_UP,  VK_VOLUME_DOWN,
-                                                     VK_VOLUME_MUTE};
+        constexpr std::array<uint16_t, 7> kMediaKeys{
+            VK_MEDIA_PLAY_PAUSE, VK_MEDIA_STOP, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PREV_TRACK, VK_VOLUME_UP, VK_VOLUME_DOWN, VK_VOLUME_MUTE};
         uint32_t index = 0;
-        if (!ParseEnum(target, "play-pause|stop|next-track|previous-track|volume-up|volume-down|mute", index))
+        if (! ParseEnum(target, "play-pause|stop|next-track|previous-track|volume-up|volume-down|mute", index))
         {
             return E_INVALIDARG;
         }
@@ -1011,7 +1006,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     {
         constexpr std::array<uint16_t, 3> kLockKeys{VK_CAPITAL, VK_NUMLOCK, VK_SCROLL};
         uint32_t index = 0;
-        if (!ParseEnum(target, "caps|num|scroll", index))
+        if (! ParseEnum(target, "caps|num|scroll", index))
         {
             return E_INVALIDARG;
         }
@@ -1053,17 +1048,16 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
     if (verb == "speed")
     {
         int32_t speed = 0;
-        if (!ParseInteger(target, 1, 20, speed))
+        if (! ParseInteger(target, 1, 20, speed))
         {
             return E_INVALIDARG;
         }
-        if (!deviceAccess)
+        if (! deviceAccess)
         {
             return S_OK;
         }
-        return SystemParametersInfoW(SPI_SETMOUSESPEED, 0, reinterpret_cast<PVOID>(static_cast<intptr_t>(speed)), 0)
-                   ? S_OK
-                   : HRESULT_FROM_WIN32(GetLastError());
+        return SystemParametersInfoW(SPI_SETMOUSESPEED, 0, reinterpret_cast<PVOID>(static_cast<intptr_t>(speed)), 0) ? S_OK
+                                                                                                                     : HRESULT_FROM_WIN32(GetLastError());
     }
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
@@ -1071,7 +1065,7 @@ BOOL CALLBACK EnumerateMonitors(HMONITOR monitor, HDC, LPRECT, LPARAM parameter)
 
 void SetHostWindow(HWND window, IRedXeHost* log) noexcept
 {
-    if (!window)
+    if (! window)
     {
         // The main window is closing: no timer releases a hold any more, so this is the last attempt, made while the
         // outgoing log still records a refusal (held-release-abandoned). Runtime shutdown then finds nothing held.
@@ -1083,67 +1077,60 @@ void SetHostWindow(HWND window, IRedXeHost* log) noexcept
         (void)KillTimer(g_hostWindow, kHeldInputTimerId);
     }
     g_hostWindow = window;
-    g_log = log;
+    g_log        = log;
     ArmHeldTimer();
 }
 
 void SetXeneonDisplay(const RECT& bounds, bool found) noexcept
 {
     g_xeneonBounds = found ? bounds : RECT{};
-    g_xeneonFound = found;
+    g_xeneonFound  = found;
 }
 
 bool VisitMonitor(MonitorSearch& search, const MonitorCandidate* display) noexcept
 {
     using Kind = RedXeActions::MonitorSelector::Kind;
     ++search.visited;
-    if (!display)
+    if (! display)
     {
         return true;
     }
     bool matched = false;
     switch (search.selector.kind)
     {
-    case Kind::Primary:
-        matched = display->primary;
-        break;
-    case Kind::Secondary:
-    {
-        // The first display of the highest rank: a XENEON is kept only until another display that is not the
-        // primary turns up, which ends the search.
-        const uint32_t rank = RedXeActions::SecondaryMonitorRank(display->primary, display->xeneon);
-        if (rank <= search.secondaryRank)
+        case Kind::Primary: matched = display->primary; break;
+        case Kind::Secondary:
         {
-            return true;
+            // The first display of the highest rank: a XENEON is kept only until another display that is not the
+            // primary turns up, which ends the search.
+            const uint32_t rank = RedXeActions::SecondaryMonitorRank(display->primary, display->xeneon);
+            if (rank <= search.secondaryRank)
+            {
+                return true;
+            }
+            search.secondaryRank = rank;
+            search.rectangle     = display->bounds;
+            search.found         = true;
+            return rank < RedXeActions::kSecondaryMonitorTopRank;
         }
-        search.secondaryRank = rank;
-        search.rectangle = display->bounds;
-        search.found = true;
-        return rank < RedXeActions::kSecondaryMonitorTopRank;
+        case Kind::Xeneon: matched = display->hostWindow; break;
+        case Kind::Index: matched = search.visited == search.selector.index; break;
+        case Kind::Name:
+        {
+            std::array<wchar_t, 129> needle{};
+            matched = display->device && Utf8ToWide(search.selector.name, needle.data(), static_cast<int>(needle.size())) &&
+                      ContainsIgnoreCase(display->device, needle.data());
+            break;
+        }
+        case ::RedXeActions::MonitorSelector::Kind::All:
+        default: break;
     }
-    case Kind::Xeneon:
-        matched = display->hostWindow;
-        break;
-    case Kind::Index:
-        matched = search.visited == search.selector.index;
-        break;
-    case Kind::Name:
-    {
-        std::array<wchar_t, 129> needle{};
-        matched = display->device && Utf8ToWide(search.selector.name, needle.data(), static_cast<int>(needle.size())) &&
-                  ContainsIgnoreCase(display->device, needle.data());
-        break;
-    }
-    case ::RedXeActions::MonitorSelector::Kind::All:
-    default:
-        break;
-    }
-    if (!matched)
+    if (! matched)
     {
         return true;
     }
     search.rectangle = display->bounds;
-    search.found = true;
+    search.found     = true;
     return false;
 }
 
@@ -1188,30 +1175,27 @@ bool ReleasesTrackedHold(std::string_view action, std::string_view target) noexc
     if (action == "keys.up")
     {
         ChordSequence sequence{};
-        return (g_chord.held || g_chord.expired) && ParseChords(target, sequence) && sequence.count == 1 &&
-               SameChord(sequence.chords[0], g_heldChord);
+        return (g_chord.held || g_chord.expired) && ParseChords(target, sequence) && sequence.count == 1 && SameChord(sequence.chords[0], g_heldChord);
     }
     if (action == "mouse.up")
     {
         uint32_t down = 0;
-        uint32_t up = 0;
-        DWORD data = 0;
-        return (g_mouse.held || g_mouse.expired) && ButtonFlags(target, down, up, data) && up == g_heldMouseFlags &&
-               data == g_heldMouseData;
+        uint32_t up   = 0;
+        DWORD data    = 0;
+        return (g_mouse.held || g_mouse.expired) && ButtonFlags(target, down, up, data) && up == g_heldMouseFlags && data == g_heldMouseData;
     }
     return false;
 }
 
-HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target, bool deviceAccess,
-                LaunchWorker* launches) noexcept
+HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target, bool deviceAccess, LaunchWorker* launches) noexcept
 {
-    if (descriptor.sizeBytes != sizeof(RedXeActionDescriptor) || !descriptor.name)
+    if (descriptor.sizeBytes != sizeof(RedXeActionDescriptor) || ! descriptor.name)
     {
         return E_INVALIDARG;
     }
     const std::string_view name{descriptor.name};
     const std::string_view space = HostActionCatalog::NamespaceOf(name);
-    const std::string_view verb = name.substr(space.size() + 1);
+    const std::string_view verb  = name.substr(space.size() + 1);
     // Whatever an earlier keys.down / mouse.down left pressed past its deadline (or due for a release retry) is
     // released first, as the timer would. When this execution is that hold's own `up`, it then injects nothing.
     ExpireHeld();

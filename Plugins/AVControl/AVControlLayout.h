@@ -30,11 +30,11 @@ struct LiveLayout final
     std::array<Rect, 2> levelPanels{};
     std::array<Rect, 2> levelMutes{};
     std::array<Rect, 2> sliders{};
-    float labelFont = 14;
-    float stateFont = 16;
-    float valueFont = 18;
+    float labelFont      = 14;
+    float stateFont      = 16;
+    float valueFont      = 18;
     bool showDeviceNames = false;
-    bool showScope = false;
+    bool showScope       = false;
 };
 // Logical pixel geometry, no allocation or OS work. All usable layouts retain the three toggles and both levels.
 [[nodiscard]] LiveLayout LayoutLive(float width, float height) noexcept;

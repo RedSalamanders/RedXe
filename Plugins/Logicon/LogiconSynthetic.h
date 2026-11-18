@@ -15,13 +15,13 @@
 
 namespace Logicon
 {
-inline constexpr uint32_t kSyntheticQueueSlots = 32;
+inline constexpr uint32_t kSyntheticQueueSlots  = 32;
 inline constexpr uint32_t kSyntheticRegionSlots = 64;
 
 struct SyntheticImageRecord final
 {
     ImageRegion region{};
-    uint32_t bytes = 0;
+    uint32_t bytes   = 0;
     bool deferUpdate = false;
     // First bytes of the JPEG so a test can check the SOI marker.
     std::array<uint8_t, 4> head{};
@@ -30,9 +30,9 @@ struct SyntheticImageRecord final
 // Shared between the lane (through the port) and the injecting thread. One instance lives for the DLL.
 class SyntheticKeypad final
 {
-  public:
-    SyntheticKeypad() = default;
-    SyntheticKeypad(const SyntheticKeypad&) = delete;
+public:
+    SyntheticKeypad()                                  = default;
+    SyntheticKeypad(const SyntheticKeypad&)            = delete;
     SyntheticKeypad& operator=(const SyntheticKeypad&) = delete;
 
     [[nodiscard]] HRESULT Initialize() noexcept;
@@ -80,7 +80,7 @@ class SyntheticKeypad final
     [[nodiscard]] HRESULT HandleFeature(const uint8_t* report, uint32_t bytes) noexcept;
     [[nodiscard]] HRESULT TakeQueued(uint8_t* buffer, uint32_t capacity, uint32_t& bytes) noexcept;
 
-  private:
+private:
     void Enqueue(const uint8_t* report, uint32_t bytes) noexcept;
     void RecordImage(const uint8_t* packet, uint32_t bytes) noexcept;
 
@@ -88,20 +88,20 @@ class SyntheticKeypad final
     wil::unique_event_nothrow _readEvent;
     std::array<std::array<uint8_t, kVlpControlReportBytes>, kSyntheticQueueSlots> _queue{};
     std::array<uint32_t, kSyntheticQueueSlots> _queueBytes{};
-    uint32_t _queueHead = 0;
+    uint32_t _queueHead  = 0;
     uint32_t _queueCount = 0;
     std::array<SyntheticImageRecord, kSyntheticRegionSlots> _images{};
-    uint32_t _imageCount = 0;
-    uint32_t _commands = 0;
-    uint32_t _brightness = 0;
+    uint32_t _imageCount      = 0;
+    uint32_t _commands        = 0;
+    uint32_t _brightness      = 0;
     uint32_t _streamRemaining = 0;
     SyntheticImageRecord _streaming{};
     std::array<uint8_t, 2> _pageFlags{};
     std::array<uint8_t, kDialpadButtonCount> _dialFlags{};
-    bool _resetSeen = false;
+    bool _resetSeen           = false;
     bool _hideDisplayFromRoot = false;
-    bool _dialpad = false;
-    bool _unresponsive = false;
+    bool _dialpad             = false;
+    bool _unresponsive        = false;
 };
 
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
@@ -110,18 +110,16 @@ class SyntheticKeypad final
 #pragma warning(disable : 4626 5027)
 class SyntheticHidPort final : public HidPort
 {
-  public:
+public:
     explicit SyntheticHidPort(SyntheticKeypad& keypad) noexcept;
     [[nodiscard]] const HidCollectionInfo& Info() const noexcept override;
     [[nodiscard]] HANDLE ReadEvent() const noexcept override;
     [[nodiscard]] HRESULT TakeReport(uint8_t* buffer, uint32_t capacity, uint32_t& bytes) noexcept override;
-    [[nodiscard]] HRESULT Write(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
-                                uint32_t timeoutMilliseconds) noexcept override;
-    [[nodiscard]] HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent,
-                                     uint32_t timeoutMilliseconds) noexcept override;
+    [[nodiscard]] HRESULT Write(const uint8_t* report, uint32_t bytes, HANDLE stopEvent, uint32_t timeoutMilliseconds) noexcept override;
+    [[nodiscard]] HRESULT SetFeature(const uint8_t* report, uint32_t bytes, HANDLE stopEvent, uint32_t timeoutMilliseconds) noexcept override;
     [[nodiscard]] bool Disconnected() const noexcept override;
 
-  private:
+private:
     SyntheticKeypad& _keypad;
     HidCollectionInfo _info{};
 };

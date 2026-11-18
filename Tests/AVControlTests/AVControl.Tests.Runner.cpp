@@ -29,14 +29,14 @@ uint32_t checks = 0;
 void Require(bool condition, const char* description)
 {
     ++checks;
-    if (!condition)
+    if (! condition)
         throw std::runtime_error(description);
 }
 
 // Every stage announces itself on a flushed line and is watched by a deadline: a wait that never returns must end
 // as a failure that names the stage within minutes, not as a silent 45-minute CI timeout. The budget is generous
 // (locally the whole run takes seconds) so it only ever fires on a genuine hang.
-DWORD StageBudgetMilliseconds = 3 * 60 * 1000;
+DWORD StageBudgetMilliseconds         = 3 * 60 * 1000;
 constexpr DWORD RunBudgetMilliseconds = 12 * 60 * 1000;
 // No other path of this executable ends with this code: 3 and 4 are a failed runtime check and an abort
 // (Common/FailureReports.h), so a hang never reads as either.
@@ -52,11 +52,10 @@ void BeginStage(const char* name)
     // The watchdog reads both values without a lock: clearing the timestamp first means it can only ever pair a
     // stage name with that stage's own start (or with no deadline), never a new name with the previous, older start.
     const ULONGLONG previousStarted = stageStartedAt.exchange(0);
-    const char* previous = currentStage.exchange(name);
+    const char* previous            = currentStage.exchange(name);
     stageStartedAt.store(now);
     if (previousStarted)
-        std::printf("AVControl: %s done in %llu ms\n", previous,
-                    static_cast<unsigned long long>(now - previousStarted));
+        std::printf("AVControl: %s done in %llu ms\n", previous, static_cast<unsigned long long>(now - previousStarted));
     std::printf("AVControl: %s...\n", name);
     std::fflush(stdout);
 }
@@ -67,19 +66,18 @@ DWORD WINAPI Watchdog(void*) noexcept
     {
         if (WaitForSingleObject(runFinished.get(), 1000) == WAIT_OBJECT_0)
             return 0;
-        const ULONGLONG now = GetTickCount64();
+        const ULONGLONG now     = GetTickCount64();
         const ULONGLONG started = stageStartedAt.load();
         const bool stageOverdue = started && now - started > StageBudgetMilliseconds;
-        const bool runOverdue = now - runStartedAt > RunBudgetMilliseconds;
-        if (!stageOverdue && !runOverdue)
+        const bool runOverdue   = now - runStartedAt > RunBudgetMilliseconds;
+        if (! stageOverdue && ! runOverdue)
             continue;
-        std::fprintf(
-            stderr,
-            "FAIL AVControl: stage '%s' did not finish within %lu s (run %llu s); a wait in it is unbounded. "
-            "Terminating so the suite fails here instead of at the job timeout.\n",
-            currentStage.load(),
-            static_cast<unsigned long>((stageOverdue ? StageBudgetMilliseconds : RunBudgetMilliseconds) / 1000),
-            static_cast<unsigned long long>((now - runStartedAt) / 1000));
+        std::fprintf(stderr,
+                     "FAIL AVControl: stage '%s' did not finish within %lu s (run %llu s); a wait in it is unbounded. "
+                     "Terminating so the suite fails here instead of at the job timeout.\n",
+                     currentStage.load(),
+                     static_cast<unsigned long>((stageOverdue ? StageBudgetMilliseconds : RunBudgetMilliseconds) / 1000),
+                     static_cast<unsigned long long>((now - runStartedAt) / 1000));
         std::fflush(stderr);
         // The hung thread may hold locks the CRT shutdown would need: leave immediately, no destructors.
         TerminateProcess(GetCurrentProcess(), static_cast<UINT>(HangExitCode));
@@ -104,8 +102,7 @@ void SettingsTests()
     Require(SerializeConfiguration(config, bytes.data(), bytes.size(), written) == S_OK, "profile serializes");
     Configuration roundtrip;
     Require(ParseConfiguration({bytes.data(), written}, roundtrip) == S_OK, "serialized profile reparses");
-    Require(roundtrip.profiles[0].cameraId.View() == "camera" && roundtrip.profiles[0].microphoneLevel == 72,
-            "profile roundtrip preserves fields");
+    Require(roundtrip.profiles[0].cameraId.View() == "camera" && roundtrip.profiles[0].microphoneLevel == 72, "profile roundtrip preserves fields");
     constexpr std::array invalid{R"({})",
                                  R"({"profiles":null})",
                                  R"({"profiles":[],"extra":true})",
@@ -116,8 +113,7 @@ void SettingsTests()
     for (std::string_view value : invalid)
     {
         Require(FAILED(ParseConfiguration(value, config)), "malformed configuration rejected");
-        Require(config.count == 1 && config.profiles[0].id.View() == "studio",
-                "failure preserves previous configuration");
+        Require(config.count == 1 && config.profiles[0].id.View() == "studio", "failure preserves previous configuration");
     }
     const auto replace = [](std::string_view from, std::string_view to)
     {
@@ -125,34 +121,34 @@ void SettingsTests()
         result.replace(result.find(from), from.size(), to);
         return result;
     };
-    for (const std::string& value :
-         {replace("\"studio\"", "\"invalid id\""), replace("\"Studio\"", "\"\\u0001name\""),
-          replace("\"Studio\"", "\"\\uD800\""), replace("\"camera\"", "\"cam\\u0000era\""), replace("\"output\"", "42"),
-          replace("\"all\"", "\"multimedia\""), replace("\"restoreLevels\":true", "\"restoreLevels\":1"),
-          replace("\"outputLevel\":68", "\"outputLevel\":101"), replace("\"outputLevel\":68", "\"outputLevel\":68.0"),
-          replace("\"outputLevel\":68", "\"outputLevel\":-1"), replace("\"microphoneLevel\":72", "\"outputLevel\":72")})
+    for (const std::string& value : {replace("\"studio\"", "\"invalid id\""),
+                                     replace("\"Studio\"", "\"\\u0001name\""),
+                                     replace("\"Studio\"", "\"\\uD800\""),
+                                     replace("\"camera\"", "\"cam\\u0000era\""),
+                                     replace("\"output\"", "42"),
+                                     replace("\"all\"", "\"multimedia\""),
+                                     replace("\"restoreLevels\":true", "\"restoreLevels\":1"),
+                                     replace("\"outputLevel\":68", "\"outputLevel\":101"),
+                                     replace("\"outputLevel\":68", "\"outputLevel\":68.0"),
+                                     replace("\"outputLevel\":68", "\"outputLevel\":-1"),
+                                     replace("\"microphoneLevel\":72", "\"outputLevel\":72")})
         Require(FAILED(ParseConfiguration(value, config)), "strict profile semantics rejected");
 
-    const auto object = valid.substr(valid.find('[') + 1, valid.rfind(']') - valid.find('[') - 1);
+    const auto object     = valid.substr(valid.find('[') + 1, valid.rfind(']') - valid.find('[') - 1);
     std::string duplicate = "{\"profiles\":[" + std::string{object} + ',' + std::string{object} + "]}";
-    const size_t last = duplicate.rfind("studio");
+    const size_t last     = duplicate.rfind("studio");
     duplicate.replace(last, 6, "STUDIO");
     ConfigurationError reason = ConfigurationError::None;
-    Require(FAILED(ParseConfiguration(duplicate, config, &reason)) && reason == ConfigurationError::DuplicateProfile,
-            "case-insensitive duplicate id rejected");
+    Require(FAILED(ParseConfiguration(duplicate, config, &reason)) && reason == ConfigurationError::DuplicateProfile, "case-insensitive duplicate id rejected");
     Require(ParseConfiguration(replace("Studio", "Réunion 🎤"), config) == S_OK, "Unicode profile name accepted");
-    Require(ParseConfiguration(replace("Studio", std::string(49, 'x')), config) == E_INVALIDARG,
-            "49 scalar name rejected");
+    Require(ParseConfiguration(replace("Studio", std::string(49, 'x')), config) == E_INVALIDARG, "49 scalar name rejected");
     Require(ParseConfiguration(replace("Studio", std::string(48, 'x')), config) == S_OK, "48 scalar name accepted");
-    Require(ParseConfiguration(replace("\"camera\"", '"' + std::string(1025, 'x') + '"'), config) == E_INVALIDARG,
-            "oversize device id never truncated");
-    Require(ParseConfiguration(std::string(MaximumSettingsBytes + 1, ' '), config) == E_INVALIDARG,
-            "serialized settings ceiling enforced");
+    Require(ParseConfiguration(replace("\"camera\"", '"' + std::string(1025, 'x') + '"'), config) == E_INVALIDARG, "oversize device id never truncated");
+    Require(ParseConfiguration(std::string(MaximumSettingsBytes + 1, ' '), config) == E_INVALIDARG, "serialized settings ceiling enforced");
     bytes.fill('!');
     Require(FAILED(SerializeConfiguration(config, bytes.data(), 1, written)) && written == 0 && bytes[0] == '!',
             "failed serialization publishes no partial bytes");
-    Require(ParseConfiguration(R"({"profiles":[]})", config) == S_OK && config.count == 0,
-            "fresh machine has empty profiles");
+    Require(ParseConfiguration(R"({"profiles":[]})", config) == S_OK && config.count == 0, "fresh machine has empty profiles");
 }
 
 void GestureAndMatchingTests()
@@ -162,17 +158,17 @@ void GestureAndMatchingTests()
     Require(ParseConfiguration(valid, config) == S_OK, "gesture profile fixture");
     const Profile& profile = config.profiles[0];
     ConfirmedState state;
-    state.output.id = profile.outputId;
-    state.microphone.id = profile.microphoneId;
-    state.camera.sourceId = profile.cameraId;
+    state.output.id           = profile.outputId;
+    state.microphone.id       = profile.microphoneId;
+    state.camera.sourceId     = profile.cameraId;
     state.output.availability = state.microphone.availability = state.camera.availability = Availability::Ready;
-    state.output.level = profile.outputLevel;
-    state.microphone.level = profile.microphoneLevel;
+    state.output.level                                                                    = profile.outputLevel;
+    state.microphone.level                                                                = profile.microphoneLevel;
     state.outputDefaults.fill(profile.outputId);
     state.inputDefaults.fill(profile.microphoneId);
     Require(MatchProfile(profile, state) == ProfileMatch::Active, "all bindings verified active");
     state.output.muted = state.microphone.muted = true;
-    state.camera.enabled = false;
+    state.camera.enabled                        = false;
     Require(MatchProfile(profile, state) == ProfileMatch::Active, "mute and camera-off do not change profile identity");
     ++state.output.level;
     Require(MatchProfile(profile, state) == ProfileMatch::Adjusted, "optional level drift is adjusted");
@@ -181,32 +177,28 @@ void GestureAndMatchingTests()
     state.camera.availability = Availability::Ready;
     Require(state.outputDefaults[0].Assign("different"), "external role fixture");
     Require(MatchProfile(profile, state) == ProfileMatch::Custom, "every requested role is checked");
-    Profile communications = profile;
-    communications.audioRoles = AudioRoles::Communications;
+    Profile communications       = profile;
+    communications.audioRoles    = AudioRoles::Communications;
     communications.restoreLevels = false;
-    Require(MatchProfile(communications, state) == ProfileMatch::Active,
-            "communications scope ignores unrelated roles");
+    Require(MatchProfile(communications, state) == ProfileMatch::Active, "communications scope ignores unrelated roles");
 
     LevelGesture gesture;
     uint32_t committed = 777;
     Require(gesture.Begin(state.output, 4) && gesture.Preview(91), "gesture previews a draft");
     Require(state.output.level != 91 && state.output.muted, "preview never changes confirmed level or mute");
     gesture.Cancel();
-    Require(!gesture.Commit(state.output, 4, committed) && committed == 777, "cancel sends no level command");
-    Require(gesture.Begin(state.output, 4) && gesture.Preview(0) && gesture.Commit(state.output, 4, committed) &&
-                committed == 0,
+    Require(! gesture.Commit(state.output, 4, committed) && committed == 777, "cancel sends no level command");
+    Require(gesture.Begin(state.output, 4) && gesture.Preview(0) && gesture.Commit(state.output, 4, committed) && committed == 0,
             "zero slider endpoint commits");
-    Require(!gesture.Commit(state.output, 4, committed), "gesture can commit only once");
+    Require(! gesture.Commit(state.output, 4, committed), "gesture can commit only once");
     Require(gesture.Begin(state.output, 4) && gesture.Preview(100), "hundred slider endpoint previews");
     ++state.output.levelRevision;
-    Require(!gesture.Commit(state.output, 4, committed), "external level change cancels stale draft");
-    Require(gesture.Begin(state.output, 4) && !gesture.Commit(state.output, 5, committed),
-            "layout replacement cancels gesture");
+    Require(! gesture.Commit(state.output, 4, committed), "external level change cancels stale draft");
+    Require(gesture.Begin(state.output, 4) && ! gesture.Commit(state.output, 5, committed), "layout replacement cancels gesture");
     Require(gesture.Begin(state.output, 4), "device generation gesture begins");
     ++state.output.generation;
-    Require(!gesture.Commit(state.output, 4, committed), "device generation replacement cancels gesture");
-    Require(StepLevel(98, 5) == 100 && StepLevel(2, -5) == 0 && StepLevel(50, 1) == 51,
-            "steps clamp and preserve keyboard precision");
+    Require(! gesture.Commit(state.output, 4, committed), "device generation replacement cancels gesture");
+    Require(StepLevel(98, 5) == 100 && StepLevel(2, -5) == 0 && StepLevel(50, 1) == 51, "steps clamp and preserve keyboard precision");
     Require(StepLevel(50, INT32_MAX) == 100 && StepLevel(50, INT32_MIN) == 0, "step arithmetic cannot overflow");
 }
 
@@ -224,60 +216,44 @@ void LayoutTests()
         for (size_t i = 0; i < layout.sliders.size(); ++i)
         {
             const Rect& slider = layout.sliders[i];
-            Require(slider.width >= 48.0f && slider.height <= 48.01f && slider.height >= 47.99f,
-                    "level sliders keep a 48 DIP touch pointer band");
-            Require(slider.x >= 0 && slider.y >= 0 && slider.x + slider.width <= width + 0.01f &&
-                        slider.y + slider.height <= height + 0.01f,
+            Require(slider.width >= 48.0f && slider.height <= 48.01f && slider.height >= 47.99f, "level sliders keep a 48 DIP touch pointer band");
+            Require(slider.x >= 0 && slider.y >= 0 && slider.x + slider.width <= width + 0.01f && slider.y + slider.height <= height + 0.01f,
                     "slider lies inside the tile");
             const float panelMid = layout.levelPanels[i].y + layout.levelPanels[i].height * 0.5f;
-            Require(std::abs((slider.y + slider.height * 0.5f) - panelMid) < 0.02f,
-                    "slider pointer band is centered in the level panel");
+            Require(std::abs((slider.y + slider.height * 0.5f) - panelMid) < 0.02f, "slider pointer band is centered in the level panel");
             targets.push_back(slider);
         }
         for (size_t i = 0; i < targets.size(); ++i)
         {
-            const Rect& r = targets[i];
+            const Rect& r     = targets[i];
             const bool slider = i >= targets.size() - layout.sliders.size();
-            Require(r.width >= 48 && (slider ? r.height >= 47.99f : r.height >= 48),
-                    "every mute, camera and Profile target respects 48 logical pixel floor");
-            Require(r.x >= 0 && r.y >= 0 && r.x + r.width <= width + 0.01f && r.y + r.height <= height + 0.01f,
-                    "every target lies inside the tile");
+            Require(r.width >= 48 && (slider ? r.height >= 47.99f : r.height >= 48), "every mute, camera and Profile target respects 48 logical pixel floor");
+            Require(r.x >= 0 && r.y >= 0 && r.x + r.width <= width + 0.01f && r.y + r.height <= height + 0.01f, "every target lies inside the tile");
             for (size_t j = 0; j < i; ++j)
             {
                 const Rect& previous = targets[j];
-                Require(r.x + r.width <= previous.x + 0.01f || previous.x + previous.width <= r.x + 0.01f ||
-                            r.y + r.height <= previous.y + 0.01f || previous.y + previous.height <= r.y + 0.01f,
+                Require(r.x + r.width <= previous.x + 0.01f || previous.x + previous.width <= r.x + 0.01f || r.y + r.height <= previous.y + 0.01f ||
+                            previous.y + previous.height <= r.y + 0.01f,
                         "live hit targets do not overlap");
             }
         }
     };
-    constexpr std::array<std::array<float, 2>, 10> examples{{{1280, 720},
-                                                             {640, 720},
-                                                             {1280, 360},
-                                                             {640, 360},
-                                                             {320, 720},
-                                                             {320, 360},
-                                                             {640, 180},
-                                                             {320, 180},
-                                                             {160, 180},
-                                                             {360, 2560}}};
+    constexpr std::array<std::array<float, 2>, 10> examples{
+        {{1280, 720}, {640, 720}, {1280, 360}, {640, 360}, {320, 720}, {320, 360}, {640, 180}, {320, 180}, {160, 180}, {360, 2560}}};
     for (const auto& size : examples)
         validate(size[0], size[1]);
     for (float width : {160.0f, 319.0f, 320.0f, 321.0f, 799.0f, 800.0f, 801.0f, 1280.0f})
         for (float height : {180.0f, 299.0f, 300.0f, 301.0f, 479.0f, 480.0f, 481.0f, 619.0f, 620.0f, 621.0f, 720.0f})
             validate(width, height);
-    Require(LayoutLive(159, 180).density == Density::Unusable && LayoutLive(160, 179).density == Density::Unusable,
-            "below-minimum placements rejected");
-    Require(LayoutLive(std::numeric_limits<float>::infinity(), 720).density == Density::Unusable,
-            "invalid dimensions rejected");
+    Require(LayoutLive(159, 180).density == Density::Unusable && LayoutLive(160, 179).density == Density::Unusable, "below-minimum placements rejected");
+    Require(LayoutLive(std::numeric_limits<float>::infinity(), 720).density == Density::Unusable, "invalid dimensions rejected");
     const LiveLayout compact = LayoutLive(640, 360);
     const LiveLayout minimum = LayoutLive(160, 180);
-    Require(compact.showDeviceNames && !minimum.showDeviceNames,
-            "device names appear on mute buttons once each toggle is at least 96 DIP wide");
+    Require(compact.showDeviceNames && ! minimum.showDeviceNames, "device names appear on mute buttons once each toggle is at least 96 DIP wide");
     Require(compact.sliders[0].x > compact.levelPanels[0].x + 40 && compact.sliders[0].width >= 48,
             "level sliders keep a 48 DIP track beside a leading icon and value");
-    Require(compact.levelMutes[0].width >= 48.0f && compact.levelMutes[0].height >= 48.0f &&
-                compact.sliders[0].height <= 48.01f && compact.sliders[0].height >= 47.99f,
+    Require(compact.levelMutes[0].width >= 48.0f && compact.levelMutes[0].height >= 48.0f && compact.sliders[0].height <= 48.01f &&
+                compact.sliders[0].height >= 47.99f,
             "level mute stays 48 DIP tall while the slider uses a 48 DIP touch pointer band");
     Require(compact.toggles[0].height >= 48.0f, "compact mute cards stay at least 48 DIP tall");
     Require(minimum.sliders[1].width >= 48.0f && minimum.levelMutes[1].width >= 48.0f,
@@ -301,8 +277,7 @@ void AudioRevisionTests()
     Require(next.level == 3 && next.mute == 2, "duplicate readback and callback do not increment revisions");
     next = revisions.Observe(std::numeric_limits<float>::quiet_NaN(), false);
     Require(next.level == 3 && next.mute == 2, "invalid audio callback does not publish a new identity");
-    Require(revisions.Current().level == 3 && revisions.Current().mute == 2,
-            "latest callback revisions can be checked immediately before mutation");
+    Require(revisions.Current().level == 3 && revisions.Current().mute == 2, "latest callback revisions can be checked immediately before mutation");
 }
 uint32_t RunCoordinatorTests();
 uint32_t RunInventorySelectionTests();
@@ -339,10 +314,10 @@ int wmain(int argc, wchar_t** argv)
         {
             // Proves the stage watchdog: a stage that never returns must end the process with HangExitCode.
             StageBudgetMilliseconds = static_cast<DWORD>(std::wcstoul(argv[2], nullptr, 10));
-            runStartedAt = GetTickCount64();
+            runStartedAt            = GetTickCount64();
             runFinished.create(wil::EventOptions::ManualReset);
             const wil::unique_handle fixtureWatchdog(CreateThread(nullptr, 0, Watchdog, nullptr, 0, nullptr));
-            if (!fixtureWatchdog)
+            if (! fixtureWatchdog)
                 return 2;
             BeginStage("watchdog fixture");
             Sleep(INFINITE);
@@ -352,7 +327,7 @@ int wmain(int argc, wchar_t** argv)
         runStartedAt = GetTickCount64();
         runFinished.create(wil::EventOptions::ManualReset);
         const wil::unique_handle watchdog(CreateThread(nullptr, 0, Watchdog, nullptr, 0, nullptr));
-        if (!watchdog)
+        if (! watchdog)
             throw std::runtime_error("the stage watchdog thread could not be created");
         BeginStage("settings");
         SettingsTests();

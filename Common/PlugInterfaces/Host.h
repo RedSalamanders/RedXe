@@ -40,13 +40,13 @@ static_assert(offsetof(RedXeWidgetStatusReport, reason) == 8);
 // Severity for IRedXeHost::Log. Debug is omitted from Release files.
 enum RedXeLogLevel : uint32_t
 {
-    RedXeLogLevelError = 0,
+    RedXeLogLevelError   = 0,
     RedXeLogLevelWarning = 1,
-    RedXeLogLevelInfo = 2,
-    RedXeLogLevelDebug = 3,
+    RedXeLogLevelInfo    = 2,
+    RedXeLogLevelDebug   = 3,
 };
 
-inline constexpr uint32_t kRedXeMaximumLogEventBytes = 64;
+inline constexpr uint32_t kRedXeMaximumLogEventBytes   = 64;
 inline constexpr uint32_t kRedXeMaximumLogMessageBytes = 384;
 
 // Borrowed log line. The host copies every field synchronously and retains no pointer. sizeBytes must equal sizeof.
@@ -87,8 +87,7 @@ static_assert(offsetof(RedXeLogRecord, code) == 40);
 interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(novtable) IRedXeHost : IUnknown
 {
     // Returns shared host-managed access to one data-source plugin.
-    virtual HRESULT STDMETHODCALLTYPE GetDataProvider(const char* providerId,
-                                                      IRedXeDataProvider** provider) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetDataProvider(const char* providerId, IRedXeDataProvider** provider) noexcept = 0;
 
     // Coalesces one host frame for a widget whose own state changed. Safe from any thread, allocation-free, and never
     // blocking. It does not force a frame: hidden, minimized, suspended, display-off, and occluded hosts still block.
@@ -99,8 +98,7 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // Records the current condition of one widget instance. instanceId is the value the host passed to CreateWidget.
     // Reporting RedXeWidgetStatusUnavailable makes the host draw its placeholder over that tile instead of the
     // widget's own output. Repeat reports are idempotent; only a change coalesces a frame.
-    virtual HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char* instanceId,
-                                                         const RedXeWidgetStatusReport* report) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char* instanceId, const RedXeWidgetStatusReport* report) noexcept = 0;
 
     // Asks the host to persist this instance's plugin settings object (not the factory envelope). The widget may
     // send the complete object or a subset of members. The host merges supplied members into the stored instance
@@ -113,8 +111,7 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // UI thread only, synchronous, non-reentrant. Forbidden from device, size, visibility, raise, Render, and
     // CollectPersistentSettings. Allowed from OnPointer, OnKey/OnCharacter (committed activation), and OnDrop. A null
     // instanceId, a null JSON pointer, or zero bytes returns E_INVALIDARG.
-    virtual HRESULT STDMETHODCALLTYPE PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8,
-                                                            uint32_t settingsBytes) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8, uint32_t settingsBytes) noexcept = 0;
 
     // Appends one diagnostic line to the host JSONL log. Safe from any thread, including the acquisition and network
     // workers. Copies bounded fields into a ring and never blocks on disk. MUST NOT be called from Render or GDI
@@ -161,8 +158,7 @@ interface __declspec(uuid("052F039E-794D-4221-9CF2-28B9208F446F")) __declspec(no
     // optional descriptor output borrows the owning record; null when the action is unknown. UI thread only: a
     // registered publisher's module may be mapped on first use. Allowed from Start, ApplySettings, factory create,
     // and settings application; a service validates its bindings there and keeps the result for its lane.
-    virtual HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request,
-                                                     const RedXeActionDescriptor** descriptor) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request, const RedXeActionDescriptor** descriptor) noexcept = 0;
 
     // UI-thread only. Retains one immutable CPU construction job for the host's lazy STA lane (16 slots). Repeated
     // submission of the same pending object coalesces without rerunning it (S_FALSE); a full queue returns ERROR_BUSY.
@@ -185,14 +181,13 @@ interface __declspec(uuid("A07AB01E-67EB-466E-A7E0-9F9608539F8D")) __declspec(no
     // not committed; validation and disk replacement run on the UI thread. Later submissions for an instance
     // replace earlier pending ones; a full queue returns ERROR_BUSY. Keep CollectPersistentSettings as fallback.
     // Does not call back into the widget. The host discards pending entries when that instance is torn down.
-    virtual HRESULT STDMETHODCALLTYPE QueueWidgetSettings(const char* instanceId, const char* jsonUtf8,
-                                                          uint32_t bytes) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE QueueWidgetSettings(const char* instanceId, const char* jsonUtf8, uint32_t bytes) noexcept = 0;
 };
 
-inline HRESULT RedXeHostLog(IRedXeHost* host, uint32_t level, const char* pluginId, const char* instanceId,
-                            const char* eventId, const char* messageUtf8, HRESULT code = S_OK) noexcept
+inline HRESULT RedXeHostLog(
+    IRedXeHost* host, uint32_t level, const char* pluginId, const char* instanceId, const char* eventId, const char* messageUtf8, HRESULT code = S_OK) noexcept
 {
-    if (!host)
+    if (! host)
     {
         return E_POINTER;
     }

@@ -30,8 +30,8 @@
 namespace
 {
 constexpr char kSystemDataPluginId[] = "builtin.system-data";
-constexpr char kEmptySchema[] = R"json({"type":"object","additionalProperties":false})json";
-constexpr char kEmptyDefaults[] = R"json({})json";
+constexpr char kEmptySchema[]        = R"json({"type":"object","additionalProperties":false})json";
+constexpr char kEmptyDefaults[]      = R"json({})json";
 // Process Viewer: `topN` rows and `hideIdle`, which leaves PID 0 (System Idle Process) out of the ranking; its CPU
 // figure is the share of the machine doing nothing, not a load.
 constexpr char kTopN32Schema[] =
@@ -39,64 +39,64 @@ constexpr char kTopN32Schema[] =
 constexpr char kTopN32Defaults[] = R"json({"topN":10,"hideIdle":true})json";
 constexpr char kTopN16Schema[] =
     R"json({"type":"object","additionalProperties":false,"required":["topN"],"properties":{"topN":{"type":"integer","minimum":1,"maximum":16}}})json";
-constexpr char kTopN16Defaults[] = R"json({"topN":8})json";
-constexpr float kEaseMilliseconds = 320.0f;
-constexpr float kPulseMilliseconds = 420.0f;
+constexpr char kTopN16Defaults[]               = R"json({"topN":8})json";
+constexpr float kEaseMilliseconds              = 320.0f;
+constexpr float kPulseMilliseconds             = 420.0f;
 constexpr uint32_t kAnimationFrameMilliseconds = 33;
-constexpr float kHighBand = 85.0f;
-constexpr uint32_t kMaximumNameCharacters = 95;
-constexpr uint32_t kMaximumRows = 32;
-constexpr uint32_t kSparkCapacity = 60;
-constexpr uint32_t kHeatCapacity = 64;
+constexpr float kHighBand                      = 85.0f;
+constexpr uint32_t kMaximumNameCharacters      = 95;
+constexpr uint32_t kMaximumRows                = 32;
+constexpr uint32_t kSparkCapacity              = 60;
+constexpr uint32_t kHeatCapacity               = 64;
 
 // The panel fill is the host-resolved dashboard background (RedXeFactoryOptions::backgroundColor); see
 // ViewerPanelColor.
-constexpr float kTrackR = 0.10f;
-constexpr float kTrackG = 0.10f;
-constexpr float kTrackB = 0.11f;
-constexpr float kTroughR = 0.048f;
-constexpr float kTroughG = 0.048f;
-constexpr float kTroughB = 0.050f;
-constexpr float kFillR = 0.82f;
-constexpr float kFillG = 0.84f;
-constexpr float kFillB = 0.88f;
-constexpr float kWarnR = 1.0f;
-constexpr float kWarnG = 0.62f;
-constexpr float kWarnB = 0.18f;
-constexpr float kAccentR = 1.0f;
-constexpr float kAccentG = 22.0f / 255.0f;
-constexpr float kAccentB = 22.0f / 255.0f;
-constexpr float kTextR = 0.92f;
-constexpr float kTextG = 0.92f;
-constexpr float kTextB = 0.94f;
-constexpr float kMuted = 0.62f;
-constexpr float kHairline = 0.22f;
-constexpr float kOkR = 0.38f;
-constexpr float kOkG = 0.82f;
-constexpr float kOkB = 0.64f;
-constexpr float kPanelInset = 4.0f;
-constexpr float kPadFloorPx = 12.0f;
-constexpr float kNetworkIdleBytes = 1.0f;
-constexpr uint32_t kNetworkIdleHideSamples = 8;
-constexpr wchar_t kDegreeCelsius[] = L"\u00B0C";
-constexpr float kLabelFloorPx = 16.0f;
-constexpr float kRowFloorPx = 18.0f;
-constexpr float kKpiFloorPx = 30.0f;
-constexpr float kHeroFloorPx = 48.0f;
-constexpr float kTitleFloorPx = 26.0f;
-constexpr float kRowMinFloorPx = 28.0f;
-constexpr float kHeatMinCellPx = 6.0f;
-constexpr float kHeatIdle = 0.22f;
-constexpr double kDisplayUnit = 1000.0;
-constexpr float kLogRateFloorBytes = 1024.0f;
-constexpr float kLogRateFallbackCeilingBytes = 1024.0f * 1024.0f * 1024.0f;
-constexpr float kThermalCoolC = 25.0f;
-constexpr float kThermalWarnC = 70.0f;
-constexpr float kThermalHotC = 85.0f;
-constexpr uint32_t kIfOperStatusUp = 1;
+constexpr float kTrackR                        = 0.10f;
+constexpr float kTrackG                        = 0.10f;
+constexpr float kTrackB                        = 0.11f;
+constexpr float kTroughR                       = 0.048f;
+constexpr float kTroughG                       = 0.048f;
+constexpr float kTroughB                       = 0.050f;
+constexpr float kFillR                         = 0.82f;
+constexpr float kFillG                         = 0.84f;
+constexpr float kFillB                         = 0.88f;
+constexpr float kWarnR                         = 1.0f;
+constexpr float kWarnG                         = 0.62f;
+constexpr float kWarnB                         = 0.18f;
+constexpr float kAccentR                       = 1.0f;
+constexpr float kAccentG                       = 22.0f / 255.0f;
+constexpr float kAccentB                       = 22.0f / 255.0f;
+constexpr float kTextR                         = 0.92f;
+constexpr float kTextG                         = 0.92f;
+constexpr float kTextB                         = 0.94f;
+constexpr float kMuted                         = 0.62f;
+constexpr float kHairline                      = 0.22f;
+constexpr float kOkR                           = 0.38f;
+constexpr float kOkG                           = 0.82f;
+constexpr float kOkB                           = 0.64f;
+constexpr float kPanelInset                    = 4.0f;
+constexpr float kPadFloorPx                    = 12.0f;
+constexpr float kNetworkIdleBytes              = 1.0f;
+constexpr uint32_t kNetworkIdleHideSamples     = 8;
+constexpr wchar_t kDegreeCelsius[]             = L"\u00B0C";
+constexpr float kLabelFloorPx                  = 16.0f;
+constexpr float kRowFloorPx                    = 18.0f;
+constexpr float kKpiFloorPx                    = 30.0f;
+constexpr float kHeroFloorPx                   = 48.0f;
+constexpr float kTitleFloorPx                  = 26.0f;
+constexpr float kRowMinFloorPx                 = 28.0f;
+constexpr float kHeatMinCellPx                 = 6.0f;
+constexpr float kHeatIdle                      = 0.22f;
+constexpr double kDisplayUnit                  = 1000.0;
+constexpr float kLogRateFloorBytes             = 1024.0f;
+constexpr float kLogRateFallbackCeilingBytes   = 1024.0f * 1024.0f * 1024.0f;
+constexpr float kThermalCoolC                  = 25.0f;
+constexpr float kThermalWarnC                  = 70.0f;
+constexpr float kThermalHotC                   = 85.0f;
+constexpr uint32_t kIfOperStatusUp             = 1;
 constexpr uint32_t kMediaConnectStateConnected = 1;
-constexpr uint32_t kRowFlagSoftware = 1u;
-constexpr uint32_t kRowFlagIntegrated = 2u;
+constexpr uint32_t kRowFlagSoftware            = 1u;
+constexpr uint32_t kRowFlagIntegrated          = 2u;
 
 enum class ViewerDensity : uint32_t
 {
@@ -124,22 +124,18 @@ enum class ViewerKind : uint32_t
 {
     switch (kind)
     {
-    case ViewerKind::ProcessViewer:
-    case ViewerKind::GpuProcesses:
-    case ViewerKind::NetworkMeter:
-    case ViewerKind::StorageMeter:
-    case ViewerKind::ThermalMeter:
-        return RedXeRaisedExtentHalf;
-    case ViewerKind::SystemPulse:
-        return RedXeRaisedExtentQuarter;
-    case ViewerKind::CpuMeter:
-    case ViewerKind::MemoryMeter:
-    case ViewerKind::GpuMeter:
-    case ViewerKind::PowerMeter:
-        return RedXeRaisedExtentThird;
-    case ::ViewerKind::Count:
-    default:
-        return RedXeRaisedExtentQuarter;
+        case ViewerKind::ProcessViewer:
+        case ViewerKind::GpuProcesses:
+        case ViewerKind::NetworkMeter:
+        case ViewerKind::StorageMeter:
+        case ViewerKind::ThermalMeter: return RedXeRaisedExtentHalf;
+        case ViewerKind::SystemPulse: return RedXeRaisedExtentQuarter;
+        case ViewerKind::CpuMeter:
+        case ViewerKind::MemoryMeter:
+        case ViewerKind::GpuMeter:
+        case ViewerKind::PowerMeter: return RedXeRaisedExtentThird;
+        case ::ViewerKind::Count:
+        default: return RedXeRaisedExtentQuarter;
     }
 }
 
@@ -165,60 +161,198 @@ struct ViewerCatalogEntry final
 };
 
 constexpr std::array kCatalog{
-    ViewerCatalogEntry{ViewerKind::ProcessViewer, "builtin.process-viewer", "process-viewer", L"Process Viewer",
-                       L"Ranks local processes by CPU from the RedXe system-data provider.", L"Process Viewer",
+    ViewerCatalogEntry{ViewerKind::ProcessViewer,
+                       "builtin.process-viewer",
+                       "process-viewer",
+                       L"Process Viewer",
+                       L"Ranks local processes by CPU from the RedXe system-data provider.",
+                       L"Process Viewer",
                        L"Two-column rows with working-set units, CPU percent, and heatmap-style load bars.",
-                       "process.activity", nullptr, 2000, 0, 32, 10, 1280.0f, 720.0f, 240.0f, 96.0f},
-    ViewerCatalogEntry{ViewerKind::SystemPulse, "builtin.system-pulse", "system-pulse", L"System Pulse",
-                       L"Machine CPU, memory, and count chips from system.summary.", L"System Pulse",
+                       "process.activity",
+                       nullptr,
+                       2000,
+                       0,
+                       32,
+                       10,
+                       1280.0f,
+                       720.0f,
+                       240.0f,
+                       96.0f},
+    ViewerCatalogEntry{ViewerKind::SystemPulse,
+                       "builtin.system-pulse",
+                       "system-pulse",
+                       L"System Pulse",
+                       L"Machine CPU, memory, and count chips from system.summary.",
+                       L"System Pulse",
                        L"CPU hero, summary chips, and raised RAM plus CPU history from system.summary.",
-                       "system.summary", nullptr, 1000, 0, 0, 0, 960.0f, 360.0f, 160.0f, 72.0f},
-    ViewerCatalogEntry{ViewerKind::CpuMeter, "builtin.cpu-meter", "cpu-meter", L"CPU Meter",
-                       L"Total CPU load and a logical-processor heatmap.", L"CPU Meter",
+                       "system.summary",
+                       nullptr,
+                       1000,
+                       0,
+                       0,
+                       0,
+                       960.0f,
+                       360.0f,
+                       160.0f,
+                       72.0f},
+    ViewerCatalogEntry{ViewerKind::CpuMeter,
+                       "builtin.cpu-meter",
+                       "cpu-meter",
+                       L"CPU Meter",
+                       L"Total CPU load and a logical-processor heatmap.",
+                       L"CPU Meter",
                        L"CPU percent, core heatmap, and a scrolling sample-driven history with recency fade.",
-                       "cpu.summary", "cpu.logical", 1000, 1000, 0, 0, 960.0f, 540.0f, 160.0f, 72.0f},
-    ViewerCatalogEntry{ViewerKind::MemoryMeter, "builtin.memory-meter", "memory-meter", L"Memory Meter",
-                       L"Physical and commit memory gauges.", L"Memory Meter",
-                       L"Capacity bars with a recency-faded paging history when height allows.", "memory.summary",
-                       nullptr, 1000, 0, 0, 0, 960.0f, 420.0f, 160.0f, 72.0f},
-    ViewerCatalogEntry{ViewerKind::NetworkMeter, "builtin.network-meter", "network-meter", L"Network Meter",
-                       L"Top interface rates and protocol KPIs.", L"Network Meter",
+                       "cpu.summary",
+                       "cpu.logical",
+                       1000,
+                       1000,
+                       0,
+                       0,
+                       960.0f,
+                       540.0f,
+                       160.0f,
+                       72.0f},
+    ViewerCatalogEntry{ViewerKind::MemoryMeter,
+                       "builtin.memory-meter",
+                       "memory-meter",
+                       L"Memory Meter",
+                       L"Physical and commit memory gauges.",
+                       L"Memory Meter",
+                       L"Capacity bars with a recency-faded paging history when height allows.",
+                       "memory.summary",
+                       nullptr,
+                       1000,
+                       0,
+                       0,
+                       0,
+                       960.0f,
+                       420.0f,
+                       160.0f,
+                       72.0f},
+    ViewerCatalogEntry{ViewerKind::NetworkMeter,
+                       "builtin.network-meter",
+                       "network-meter",
+                       L"Network Meter",
+                       L"Top interface rates and protocol KPIs.",
+                       L"Network Meter",
                        L"Active NICs with a recency-faded throughput history; idle zero-rate adapters stay hidden.",
-                       "network.interface", "network.protocol", 1000, 1000, 16, 8, 960.0f, 540.0f, 160.0f, 72.0f},
-    ViewerCatalogEntry{
-        ViewerKind::StorageMeter, "builtin.storage-meter", "storage-meter", L"Storage Meter",
-        L"Volume capacity and disk activity.", L"Storage Meter",
-        L"Volume cards in drive-letter order, named as Explorer names them; used/total above the capacity track.",
-        "storage.volume", "storage.disk", 5000, 1000, 0, 0, 960.0f, 540.0f, 160.0f, 72.0f},
-    ViewerCatalogEntry{ViewerKind::GpuMeter, "builtin.gpu-meter", "gpu-meter", L"GPU Meter",
-                       L"Adapter cards from DXGI and D3DKMT sensors.", L"GPU Meter",
-                       L"Discrete GPU first; software adapters collapsed.", "gpu.adapter", nullptr, 1000, 0, 0, 0,
-                       960.0f, 540.0f, 160.0f, 72.0f},
-    ViewerCatalogEntry{ViewerKind::GpuProcesses, "builtin.gpu-processes", "gpu-processes", L"GPU Processes",
-                       L"Top GPU engine clients.", L"GPU Processes",
-                       L"Two-column GPU clients with engine and percent; heatmap-style load bars.", "gpu.process",
-                       "process.activity", 2000, 2000, 16, 8, 960.0f, 540.0f, 160.0f, 72.0f},
-    ViewerCatalogEntry{ViewerKind::PowerMeter, "builtin.power-meter", "power-meter", L"Power Meter",
-                       L"AC/DC state, charge, and battery rows.", L"Power Meter",
-                       L"Charge ring on battery hosts; compact AC status when no battery is present.", "power.summary",
-                       "battery.list", 5000, 5000, 0, 0, 720.0f, 420.0f, 120.0f, 48.0f},
-    ViewerCatalogEntry{ViewerKind::ThermalMeter, "builtin.thermal-meter", "thermal-meter", L"Thermal Meter",
-                       L"Temperatures and fan RPM.", L"Thermal Meter",
-                       L"Hottest sensors as °C cards with COOL/OK/WARM/HOT and a level track.", "thermal.sensor",
-                       "fan.sensor", 10000, 10000, 0, 0, 720.0f, 540.0f, 160.0f, 72.0f},
+                       "network.interface",
+                       "network.protocol",
+                       1000,
+                       1000,
+                       16,
+                       8,
+                       960.0f,
+                       540.0f,
+                       160.0f,
+                       72.0f},
+    ViewerCatalogEntry{ViewerKind::StorageMeter,
+                       "builtin.storage-meter",
+                       "storage-meter",
+                       L"Storage Meter",
+                       L"Volume capacity and disk activity.",
+                       L"Storage Meter",
+                       L"Volume cards in drive-letter order, named as Explorer names them; used/total above the capacity track.",
+                       "storage.volume",
+                       "storage.disk",
+                       5000,
+                       1000,
+                       0,
+                       0,
+                       960.0f,
+                       540.0f,
+                       160.0f,
+                       72.0f},
+    ViewerCatalogEntry{ViewerKind::GpuMeter,
+                       "builtin.gpu-meter",
+                       "gpu-meter",
+                       L"GPU Meter",
+                       L"Adapter cards from DXGI and D3DKMT sensors.",
+                       L"GPU Meter",
+                       L"Discrete GPU first; software adapters collapsed.",
+                       "gpu.adapter",
+                       nullptr,
+                       1000,
+                       0,
+                       0,
+                       0,
+                       960.0f,
+                       540.0f,
+                       160.0f,
+                       72.0f},
+    ViewerCatalogEntry{ViewerKind::GpuProcesses,
+                       "builtin.gpu-processes",
+                       "gpu-processes",
+                       L"GPU Processes",
+                       L"Top GPU engine clients.",
+                       L"GPU Processes",
+                       L"Two-column GPU clients with engine and percent; heatmap-style load bars.",
+                       "gpu.process",
+                       "process.activity",
+                       2000,
+                       2000,
+                       16,
+                       8,
+                       960.0f,
+                       540.0f,
+                       160.0f,
+                       72.0f},
+    ViewerCatalogEntry{ViewerKind::PowerMeter,
+                       "builtin.power-meter",
+                       "power-meter",
+                       L"Power Meter",
+                       L"AC/DC state, charge, and battery rows.",
+                       L"Power Meter",
+                       L"Charge ring on battery hosts; compact AC status when no battery is present.",
+                       "power.summary",
+                       "battery.list",
+                       5000,
+                       5000,
+                       0,
+                       0,
+                       720.0f,
+                       420.0f,
+                       120.0f,
+                       48.0f},
+    ViewerCatalogEntry{ViewerKind::ThermalMeter,
+                       "builtin.thermal-meter",
+                       "thermal-meter",
+                       L"Thermal Meter",
+                       L"Temperatures and fan RPM.",
+                       L"Thermal Meter",
+                       L"Hottest sensors as °C cards with COOL/OK/WARM/HOT and a level track.",
+                       "thermal.sensor",
+                       "fan.sensor",
+                       10000,
+                       10000,
+                       0,
+                       0,
+                       720.0f,
+                       540.0f,
+                       160.0f,
+                       72.0f},
 };
 static_assert(kCatalog.size() == static_cast<size_t>(ViewerKind::Count));
 
 constexpr RedXePluginSettingsContract kEmptyContract{
-    sizeof(RedXePluginSettingsContract), kEmptySchema, sizeof(kEmptySchema) - 1, kEmptyDefaults,
+    sizeof(RedXePluginSettingsContract),
+    kEmptySchema,
+    sizeof(kEmptySchema) - 1,
+    kEmptyDefaults,
     sizeof(kEmptyDefaults) - 1,
 };
 constexpr RedXePluginSettingsContract kTopN32Contract{
-    sizeof(RedXePluginSettingsContract), kTopN32Schema, sizeof(kTopN32Schema) - 1, kTopN32Defaults,
+    sizeof(RedXePluginSettingsContract),
+    kTopN32Schema,
+    sizeof(kTopN32Schema) - 1,
+    kTopN32Defaults,
     sizeof(kTopN32Defaults) - 1,
 };
 constexpr RedXePluginSettingsContract kTopN16Contract{
-    sizeof(RedXePluginSettingsContract), kTopN16Schema, sizeof(kTopN16Schema) - 1, kTopN16Defaults,
+    sizeof(RedXePluginSettingsContract),
+    kTopN16Schema,
+    sizeof(kTopN16Schema) - 1,
+    kTopN16Defaults,
     sizeof(kTopN16Defaults) - 1,
 };
 
@@ -249,12 +383,12 @@ std::atomic<float> g_lastPageDotGap{0.0f};
 // normalized envelope `{"plugin":{},"instance":{...}}` whose instance members are scalars in either order (defaults
 // first, then authored keys), so this walks the members rather than matching one fixed string. `topN` is required;
 // a member outside the schema, a duplicate, or a malformed value rejects the configuration.
-[[nodiscard]] HRESULT ReadRankedOptions(const RedXeFactoryOptions* options, uint32_t maximum, uint32_t fallback,
-                                        bool acceptHideIdle, uint32_t& topN, bool& hideIdle) noexcept
+[[nodiscard]] HRESULT ReadRankedOptions(
+    const RedXeFactoryOptions* options, uint32_t maximum, uint32_t fallback, bool acceptHideIdle, uint32_t& topN, bool& hideIdle) noexcept
 {
-    topN = fallback;
+    topN     = fallback;
     hideIdle = acceptHideIdle;
-    if (!options)
+    if (! options)
     {
         return S_OK;
     }
@@ -262,48 +396,46 @@ std::atomic<float> g_lastPageDotGap{0.0f};
     {
         return E_INVALIDARG;
     }
-    if (!options->configurationJsonUtf8 && options->configurationBytes == 0)
+    if (! options->configurationJsonUtf8 && options->configurationBytes == 0)
     {
         return S_OK;
     }
-    if (!options->configurationJsonUtf8 || options->configurationBytes == 0 ||
-        options->configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
+    if (! options->configurationJsonUtf8 || options->configurationBytes == 0 || options->configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
     {
         return E_INVALIDARG;
     }
     constexpr std::string_view prefix = R"json({"plugin":{},"instance":{)json";
     constexpr std::string_view suffix = "}}";
     const std::string_view json(options->configurationJsonUtf8, options->configurationBytes);
-    if (!json.starts_with(prefix) || !json.ends_with(suffix) || json.size() < prefix.size() + suffix.size())
+    if (! json.starts_with(prefix) || ! json.ends_with(suffix) || json.size() < prefix.size() + suffix.size())
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    std::string_view members = json.substr(prefix.size(), json.size() - prefix.size() - suffix.size());
+    std::string_view members  = json.substr(prefix.size(), json.size() - prefix.size() - suffix.size());
     constexpr HRESULT invalid = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    bool sawTopN = false;
-    bool sawHideIdle = false;
-    while (!members.empty())
+    bool sawTopN              = false;
+    bool sawHideIdle          = false;
+    while (! members.empty())
     {
-        const size_t comma = members.find(',');
-        const std::string_view member = members.substr(0, comma);
-        members = comma == std::string_view::npos ? std::string_view{} : members.substr(comma + 1);
-        constexpr std::string_view topNKey = R"json("topN":)json";
+        const size_t comma                     = members.find(',');
+        const std::string_view member          = members.substr(0, comma);
+        members                                = comma == std::string_view::npos ? std::string_view{} : members.substr(comma + 1);
+        constexpr std::string_view topNKey     = R"json("topN":)json";
         constexpr std::string_view hideIdleKey = R"json("hideIdle":)json";
-        if (member.starts_with(topNKey) && !sawTopN)
+        if (member.starts_with(topNKey) && ! sawTopN)
         {
             const std::string_view number = member.substr(topNKey.size());
-            uint32_t parsed = 0;
-            const auto parsedResult = std::from_chars(number.data(), number.data() + number.size(), parsed);
-            if (number.empty() || parsedResult.ec != std::errc{} || parsedResult.ptr != number.data() + number.size() ||
-                parsed == 0 || parsed > maximum)
+            uint32_t parsed               = 0;
+            const auto parsedResult       = std::from_chars(number.data(), number.data() + number.size(), parsed);
+            if (number.empty() || parsedResult.ec != std::errc{} || parsedResult.ptr != number.data() + number.size() || parsed == 0 || parsed > maximum)
             {
                 return invalid;
             }
-            topN = parsed;
+            topN    = parsed;
             sawTopN = true;
             continue;
         }
-        if (acceptHideIdle && member.starts_with(hideIdleKey) && !sawHideIdle)
+        if (acceptHideIdle && member.starts_with(hideIdleKey) && ! sawHideIdle)
         {
             const std::string_view value = member.substr(hideIdleKey.size());
             if (value == "true")
@@ -336,21 +468,18 @@ struct ViewerPanelColor final
 [[nodiscard]] ViewerPanelColor PanelColorFromOptions(const RedXeFactoryOptions* options) noexcept
 {
     const uint32_t rgb = RedXeBackgroundRgb(options);
-    return {static_cast<float>((rgb >> 16U) & 0xFFU) / 255.0f, static_cast<float>((rgb >> 8U) & 0xFFU) / 255.0f,
-            static_cast<float>(rgb & 0xFFU) / 255.0f};
+    return {static_cast<float>((rgb >> 16U) & 0xFFU) / 255.0f, static_cast<float>((rgb >> 8U) & 0xFFU) / 255.0f, static_cast<float>(rgb & 0xFFU) / 255.0f};
 }
 
-[[nodiscard]] bool SnapshotMatches(const RedXeDataSnapshot* snapshot, const char* dataSetId,
-                                   uint32_t minimumColumns) noexcept
+[[nodiscard]] bool SnapshotMatches(const RedXeDataSnapshot* snapshot, const char* dataSetId, uint32_t minimumColumns) noexcept
 {
-    return snapshot && snapshot->sizeBytes == sizeof(RedXeDataSnapshot) && snapshot->dataSetId &&
-           RedXeAsciiEqualsIgnoreCase(snapshot->dataSetId, dataSetId) && snapshot->columnCount >= minimumColumns &&
-           (snapshot->rowCount == 0 || snapshot->rows);
+    return snapshot && snapshot->sizeBytes == sizeof(RedXeDataSnapshot) && snapshot->dataSetId && RedXeAsciiEqualsIgnoreCase(snapshot->dataSetId, dataSetId) &&
+           snapshot->columnCount >= minimumColumns && (snapshot->rowCount == 0 || snapshot->rows);
 }
 
 [[nodiscard]] const RedXeDataValue* RowValues(const RedXeDataRow& row, uint32_t minimum) noexcept
 {
-    if (row.sizeBytes != sizeof(RedXeDataRow) || !row.values || row.valueCount < minimum)
+    if (row.sizeBytes != sizeof(RedXeDataRow) || ! row.values || row.valueCount < minimum)
     {
         return nullptr;
     }
@@ -376,8 +505,7 @@ struct ViewerPanelColor final
 
 [[nodiscard]] bool TakeF64(const RedXeDataValue& value, double& out) noexcept
 {
-    if (value.valueType != RedXeDataValueTypeFloat64 || value.quality != RedXeDataQualityGood ||
-        !std::isfinite(value.float64Value))
+    if (value.valueType != RedXeDataValueTypeFloat64 || value.quality != RedXeDataQualityGood || ! std::isfinite(value.float64Value))
     {
         return false;
     }
@@ -385,13 +513,11 @@ struct ViewerPanelColor final
     return true;
 }
 
-void CopyName(std::array<wchar_t, kMaximumNameCharacters + 1>& name, uint32_t& characters, const RedXeDataValue& value,
-              const wchar_t* fallback) noexcept
+void CopyName(std::array<wchar_t, kMaximumNameCharacters + 1>& name, uint32_t& characters, const RedXeDataValue& value, const wchar_t* fallback) noexcept
 {
     characters = 0;
-    name[0] = L'\0';
-    if (value.valueType == RedXeDataValueTypeUtf16 && value.quality == RedXeDataQualityGood && value.utf16Value &&
-        value.utf16Characters > 0)
+    name[0]    = L'\0';
+    if (value.valueType == RedXeDataValueTypeUtf16 && value.quality == RedXeDataQualityGood && value.utf16Value && value.utf16Characters > 0)
     {
         characters = std::min(value.utf16Characters, kMaximumNameCharacters);
         std::wmemcpy(name.data(), value.utf16Value, characters);
@@ -406,13 +532,11 @@ void CopyName(std::array<wchar_t, kMaximumNameCharacters + 1>& name, uint32_t& c
     }
 }
 
-void CopyDetail(std::array<wchar_t, 32>& detail, uint32_t& characters, const RedXeDataValue& value,
-                const wchar_t* fallback) noexcept
+void CopyDetail(std::array<wchar_t, 32>& detail, uint32_t& characters, const RedXeDataValue& value, const wchar_t* fallback) noexcept
 {
     characters = 0;
-    detail[0] = L'\0';
-    if (value.valueType == RedXeDataValueTypeUtf16 && value.quality == RedXeDataQualityGood && value.utf16Value &&
-        value.utf16Characters > 0)
+    detail[0]  = L'\0';
+    if (value.valueType == RedXeDataValueTypeUtf16 && value.quality == RedXeDataQualityGood && value.utf16Value && value.utf16Characters > 0)
     {
         characters = std::min(value.utf16Characters, 31u);
         std::wmemcpy(detail.data(), value.utf16Value, characters);
@@ -449,7 +573,7 @@ void CopyDetail(std::array<wchar_t, 32>& detail, uint32_t& characters, const Red
 
 [[nodiscard]] bool ContainsInsensitive(const wchar_t* text, uint32_t characters, const wchar_t* needle) noexcept
 {
-    if (!text || !needle || needle[0] == L'\0')
+    if (! text || ! needle || needle[0] == L'\0')
     {
         return false;
     }
@@ -476,16 +600,14 @@ void CopyDetail(std::array<wchar_t, 32>& detail, uint32_t& characters, const Red
 [[nodiscard]] bool IsFilterAdapterName(const wchar_t* text, uint32_t characters) noexcept
 {
     return ContainsInsensitive(text, characters, L"WFP") || ContainsInsensitive(text, characters, L"QoS Packet") ||
-           ContainsInsensitive(text, characters, L"Native MAC") ||
-           ContainsInsensitive(text, characters, L"Lightweight Filter") ||
-           ContainsInsensitive(text, characters, L"LightWeight Filter") ||
-           ContainsInsensitive(text, characters, L"Kernel Debug");
+           ContainsInsensitive(text, characters, L"Native MAC") || ContainsInsensitive(text, characters, L"Lightweight Filter") ||
+           ContainsInsensitive(text, characters, L"LightWeight Filter") || ContainsInsensitive(text, characters, L"Kernel Debug");
 }
 
 [[nodiscard]] float LogRateFill(double bytesPerSecond, uint64_t linkBitsPerSecond) noexcept
 {
     const double floorBytes = static_cast<double>(kLogRateFloorBytes);
-    double ceilingBytes = static_cast<double>(kLogRateFallbackCeilingBytes);
+    double ceilingBytes     = static_cast<double>(kLogRateFallbackCeilingBytes);
     if (linkBitsPerSecond > 8)
     {
         ceilingBytes = static_cast<double>(linkBitsPerSecond) / 8.0;
@@ -495,7 +617,7 @@ void CopyDetail(std::array<wchar_t, 32>& detail, uint32_t& characters, const Red
         ceilingBytes = floorBytes * 2.0;
     }
     const double value = std::max(bytesPerSecond, floorBytes);
-    const float fill = static_cast<float>(std::log10(value / floorBytes) / std::log10(ceilingBytes / floorBytes));
+    const float fill   = static_cast<float>(std::log10(value / floorBytes) / std::log10(ceilingBytes / floorBytes));
     return std::clamp(fill, 0.0f, 1.0f);
 }
 
@@ -521,80 +643,80 @@ void SignalColor(float unit, float& red, float& green, float& blue) noexcept
     const float t = std::clamp(unit, 0.0f, 1.0f);
     if (t >= kHighBand / 100.0f)
     {
-        red = kAccentR;
+        red   = kAccentR;
         green = kAccentG;
-        blue = kAccentB;
+        blue  = kAccentB;
         return;
     }
     if (t >= 0.70f)
     {
-        red = kWarnR;
+        red   = kWarnR;
         green = kWarnG;
-        blue = kWarnB;
+        blue  = kWarnB;
         return;
     }
-    red = kFillR;
+    red   = kFillR;
     green = kFillG;
-    blue = kFillB;
+    blue  = kFillB;
 }
 
 void ThermalColor(float celsius, float& red, float& green, float& blue) noexcept
 {
     if (celsius >= kThermalHotC)
     {
-        red = kAccentR;
+        red   = kAccentR;
         green = kAccentG;
-        blue = kAccentB;
+        blue  = kAccentB;
         return;
     }
     if (celsius >= kThermalWarnC)
     {
-        red = kWarnR;
+        red   = kWarnR;
         green = kWarnG;
-        blue = kWarnB;
+        blue  = kWarnB;
         return;
     }
-    red = kOkR;
+    red   = kOkR;
     green = kOkG;
-    blue = kOkB;
+    blue  = kOkB;
 }
 
 void IntentTextColor(float unit01, bool available, float& red, float& green, float& blue) noexcept
 {
-    if (!available)
+    if (! available)
     {
-        red = kMuted;
+        red   = kMuted;
         green = kMuted;
-        blue = kMuted;
+        blue  = kMuted;
         return;
     }
     const float t = std::clamp(unit01, 0.0f, 1.0f);
     if (t >= kHighBand / 100.0f)
     {
-        red = kAccentR;
+        red   = kAccentR;
         green = kAccentG;
-        blue = kAccentB;
+        blue  = kAccentB;
         return;
     }
     if (t >= 0.70f)
     {
-        red = kWarnR;
+        red   = kWarnR;
         green = kWarnG;
-        blue = kWarnB;
+        blue  = kWarnB;
         return;
     }
-    red = kOkR;
+    red   = kOkR;
     green = kOkG;
-    blue = kOkB;
+    blue  = kOkB;
 }
 
 void IntentThermalTextColor(float celsius, bool available, float& red, float& green, float& blue) noexcept
 {
-    if (!available)
+    if (! available)
     {
-        red = kMuted;
+        red   = kMuted;
         green = kMuted;
-        blue = kMuted;
+        blue  = kMuted;
         return;
     }
     ThermalColor(celsius, red, green, blue);
@@ -602,7 +724,7 @@ void IntentThermalTextColor(float celsius, bool available, float& red, float& gr
 
 [[nodiscard]] const wchar_t* CapacityBandText(float percent, bool available) noexcept
 {
-    if (!available)
+    if (! available)
     {
         return L"--";
     }
@@ -619,7 +741,7 @@ void IntentThermalTextColor(float celsius, bool available, float& red, float& gr
 
 [[nodiscard]] const wchar_t* ThermalBandText(float celsius, bool available) noexcept
 {
-    if (!available)
+    if (! available)
     {
         return L"--";
     }
@@ -688,17 +810,16 @@ void IntentThermalTextColor(float celsius, bool available, float& red, float& gr
     return overflowReserve > 0.0f && innerHeight - overflowReserve >= rowMin * 0.6f;
 }
 
-void FitListLayout(float innerHeight, float rowMin, float overflowReserve, uint32_t available, uint32_t& visible,
-                   float& rowHeight, float& listHeight) noexcept
+void FitListLayout(float innerHeight, float rowMin, float overflowReserve, uint32_t available, uint32_t& visible, float& rowHeight, float& listHeight) noexcept
 {
-    visible = FitVisibleCount(innerHeight, rowMin, available);
-    listHeight = innerHeight;
+    visible        = FitVisibleCount(innerHeight, rowMin, available);
+    listHeight     = innerHeight;
     float rowFloor = rowMin;
     if (available > visible && CanReserveOverflowStrip(innerHeight, rowMin, overflowReserve))
     {
         listHeight = innerHeight - overflowReserve;
-        visible = FitVisibleCount(listHeight, rowMin, available);
-        rowFloor = std::min(rowMin, listHeight);
+        visible    = FitVisibleCount(listHeight, rowMin, available);
+        rowFloor   = std::min(rowMin, listHeight);
     }
     rowHeight = FittedRowHeight(listHeight, visible == 0 ? 1 : visible, rowFloor);
 }
@@ -708,34 +829,43 @@ void FitListLayout(float innerHeight, float rowMin, float overflowReserve, uint3
     return innerWidth >= minColWidth * 2.0f + 12.0f ? 2u : 1u;
 }
 
-void FitGridLayout(float innerHeight, float innerWidth, float rowMin, float overflowReserve, float minColWidth,
-                   uint32_t available, uint32_t& columns, uint32_t& visible, uint32_t& rows, float& rowHeight,
-                   float& listHeight, float& colWidth) noexcept
+void FitGridLayout(float innerHeight,
+                   float innerWidth,
+                   float rowMin,
+                   float overflowReserve,
+                   float minColWidth,
+                   uint32_t available,
+                   uint32_t& columns,
+                   uint32_t& visible,
+                   uint32_t& rows,
+                   float& rowHeight,
+                   float& listHeight,
+                   float& colWidth) noexcept
 {
-    columns = GridColumns(innerWidth, minColWidth);
-    const float gap = columns > 1 ? 12.0f : 0.0f;
-    colWidth = (innerWidth - gap * static_cast<float>(columns - 1)) / static_cast<float>(columns);
+    columns            = GridColumns(innerWidth, minColWidth);
+    const float gap    = columns > 1 ? 12.0f : 0.0f;
+    colWidth           = (innerWidth - gap * static_cast<float>(columns - 1)) / static_cast<float>(columns);
     uint32_t rowBudget = FitVisibleCount(innerHeight, rowMin, (available + columns - 1) / columns);
-    listHeight = innerHeight;
-    uint32_t capacity = rowBudget * columns;
-    float rowFloor = rowMin;
+    listHeight         = innerHeight;
+    uint32_t capacity  = rowBudget * columns;
+    float rowFloor     = rowMin;
     if (available > capacity && CanReserveOverflowStrip(innerHeight, rowMin, overflowReserve))
     {
         listHeight = innerHeight - overflowReserve;
-        rowBudget = FitVisibleCount(listHeight, rowMin, (available + columns - 1) / columns);
-        capacity = rowBudget * columns;
-        rowFloor = std::min(rowMin, listHeight);
+        rowBudget  = FitVisibleCount(listHeight, rowMin, (available + columns - 1) / columns);
+        capacity   = rowBudget * columns;
+        rowFloor   = std::min(rowMin, listHeight);
     }
-    visible = available == 0 ? 0 : std::min(available, std::max(1u, capacity));
-    rows = std::max(1u, visible == 0 ? 1u : (visible + columns - 1) / columns);
+    visible   = available == 0 ? 0 : std::min(available, std::max(1u, capacity));
+    rows      = std::max(1u, visible == 0 ? 1u : (visible + columns - 1) / columns);
     rowHeight = FittedRowHeight(listHeight, rows, rowFloor);
 }
 
 struct OverflowSlice final
 {
-    uint32_t start = 0;
-    uint32_t count = 0;
-    uint32_t hidden = 0;
+    uint32_t start     = 0;
+    uint32_t count     = 0;
+    uint32_t hidden    = 0;
     uint32_t pageCount = 1;
 };
 
@@ -746,31 +876,31 @@ struct OverflowSlice final
     {
         return slice;
     }
-    slice.pageCount = (total + pageSize - 1) / pageSize;
+    slice.pageCount        = (total + pageSize - 1) / pageSize;
     const uint32_t usePage = page >= slice.pageCount ? slice.pageCount - 1 : page;
-    slice.start = usePage * pageSize;
-    slice.count = (std::min)(pageSize, total - slice.start);
-    slice.hidden = total - slice.start - slice.count;
+    slice.start            = usePage * pageSize;
+    slice.count            = (std::min)(pageSize, total - slice.start);
+    slice.hidden           = total - slice.start - slice.count;
     return slice;
 }
 
-void CellOrigin(float originX, float originY, uint32_t index, uint32_t columns, float colWidth, float rowHeight,
-                float displayY, bool slide, float& x, float& y) noexcept
+void CellOrigin(
+    float originX, float originY, uint32_t index, uint32_t columns, float colWidth, float rowHeight, float displayY, bool slide, float& x, float& y) noexcept
 {
     const uint32_t col = columns == 0 ? 0 : index % columns;
-    const float row = (slide && columns == 1) ? displayY : static_cast<float>(index / std::max(1u, columns));
-    const float gap = columns > 1 ? 12.0f : 0.0f;
-    x = originX + static_cast<float>(col) * (colWidth + gap);
-    y = originY + row * rowHeight;
+    const float row    = (slide && columns == 1) ? displayY : static_cast<float>(index / std::max(1u, columns));
+    const float gap    = columns > 1 ? 12.0f : 0.0f;
+    x                  = originX + static_cast<float>(col) * (colWidth + gap);
+    y                  = originY + row * rowHeight;
 }
 
 void FormatPercent(wchar_t* buffer, uint32_t capacity, float value, bool available) noexcept
 {
-    if (!buffer || capacity == 0)
+    if (! buffer || capacity == 0)
     {
         return;
     }
-    if (!available)
+    if (! available)
     {
         (void)swprintf_s(buffer, capacity, L"--");
         return;
@@ -780,11 +910,11 @@ void FormatPercent(wchar_t* buffer, uint32_t capacity, float value, bool availab
 
 void FormatCount(wchar_t* buffer, uint32_t capacity, uint64_t value, bool available) noexcept
 {
-    if (!buffer || capacity == 0)
+    if (! buffer || capacity == 0)
     {
         return;
     }
-    if (!available)
+    if (! available)
     {
         (void)swprintf_s(buffer, capacity, L"--");
         return;
@@ -816,18 +946,18 @@ void FormatCount(wchar_t* buffer, uint32_t capacity, uint64_t value, bool availa
 
 void FormatScaled(wchar_t* buffer, uint32_t capacity, double value, bool available, bool perSecond) noexcept
 {
-    if (!buffer || capacity == 0)
+    if (! buffer || capacity == 0)
     {
         return;
     }
-    if (!available)
+    if (! available)
     {
         (void)swprintf_s(buffer, capacity, L"--");
         return;
     }
-    value = std::max(value, 0.0);
+    value                  = std::max(value, 0.0);
     const wchar_t* units[] = {L"B", L"KB", L"MB", L"GB", L"TB"};
-    uint32_t unit = 0;
+    uint32_t unit          = 0;
     while (value >= kDisplayUnit && unit + 1 < 5)
     {
         value /= kDisplayUnit;
@@ -855,7 +985,7 @@ void FormatRate(wchar_t* buffer, uint32_t capacity, double bytesPerSecond, bool 
 [[nodiscard]] uint64_t HashUtf16(const wchar_t* text, uint32_t characters) noexcept
 {
     uint64_t hash = 14695981039346656037ull;
-    if (!text)
+    if (! text)
     {
         return hash;
     }
@@ -869,7 +999,7 @@ void FormatRate(wchar_t* buffer, uint32_t capacity, double bytesPerSecond, bool 
 
 void FormatPid(wchar_t* buffer, uint32_t capacity, uint64_t pid) noexcept
 {
-    if (!buffer || capacity == 0)
+    if (! buffer || capacity == 0)
     {
         return;
     }
@@ -878,11 +1008,11 @@ void FormatPid(wchar_t* buffer, uint32_t capacity, uint64_t pid) noexcept
 
 void FormatCelsius(wchar_t* buffer, uint32_t capacity, float celsius, bool available) noexcept
 {
-    if (!buffer || capacity == 0)
+    if (! buffer || capacity == 0)
     {
         return;
     }
-    if (!available)
+    if (! available)
     {
         (void)swprintf_s(buffer, capacity, L"--");
         return;
@@ -892,7 +1022,7 @@ void FormatCelsius(wchar_t* buffer, uint32_t capacity, float celsius, bool avail
 
 void FormatBytesPair(wchar_t* buffer, uint32_t capacity, uint64_t used, uint64_t total, bool available) noexcept
 {
-    if (!available)
+    if (! available)
     {
         FormatBytes(buffer, capacity, 0, false);
         return;
@@ -904,11 +1034,20 @@ void FormatBytesPair(wchar_t* buffer, uint32_t capacity, uint64_t used, uint64_t
     (void)swprintf_s(buffer, capacity, L"%s / %s", usedText, totalText);
 }
 
-HRESULT AppendClippedText(ViewerGpuResources& resources, ViewerDrawList& list, float x, float y, float height,
-                          float maxWidth, float red, float green, float blue, float alpha, const wchar_t* text,
+HRESULT AppendClippedText(ViewerGpuResources& resources,
+                          ViewerDrawList& list,
+                          float x,
+                          float y,
+                          float height,
+                          float maxWidth,
+                          float red,
+                          float green,
+                          float blue,
+                          float alpha,
+                          const wchar_t* text,
                           uint32_t characters) noexcept
 {
-    if (!text || characters == 0 || maxWidth <= 1.0f)
+    if (! text || characters == 0 || maxWidth <= 1.0f)
     {
         return S_OK;
     }
@@ -927,7 +1066,7 @@ HRESULT AppendClippedText(ViewerGpuResources& resources, ViewerDrawList& list, f
             break;
         }
         std::wmemcpy(clipped, text, copy);
-        clipped[copy] = L'.';
+        clipped[copy]     = L'.';
         clipped[copy + 1] = L'.';
         clipped[copy + 2] = L'.';
         clipped[copy + 3] = L'\0';
@@ -941,47 +1080,50 @@ HRESULT AppendClippedText(ViewerGpuResources& resources, ViewerDrawList& list, f
 
 void FormatUptime(wchar_t* buffer, uint32_t capacity, uint64_t milliseconds, bool available) noexcept
 {
-    if (!available)
+    if (! available)
     {
         (void)swprintf_s(buffer, capacity, L"--");
         return;
     }
     const uint64_t seconds = milliseconds / 1000ull;
-    const uint64_t days = seconds / 86400ull;
-    const uint64_t hours = (seconds % 86400ull) / 3600ull;
+    const uint64_t days    = seconds / 86400ull;
+    const uint64_t hours   = (seconds % 86400ull) / 3600ull;
     const uint64_t minutes = (seconds % 3600ull) / 60ull;
     if (days > 0)
     {
-        (void)swprintf_s(buffer, capacity, L"%llud %02llu:%02llu", static_cast<unsigned long long>(days),
-                         static_cast<unsigned long long>(hours), static_cast<unsigned long long>(minutes));
+        (void)swprintf_s(buffer,
+                         capacity,
+                         L"%llud %02llu:%02llu",
+                         static_cast<unsigned long long>(days),
+                         static_cast<unsigned long long>(hours),
+                         static_cast<unsigned long long>(minutes));
     }
     else
     {
-        (void)swprintf_s(buffer, capacity, L"%02llu:%02llu", static_cast<unsigned long long>(hours),
-                         static_cast<unsigned long long>(minutes));
+        (void)swprintf_s(buffer, capacity, L"%02llu:%02llu", static_cast<unsigned long long>(hours), static_cast<unsigned long long>(minutes));
     }
 }
 
 struct RankedRow final
 {
     uint64_t identity = 0;
-    uint64_t pid = 0;
+    uint64_t pid      = 0;
     std::array<wchar_t, kMaximumNameCharacters + 1> name{};
     uint32_t nameCharacters = 0;
     std::array<wchar_t, 32> detail{};
     uint32_t detailCharacters = 0;
-    float primary = 0.0f;
-    float displayPrimary = 0.0f;
-    float displayY = 0.0f;
-    uint64_t secondary = 0;
-    uint32_t tertiary = 0;
-    uint32_t flags = 0;
-    bool primaryAvailable = false;
+    float primary             = 0.0f;
+    float displayPrimary      = 0.0f;
+    float displayY            = 0.0f;
+    uint64_t secondary        = 0;
+    uint32_t tertiary         = 0;
+    uint32_t flags            = 0;
+    bool primaryAvailable     = false;
 };
 
 struct NetIdleWatch final
 {
-    uint64_t identity = 0;
+    uint64_t identity   = 0;
     uint32_t idleStreak = 0;
 };
 
@@ -1002,15 +1144,15 @@ struct ViewerSample final
     uint32_t rowCount = 0;
     std::array<float, kHeatCapacity> heat{};
     std::array<float, kHeatCapacity> heatDisplay{};
-    uint32_t heatCount = 0;
+    uint32_t heatCount    = 0;
     uint32_t heatOverflow = 0;
     std::array<float, kSparkCapacity> spark{};
-    uint32_t sparkCount = 0;
+    uint32_t sparkCount   = 0;
     uint32_t batteryCount = 0;
-    uint32_t hiddenCount = 0;
-    bool acOnline = true;
-    bool charging = false;
-    bool batteryPresent = false;
+    uint32_t hiddenCount  = 0;
+    bool acOnline         = true;
+    bool charging         = false;
+    bool batteryPresent   = false;
 };
 
 // Only interpolated state: labels, counters and history still update on every delivered snapshot. Keeping the
@@ -1023,8 +1165,8 @@ struct ViewerMotionTarget final
     std::array<uint64_t, kMaximumRows> identities{};
     std::array<float, kMaximumRows> primary{};
     std::array<bool, kMaximumRows> primaryAvailable{};
-    uint32_t rowCount = 0;
-    uint32_t heatCount = 0;
+    uint32_t rowCount                                         = 0;
+    uint32_t heatCount                                        = 0;
     bool operator==(const ViewerMotionTarget&) const noexcept = default;
 };
 
@@ -1037,8 +1179,15 @@ struct ViewerMotionPose final
 };
 static_assert(sizeof(ViewerMotionTarget) + sizeof(ViewerMotionPose) <= 1320);
 
-void DrawHistoryArea(ViewerDrawList& list, float x, float y, float width, float height, const ViewerSample& sample,
-                     float latest, bool latestAvailable, bool percentScale) noexcept
+void DrawHistoryArea(ViewerDrawList& list,
+                     float x,
+                     float y,
+                     float width,
+                     float height,
+                     const ViewerSample& sample,
+                     float latest,
+                     bool latestAvailable,
+                     bool percentScale) noexcept
 {
     if (width <= 4.0f || height <= 4.0f)
     {
@@ -1063,8 +1212,8 @@ void DrawHistoryArea(ViewerDrawList& list, float x, float y, float width, float 
     {
         maxValue = std::max(maxValue, latest);
     }
-    maxValue = std::max(maxValue, 1.0f);
-    const float colW = width / static_cast<float>(kSparkCapacity);
+    maxValue             = std::max(maxValue, 1.0f);
+    const float colW     = width / static_cast<float>(kSparkCapacity);
     const uint32_t start = kSparkCapacity - count;
     for (uint32_t index = 0; index < count; ++index)
     {
@@ -1074,19 +1223,18 @@ void DrawHistoryArea(ViewerDrawList& list, float x, float y, float width, float 
             value = latest;
         }
         const float recency = count == 1 ? 1.0f : static_cast<float>(index) / static_cast<float>(count - 1);
-        const float unit =
-            percentScale ? std::clamp(value, 0.0f, 100.0f) / 100.0f : std::clamp(value / maxValue, 0.0f, 1.0f);
-        float red = kFillR;
-        float green = kFillG;
-        float blue = kFillB;
+        const float unit    = percentScale ? std::clamp(value, 0.0f, 100.0f) / 100.0f : std::clamp(value / maxValue, 0.0f, 1.0f);
+        float red           = kFillR;
+        float green         = kFillG;
+        float blue          = kFillB;
         if (percentScale)
         {
             SignalColor(unit, red, green, blue);
         }
         const float barH = std::max(2.0f, height * unit);
-        const float bx = x + static_cast<float>(start + index) * colW + 0.4f;
-        const float by = y + height - barH;
-        const float bw = std::max(1.2f, colW - 0.8f);
+        const float bx   = x + static_cast<float>(start + index) * colW + 0.4f;
+        const float by   = y + height - barH;
+        const float bw   = std::max(1.2f, colW - 0.8f);
         const float fade = 0.08f + recency * recency * 0.42f;
         (void)list.AddFill(bx, by, bw, barH, red, green, blue, fade, 1.5f);
         const float midH = std::max(2.0f, barH * 0.45f);
@@ -1095,8 +1243,7 @@ void DrawHistoryArea(ViewerDrawList& list, float x, float y, float width, float 
         (void)list.AddFill(bx, by, bw, capH, red, green, blue, 0.40f + recency * 0.50f, 1.5f);
         if (index + 1 == count)
         {
-            (void)list.AddGlow(bx - 2.0f, by - 2.0f, bw + 4.0f, barH + 4.0f, red, green, blue, 0.18f + recency * 0.20f,
-                               8.0f);
+            (void)list.AddGlow(bx - 2.0f, by - 2.0f, bw + 4.0f, barH + 4.0f, red, green, blue, 0.18f + recency * 0.20f, 8.0f);
         }
     }
 }
@@ -1109,8 +1256,10 @@ class ViewerWidget;
 #pragma warning(disable : 4625 4626 5026 5027)
 class ViewerSink final : public RedXeComObject<ViewerSink, IRedXeDataSink>
 {
-  public:
-    ViewerSink(ViewerWidget& widget, uint32_t dataSetIndex) noexcept : _widget(&widget), _dataSetIndex(dataSetIndex) {}
+public:
+    ViewerSink(ViewerWidget& widget, uint32_t dataSetIndex) noexcept : _widget(&widget), _dataSetIndex(dataSetIndex)
+    {
+    }
 
     HRESULT STDMETHODCALLTYPE OnDataSnapshot(const RedXeDataSnapshot* snapshot) noexcept override;
 
@@ -1122,7 +1271,7 @@ class ViewerSink final : public RedXeComObject<ViewerSink, IRedXeDataSink>
         _widget = nullptr;
     }
 
-  private:
+private:
     // Borrowed, never owned: the widget owns this sink, so an owning reference would be a cycle.
     ViewerWidget* _widget;
     uint32_t _dataSetIndex;
@@ -1133,14 +1282,27 @@ class ViewerSink final : public RedXeComObject<ViewerSink, IRedXeDataSink>
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
 #pragma warning(disable : 4625 4626)
-class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget,
-                                                 IRedXeRaisedWidget, IRedXeInteractiveWidget, IRedXePreparedGpuWidget>
+class ViewerWidget final : public RedXeComObject<ViewerWidget,
+                                                 IRedXeWidget,
+                                                 IRedXeGpuWidget,
+                                                 IRedXeScheduledWidget,
+                                                 IRedXeRaisedWidget,
+                                                 IRedXeInteractiveWidget,
+                                                 IRedXePreparedGpuWidget>
 {
-  public:
-    ViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, ViewerKind kind, uint32_t topN,
-                 bool hideIdle, ViewerPanelColor panelColor, IRedXeHost* host) noexcept
-        : _providerOwner(std::move(providerOwner)), _kind(kind), _topN(topN), _hideIdle(hideIdle),
-          _panelColor(panelColor), _host(host)
+public:
+    ViewerWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
+                 ViewerKind kind,
+                 uint32_t topN,
+                 bool hideIdle,
+                 ViewerPanelColor panelColor,
+                 IRedXeHost* host) noexcept
+        : _providerOwner(std::move(providerOwner)),
+          _kind(kind),
+          _topN(topN),
+          _hideIdle(hideIdle),
+          _panelColor(panelColor),
+          _host(host)
     {
         g_liveWidgetCount.fetch_add(1, std::memory_order_relaxed);
         if (kind == ViewerKind::ProcessViewer)
@@ -1178,16 +1340,16 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     [[nodiscard]] HRESULT InitializeSubscriptions(IRedXeDataProvider& provider) noexcept
     {
         const ViewerCatalogEntry& entry = Catalog(_kind);
-        const char* dataSets[2] = {entry.dataSet0, entry.dataSet1};
-        const uint32_t intervals[2] = {entry.interval0, entry.interval1};
+        const char* dataSets[2]         = {entry.dataSet0, entry.dataSet1};
+        const uint32_t intervals[2]     = {entry.interval0, entry.interval1};
         for (uint32_t index = 0; index < 2; ++index)
         {
-            if (!dataSets[index])
+            if (! dataSets[index])
             {
                 continue;
             }
             auto* sink = new (std::nothrow) ViewerSink(*this, index);
-            if (!sink)
+            if (! sink)
             {
                 return E_OUTOFMEMORY;
             }
@@ -1212,13 +1374,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     HRESULT Publish(uint32_t dataSetIndex, const RedXeDataSnapshot* snapshot) noexcept
     {
         AcquireSRWLockExclusive(&_lock);
-        if (!_samplePending)
+        if (! _samplePending)
             _pendingSample = _sample;
         const HRESULT result = Ingest(dataSetIndex, snapshot);
         if (SUCCEEDED(result))
         {
             _samplePending = true;
-            _pendingPulse = HighBandActive(_pendingSample);
+            _pendingPulse  = HighBandActive(_pendingSample);
             ++_sampleRevision;
             g_sampleCount.fetch_add(1, std::memory_order_relaxed);
         }
@@ -1228,7 +1390,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
     {
-        const bool show = visible != FALSE;
+        const bool show     = visible != FALSE;
         const bool previous = _visible.exchange(show, std::memory_order_acq_rel);
         if (previous == show)
         {
@@ -1236,7 +1398,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         // Scheduling is UI-thread only. The worker publishes pending state under _lock; it never owns a deadline.
         _animationScheduled = false;
-        _snapNextFrame = true;
+        _snapNextFrame      = true;
         for (uint32_t index = 0; index < _subscriptionCount; ++index)
         {
             if (_subscriptions[index])
@@ -1248,11 +1410,11 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                 }
             }
         }
-        if (!show)
+        if (! show)
         {
             AcquireSRWLockExclusive(&_lock);
-            _easing = false;
-            _pulse = 0.0f;
+            _easing       = false;
+            _pulse        = 0.0f;
             _pulsePending = false;
             _pendingPulse = false;
             SnapDisplayed();
@@ -1261,15 +1423,14 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
-                                                        uint32_t* writtenBytes) noexcept override
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes, uint32_t* writtenBytes) noexcept override
     {
         return RedXeCollectNoPersistentSettings(jsonUtf8, capacityBytes, writtenBytes);
     }
 
     HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
     {
-        if (!extent)
+        if (! extent)
         {
             return E_POINTER;
         }
@@ -1285,7 +1446,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     HRESULT STDMETHODCALLTYPE OnPointer(const RedXePointerEvent* event) noexcept override
     {
-        if (!event)
+        if (! event)
         {
             return E_POINTER;
         }
@@ -1297,10 +1458,10 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         if (event->phase == RedXePointerPhaseCancel)
         {
             _pointerDown = false;
-            _pagePan = false;
+            _pagePan     = false;
             return S_FALSE;
         }
-        if (!_paintReady)
+        if (! _paintReady)
             return S_FALSE;
         if (event->phase == RedXePointerPhaseWheel)
         {
@@ -1308,13 +1469,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             // keeps every wheel sample, including at either end, so the dashboard never changes page under a
             // paging tile; only a single-page tile declines the sample for host page navigation.
             const uint32_t page = _overflowPage.load(std::memory_order_relaxed);
-            const bool forward = event->wheelDelta < 0.0f;
-            if (pageCount <= 1 || !std::isfinite(event->wheelDelta) || event->wheelDelta == 0.0f)
+            const bool forward  = event->wheelDelta < 0.0f;
+            if (pageCount <= 1 || ! std::isfinite(event->wheelDelta) || event->wheelDelta == 0.0f)
             {
                 _wheelDetent.Clear();
                 return S_FALSE;
             }
-            if (_pointerDown || (forward && page + 1 >= pageCount) || (!forward && page == 0))
+            if (_pointerDown || (forward && page + 1 >= pageCount) || (! forward && page == 0))
             {
                 _wheelDetent.Clear();
                 return S_OK;
@@ -1335,22 +1496,22 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         if (event->phase == RedXePointerPhaseDown)
         {
-            _pointerDown = true;
-            _pagePan = false;
+            _pointerDown   = true;
+            _pagePan       = false;
             _pointerStartX = event->x;
             _pointerStartY = event->y;
             return S_FALSE;
         }
         if (event->phase == RedXePointerPhaseMove)
         {
-            if (!_pointerDown || pageCount <= 1)
+            if (! _pointerDown || pageCount <= 1)
             {
                 return S_FALSE;
             }
             const float threshold = 48.0f * static_cast<float>(event->dpi ? event->dpi : 96) / 96.0f;
-            const float dx = event->x - _pointerStartX;
-            const float dy = event->y - _pointerStartY;
-            if (!_pagePan && (std::fabs(dx) >= threshold || std::fabs(dy) >= threshold))
+            const float dx        = event->x - _pointerStartX;
+            const float dy        = event->y - _pointerStartY;
+            if (! _pagePan && (std::fabs(dx) >= threshold || std::fabs(dy) >= threshold))
             {
                 _pagePan = true;
             }
@@ -1358,13 +1519,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         if (event->phase == RedXePointerPhaseUp)
         {
-            const bool panned = _pagePan;
+            const bool panned  = _pagePan;
             const bool wasDown = _pointerDown;
-            const float dx = event->x - _pointerStartX;
-            const float dy = event->y - _pointerStartY;
-            _pointerDown = false;
-            _pagePan = false;
-            if (!panned && wasDown && pageCount > 1)
+            const float dx     = event->x - _pointerStartX;
+            const float dy     = event->y - _pointerStartY;
+            _pointerDown       = false;
+            _pagePan           = false;
+            if (! panned && wasDown && pageCount > 1)
             {
                 // A tap on the page control goes to that page; the dots are the ones the last frame drew.
                 const uint32_t dot = RedXePageIndicatorHit(_lastDots, event->x, event->y);
@@ -1378,13 +1539,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                     return S_OK;
                 }
             }
-            if (!panned || pageCount <= 1)
+            if (! panned || pageCount <= 1)
             {
                 return S_FALSE;
             }
-            uint32_t page = _overflowPage.load(std::memory_order_relaxed);
+            uint32_t page         = _overflowPage.load(std::memory_order_relaxed);
             const bool horizontal = std::fabs(dx) >= std::fabs(dy);
-            const float delta = horizontal ? dx : dy;
+            const float delta     = horizontal ? dx : dy;
             if (delta < 0.0f && page + 1 < pageCount)
             {
                 _overflowPage.store(page + 1, std::memory_order_relaxed);
@@ -1421,7 +1582,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     {
         if (_visible.load(std::memory_order_acquire))
             g_deviceCallbacksWhileVisible.fetch_add(1, std::memory_order_relaxed);
-        if (!context || context->sizeBytes != sizeof(RedXeGpuDeviceContext) || !context->device)
+        if (! context || context->sizeBytes != sizeof(RedXeGpuDeviceContext) || ! context->device)
         {
             return E_INVALIDARG;
         }
@@ -1433,7 +1594,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         if (SUCCEEDED(result))
         {
             _gpuHeld.store(true, std::memory_order_release);
-            _paintReady = false;
+            _paintReady        = false;
             _preparationFailed = false;
         }
         return result;
@@ -1448,25 +1609,25 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             ViewerGpuRelease();
         }
         AcquireSRWLockExclusive(&_lock);
-        _easing = false;
-        _pulse = 0.0f;
+        _easing       = false;
+        _pulse        = 0.0f;
         _pulsePending = false;
         _pendingPulse = false;
         SnapDisplayed();
         ReleaseSRWLockExclusive(&_lock);
         _animationScheduled = false;
-        _snapNextFrame = true;
-        _paintReady = false;
-        _preparationFailed = false;
+        _snapNextFrame      = true;
+        _paintReady         = false;
+        _preparationFailed  = false;
     }
 
     HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
     {
-        if (!context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
+        if (! context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
         {
             return E_INVALIDARG;
         }
-        _animationWidth = context->widthPixels;
+        _animationWidth  = context->widthPixels;
         _animationHeight = context->heightPixels;
         // Deliberately no rebuild. Layout already derives every size from the per-frame widget context, so nothing
         // here depends on being told the size in advance.
@@ -1481,60 +1642,59 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     HRESULT STDMETHODCALLTYPE Prepare(const RedXeGpuPreparationContext* context) noexcept override
     {
-        if (!context || context->sizeBytes != sizeof(RedXeGpuPreparationContext))
+        if (! context || context->sizeBytes != sizeof(RedXeGpuPreparationContext))
             return E_INVALIDARG;
-        if (!_visible.load(std::memory_order_acquire))
+        if (! _visible.load(std::memory_order_acquire))
             return S_FALSE;
-        if (!_gpuHeld.load(std::memory_order_acquire))
+        if (! _gpuHeld.load(std::memory_order_acquire))
             return E_UNEXPECTED;
         ViewerGpuResources* resources = ViewerGpuGet();
-        if (!resources)
+        if (! resources)
             return E_UNEXPECTED;
 
-        const std::array<uint32_t, 5> extents{context->dpi, context->tileWidthPixels, context->tileHeightPixels,
-                                              context->raisedWidthPixels, context->raisedHeightPixels};
+        const std::array<uint32_t, 5> extents{
+            context->dpi, context->tileWidthPixels, context->tileHeightPixels, context->raisedWidthPixels, context->raisedHeightPixels};
         AcquireSRWLockShared(&_lock);
         const uint64_t revision = _sampleRevision;
-        if ((_paintReady && !_samplePending) ||
-            (_preparationFailed && _failedRevision == revision && _failedPreparationExtents == extents))
+        if ((_paintReady && ! _samplePending) || (_preparationFailed && _failedRevision == revision && _failedPreparationExtents == extents))
         {
             ReleaseSRWLockShared(&_lock);
             return S_FALSE;
         }
-        ViewerSample sample = _samplePending ? _pendingSample : _sample;
+        ViewerSample sample     = _samplePending ? _pendingSample : _sample;
         const bool pulsePending = _pendingPulse;
         ReleaseSRWLockShared(&_lock);
 
         // Only the UI thread uses the shared atlas. Worker delivery and frame construction do no font/GPU work.
-        _paintReady = false;
+        _paintReady             = false;
         const auto releaseFonts = wil::scope_exit([resources]() noexcept { resources->ReleasePreparationFonts(); });
-        const HRESULT result = EnsureSceneGlyphs(*resources, sample, Catalog(_kind));
+        const HRESULT result    = EnsureSceneGlyphs(*resources, sample, Catalog(_kind));
         if (FAILED(result))
         {
-            _preparationFailed = true;
-            _failedRevision = revision;
+            _preparationFailed        = true;
+            _failedRevision           = revision;
             _failedPreparationExtents = extents;
-            _animationScheduled = false;
+            _animationScheduled       = false;
             g_preparationFailureCount.fetch_add(1, std::memory_order_relaxed);
             return result;
         }
         resources->UploadDirtyGlyphs();
         AcquireSRWLockExclusive(&_lock);
         // Motion may have advanced since a coalesced delivery; preserve the current displayed pose by identity.
-        sample.display = _sample.display;
+        sample.display     = _sample.display;
         sample.heatDisplay = _sample.heatDisplay;
         PreserveRowMotion(_sample, sample);
-        _sample = sample;
+        _sample       = sample;
         _paintPending = true;
         _pulsePending = pulsePending;
         // A concurrent delivery is still pending for the next frame, including any history it appended.
         if (_sampleRevision == revision)
         {
             _samplePending = false;
-            _pendingPulse = false;
+            _pendingPulse  = false;
         }
         ReleaseSRWLockExclusive(&_lock);
-        _paintReady = true;
+        _paintReady        = true;
         _preparationFailed = false;
         g_preparationCount.fetch_add(1, std::memory_order_relaxed);
         return S_OK;
@@ -1542,8 +1702,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
-        if (!context || context->sizeBytes != sizeof(RedXeGpuFrameContext) || !context->widget ||
-            !context->deviceContext)
+        if (! context || context->sizeBytes != sizeof(RedXeGpuFrameContext) || ! context->widget || ! context->deviceContext)
         {
             return E_INVALIDARG;
         }
@@ -1556,10 +1715,10 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             return S_OK;
         }
-        if (!_paintReady)
+        if (! _paintReady)
             return S_FALSE;
         ViewerGpuResources* resources = ViewerGpuGet();
-        if (!resources)
+        if (! resources)
         {
             return E_UNEXPECTED;
         }
@@ -1571,14 +1730,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             if (_snapNextFrame)
             {
                 SnapDisplayed();
-                _easing = false;
-                _pulse = 0.0f;
+                _easing        = false;
+                _pulse         = 0.0f;
                 _snapNextFrame = false;
             }
             else if (target != _easeTarget)
             {
-                if (HasVisibleMotion((std::max)(_animationWidth, frame.widthPixels),
-                                     (std::max)(_animationHeight, frame.heightPixels)))
+                if (HasVisibleMotion((std::max)(_animationWidth, frame.widthPixels), (std::max)(_animationHeight, frame.heightPixels)))
                 {
                     BeginEase(frame.elapsedSeconds);
                 }
@@ -1589,23 +1747,23 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                     _easing = false;
                 }
             }
-            _easeTarget = target;
+            _easeTarget   = target;
             _paintPending = false;
         }
-        if (!HighBandActive(_sample))
+        if (! HighBandActive(_sample))
         {
             _pulse = 0.0f;
         }
         if (_pulsePending)
         {
-            _pulse = 1.0f;
+            _pulse             = 1.0f;
             _pulseStartSeconds = frame.elapsedSeconds;
-            _pulsePending = false;
+            _pulsePending      = false;
         }
         if (_easing)
         {
             const float elapsed = (std::max)(0.0f, (frame.elapsedSeconds - _easeStartSeconds) * 1000.0f);
-            const float t = SmootherStep(elapsed / kEaseMilliseconds);
+            const float t       = SmootherStep(elapsed / kEaseMilliseconds);
             ApplyEase(t);
             if (elapsed >= kEaseMilliseconds)
             {
@@ -1615,21 +1773,18 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         if (_pulse > 0.0f)
         {
-            _pulse = std::clamp(1.0f - (frame.elapsedSeconds - _pulseStartSeconds) * 1000.0f / kPulseMilliseconds, 0.0f,
-                                1.0f);
+            _pulse = std::clamp(1.0f - (frame.elapsedSeconds - _pulseStartSeconds) * 1000.0f / kPulseMilliseconds, 0.0f, 1.0f);
         }
         ViewerSample sample = _sample;
-        const bool easing = _easing;
-        const float pulse = _pulse;
+        const bool easing   = _easing;
+        const float pulse   = _pulse;
         ReleaseSRWLockExclusive(&_lock);
 
         ViewerDrawList list;
-        HRESULT result = BuildScene(*resources, list, sample, static_cast<float>(frame.widthPixels),
-                                    static_cast<float>(frame.heightPixels), frame.dpi, pulse);
+        HRESULT result = BuildScene(*resources, list, sample, static_cast<float>(frame.widthPixels), static_cast<float>(frame.heightPixels), frame.dpi, pulse);
         if (SUCCEEDED(result))
         {
-            result = resources->Render(context->deviceContext, static_cast<float>(frame.widthPixels),
-                                       static_cast<float>(frame.heightPixels), list);
+            result = resources->Render(context->deviceContext, static_cast<float>(frame.widthPixels), static_cast<float>(frame.heightPixels), list);
         }
         if (SUCCEEDED(result))
         {
@@ -1645,11 +1800,11 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             *delayMilliseconds = 0;
         }
-        if (!delayMilliseconds)
+        if (! delayMilliseconds)
         {
             return E_POINTER;
         }
-        if (!_visible.load(std::memory_order_acquire) || !_animationScheduled)
+        if (! _visible.load(std::memory_order_acquire) || ! _animationScheduled)
         {
             return S_FALSE;
         }
@@ -1657,17 +1812,17 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         return S_OK;
     }
 
-  private:
+private:
     void BeginEase(float nowSeconds) noexcept
     {
         _easeStartSeconds = nowSeconds;
-        _easing = true;
-        _easeFrom.values = _sample.display;
-        _easeFrom.heat = _sample.heatDisplay;
+        _easing           = true;
+        _easeFrom.values  = _sample.display;
+        _easeFrom.heat    = _sample.heatDisplay;
         for (uint32_t index = 0; index < _sample.rowCount; ++index)
         {
             _easeFrom.primary[index] = _sample.rows[index].displayPrimary;
-            _easeFrom.rowY[index] = _sample.rows[index].displayY;
+            _easeFrom.rowY[index]    = _sample.rows[index].displayY;
         }
     }
 
@@ -1676,52 +1831,47 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         ViewerMotionTarget target;
         const auto value = [&](uint32_t index) noexcept
         {
-            target.values[index] = _sample.values[index];
+            target.values[index]    = _sample.values[index];
             target.available[index] = _sample.available[index];
         };
         switch (_kind)
         {
-        case ViewerKind::SystemPulse:
-            value(0);
-            if (_raised)
-                value(4);
-            break;
-        case ViewerKind::CpuMeter:
-            value(0);
-            value(1);
-            value(2);
-            target.heatCount = _sample.heatCount;
-            target.heat = _sample.heat;
-            break;
-        case ViewerKind::MemoryMeter:
-            value(0);
-            value(1);
-            break;
-        case ViewerKind::StorageMeter:
-            value(7);
-            break;
-        case ViewerKind::PowerMeter:
-            if (_sample.batteryPresent)
+            case ViewerKind::SystemPulse:
                 value(0);
-            break;
-        case ViewerKind::ThermalMeter:
-            value(7);
-            break;
-        case ::ViewerKind::Count:
-        case ::ViewerKind::GpuMeter:
-        case ::ViewerKind::GpuProcesses:
-        case ::ViewerKind::NetworkMeter:
-        case ::ViewerKind::ProcessViewer:
-        default:
-            break;
+                if (_raised)
+                    value(4);
+                break;
+            case ViewerKind::CpuMeter:
+                value(0);
+                value(1);
+                value(2);
+                target.heatCount = _sample.heatCount;
+                target.heat      = _sample.heat;
+                break;
+            case ViewerKind::MemoryMeter:
+                value(0);
+                value(1);
+                break;
+            case ViewerKind::StorageMeter: value(7); break;
+            case ViewerKind::PowerMeter:
+                if (_sample.batteryPresent)
+                    value(0);
+                break;
+            case ViewerKind::ThermalMeter: value(7); break;
+            case ::ViewerKind::Count:
+            case ::ViewerKind::GpuMeter:
+            case ::ViewerKind::GpuProcesses:
+            case ::ViewerKind::NetworkMeter:
+            case ::ViewerKind::ProcessViewer:
+            default: break;
         }
         if (_kind != ViewerKind::PowerMeter)
         {
             target.rowCount = _sample.rowCount;
             for (uint32_t index = 0; index < target.rowCount; ++index)
             {
-                target.identities[index] = _sample.rows[index].identity;
-                target.primary[index] = _sample.rows[index].primary;
+                target.identities[index]       = _sample.rows[index].identity;
+                target.primary[index]          = _sample.rows[index].primary;
                 target.primaryAvailable[index] = _sample.rows[index].primaryAvailable;
             }
         }
@@ -1732,67 +1882,62 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     {
         // Largest physical viewport is a conservative bound for bars and rank displacement, including a raised
         // view. Smaller observations snap to their exact target; repeated sub-pixel changes cannot accumulate lag.
-        const float span = static_cast<float>((std::max)(1u, width));
+        const float span   = static_cast<float>((std::max)(1u, width));
         const auto percent = [&](uint32_t index) noexcept
-        {
-            return _sample.available[index] &&
-                   std::fabs(_sample.display[index] - _sample.values[index]) * (std::max)(span / 100.0f, 1.0f) >= 1.0f;
-        };
+        { return _sample.available[index] && std::fabs(_sample.display[index] - _sample.values[index]) * (std::max)(span / 100.0f, 1.0f) >= 1.0f; };
         switch (_kind)
         {
-        case ViewerKind::SystemPulse:
-            if (percent(0) || (_raised && percent(4)))
-                return true;
-            break;
-        case ViewerKind::CpuMeter:
-            if (percent(0) || percent(1) || percent(2))
-                return true;
-            for (uint32_t index = 0; index < _sample.heatCount; ++index)
-            {
-                const float from = CpuUnit(_sample.heatDisplay[index]);
-                const float to = CpuUnit(_sample.heat[index]);
-                if (std::fabs(CpuHeatLuminance(from) - CpuHeatLuminance(to)) >= 1.0f / 255.0f ||
-                    (from >= 0.70f) != (to >= 0.70f) || (from >= 0.85f) != (to >= 0.85f))
+            case ViewerKind::SystemPulse:
+                if (percent(0) || (_raised && percent(4)))
                     return true;
-            }
-            break;
-        case ViewerKind::MemoryMeter:
-            if (percent(0) || percent(1))
-                return true;
-            break;
-        case ViewerKind::StorageMeter:
-        case ViewerKind::ThermalMeter:
-            if (percent(7))
-                return true;
-            break;
-        case ViewerKind::PowerMeter:
-            return _sample.batteryPresent && percent(0);
-        case ::ViewerKind::Count:
-        case ::ViewerKind::GpuMeter:
-        case ::ViewerKind::GpuProcesses:
-        case ::ViewerKind::NetworkMeter:
-        case ::ViewerKind::ProcessViewer:
-        default:
-            break;
+                break;
+            case ViewerKind::CpuMeter:
+                if (percent(0) || percent(1) || percent(2))
+                    return true;
+                for (uint32_t index = 0; index < _sample.heatCount; ++index)
+                {
+                    const float from = CpuUnit(_sample.heatDisplay[index]);
+                    const float to   = CpuUnit(_sample.heat[index]);
+                    if (std::fabs(CpuHeatLuminance(from) - CpuHeatLuminance(to)) >= 1.0f / 255.0f || (from >= 0.70f) != (to >= 0.70f) ||
+                        (from >= 0.85f) != (to >= 0.85f))
+                        return true;
+                }
+                break;
+            case ViewerKind::MemoryMeter:
+                if (percent(0) || percent(1))
+                    return true;
+                break;
+            case ViewerKind::StorageMeter:
+            case ViewerKind::ThermalMeter:
+                if (percent(7))
+                    return true;
+                break;
+            case ViewerKind::PowerMeter: return _sample.batteryPresent && percent(0);
+            case ::ViewerKind::Count:
+            case ::ViewerKind::GpuMeter:
+            case ::ViewerKind::GpuProcesses:
+            case ::ViewerKind::NetworkMeter:
+            case ::ViewerKind::ProcessViewer:
+            default: break;
         }
         for (uint32_t index = 0; index < _sample.rowCount; ++index)
         {
             const RankedRow& row = _sample.rows[index];
             if (std::fabs(row.displayY - static_cast<float>(index)) * static_cast<float>(height) >= 1.0f)
                 return true;
-            if (!row.primaryAvailable)
+            if (! row.primaryAvailable)
                 continue;
             float from = CpuUnit(row.displayPrimary);
-            float to = CpuUnit(row.primary);
+            float to   = CpuUnit(row.primary);
             if (_kind == ViewerKind::ProcessViewer || _kind == ViewerKind::GpuProcesses)
             {
                 from = std::sqrt(from);
-                to = std::sqrt(to);
+                to   = std::sqrt(to);
             }
             else if (_kind == ViewerKind::NetworkMeter)
             {
                 from = LogRateFill(row.displayPrimary, row.secondary);
-                to = LogRateFill(row.primary, row.secondary);
+                to   = LogRateFill(row.primary, row.secondary);
             }
             else if (_kind == ViewerKind::GpuMeter || _kind == ViewerKind::ThermalMeter)
             {
@@ -1800,7 +1945,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                 if (std::fabs(row.displayPrimary - row.primary) >= 1.0f)
                     return true;
                 from = ThermalFill(row.displayPrimary);
-                to = ThermalFill(row.primary);
+                to   = ThermalFill(row.primary);
             }
             if (std::fabs(from - to) * span >= 1.0f)
                 return true;
@@ -1812,39 +1957,34 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     {
         switch (_kind)
         {
-        case ViewerKind::SystemPulse:
-        case ViewerKind::CpuMeter:
-            return sample.available[0] && sample.values[0] >= kHighBand;
-        case ViewerKind::MemoryMeter:
-            return (sample.available[0] && sample.values[0] >= kHighBand) ||
-                   (sample.available[1] && sample.values[1] >= kHighBand);
-        case ViewerKind::ProcessViewer:
-        case ViewerKind::GpuProcesses:
-            for (uint32_t index = 0; index < sample.rowCount; ++index)
-            {
-                const RankedRow& row = sample.rows[index];
-                if ((_kind != ViewerKind::ProcessViewer || row.pid != 0) && row.primaryAvailable &&
-                    row.primary >= kHighBand)
-                    return true;
-            }
-            return false;
-        case ViewerKind::StorageMeter:
-            for (uint32_t index = 0; index < sample.rowCount; ++index)
-            {
-                if (sample.rows[index].primaryAvailable && sample.rows[index].primary >= kHighBand)
+            case ViewerKind::SystemPulse:
+            case ViewerKind::CpuMeter: return sample.available[0] && sample.values[0] >= kHighBand;
+            case ViewerKind::MemoryMeter:
+                return (sample.available[0] && sample.values[0] >= kHighBand) || (sample.available[1] && sample.values[1] >= kHighBand);
+            case ViewerKind::ProcessViewer:
+            case ViewerKind::GpuProcesses:
+                for (uint32_t index = 0; index < sample.rowCount; ++index)
                 {
-                    return true;
+                    const RankedRow& row = sample.rows[index];
+                    if ((_kind != ViewerKind::ProcessViewer || row.pid != 0) && row.primaryAvailable && row.primary >= kHighBand)
+                        return true;
                 }
-            }
-            return false;
-        case ViewerKind::NetworkMeter:
-            return sample.available[7] && sample.values[7] >= kHighBand;
-        case ::ViewerKind::Count:
-        case ::ViewerKind::GpuMeter:
-        case ::ViewerKind::PowerMeter:
-        case ::ViewerKind::ThermalMeter:
-        default:
-            return false;
+                return false;
+            case ViewerKind::StorageMeter:
+                for (uint32_t index = 0; index < sample.rowCount; ++index)
+                {
+                    if (sample.rows[index].primaryAvailable && sample.rows[index].primary >= kHighBand)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            case ViewerKind::NetworkMeter: return sample.available[7] && sample.values[7] >= kHighBand;
+            case ::ViewerKind::Count:
+            case ::ViewerKind::GpuMeter:
+            case ::ViewerKind::PowerMeter:
+            case ::ViewerKind::ThermalMeter:
+            default: return false;
         }
     }
 
@@ -1857,8 +1997,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         for (uint32_t index = 0; index < _sample.rowCount; ++index)
         {
             _sample.rows[index].displayPrimary = Lerp(_easeFrom.primary[index], _sample.rows[index].primary, t);
-            const float targetY = static_cast<float>(index);
-            _sample.rows[index].displayY = Lerp(_easeFrom.rowY[index], targetY, t);
+            const float targetY                = static_cast<float>(index);
+            _sample.rows[index].displayY       = Lerp(_easeFrom.rowY[index], targetY, t);
         }
         for (uint32_t index = 0; index < _sample.heatCount; ++index)
         {
@@ -1872,7 +2012,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         for (uint32_t index = 0; index < _sample.rowCount; ++index)
         {
             _sample.rows[index].displayPrimary = _sample.rows[index].primary;
-            _sample.rows[index].displayY = static_cast<float>(index);
+            _sample.rows[index].displayY       = static_cast<float>(index);
         }
         _sample.heatDisplay = _sample.heat;
     }
@@ -1881,29 +2021,18 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     {
         switch (_kind)
         {
-        case ViewerKind::ProcessViewer:
-            return IngestProcess(snapshot);
-        case ViewerKind::SystemPulse:
-            return IngestSummary(snapshot);
-        case ViewerKind::CpuMeter:
-            return dataSetIndex == 0 ? IngestCpuSummary(snapshot) : IngestCpuLogical(snapshot);
-        case ViewerKind::MemoryMeter:
-            return IngestMemory(snapshot);
-        case ViewerKind::NetworkMeter:
-            return dataSetIndex == 0 ? IngestNetworkInterfaces(snapshot) : IngestNetworkProtocols(snapshot);
-        case ViewerKind::StorageMeter:
-            return dataSetIndex == 0 ? IngestVolumes(snapshot) : IngestDisks(snapshot);
-        case ViewerKind::GpuMeter:
-            return IngestGpuAdapters(snapshot);
-        case ViewerKind::GpuProcesses:
-            return dataSetIndex == 0 ? IngestGpuProcesses(snapshot) : IngestGpuProcessNames(snapshot);
-        case ViewerKind::PowerMeter:
-            return dataSetIndex == 0 ? IngestPower(snapshot) : IngestBatteries(snapshot);
-        case ViewerKind::ThermalMeter:
-            return dataSetIndex == 0 ? IngestThermal(snapshot) : IngestFans(snapshot);
-        case ::ViewerKind::Count:
-        default:
-            return E_UNEXPECTED;
+            case ViewerKind::ProcessViewer: return IngestProcess(snapshot);
+            case ViewerKind::SystemPulse: return IngestSummary(snapshot);
+            case ViewerKind::CpuMeter: return dataSetIndex == 0 ? IngestCpuSummary(snapshot) : IngestCpuLogical(snapshot);
+            case ViewerKind::MemoryMeter: return IngestMemory(snapshot);
+            case ViewerKind::NetworkMeter: return dataSetIndex == 0 ? IngestNetworkInterfaces(snapshot) : IngestNetworkProtocols(snapshot);
+            case ViewerKind::StorageMeter: return dataSetIndex == 0 ? IngestVolumes(snapshot) : IngestDisks(snapshot);
+            case ViewerKind::GpuMeter: return IngestGpuAdapters(snapshot);
+            case ViewerKind::GpuProcesses: return dataSetIndex == 0 ? IngestGpuProcesses(snapshot) : IngestGpuProcessNames(snapshot);
+            case ViewerKind::PowerMeter: return dataSetIndex == 0 ? IngestPower(snapshot) : IngestBatteries(snapshot);
+            case ViewerKind::ThermalMeter: return dataSetIndex == 0 ? IngestThermal(snapshot) : IngestFans(snapshot);
+            case ::ViewerKind::Count:
+            default: return E_UNEXPECTED;
         }
     }
 
@@ -1940,16 +2069,16 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     [[nodiscard]] HRESULT IngestProcess(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "process.activity", 7))
+        if (! SnapshotMatches(snapshot, "process.activity", 7))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         ViewerSample next = _pendingSample;
-        next.rowCount = 0;
+        next.rowCount     = 0;
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[rowIndex], 7);
-            if (!values || values[0].valueType != RedXeDataValueTypeUInt64 || values[0].uint64Value > UINT32_MAX)
+            if (! values || values[0].valueType != RedXeDataValueTypeUInt64 || values[0].uint64Value > UINT32_MAX)
             {
                 continue;
             }
@@ -1960,11 +2089,11 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
             RankedRow row{};
             row.identity = values[0].uint64Value;
-            row.pid = values[0].uint64Value;
+            row.pid      = values[0].uint64Value;
             CopyName(row.name, row.nameCharacters, values[1], row.pid == 0 ? L"System Idle Process" : L"(unnamed)");
-            double cpu = 0.0;
+            double cpu           = 0.0;
             row.primaryAvailable = TakeF64(values[2], cpu);
-            row.primary = row.primaryAvailable ? static_cast<float>(std::clamp(cpu, 0.0, 100.0)) : 0.0f;
+            row.primary          = row.primaryAvailable ? static_cast<float>(std::clamp(cpu, 0.0, 100.0)) : 0.0f;
             (void)TakeU64(values[3], row.secondary);
             uint64_t threads = 0;
             if (TakeU64(values[5], threads))
@@ -1975,7 +2104,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         PreserveRowMotion(_pendingSample, next);
         _pendingSample.rowCount = next.rowCount;
-        _pendingSample.rows = next.rows;
+        _pendingSample.rows     = next.rows;
         g_lastPublishedRowCount.store(next.rowCount, std::memory_order_relaxed);
         return S_OK;
     }
@@ -1991,8 +2120,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     }
 
     // Keeps the `limit` rows that rank first under `before`, in rank order.
-    template <typename Before>
-    static void InsertBoundedBy(ViewerSample& sample, RankedRow candidate, uint32_t limit, Before before) noexcept
+    template <typename Before> static void InsertBoundedBy(ViewerSample& sample, RankedRow candidate, uint32_t limit, Before before) noexcept
     {
         if (limit == 0)
         {
@@ -2002,7 +2130,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             sample.rows[sample.rowCount++] = candidate;
         }
-        else if (!before(candidate, sample.rows[sample.rowCount - 1]))
+        else if (! before(candidate, sample.rows[sample.rowCount - 1]))
         {
             return;
         }
@@ -2010,8 +2138,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             sample.rows[sample.rowCount - 1] = candidate;
         }
-        for (uint32_t index = sample.rowCount - 1; index > 0 && before(sample.rows[index], sample.rows[index - 1]);
-             --index)
+        for (uint32_t index = sample.rowCount - 1; index > 0 && before(sample.rows[index], sample.rows[index - 1]); --index)
         {
             std::swap(sample.rows[index], sample.rows[index - 1]);
         }
@@ -2029,7 +2156,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
             return row.detailCharacters > 0 && row.detail[0] != L'\\' ? 1 : 2;
         };
-        const int leftRank = rank(left);
+        const int leftRank  = rank(left);
         const int rightRank = rank(right);
         if (leftRank != rightRank)
         {
@@ -2047,37 +2174,36 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     // mount path (a GUID path) or no label keeps the mount as its name.
     static void ExplorerVolumeName(RankedRow& row, const RedXeDataValue& label) noexcept
     {
-        if (label.valueType != RedXeDataValueTypeUtf16 || label.quality != RedXeDataQualityGood || !label.utf16Value ||
-            label.utf16Characters == 0 || row.nameCharacters == 0 || row.name[0] == L'\\')
+        if (label.valueType != RedXeDataValueTypeUtf16 || label.quality != RedXeDataQualityGood || ! label.utf16Value || label.utf16Characters == 0 ||
+            row.nameCharacters == 0 || row.name[0] == L'\\')
         {
             return;
         }
         std::array<wchar_t, kMaximumNameCharacters + 1> mount = row.name;
-        uint32_t mountCharacters = row.nameCharacters;
+        uint32_t mountCharacters                              = row.nameCharacters;
         if (mountCharacters > 1 && mount[mountCharacters - 1] == L'\\')
         {
             mount[--mountCharacters] = L'\0';
         }
         const uint32_t labelCharacters = std::min(label.utf16Characters, kMaximumNameCharacters);
-        const int written = _snwprintf_s(row.name.data(), row.name.size(), _TRUNCATE, L"%.*s (%s)",
-                                         static_cast<int>(labelCharacters), label.utf16Value, mount.data());
-        row.nameCharacters = written < 0 ? static_cast<uint32_t>(wcsnlen(row.name.data(), kMaximumNameCharacters))
-                                         : static_cast<uint32_t>(written);
+        const int written =
+            _snwprintf_s(row.name.data(), row.name.size(), _TRUNCATE, L"%.*s (%s)", static_cast<int>(labelCharacters), label.utf16Value, mount.data());
+        row.nameCharacters = written < 0 ? static_cast<uint32_t>(wcsnlen(row.name.data(), kMaximumNameCharacters)) : static_cast<uint32_t>(written);
     }
 
     static void PreserveRowMotion(const ViewerSample& previous, ViewerSample& next) noexcept
     {
         for (uint32_t index = 0; index < next.rowCount; ++index)
         {
-            RankedRow& row = next.rows[index];
+            RankedRow& row     = next.rows[index];
             row.displayPrimary = row.primary;
-            row.displayY = static_cast<float>(index);
+            row.displayY       = static_cast<float>(index);
             for (uint32_t previousIndex = 0; previousIndex < previous.rowCount; ++previousIndex)
             {
                 if (previous.rows[previousIndex].identity == row.identity)
                 {
                     row.displayPrimary = previous.rows[previousIndex].displayPrimary;
-                    row.displayY = previous.rows[previousIndex].displayY;
+                    row.displayY       = previous.rows[previousIndex].displayY;
                     break;
                 }
             }
@@ -2086,18 +2212,18 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     [[nodiscard]] HRESULT IngestSummary(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "system.summary", 10) || snapshot->rowCount == 0)
+        if (! SnapshotMatches(snapshot, "system.summary", 10) || snapshot->rowCount == 0)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         const RedXeDataValue* values = RowValues(snapshot->rows[0], 10);
-        if (!values)
+        if (! values)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        double cpu = 0.0;
+        double cpu                  = 0.0;
         _pendingSample.available[0] = TakeF64(values[0], cpu);
-        _pendingSample.values[0] = static_cast<float>(std::clamp(cpu, 0.0, 100.0));
+        _pendingSample.values[0]    = static_cast<float>(std::clamp(cpu, 0.0, 100.0));
         _pendingSample.available[1] = TakeU64(values[2], _pendingSample.counts[1]);
         _pendingSample.available[2] = TakeU64(values[3], _pendingSample.counts[2]);
         _pendingSample.available[3] = TakeU64(values[4], _pendingSample.counts[3]);
@@ -2105,14 +2231,14 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         _pendingSample.available[5] = TakeU64(values[9], _pendingSample.counts[5]);
         _pendingSample.available[6] = TakeU64(values[1], _pendingSample.counts[6]);
         _pendingSample.available[7] = TakeU64(values[8], _pendingSample.counts[7]);
-        uint64_t total = 0;
+        uint64_t total              = 0;
         if (TakeU64(values[5], total) && total > 0)
         {
             _pendingSample.counts[0] = total;
             if (_pendingSample.available[4])
             {
-                _pendingSample.values[4] = static_cast<float>(std::clamp(
-                    100.0 * static_cast<double>(_pendingSample.counts[4]) / static_cast<double>(total), 0.0, 100.0));
+                _pendingSample.values[4] =
+                    static_cast<float>(std::clamp(100.0 * static_cast<double>(_pendingSample.counts[4]) / static_cast<double>(total), 0.0, 100.0));
             }
         }
         PushSpark(_pendingSample.values[0]);
@@ -2121,46 +2247,45 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     [[nodiscard]] HRESULT IngestCpuSummary(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "cpu.summary", 4) || snapshot->rowCount == 0)
+        if (! SnapshotMatches(snapshot, "cpu.summary", 4) || snapshot->rowCount == 0)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         const RedXeDataValue* values = RowValues(snapshot->rows[0], 4);
-        if (!values)
+        if (! values)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        double total = 0.0;
-        double user = 0.0;
-        double kernel = 0.0;
-        double idle = 0.0;
+        double total                = 0.0;
+        double user                 = 0.0;
+        double kernel               = 0.0;
+        double idle                 = 0.0;
         _pendingSample.available[0] = TakeF64(values[0], total);
         _pendingSample.available[1] = TakeF64(values[1], user);
         _pendingSample.available[2] = TakeF64(values[2], kernel);
         _pendingSample.available[3] = TakeF64(values[3], idle);
-        _pendingSample.values[0] = static_cast<float>(std::clamp(total, 0.0, 100.0));
-        _pendingSample.values[1] = static_cast<float>(std::clamp(user, 0.0, 100.0));
-        _pendingSample.values[2] = static_cast<float>(std::clamp(kernel, 0.0, 100.0));
-        _pendingSample.values[3] = static_cast<float>(std::clamp(idle, 0.0, 100.0));
+        _pendingSample.values[0]    = static_cast<float>(std::clamp(total, 0.0, 100.0));
+        _pendingSample.values[1]    = static_cast<float>(std::clamp(user, 0.0, 100.0));
+        _pendingSample.values[2]    = static_cast<float>(std::clamp(kernel, 0.0, 100.0));
+        _pendingSample.values[3]    = static_cast<float>(std::clamp(idle, 0.0, 100.0));
         PushSpark(_pendingSample.values[0]);
         return S_OK;
     }
 
     [[nodiscard]] HRESULT IngestCpuLogical(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "cpu.logical", 10))
+        if (! SnapshotMatches(snapshot, "cpu.logical", 10))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        _pendingSample.heatCount = 0;
+        _pendingSample.heatCount    = 0;
         _pendingSample.heatOverflow = snapshot->rowCount > kHeatCapacity ? snapshot->rowCount - kHeatCapacity : 0;
-        const uint32_t limit = std::min(snapshot->rowCount, kHeatCapacity);
+        const uint32_t limit        = std::min(snapshot->rowCount, kHeatCapacity);
         for (uint32_t index = 0; index < limit; ++index)
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[index], 10);
-            double total = 0.0;
-            _pendingSample.heat[index] =
-                values && TakeF64(values[9], total) ? static_cast<float>(std::clamp(total, 0.0, 100.0)) : 0.0f;
+            double total                 = 0.0;
+            _pendingSample.heat[index]   = values && TakeF64(values[9], total) ? static_cast<float>(std::clamp(total, 0.0, 100.0)) : 0.0f;
         }
         _pendingSample.heatCount = limit;
         return S_OK;
@@ -2168,36 +2293,31 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     [[nodiscard]] HRESULT IngestMemory(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "memory.summary", 12) || snapshot->rowCount == 0)
+        if (! SnapshotMatches(snapshot, "memory.summary", 12) || snapshot->rowCount == 0)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         const RedXeDataValue* values = RowValues(snapshot->rows[0], 12);
-        if (!values)
+        if (! values)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        uint64_t total = 0;
-        uint64_t used = 0;
-        uint64_t commit = 0;
-        uint64_t commitLimit = 0;
-        uint64_t cache = 0;
+        uint64_t total              = 0;
+        uint64_t used               = 0;
+        uint64_t commit             = 0;
+        uint64_t commitLimit        = 0;
+        uint64_t cache              = 0;
         _pendingSample.available[0] = TakeU64(values[0], total) && TakeU64(values[2], used) && total > 0;
         _pendingSample.available[1] = TakeU64(values[3], commit) && TakeU64(values[4], commitLimit) && commitLimit > 0;
         _pendingSample.available[2] = TakeU64(values[6], cache);
-        _pendingSample.counts[0] = used;
-        _pendingSample.counts[1] = total;
-        _pendingSample.counts[2] = commit;
-        _pendingSample.counts[3] = commitLimit;
-        _pendingSample.counts[4] = cache;
-        _pendingSample.values[0] =
-            _pendingSample.available[0]
-                ? static_cast<float>(100.0 * static_cast<double>(used) / static_cast<double>(total))
-                : 0.0f;
+        _pendingSample.counts[0]    = used;
+        _pendingSample.counts[1]    = total;
+        _pendingSample.counts[2]    = commit;
+        _pendingSample.counts[3]    = commitLimit;
+        _pendingSample.counts[4]    = cache;
+        _pendingSample.values[0]    = _pendingSample.available[0] ? static_cast<float>(100.0 * static_cast<double>(used) / static_cast<double>(total)) : 0.0f;
         _pendingSample.values[1] =
-            _pendingSample.available[1]
-                ? static_cast<float>(100.0 * static_cast<double>(commit) / static_cast<double>(commitLimit))
-                : 0.0f;
+            _pendingSample.available[1] ? static_cast<float>(100.0 * static_cast<double>(commit) / static_cast<double>(commitLimit)) : 0.0f;
         double pageIn = 0.0;
         if (TakeF64(values[10], pageIn))
         {
@@ -2208,22 +2328,22 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     [[nodiscard]] HRESULT IngestNetworkInterfaces(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "network.interface", 13))
+        if (! SnapshotMatches(snapshot, "network.interface", 13))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        ViewerSample next = _pendingSample;
-        next.rowCount = 0;
-        next.hiddenCount = 0;
-        double spark = 0.0;
-        double maxUtil = 0.0;
-        bool utilAvailable = false;
+        ViewerSample next     = _pendingSample;
+        next.rowCount         = 0;
+        next.hiddenCount      = 0;
+        double spark          = 0.0;
+        double maxUtil        = 0.0;
+        bool utilAvailable    = false;
         const bool haveStatus = snapshot->columnCount >= 6;
-        const bool haveLink = snapshot->columnCount >= 9;
-        const bool haveUtil = snapshot->columnCount >= 22;
+        const bool haveLink   = snapshot->columnCount >= 9;
+        const bool haveUtil   = snapshot->columnCount >= 22;
         std::array<NetIdleWatch, kMaximumRows> nextIdle{};
         uint32_t nextIdleCount = 0;
-        auto previousIdle = [this](uint64_t identity, bool& found) noexcept -> uint32_t
+        auto previousIdle      = [this](uint64_t identity, bool& found) noexcept -> uint32_t
         {
             found = false;
             for (uint32_t index = 0; index < _netIdleCount; ++index)
@@ -2246,13 +2366,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         };
         for (uint32_t pass = 0; pass < 2 && next.rowCount == 0; ++pass)
         {
-            spark = 0.0;
+            spark            = 0.0;
             next.hiddenCount = 0;
-            nextIdleCount = 0;
+            nextIdleCount    = 0;
             for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
             {
                 const RedXeDataValue* values = RowValues(snapshot->rows[rowIndex], 13);
-                if (!values)
+                if (! values)
                 {
                     continue;
                 }
@@ -2266,9 +2386,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                 }
                 if (pass == 0 && haveStatus)
                 {
-                    uint64_t oper = 0;
-                    uint64_t media = 0;
-                    const bool operOk = TakeU64(values[4], oper);
+                    uint64_t oper      = 0;
+                    uint64_t media     = 0;
+                    const bool operOk  = TakeU64(values[4], oper);
                     const bool mediaOk = TakeU64(values[5], media);
                     if (operOk && oper != kIfOperStatusUp)
                     {
@@ -2282,23 +2402,23 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                 RankedRow row{};
                 (void)TakeU64(values[0], row.identity);
                 CopyName(row.name, row.nameCharacters, values[1], L"Interface");
-                double inRate = 0.0;
-                double outRate = 0.0;
-                const bool inOk = TakeF64(values[11], inRate);
-                const bool outOk = TakeF64(values[12], outRate);
+                double inRate        = 0.0;
+                double outRate       = 0.0;
+                const bool inOk      = TakeF64(values[11], inRate);
+                const bool outOk     = TakeF64(values[12], outRate);
                 row.primaryAvailable = inOk || outOk;
-                row.primary = static_cast<float>(std::max(inRate, 0.0) + std::max(outRate, 0.0));
-                uint64_t rxLink = 0;
-                uint64_t txLink = 0;
+                row.primary          = static_cast<float>(std::max(inRate, 0.0) + std::max(outRate, 0.0));
+                uint64_t rxLink      = 0;
+                uint64_t txLink      = 0;
                 if (haveLink)
                 {
                     (void)TakeU64(values[7], rxLink);
                     (void)TakeU64(values[8], txLink);
                 }
-                row.secondary = txLink != 0 ? txLink : rxLink;
-                bool hadWatch = false;
+                row.secondary       = txLink != 0 ? txLink : rxLink;
+                bool hadWatch       = false;
                 uint32_t idleStreak = previousIdle(row.identity, hadWatch);
-                if (!row.primaryAvailable || row.primary < kNetworkIdleBytes)
+                if (! row.primaryAvailable || row.primary < kNetworkIdleBytes)
                 {
                     idleStreak = hadWatch ? idleStreak + 1 : kNetworkIdleHideSamples;
                     rememberIdle(row.identity, idleStreak);
@@ -2317,7 +2437,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                     double util = 0.0;
                     if (TakeF64(values[21], util))
                     {
-                        maxUtil = std::max(maxUtil, util);
+                        maxUtil       = std::max(maxUtil, util);
                         utilAvailable = true;
                     }
                 }
@@ -2329,46 +2449,46 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
         }
         PreserveRowMotion(_pendingSample, next);
-        _pendingSample.rowCount = next.rowCount;
-        _pendingSample.rows = next.rows;
-        _pendingSample.hiddenCount = next.hiddenCount;
-        _netIdle = nextIdle;
-        _netIdleCount = nextIdleCount;
+        _pendingSample.rowCount     = next.rowCount;
+        _pendingSample.rows         = next.rows;
+        _pendingSample.hiddenCount  = next.hiddenCount;
+        _netIdle                    = nextIdle;
+        _netIdleCount               = nextIdleCount;
         _pendingSample.available[7] = utilAvailable;
-        _pendingSample.values[7] = static_cast<float>(std::clamp(maxUtil, 0.0, 100.0));
+        _pendingSample.values[7]    = static_cast<float>(std::clamp(maxUtil, 0.0, 100.0));
         PushSpark(static_cast<float>(spark));
         return S_OK;
     }
 
     [[nodiscard]] HRESULT IngestNetworkProtocols(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "network.protocol", 6))
+        if (! SnapshotMatches(snapshot, "network.protocol", 6))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         for (uint32_t index = 0; index < 6 && index < snapshot->rowCount; ++index)
         {
-            const RedXeDataValue* values = RowValues(snapshot->rows[index], 6);
-            double inRate = 0.0;
+            const RedXeDataValue* values    = RowValues(snapshot->rows[index], 6);
+            double inRate                   = 0.0;
             _pendingSample.available[index] = values && TakeF64(values[4], inRate);
-            _pendingSample.values[index] = static_cast<float>(std::max(inRate, 0.0));
+            _pendingSample.values[index]    = static_cast<float>(std::max(inRate, 0.0));
         }
         return S_OK;
     }
 
     [[nodiscard]] HRESULT IngestVolumes(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "storage.volume", 5))
+        if (! SnapshotMatches(snapshot, "storage.volume", 5))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        ViewerSample next = _pendingSample;
-        next.rowCount = 0;
+        ViewerSample next    = _pendingSample;
+        next.rowCount        = 0;
         const uint32_t limit = _topN == 0 ? 8u : std::min(_topN, 8u);
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[rowIndex], 5);
-            if (!values)
+            if (! values)
             {
                 continue;
             }
@@ -2384,86 +2504,83 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
             row.identity = HashUtf16(row.name.data(), row.nameCharacters);
             CopyDetail(row.detail, row.detailCharacters, values[1], L"");
-            const RedXeDataValue* labelValue =
-                snapshot->columnCount >= 8 ? RowValues(snapshot->rows[rowIndex], 8) : nullptr;
+            const RedXeDataValue* labelValue = snapshot->columnCount >= 8 ? RowValues(snapshot->rows[rowIndex], 8) : nullptr;
             if (labelValue)
             {
                 ExplorerVolumeName(row, labelValue[7]);
             }
-            uint64_t total = 0;
-            uint64_t freeBytes = 0;
+            uint64_t total       = 0;
+            uint64_t freeBytes   = 0;
             row.primaryAvailable = TakeU64(values[3], total) && TakeU64(values[4], freeBytes) && total > 0;
-            row.primary = row.primaryAvailable
-                              ? static_cast<float>(100.0 * static_cast<double>(total - std::min(freeBytes, total)) /
-                                                   static_cast<double>(total))
-                              : 0.0f;
+            row.primary =
+                row.primaryAvailable ? static_cast<float>(100.0 * static_cast<double>(total - std::min(freeBytes, total)) / static_cast<double>(total)) : 0.0f;
             row.secondary = total;
-            row.pid = total - std::min(freeBytes, total);
+            row.pid       = total - std::min(freeBytes, total);
             InsertBoundedBy(next, row, limit, RankByMount);
         }
         PreserveRowMotion(_pendingSample, next);
         _pendingSample.rowCount = next.rowCount;
-        _pendingSample.rows = next.rows;
+        _pendingSample.rows     = next.rows;
         return S_OK;
     }
 
     [[nodiscard]] HRESULT IngestDisks(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "storage.disk", 10))
+        if (! SnapshotMatches(snapshot, "storage.disk", 10))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        double activity = 0.0;
-        double throughput = 0.0;
-        bool available = false;
+        double activity    = 0.0;
+        double throughput  = 0.0;
+        bool available     = false;
         bool rateAvailable = false;
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[rowIndex], 10);
-            double active = 0.0;
+            double active                = 0.0;
             if (values && TakeF64(values[5], active))
             {
-                activity = std::max(activity, active);
+                activity  = std::max(activity, active);
                 available = true;
             }
-            double readRate = 0.0;
-            double writeRate = 0.0;
-            const bool readOk = values && TakeF64(values[8], readRate);
+            double readRate    = 0.0;
+            double writeRate   = 0.0;
+            const bool readOk  = values && TakeF64(values[8], readRate);
             const bool writeOk = values && TakeF64(values[9], writeRate);
             if (readOk || writeOk)
             {
-                throughput = std::max(throughput, std::max(readRate, 0.0) + std::max(writeRate, 0.0));
+                throughput    = std::max(throughput, std::max(readRate, 0.0) + std::max(writeRate, 0.0));
                 rateAvailable = true;
             }
         }
         _pendingSample.available[7] = available;
-        _pendingSample.values[7] = static_cast<float>(std::clamp(activity, 0.0, 100.0));
+        _pendingSample.values[7]    = static_cast<float>(std::clamp(activity, 0.0, 100.0));
         _pendingSample.available[6] = rateAvailable;
-        _pendingSample.counts[6] = static_cast<uint64_t>(std::max(throughput, 0.0));
-        _pendingSample.values[6] = static_cast<float>(throughput);
+        _pendingSample.counts[6]    = static_cast<uint64_t>(std::max(throughput, 0.0));
+        _pendingSample.values[6]    = static_cast<float>(throughput);
         return S_OK;
     }
 
     [[nodiscard]] HRESULT IngestGpuAdapters(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "gpu.adapter", 15))
+        if (! SnapshotMatches(snapshot, "gpu.adapter", 15))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         ViewerSample next = _pendingSample;
-        next.rowCount = 0;
-        next.hiddenCount = 0;
+        next.rowCount     = 0;
+        next.hiddenCount  = 0;
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[rowIndex], 15);
-            if (!values)
+            if (! values)
             {
                 continue;
             }
             RankedRow row{};
             (void)TakeU64(values[0], row.identity);
             CopyName(row.name, row.nameCharacters, values[1], L"Adapter");
-            uint64_t software = 0;
+            uint64_t software   = 0;
             uint64_t integrated = 0;
             (void)TakeU64(values[4], software);
             (void)TakeU64(values[5], integrated);
@@ -2477,9 +2594,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             {
                 row.flags |= kRowFlagIntegrated;
             }
-            double temp = 0.0;
+            double temp          = 0.0;
             row.primaryAvailable = TakeF64(values[14], temp);
-            row.primary = static_cast<float>(temp);
+            row.primary          = static_cast<float>(temp);
             (void)TakeU64(values[6], row.secondary);
             uint32_t insertAt = next.rowCount;
             if (next.rowCount < 8)
@@ -2492,13 +2609,13 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
             while (insertAt > 0)
             {
-                const RankedRow& left = next.rows[insertAt];
-                const RankedRow& right = next.rows[insertAt - 1];
-                const bool leftDiscrete = (left.flags & kRowFlagIntegrated) == 0;
+                const RankedRow& left    = next.rows[insertAt];
+                const RankedRow& right   = next.rows[insertAt - 1];
+                const bool leftDiscrete  = (left.flags & kRowFlagIntegrated) == 0;
                 const bool rightDiscrete = (right.flags & kRowFlagIntegrated) == 0;
                 if (leftDiscrete != rightDiscrete)
                 {
-                    if (!leftDiscrete)
+                    if (! leftDiscrete)
                     {
                         break;
                     }
@@ -2512,29 +2629,29 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
         }
         PreserveRowMotion(_pendingSample, next);
-        _pendingSample.rowCount = next.rowCount;
-        _pendingSample.rows = next.rows;
+        _pendingSample.rowCount    = next.rowCount;
+        _pendingSample.rows        = next.rows;
         _pendingSample.hiddenCount = next.hiddenCount;
         if (next.rowCount > 0)
         {
             _pendingSample.available[0] = next.rows[0].primaryAvailable;
-            _pendingSample.values[0] = next.rows[0].primary;
+            _pendingSample.values[0]    = next.rows[0].primary;
         }
         return S_OK;
     }
 
     [[nodiscard]] HRESULT IngestGpuProcesses(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "gpu.process", 6))
+        if (! SnapshotMatches(snapshot, "gpu.process", 6))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         ViewerSample next = _pendingSample;
-        next.rowCount = 0;
+        next.rowCount     = 0;
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[rowIndex], 6);
-            if (!values)
+            if (! values)
             {
                 continue;
             }
@@ -2545,32 +2662,32 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             row.identity = (row.pid << 16) | (engineOrdinal & 0xffffull);
             CopyDetail(row.detail, row.detailCharacters, values[4], L"engine");
             ApplyPidName(row);
-            double util = 0.0;
+            double util          = 0.0;
             row.primaryAvailable = TakeF64(values[5], util);
-            row.primary = row.primaryAvailable ? static_cast<float>(std::clamp(util, 0.0, 100.0)) : 0.0f;
+            row.primary          = row.primaryAvailable ? static_cast<float>(std::clamp(util, 0.0, 100.0)) : 0.0f;
             InsertInto(next, row);
         }
         PreserveRowMotion(_pendingSample, next);
         _pendingSample.rowCount = next.rowCount;
-        _pendingSample.rows = next.rows;
+        _pendingSample.rows     = next.rows;
         return S_OK;
     }
 
     [[nodiscard]] HRESULT IngestGpuProcessNames(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "process.activity", 2))
+        if (! SnapshotMatches(snapshot, "process.activity", 2))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[rowIndex], 2);
-            if (!values || values[0].valueType != RedXeDataValueTypeUInt64)
+            if (! values || values[0].valueType != RedXeDataValueTypeUInt64)
             {
                 continue;
             }
             const uint64_t pid = values[0].uint64Value;
-            bool needed = false;
+            bool needed        = false;
             for (uint32_t gpuIndex = 0; gpuIndex < _pendingSample.rowCount; ++gpuIndex)
             {
                 if (_pendingSample.rows[gpuIndex].pid == pid)
@@ -2579,7 +2696,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
                     break;
                 }
             }
-            if (!needed)
+            if (! needed)
             {
                 continue;
             }
@@ -2607,7 +2724,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             return;
         }
         PidNameEntry& entry = _pidNames[_pidNameCount++];
-        entry.pid = pid;
+        entry.pid           = pid;
         CopyName(entry.name, entry.characters, value, nullptr);
     }
 
@@ -2617,7 +2734,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             if (_pidNames[index].pid == row.pid && _pidNames[index].characters > 0)
             {
-                row.name = _pidNames[index].name;
+                row.name           = _pidNames[index].name;
                 row.nameCharacters = _pidNames[index].characters;
                 return;
             }
@@ -2627,7 +2744,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             if (row.pid == 0)
             {
                 constexpr wchar_t kIdle[] = L"System Idle Process";
-                row.nameCharacters = static_cast<uint32_t>(wcsnlen(kIdle, row.name.size() - 1));
+                row.nameCharacters        = static_cast<uint32_t>(wcsnlen(kIdle, row.name.size() - 1));
                 std::wmemcpy(row.name.data(), kIdle, row.nameCharacters);
                 row.name[row.nameCharacters] = L'\0';
             }
@@ -2641,30 +2758,30 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     [[nodiscard]] HRESULT IngestPower(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "power.summary", 5) || snapshot->rowCount == 0)
+        if (! SnapshotMatches(snapshot, "power.summary", 5) || snapshot->rowCount == 0)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         const RedXeDataValue* values = RowValues(snapshot->rows[0], 5);
-        if (!values)
+        if (! values)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        uint64_t ac = 0;
-        uint64_t present = 0;
-        uint64_t charging = 0;
-        _pendingSample.acOnline = TakeU64(values[0], ac) && ac != 0;
+        uint64_t ac                   = 0;
+        uint64_t present              = 0;
+        uint64_t charging             = 0;
+        _pendingSample.acOnline       = TakeU64(values[0], ac) && ac != 0;
         _pendingSample.batteryPresent = TakeU64(values[1], present) && present != 0;
-        _pendingSample.charging = TakeU64(values[2], charging) && charging != 0;
-        double charge = 0.0;
-        _pendingSample.available[0] = TakeF64(values[4], charge);
-        _pendingSample.values[0] = static_cast<float>(std::clamp(charge, 0.0, 100.0));
+        _pendingSample.charging       = TakeU64(values[2], charging) && charging != 0;
+        double charge                 = 0.0;
+        _pendingSample.available[0]   = TakeF64(values[4], charge);
+        _pendingSample.values[0]      = static_cast<float>(std::clamp(charge, 0.0, 100.0));
         return S_OK;
     }
 
     [[nodiscard]] HRESULT IngestBatteries(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "battery.list", 2))
+        if (! SnapshotMatches(snapshot, "battery.list", 2))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2683,25 +2800,25 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     [[nodiscard]] HRESULT IngestThermal(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "thermal.sensor", 4))
+        if (! SnapshotMatches(snapshot, "thermal.sensor", 4))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         ViewerSample next = _pendingSample;
-        next.rowCount = 0;
+        next.rowCount     = 0;
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[rowIndex], 4);
-            if (!values)
+            if (! values)
             {
                 continue;
             }
             RankedRow row{};
             CopyName(row.name, row.nameCharacters, values[2], L"Sensor");
-            double temp = 0.0;
+            double temp          = 0.0;
             row.primaryAvailable = TakeF64(values[3], temp);
-            row.primary = static_cast<float>(temp);
-            row.identity = static_cast<uint64_t>(rowIndex);
+            row.primary          = static_cast<float>(temp);
+            row.identity         = static_cast<uint64_t>(rowIndex);
             if (values[0].valueType == RedXeDataValueTypeUtf16 && values[0].utf16Value && values[0].utf16Characters > 0)
             {
                 uint64_t hash = 14695981039346656037ull;
@@ -2716,27 +2833,27 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         PreserveRowMotion(_pendingSample, next);
         _pendingSample.rowCount = next.rowCount;
-        _pendingSample.rows = next.rows;
+        _pendingSample.rows     = next.rows;
         return S_OK;
     }
 
     [[nodiscard]] HRESULT IngestFans(const RedXeDataSnapshot* snapshot) noexcept
     {
-        if (!SnapshotMatches(snapshot, "fan.sensor", 4))
+        if (! SnapshotMatches(snapshot, "fan.sensor", 4))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        uint64_t rpm = 0;
+        uint64_t rpm    = 0;
         uint64_t maxRpm = 0;
-        bool available = false;
+        bool available  = false;
         for (uint32_t rowIndex = 0; rowIndex < snapshot->rowCount; ++rowIndex)
         {
             const RedXeDataValue* values = RowValues(snapshot->rows[rowIndex], 4);
-            uint64_t current = 0;
-            uint64_t maximum = 0;
+            uint64_t current             = 0;
+            uint64_t maximum             = 0;
             if (values && TakeU64(values[2], current))
             {
-                rpm = std::max(rpm, current);
+                rpm       = std::max(rpm, current);
                 available = true;
             }
             if (values && TakeU64(values[3], maximum))
@@ -2745,57 +2862,54 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             }
         }
         _pendingSample.available[7] = available;
-        _pendingSample.counts[6] = rpm;
-        _pendingSample.counts[7] = maxRpm;
-        _pendingSample.values[7] =
-            (available && maxRpm > 0)
-                ? static_cast<float>(100.0 * static_cast<double>(rpm) / static_cast<double>(maxRpm))
-                : 0.0f;
+        _pendingSample.counts[6]    = rpm;
+        _pendingSample.counts[7]    = maxRpm;
+        _pendingSample.values[7]    = (available && maxRpm > 0) ? static_cast<float>(100.0 * static_cast<double>(rpm) / static_cast<double>(maxRpm)) : 0.0f;
         return S_OK;
     }
 
     struct PanelMetrics final
     {
-        float pad = 0.0f;
-        float radius = 6.0f;
-        float titleH = 0.0f;
+        float pad        = 0.0f;
+        float radius     = 6.0f;
+        float titleH     = 0.0f;
         float contentTop = 0.0f;
-        float innerW = 0.0f;
-        float innerH = 0.0f;
-        float labelPx = kLabelFloorPx;
-        float rowPx = kRowFloorPx;
-        float kpiPx = kKpiFloorPx;
-        float heroPx = kHeroFloorPx;
-        float titlePx = kTitleFloorPx;
-        float rowMin = kRowMinFloorPx;
+        float innerW     = 0.0f;
+        float innerH     = 0.0f;
+        float labelPx    = kLabelFloorPx;
+        float rowPx      = kRowFloorPx;
+        float kpiPx      = kKpiFloorPx;
+        float heroPx     = kHeroFloorPx;
+        float titlePx    = kTitleFloorPx;
+        float rowMin     = kRowMinFloorPx;
         // Height of the shared page control strip (Common/PageIndicator.h) that a paged list reserves below its
         // last row; the dots are drawn there, centred, and non-pageable `+N` captions keep the right end.
-        float pageStripPx = kRedXePageIndicatorHeightDip;
-        uint32_t dpi = 96;
+        float pageStripPx     = kRedXePageIndicatorHeightDip;
+        uint32_t dpi          = 96;
         ViewerDensity density = ViewerDensity::Standard;
-        bool showTitle = true;
+        bool showTitle        = true;
     };
 
     [[nodiscard]] PanelMetrics MakePanel(float width, float height, uint32_t dpi) const noexcept
     {
         PanelMetrics metrics;
-        metrics.dpi = dpi == 0 ? 96U : dpi;
-        metrics.pageStripPx = RedXePageIndicatorHeightPixels(metrics.dpi);
-        metrics.pad = std::clamp(std::min(width, height) * 0.04f, kPadFloorPx, 18.0f);
-        const float scale = std::clamp(std::min(width, height) / 220.0f, 1.0f, 1.85f);
+        metrics.dpi            = dpi == 0 ? 96U : dpi;
+        metrics.pageStripPx    = RedXePageIndicatorHeightPixels(metrics.dpi);
+        metrics.pad            = std::clamp(std::min(width, height) * 0.04f, kPadFloorPx, 18.0f);
+        const float scale      = std::clamp(std::min(width, height) / 220.0f, 1.0f, 1.85f);
         const float titleScale = std::clamp(width / 280.0f, 1.0f, 1.85f);
-        metrics.labelPx = std::clamp(kLabelFloorPx * scale, kLabelFloorPx, 26.0f);
-        metrics.rowPx = std::clamp(kRowFloorPx * scale, kRowFloorPx, 28.0f);
-        metrics.kpiPx = std::clamp(kKpiFloorPx * scale, kKpiFloorPx, 56.0f);
-        metrics.heroPx = std::clamp(kHeroFloorPx * scale, kHeroFloorPx, 88.0f);
-        metrics.titlePx = std::clamp(kTitleFloorPx * titleScale, kTitleFloorPx, 44.0f);
-        metrics.rowMin = std::max(metrics.rowPx + 10.0f, kRowMinFloorPx);
-        metrics.showTitle = height >= 52.0f;
-        metrics.titleH = metrics.showTitle ? metrics.titlePx : 0.0f;
-        metrics.contentTop = metrics.pad + (metrics.showTitle ? metrics.titleH + 6.0f : 0.0f);
-        metrics.innerW = std::max(8.0f, width - metrics.pad * 2.0f);
-        metrics.innerH = std::max(0.0f, height - metrics.contentTop - metrics.pad);
-        metrics.density = _raised ? ViewerDensity::Standard : DensityForInner(metrics.innerH);
+        metrics.labelPx        = std::clamp(kLabelFloorPx * scale, kLabelFloorPx, 26.0f);
+        metrics.rowPx          = std::clamp(kRowFloorPx * scale, kRowFloorPx, 28.0f);
+        metrics.kpiPx          = std::clamp(kKpiFloorPx * scale, kKpiFloorPx, 56.0f);
+        metrics.heroPx         = std::clamp(kHeroFloorPx * scale, kHeroFloorPx, 88.0f);
+        metrics.titlePx        = std::clamp(kTitleFloorPx * titleScale, kTitleFloorPx, 44.0f);
+        metrics.rowMin         = std::max(metrics.rowPx + 10.0f, kRowMinFloorPx);
+        metrics.showTitle      = height >= 52.0f;
+        metrics.titleH         = metrics.showTitle ? metrics.titlePx : 0.0f;
+        metrics.contentTop     = metrics.pad + (metrics.showTitle ? metrics.titleH + 6.0f : 0.0f);
+        metrics.innerW         = std::max(8.0f, width - metrics.pad * 2.0f);
+        metrics.innerH         = std::max(0.0f, height - metrics.contentTop - metrics.pad);
+        metrics.density        = _raised ? ViewerDensity::Standard : DensityForInner(metrics.innerH);
         return metrics;
     }
 
@@ -2804,48 +2918,57 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     void NotePageStrip(float listTop, float listHeight, float innerHeight) noexcept
     {
         _pageStripReserved = listHeight + 0.5f < innerHeight;
-        _pageStripTop = listTop + listHeight;
+        _pageStripTop      = listTop + listHeight;
     }
 
     // The shared page control for this frame: one dot per overflow page in the reserved strip, the current page's
     // dot larger and brighter. Hero tiles have no strip (their `+N` caption stays), a single page draws nothing,
     // and a tile too short even for a shrunken row plus the strip falls back to the `+N` caption.
-    void DrawPageDots(ViewerGpuResources& resources, ViewerDrawList& list, const PanelMetrics& panel,
-                      float height) noexcept
+    void DrawPageDots(ViewerGpuResources& resources, ViewerDrawList& list, const PanelMetrics& panel, float height) noexcept
     {
-        _lastDots = RedXePageIndicatorLayout{};
+        _lastDots            = RedXePageIndicatorLayout{};
         const uint32_t pages = _pageCount.load(std::memory_order_relaxed);
         if (pages < 2 || panel.density == ViewerDensity::Hero)
         {
             return;
         }
-        if (!_pageStripReserved)
+        if (! _pageStripReserved)
         {
             DrawOverflow(resources, list, panel, height, panel.labelPx, _lastHidden);
             return;
         }
-        _lastDots =
-            RedXePageIndicatorInStrip(panel.pad, _pageStripTop, panel.innerW, panel.pageStripPx, panel.dpi, pages,
-                                      _overflowPage.load(std::memory_order_relaxed), RedXePageIndicatorAlign::Center);
+        _lastDots = RedXePageIndicatorInStrip(panel.pad,
+                                              _pageStripTop,
+                                              panel.innerW,
+                                              panel.pageStripPx,
+                                              panel.dpi,
+                                              pages,
+                                              _overflowPage.load(std::memory_order_relaxed),
+                                              RedXePageIndicatorAlign::Center);
         for (uint32_t index = 0; index < _lastDots.pageCount; ++index)
         {
             const bool selected = index == _lastDots.selected;
-            const float r = selected ? _lastDots.selectedRadius : _lastDots.radius;
-            (void)list.AddFill(_lastDots.CenterX(index) - r, _lastDots.centerY - r, r * 2.0f, r * 2.0f,
+            const float r       = selected ? _lastDots.selectedRadius : _lastDots.radius;
+            (void)list.AddFill(_lastDots.CenterX(index) - r,
+                               _lastDots.centerY - r,
+                               r * 2.0f,
+                               r * 2.0f,
                                selected ? kRedXePageIndicatorSelectedRed : kRedXePageIndicatorDotRed,
                                selected ? kRedXePageIndicatorSelectedGreen : kRedXePageIndicatorDotGreen,
-                               selected ? kRedXePageIndicatorSelectedBlue : kRedXePageIndicatorDotBlue, 1.0f, r);
+                               selected ? kRedXePageIndicatorSelectedBlue : kRedXePageIndicatorDotBlue,
+                               1.0f,
+                               r);
         }
     }
 
-    [[nodiscard]] HRESULT BuildScene(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
-                                     float width, float height, uint32_t dpi, float pulse) noexcept
+    [[nodiscard]] HRESULT BuildScene(
+        ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample, float width, float height, uint32_t dpi, float pulse) noexcept
     {
         const PanelMetrics panel = MakePanel(width, height, dpi);
-        _pageStripReserved = false;
-        _pageStripTop = 0.0f;
-        _lastHidden = 0;
-        const HRESULT drawn = DrawKind(resources, list, sample, panel, width, height, pulse);
+        _pageStripReserved       = false;
+        _pageStripTop            = 0.0f;
+        _lastHidden              = 0;
+        const HRESULT drawn      = DrawKind(resources, list, sample, panel, width, height, pulse);
         if (SUCCEEDED(drawn))
         {
             DrawPageDots(resources, list, panel, height);
@@ -2861,56 +2984,56 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         return drawn;
     }
 
-    [[nodiscard]] HRESULT DrawKind(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
-                                   const PanelMetrics& panel, float width, float height, float pulse) noexcept
+    [[nodiscard]] HRESULT DrawKind(ViewerGpuResources& resources,
+                                   ViewerDrawList& list,
+                                   const ViewerSample& sample,
+                                   const PanelMetrics& panel,
+                                   float width,
+                                   float height,
+                                   float pulse) noexcept
     {
         const float chromeW = std::max(1.0f, width - kPanelInset * 2.0f);
         const float chromeH = std::max(1.0f, height - kPanelInset * 2.0f);
-        (void)list.AddFill(kPanelInset, kPanelInset, chromeW, chromeH, _panelColor.r, _panelColor.g, _panelColor.b,
-                           1.0f, panel.radius);
-        (void)list.AddStroke(kPanelInset + 0.5f, kPanelInset + 0.5f, chromeW - 1.0f, chromeH - 1.0f, kHairline,
-                             kHairline, kHairline, 0.9f, panel.radius, 1.0f);
+        (void)list.AddFill(kPanelInset, kPanelInset, chromeW, chromeH, _panelColor.r, _panelColor.g, _panelColor.b, 1.0f, panel.radius);
+        (void)list.AddStroke(kPanelInset + 0.5f, kPanelInset + 0.5f, chromeW - 1.0f, chromeH - 1.0f, kHairline, kHairline, kHairline, 0.9f, panel.radius, 1.0f);
         if (pulse > 0.0f)
         {
-            (void)list.AddFill(kPanelInset, kPanelInset, chromeW, 2.0f, kAccentR, kAccentG, kAccentB,
-                               0.35f + pulse * 0.65f, 0.0f);
+            (void)list.AddFill(kPanelInset, kPanelInset, chromeW, 2.0f, kAccentR, kAccentG, kAccentB, 0.35f + pulse * 0.65f, 0.0f);
         }
         const ViewerCatalogEntry& entry = Catalog(_kind);
         if (panel.showTitle)
         {
-            (void)AppendClippedText(resources, list, panel.pad, panel.pad, panel.titlePx, panel.innerW, 0.88f, 0.88f,
-                                    0.90f, 1.0f, entry.typeName, static_cast<uint32_t>(wcsnlen(entry.typeName, 64)));
+            (void)AppendClippedText(resources,
+                                    list,
+                                    panel.pad,
+                                    panel.pad,
+                                    panel.titlePx,
+                                    panel.innerW,
+                                    0.88f,
+                                    0.88f,
+                                    0.90f,
+                                    1.0f,
+                                    entry.typeName,
+                                    static_cast<uint32_t>(wcsnlen(entry.typeName, 64)));
         }
         switch (_kind)
         {
-        case ViewerKind::ProcessViewer:
-            return DrawProcessTable(resources, list, sample, panel, width, height);
-        case ViewerKind::GpuProcesses:
-            return DrawGpuProcessTable(resources, list, sample, panel, width, height);
-        case ViewerKind::NetworkMeter:
-            return DrawNetwork(resources, list, sample, panel, width, height);
-        case ViewerKind::SystemPulse:
-            return DrawPulse(resources, list, sample, panel, width, height);
-        case ViewerKind::CpuMeter:
-            return DrawCpu(resources, list, sample, panel, width, height);
-        case ViewerKind::MemoryMeter:
-            return DrawMemory(resources, list, sample, panel, width, height);
-        case ViewerKind::StorageMeter:
-            return DrawStorage(resources, list, sample, panel, width, height);
-        case ViewerKind::GpuMeter:
-            return DrawGpu(resources, list, sample, panel, width, height);
-        case ViewerKind::PowerMeter:
-            return DrawPower(resources, list, sample, panel, width, height);
-        case ViewerKind::ThermalMeter:
-            return DrawThermal(resources, list, sample, panel, width, height);
-        case ::ViewerKind::Count:
-        default:
-            return S_OK;
+            case ViewerKind::ProcessViewer: return DrawProcessTable(resources, list, sample, panel, width, height);
+            case ViewerKind::GpuProcesses: return DrawGpuProcessTable(resources, list, sample, panel, width, height);
+            case ViewerKind::NetworkMeter: return DrawNetwork(resources, list, sample, panel, width, height);
+            case ViewerKind::SystemPulse: return DrawPulse(resources, list, sample, panel, width, height);
+            case ViewerKind::CpuMeter: return DrawCpu(resources, list, sample, panel, width, height);
+            case ViewerKind::MemoryMeter: return DrawMemory(resources, list, sample, panel, width, height);
+            case ViewerKind::StorageMeter: return DrawStorage(resources, list, sample, panel, width, height);
+            case ViewerKind::GpuMeter: return DrawGpu(resources, list, sample, panel, width, height);
+            case ViewerKind::PowerMeter: return DrawPower(resources, list, sample, panel, width, height);
+            case ViewerKind::ThermalMeter: return DrawThermal(resources, list, sample, panel, width, height);
+            case ::ViewerKind::Count:
+            default: return S_OK;
         }
     }
 
-    [[nodiscard]] HRESULT EnsureSceneGlyphs(ViewerGpuResources& resources, const ViewerSample& sample,
-                                            const ViewerCatalogEntry& entry) noexcept
+    [[nodiscard]] HRESULT EnsureSceneGlyphs(ViewerGpuResources& resources, const ViewerSample& sample, const ViewerCatalogEntry& entry) noexcept
     {
         HRESULT result = resources.EnsureGlyphs(entry.typeName, static_cast<uint32_t>(wcsnlen(entry.typeName, 64)));
         if (FAILED(result))
@@ -2946,17 +3069,16 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         return S_OK;
     }
 
-    void DrawTrack(ViewerDrawList& list, float x, float y, float width, float height, float fill01, bool available,
-                   bool thermal, float celsius) noexcept
+    void DrawTrack(ViewerDrawList& list, float x, float y, float width, float height, float fill01, bool available, bool thermal, float celsius) noexcept
     {
         (void)list.AddFill(x, y, width, height, kTroughR, kTroughG, kTroughB, 1.0f, height * 0.5f);
-        if (!available)
+        if (! available)
         {
             return;
         }
-        float red = kOkR;
+        float red   = kOkR;
         float green = kOkG;
-        float blue = kOkB;
+        float blue  = kOkB;
         if (thermal)
         {
             ThermalColor(celsius, red, green, blue);
@@ -2975,9 +3097,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     {
         if (row.pid == 0 && row.primaryAvailable)
         {
-            red = kOkR;
+            red   = kOkR;
             green = kOkG;
-            blue = kOkB;
+            blue  = kOkB;
             return;
         }
         IntentTextColor(row.displayPrimary / 100.0f, row.primaryAvailable, red, green, blue);
@@ -2985,11 +3107,10 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
 
     // `calm` draws the bar in the OK colour whatever the percent: the System Idle Process is the share of the machine
     // doing nothing, so its 92 % is good news, not a red bar.
-    void DrawCpuTrack(ViewerDrawList& list, float x, float y, float width, float height, float percent, bool available,
-                      bool calm = false) noexcept
+    void DrawCpuTrack(ViewerDrawList& list, float x, float y, float width, float height, float percent, bool available, bool calm = false) noexcept
     {
         (void)list.AddFill(x, y, width, height, kTroughR, kTroughG, kTroughB, 1.0f, height * 0.5f);
-        if (!available)
+        if (! available)
         {
             return;
         }
@@ -3000,38 +3121,37 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         const float lum = CpuHeatLuminance(t);
         const float mix = std::max(lum, std::sqrt(t));
-        float red = kOkR;
-        float green = kOkG;
-        float blue = kOkB;
-        if (!calm)
+        float red       = kOkR;
+        float green     = kOkG;
+        float blue      = kOkB;
+        if (! calm)
         {
             SignalColor(t, red, green, blue);
         }
-        red = Lerp(kHeatIdle, red, mix);
-        green = Lerp(kHeatIdle, green, mix);
-        blue = Lerp(kHeatIdle, blue, mix);
+        red                   = Lerp(kHeatIdle, red, mix);
+        green                 = Lerp(kHeatIdle, green, mix);
+        blue                  = Lerp(kHeatIdle, blue, mix);
         const float fillWidth = std::max(height, width * std::sqrt(t));
         (void)list.AddFill(x, y, fillWidth, height, red, green, blue, 1.0f, height * 0.5f);
     }
 
-    void DrawThermalLevel(ViewerDrawList& list, float x, float y, float width, float height, float celsius,
-                          bool available) noexcept
+    void DrawThermalLevel(ViewerDrawList& list, float x, float y, float width, float height, float celsius, bool available) noexcept
     {
         const float fill = available ? ThermalFill(celsius) : 0.0f;
         DrawTrack(list, x, y, width, height, fill, available, true, celsius);
-        if (!available || width < 24.0f)
+        if (! available || width < 24.0f)
         {
             return;
         }
         const float warnX = x + width * ThermalFill(kThermalWarnC);
-        const float hotX = x + width * ThermalFill(kThermalHotC);
+        const float hotX  = x + width * ThermalFill(kThermalHotC);
         (void)list.AddFill(warnX, y, 1.5f, height, kWarnR, kWarnG, kWarnB, 0.75f, 0.0f);
         (void)list.AddFill(hotX, y, 1.5f, height, kAccentR, kAccentG, kAccentB, 0.85f, 0.0f);
     }
 
     [[nodiscard]] OverflowSlice BindOverflow(uint32_t total, uint32_t pageSize) noexcept
     {
-        uint32_t page = _overflowPage.load(std::memory_order_relaxed);
+        uint32_t page       = _overflowPage.load(std::memory_order_relaxed);
         OverflowSlice slice = MakeOverflowSlice(total, pageSize, page);
         if (slice.pageCount > 0 && page >= slice.pageCount)
         {
@@ -3044,8 +3164,7 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         return slice;
     }
 
-    void DrawOverflow(ViewerGpuResources& resources, ViewerDrawList& list, const PanelMetrics& panel, float height,
-                      float size, uint32_t hidden) noexcept
+    void DrawOverflow(ViewerGpuResources& resources, ViewerDrawList& list, const PanelMetrics& panel, float height, float size, uint32_t hidden) noexcept
     {
         if (hidden == 0)
         {
@@ -3054,15 +3173,14 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         wchar_t extra[16]{};
         (void)swprintf_s(extra, 16, L"+%u", hidden);
         const uint32_t characters = static_cast<uint32_t>(wcsnlen(extra, 16));
-        const float width = resources.MeasureText(extra, characters, size);
-        const float x = panel.pad + panel.innerW - width;
-        const float y = height - panel.pad - size;
+        const float width         = resources.MeasureText(extra, characters, size);
+        const float x             = panel.pad + panel.innerW - width;
+        const float y             = height - panel.pad - size;
         (void)resources.AppendText(list, x, y, size, kMuted, kMuted, kMuted, 1.0f, extra, characters);
     }
 
-    [[nodiscard]] HRESULT DrawProcessTable(ViewerGpuResources& resources, ViewerDrawList& list,
-                                           const ViewerSample& sample, const PanelMetrics& panel, float width,
-                                           float height) noexcept
+    [[nodiscard]] HRESULT DrawProcessTable(
+        ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample, const PanelMetrics& panel, float width, float height) noexcept
     {
         const float y0 = panel.contentTop;
         if (sample.rowCount == 0)
@@ -3073,37 +3191,46 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         if (panel.density == ViewerDensity::Hero)
         {
             const OverflowSlice slice = BindOverflow(sample.rowCount, 1);
-            const RankedRow& row = sample.rows[slice.start];
+            const RankedRow& row      = sample.rows[slice.start];
             wchar_t cpu[16]{};
             FormatPercent(cpu, 16, row.displayPrimary, row.primaryAvailable);
             float ir = kTextR;
             float ig = kTextG;
             float ib = kTextB;
             ProcessPercentColor(row, ir, ig, ib);
-            (void)resources.AppendText(list, panel.pad, y0, panel.heroPx, ir, ig, ib, 1.0f, cpu,
-                                       static_cast<uint32_t>(wcsnlen(cpu, 16)));
-            (void)AppendClippedText(resources, list, panel.pad, y0 + panel.heroPx + 4.0f, panel.labelPx, panel.innerW,
-                                    kMuted, kMuted, kMuted, 1.0f, row.name.data(), row.nameCharacters);
+            (void)resources.AppendText(list, panel.pad, y0, panel.heroPx, ir, ig, ib, 1.0f, cpu, static_cast<uint32_t>(wcsnlen(cpu, 16)));
+            (void)AppendClippedText(resources,
+                                    list,
+                                    panel.pad,
+                                    y0 + panel.heroPx + 4.0f,
+                                    panel.labelPx,
+                                    panel.innerW,
+                                    kMuted,
+                                    kMuted,
+                                    kMuted,
+                                    1.0f,
+                                    row.name.data(),
+                                    row.nameCharacters);
             DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
             (void)width;
             return S_OK;
         }
-        uint32_t columns = 1;
-        uint32_t visible = 0;
-        uint32_t rows = 0;
-        float rowHeight = 0.0f;
-        float listHeight = 0.0f;
-        float colWidth = 0.0f;
+        uint32_t columns   = 1;
+        uint32_t visible   = 0;
+        uint32_t rows      = 0;
+        float rowHeight    = 0.0f;
+        float listHeight   = 0.0f;
+        float colWidth     = 0.0f;
         const float rowMin = std::max(panel.rowMin, 36.0f);
-        auto layout = [&](float minCol) noexcept
+        auto layout        = [&](float minCol) noexcept
         {
-            FitGridLayout(panel.innerH, panel.innerW, rowMin, panel.pageStripPx, minCol, sample.rowCount, columns,
-                          visible, rows, rowHeight, listHeight, colWidth);
+            FitGridLayout(
+                panel.innerH, panel.innerW, rowMin, panel.pageStripPx, minCol, sample.rowCount, columns, visible, rows, rowHeight, listHeight, colWidth);
         };
         layout(300.0f);
-        float rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
+        float rowPx      = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
         float cpuReserve = std::max(52.0f, resources.MeasureText(L"100%", 4, rowPx) + 14.0f);
-        float wsReserve = std::max(80.0f, resources.MeasureText(L"999.9 TB", 8, rowPx) + 14.0f);
+        float wsReserve  = std::max(80.0f, resources.MeasureText(L"999.9 TB", 8, rowPx) + 14.0f);
         if (columns > 1 && cpuReserve + wsReserve + 72.0f > colWidth)
         {
             layout(panel.innerW);
@@ -3115,9 +3242,9 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         for (uint32_t index = 0; index < slice.count; ++index)
         {
             const RankedRow& row = sample.rows[slice.start + index];
-            float cellX = 0.0f;
-            float cellY = 0.0f;
-            const float layoutY = slice.start == 0 ? row.displayY : static_cast<float>(index);
+            float cellX          = 0.0f;
+            float cellY          = 0.0f;
+            const float layoutY  = slice.start == 0 ? row.displayY : static_cast<float>(index);
             CellOrigin(panel.pad, y0, index, columns, colWidth, rowHeight, layoutY, columns == 1, cellX, cellY);
             const float trackY = std::min(cellY + 2.0f + rowPx + 4.0f, cellY + rowHeight - trackH - 2.0f);
             DrawCpuTrack(list, cellX, trackY, colWidth, trackH, row.displayPrimary, row.primaryAvailable, row.pid == 0);
@@ -3125,30 +3252,26 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             FormatBytes(ws, 16, row.secondary, true);
             wchar_t cpu[16]{};
             FormatPercent(cpu, 16, row.displayPrimary, row.primaryAvailable);
-            const float cpuW = resources.MeasureText(cpu, static_cast<uint32_t>(wcsnlen(cpu, 16)), rowPx) + 2.0f;
-            const float wsW = resources.MeasureText(ws, static_cast<uint32_t>(wcsnlen(ws, 16)), rowPx) + 12.0f;
-            const float cpuX = cellX + colWidth - cpuW;
-            const float wsX = cpuX - wsW;
+            const float cpuW      = resources.MeasureText(cpu, static_cast<uint32_t>(wcsnlen(cpu, 16)), rowPx) + 2.0f;
+            const float wsW       = resources.MeasureText(ws, static_cast<uint32_t>(wcsnlen(ws, 16)), rowPx) + 12.0f;
+            const float cpuX      = cellX + colWidth - cpuW;
+            const float wsX       = cpuX - wsW;
             const float nameWidth = std::max(24.0f, wsX - cellX - 6.0f);
-            (void)AppendClippedText(resources, list, cellX, cellY + 2.0f, rowPx, nameWidth, kTextR, kTextG, kTextB,
-                                    1.0f, row.name.data(), row.nameCharacters);
-            (void)resources.AppendText(list, wsX, cellY + 2.0f, rowPx, kMuted, kMuted, kMuted, 1.0f, ws,
-                                       static_cast<uint32_t>(wcsnlen(ws, 16)));
+            (void)AppendClippedText(resources, list, cellX, cellY + 2.0f, rowPx, nameWidth, kTextR, kTextG, kTextB, 1.0f, row.name.data(), row.nameCharacters);
+            (void)resources.AppendText(list, wsX, cellY + 2.0f, rowPx, kMuted, kMuted, kMuted, 1.0f, ws, static_cast<uint32_t>(wcsnlen(ws, 16)));
             float ir = kTextR;
             float ig = kTextG;
             float ib = kTextB;
             ProcessPercentColor(row, ir, ig, ib);
-            (void)resources.AppendText(list, cpuX, cellY + 2.0f, rowPx, ir, ig, ib, 1.0f, cpu,
-                                       static_cast<uint32_t>(wcsnlen(cpu, 16)));
+            (void)resources.AppendText(list, cpuX, cellY + 2.0f, rowPx, ir, ig, ib, 1.0f, cpu, static_cast<uint32_t>(wcsnlen(cpu, 16)));
         }
         (void)width;
         (void)height;
         return S_OK;
     }
 
-    [[nodiscard]] HRESULT DrawGpuProcessTable(ViewerGpuResources& resources, ViewerDrawList& list,
-                                              const ViewerSample& sample, const PanelMetrics& panel, float width,
-                                              float height) noexcept
+    [[nodiscard]] HRESULT DrawGpuProcessTable(
+        ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample, const PanelMetrics& panel, float width, float height) noexcept
     {
         const float y0 = panel.contentTop;
         if (sample.rowCount == 0)
@@ -3158,85 +3281,92 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         if (panel.density == ViewerDensity::Hero)
         {
             const OverflowSlice slice = BindOverflow(sample.rowCount, 1);
-            const RankedRow& row = sample.rows[slice.start];
+            const RankedRow& row      = sample.rows[slice.start];
             wchar_t gpu[16]{};
             FormatPercent(gpu, 16, row.displayPrimary, row.primaryAvailable);
             float ir = kTextR;
             float ig = kTextG;
             float ib = kTextB;
             IntentTextColor(row.displayPrimary / 100.0f, row.primaryAvailable, ir, ig, ib);
-            (void)resources.AppendText(list, panel.pad, y0, panel.heroPx, ir, ig, ib, 1.0f, gpu,
-                                       static_cast<uint32_t>(wcsnlen(gpu, 16)));
-            (void)AppendClippedText(resources, list, panel.pad, y0 + panel.heroPx + 4.0f, panel.labelPx, panel.innerW,
-                                    kMuted, kMuted, kMuted, 1.0f, row.name.data(), row.nameCharacters);
+            (void)resources.AppendText(list, panel.pad, y0, panel.heroPx, ir, ig, ib, 1.0f, gpu, static_cast<uint32_t>(wcsnlen(gpu, 16)));
+            (void)AppendClippedText(resources,
+                                    list,
+                                    panel.pad,
+                                    y0 + panel.heroPx + 4.0f,
+                                    panel.labelPx,
+                                    panel.innerW,
+                                    kMuted,
+                                    kMuted,
+                                    kMuted,
+                                    1.0f,
+                                    row.name.data(),
+                                    row.nameCharacters);
             DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden);
             (void)width;
             return S_OK;
         }
-        uint32_t columns = 1;
-        uint32_t visible = 0;
-        uint32_t rows = 0;
-        float rowHeight = 0.0f;
-        float listHeight = 0.0f;
-        float colWidth = 0.0f;
+        uint32_t columns   = 1;
+        uint32_t visible   = 0;
+        uint32_t rows      = 0;
+        float rowHeight    = 0.0f;
+        float listHeight   = 0.0f;
+        float colWidth     = 0.0f;
         const float rowMin = std::max(panel.rowMin, 36.0f);
-        auto layout = [&](float minCol) noexcept
+        auto layout        = [&](float minCol) noexcept
         {
-            FitGridLayout(panel.innerH, panel.innerW, rowMin, panel.pageStripPx, minCol, sample.rowCount, columns,
-                          visible, rows, rowHeight, listHeight, colWidth);
+            FitGridLayout(
+                panel.innerH, panel.innerW, rowMin, panel.pageStripPx, minCol, sample.rowCount, columns, visible, rows, rowHeight, listHeight, colWidth);
         };
         layout(280.0f);
-        float rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
+        float rowPx      = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
         float gpuReserve = std::max(52.0f, resources.MeasureText(L"100%", 4, rowPx) + 14.0f);
         if (columns > 1 && gpuReserve + 96.0f > colWidth)
         {
             layout(panel.innerW);
-            rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
+            rowPx      = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
             gpuReserve = std::max(52.0f, resources.MeasureText(L"100%", 4, rowPx) + 14.0f);
         }
-        const float trackH = ClampOrdered(rowHeight * 0.22f, 8.0f, 14.0f);
+        const float trackH    = ClampOrdered(rowHeight * 0.22f, 8.0f, 14.0f);
         const bool showEngine = columns == 1 && colWidth >= gpuReserve + 160.0f;
         NotePageStrip(y0, listHeight, panel.innerH);
         const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
         for (uint32_t index = 0; index < slice.count; ++index)
         {
             const RankedRow& row = sample.rows[slice.start + index];
-            float cellX = 0.0f;
-            float cellY = 0.0f;
-            const float layoutY = slice.start == 0 ? row.displayY : static_cast<float>(index);
+            float cellX          = 0.0f;
+            float cellY          = 0.0f;
+            const float layoutY  = slice.start == 0 ? row.displayY : static_cast<float>(index);
             CellOrigin(panel.pad, y0, index, columns, colWidth, rowHeight, layoutY, columns == 1, cellX, cellY);
             const float trackY = std::min(cellY + 2.0f + rowPx + 4.0f, cellY + rowHeight - trackH - 2.0f);
             DrawCpuTrack(list, cellX, trackY, colWidth, trackH, row.displayPrimary, row.primaryAvailable);
             wchar_t gpu[16]{};
             FormatPercent(gpu, 16, row.displayPrimary, row.primaryAvailable);
-            const float gpuW = resources.MeasureText(gpu, static_cast<uint32_t>(wcsnlen(gpu, 16)), rowPx) + 2.0f;
-            const float gpuX = cellX + colWidth - gpuW;
-            const float engineW = showEngine && row.detailCharacters > 0 ? 80.0f : 0.0f;
-            const float engineX = gpuX - engineW;
+            const float gpuW      = resources.MeasureText(gpu, static_cast<uint32_t>(wcsnlen(gpu, 16)), rowPx) + 2.0f;
+            const float gpuX      = cellX + colWidth - gpuW;
+            const float engineW   = showEngine && row.detailCharacters > 0 ? 80.0f : 0.0f;
+            const float engineX   = gpuX - engineW;
             const float nameWidth = std::max(24.0f, engineX - cellX - 6.0f);
-            (void)AppendClippedText(resources, list, cellX, cellY + 2.0f, rowPx, nameWidth, kTextR, kTextG, kTextB,
-                                    1.0f, row.name.data(), row.nameCharacters);
+            (void)AppendClippedText(resources, list, cellX, cellY + 2.0f, rowPx, nameWidth, kTextR, kTextG, kTextB, 1.0f, row.name.data(), row.nameCharacters);
             if (engineW > 0.0f)
             {
-                (void)AppendClippedText(resources, list, engineX, cellY + 2.0f, rowPx, engineW - 8.0f, kMuted, kMuted,
-                                        kMuted, 1.0f, row.detail.data(), row.detailCharacters);
+                (void)AppendClippedText(
+                    resources, list, engineX, cellY + 2.0f, rowPx, engineW - 8.0f, kMuted, kMuted, kMuted, 1.0f, row.detail.data(), row.detailCharacters);
             }
             float ir = kTextR;
             float ig = kTextG;
             float ib = kTextB;
             IntentTextColor(row.displayPrimary / 100.0f, row.primaryAvailable, ir, ig, ib);
-            (void)resources.AppendText(list, gpuX, cellY + 2.0f, rowPx, ir, ig, ib, 1.0f, gpu,
-                                       static_cast<uint32_t>(wcsnlen(gpu, 16)));
+            (void)resources.AppendText(list, gpuX, cellY + 2.0f, rowPx, ir, ig, ib, 1.0f, gpu, static_cast<uint32_t>(wcsnlen(gpu, 16)));
         }
         (void)width;
         (void)height;
         return S_OK;
     }
 
-    [[nodiscard]] HRESULT DrawNetwork(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
-                                      const PanelMetrics& panel, float width, float height) noexcept
+    [[nodiscard]] HRESULT DrawNetwork(
+        ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample, const PanelMetrics& panel, float width, float height) noexcept
     {
-        float y = panel.contentTop;
+        float y         = panel.contentTop;
         float remaining = height - panel.pad - y;
         if (panel.density != ViewerDensity::Hero && remaining > panel.rowMin * 2.4f)
         {
@@ -3258,53 +3388,62 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         if (panel.density == ViewerDensity::Hero)
         {
             const OverflowSlice slice = BindOverflow(sample.rowCount, 1);
-            const RankedRow& row = sample.rows[slice.start];
+            const RankedRow& row      = sample.rows[slice.start];
             wchar_t rate[32]{};
             FormatRate(rate, 32, row.displayPrimary, row.primaryAvailable);
             const float fill = LogRateFill(static_cast<double>(row.displayPrimary), row.secondary);
-            float ir = kTextR;
-            float ig = kTextG;
-            float ib = kTextB;
+            float ir         = kTextR;
+            float ig         = kTextG;
+            float ib         = kTextB;
             IntentTextColor(fill, row.primaryAvailable, ir, ig, ib);
-            (void)resources.AppendText(list, panel.pad, y, panel.heroPx, ir, ig, ib, 1.0f, rate,
-                                       static_cast<uint32_t>(wcsnlen(rate, 32)));
-            (void)AppendClippedText(resources, list, panel.pad, y + panel.heroPx + 4.0f, panel.labelPx, panel.innerW,
-                                    kMuted, kMuted, kMuted, 1.0f, row.name.data(), row.nameCharacters);
+            (void)resources.AppendText(list, panel.pad, y, panel.heroPx, ir, ig, ib, 1.0f, rate, static_cast<uint32_t>(wcsnlen(rate, 32)));
+            (void)AppendClippedText(resources,
+                                    list,
+                                    panel.pad,
+                                    y + panel.heroPx + 4.0f,
+                                    panel.labelPx,
+                                    panel.innerW,
+                                    kMuted,
+                                    kMuted,
+                                    kMuted,
+                                    1.0f,
+                                    row.name.data(),
+                                    row.nameCharacters);
             DrawOverflow(resources, list, panel, height, panel.labelPx, slice.hidden + sample.hiddenCount);
             return S_OK;
         }
         uint32_t columns = 1;
         uint32_t visible = 0;
-        uint32_t rows = 0;
-        float rowHeight = 0.0f;
+        uint32_t rows    = 0;
+        float rowHeight  = 0.0f;
         float listHeight = 0.0f;
-        float colWidth = 0.0f;
-        FitGridLayout(remaining, panel.innerW, panel.rowMin, panel.pageStripPx, 240.0f, sample.rowCount, columns,
-                      visible, rows, rowHeight, listHeight, colWidth);
-        const float rowPx = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
-        const float trackH = ClampOrdered(rowHeight * 0.18f, 8.0f, 12.0f);
+        float colWidth   = 0.0f;
+        FitGridLayout(
+            remaining, panel.innerW, panel.rowMin, panel.pageStripPx, 240.0f, sample.rowCount, columns, visible, rows, rowHeight, listHeight, colWidth);
+        const float rowPx   = TypeFromRow(rowHeight, panel.rowPx, 32.0f);
+        const float trackH  = ClampOrdered(rowHeight * 0.18f, 8.0f, 12.0f);
         const float textGap = 6.0f;
         NotePageStrip(y, listHeight, remaining);
         const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
         for (uint32_t index = 0; index < slice.count; ++index)
         {
             const RankedRow& row = sample.rows[slice.start + index];
-            float cellX = 0.0f;
-            float cellY = 0.0f;
-            const float layoutY = slice.start == 0 ? row.displayY : static_cast<float>(index);
+            float cellX          = 0.0f;
+            float cellY          = 0.0f;
+            const float layoutY  = slice.start == 0 ? row.displayY : static_cast<float>(index);
             CellOrigin(panel.pad, y, index, columns, colWidth, rowHeight, layoutY, columns == 1, cellX, cellY);
             const float fill = LogRateFill(static_cast<double>(row.displayPrimary), row.secondary);
             wchar_t rate[32]{};
             FormatRate(rate, 32, row.displayPrimary, row.primaryAvailable);
             const float rateWidth = resources.MeasureText(rate, static_cast<uint32_t>(wcsnlen(rate, 32)), rowPx);
-            float ir = kTextR;
-            float ig = kTextG;
-            float ib = kTextB;
+            float ir              = kTextR;
+            float ig              = kTextG;
+            float ib              = kTextB;
             IntentTextColor(fill, row.primaryAvailable, ir, ig, ib);
-            (void)AppendClippedText(resources, list, cellX, cellY + 2.0f, rowPx, colWidth - rateWidth - 8.0f, kTextR,
-                                    kTextG, kTextB, 1.0f, row.name.data(), row.nameCharacters);
-            (void)resources.AppendText(list, cellX + colWidth - rateWidth, cellY + 2.0f, rowPx, ir, ig, ib, 1.0f, rate,
-                                       static_cast<uint32_t>(wcsnlen(rate, 32)));
+            (void)AppendClippedText(
+                resources, list, cellX, cellY + 2.0f, rowPx, colWidth - rateWidth - 8.0f, kTextR, kTextG, kTextB, 1.0f, row.name.data(), row.nameCharacters);
+            (void)resources.AppendText(
+                list, cellX + colWidth - rateWidth, cellY + 2.0f, rowPx, ir, ig, ib, 1.0f, rate, static_cast<uint32_t>(wcsnlen(rate, 32)));
             const float trackY = std::min(cellY + 2.0f + rowPx + textGap, cellY + rowHeight - trackH - 2.0f);
             DrawTrack(list, cellX, trackY, colWidth, trackH, fill, row.primaryAvailable, false, 0.0f);
         }
@@ -3314,8 +3453,8 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         return S_OK;
     }
 
-    [[nodiscard]] HRESULT DrawPulse(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
-                                    const PanelMetrics& panel, float width, float height) noexcept
+    [[nodiscard]] HRESULT DrawPulse(
+        ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample, const PanelMetrics& panel, float width, float height) noexcept
     {
         wchar_t cpu[16]{};
         FormatPercent(cpu, 16, sample.display[0], sample.available[0]);
@@ -3323,12 +3462,11 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         float cpuG = kTextG;
         float cpuB = kTextB;
         IntentTextColor(sample.display[0] / 100.0f, sample.available[0], cpuR, cpuG, cpuB);
-        float y = panel.contentTop;
+        float y                  = panel.contentTop;
         const float remainingAll = std::max(0.0f, height - panel.pad - y);
         if (panel.density == ViewerDensity::Hero)
         {
-            return resources.AppendText(list, panel.pad, y, panel.heroPx, cpuR, cpuG, cpuB, 1.0f, cpu,
-                                        static_cast<uint32_t>(wcsnlen(cpu, 16)));
+            return resources.AppendText(list, panel.pad, y, panel.heroPx, cpuR, cpuG, cpuB, 1.0f, cpu, static_cast<uint32_t>(wcsnlen(cpu, 16)));
         }
         wchar_t ram[32]{};
         wchar_t procs[16]{};
@@ -3347,18 +3485,17 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         FormatBytes(commit, 32, sample.counts[7], sample.available[7]);
         const uint64_t freeBytes = sample.counts[0] > sample.counts[4] ? sample.counts[0] - sample.counts[4] : 0;
         FormatBytes(freeRam, 32, freeBytes, sample.counts[0] != 0);
-        const wchar_t* labels[] = {L"RAM", L"Procs", L"Threads", L"Handles", L"Cores", L"Up", L"Commit", L"Free"};
+        const wchar_t* labels[]    = {L"RAM", L"Procs", L"Threads", L"Handles", L"Cores", L"Up", L"Commit", L"Free"};
         const uint32_t labelLens[] = {3, 5, 7, 7, 5, 2, 6, 4};
-        const wchar_t* values[] = {ram, procs, threads, handles, cores, up, commit, freeRam};
-        const bool expanded = _raised && remainingAll > 280.0f;
-        const uint32_t chipMax = expanded ? 8u : (panel.density == ViewerDensity::Compact ? 4u : 7u);
-        const bool split = panel.innerW >= 300.0f;
-        const float headerH = expanded ? std::min(remainingAll * 0.40f, 260.0f) : remainingAll;
-        const float leftW = split ? std::clamp(panel.innerW * 0.32f, 96.0f, 168.0f) : panel.innerW;
-        const float cpuPx = ClampOrdered(split ? headerH * 0.42f : headerH * 0.32f, 44.0f, panel.heroPx);
-        const float cpuY = split ? y + std::max(0.0f, (headerH - cpuPx) * 0.12f) : y;
-        (void)resources.AppendText(list, panel.pad, cpuY, cpuPx, cpuR, cpuG, cpuB, 1.0f, cpu,
-                                   static_cast<uint32_t>(wcsnlen(cpu, 16)));
+        const wchar_t* values[]    = {ram, procs, threads, handles, cores, up, commit, freeRam};
+        const bool expanded        = _raised && remainingAll > 280.0f;
+        const uint32_t chipMax     = expanded ? 8u : (panel.density == ViewerDensity::Compact ? 4u : 7u);
+        const bool split           = panel.innerW >= 300.0f;
+        const float headerH        = expanded ? std::min(remainingAll * 0.40f, 260.0f) : remainingAll;
+        const float leftW          = split ? std::clamp(panel.innerW * 0.32f, 96.0f, 168.0f) : panel.innerW;
+        const float cpuPx          = ClampOrdered(split ? headerH * 0.42f : headerH * 0.32f, 44.0f, panel.heroPx);
+        const float cpuY           = split ? y + std::max(0.0f, (headerH - cpuPx) * 0.12f) : y;
+        (void)resources.AppendText(list, panel.pad, cpuY, cpuPx, cpuR, cpuG, cpuB, 1.0f, cpu, static_cast<uint32_t>(wcsnlen(cpu, 16)));
         float chipX = panel.pad;
         float chipY = y;
         float chipW = panel.innerW;
@@ -3375,25 +3512,32 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         }
         uint32_t columns = 1;
         uint32_t visible = 0;
-        uint32_t rows = 0;
-        float rowHeight = 0.0f;
+        uint32_t rows    = 0;
+        float rowHeight  = 0.0f;
         float listHeight = 0.0f;
-        float colWidth = 0.0f;
-        FitGridLayout(chipH, chipW, panel.rowMin * 0.75f, 0.0f, 130.0f, chipMax, columns, visible, rows, rowHeight,
-                      listHeight, colWidth);
-        visible = std::min(visible, chipMax);
-        const float valuePx = TypeFromRow(rowHeight, panel.rowPx, 30.0f);
-        const float labelPx = std::min(panel.labelPx + 4.0f, valuePx);
+        float colWidth   = 0.0f;
+        FitGridLayout(chipH, chipW, panel.rowMin * 0.75f, 0.0f, 130.0f, chipMax, columns, visible, rows, rowHeight, listHeight, colWidth);
+        visible              = std::min(visible, chipMax);
+        const float valuePx  = TypeFromRow(rowHeight, panel.rowPx, 30.0f);
+        const float labelPx  = std::min(panel.labelPx + 4.0f, valuePx);
         const float labelCol = std::max(64.0f, resources.MeasureText(L"Threads", 7, labelPx) + 8.0f);
         for (uint32_t index = 0; index < visible; ++index)
         {
             float cellX = 0.0f;
             float cellY = 0.0f;
             CellOrigin(chipX, chipY, index, columns, colWidth, rowHeight, 0.0f, false, cellX, cellY);
-            (void)resources.AppendText(list, cellX, cellY, labelPx, kMuted, kMuted, kMuted, 1.0f, labels[index],
-                                       labelLens[index]);
-            (void)AppendClippedText(resources, list, cellX + labelCol, cellY, valuePx,
-                                    std::max(24.0f, colWidth - labelCol), kTextR, kTextG, kTextB, 1.0f, values[index],
+            (void)resources.AppendText(list, cellX, cellY, labelPx, kMuted, kMuted, kMuted, 1.0f, labels[index], labelLens[index]);
+            (void)AppendClippedText(resources,
+                                    list,
+                                    cellX + labelCol,
+                                    cellY,
+                                    valuePx,
+                                    std::max(24.0f, colWidth - labelCol),
+                                    kTextR,
+                                    kTextG,
+                                    kTextB,
+                                    1.0f,
+                                    values[index],
                                     static_cast<uint32_t>(wcsnlen(values[index], 32)));
         }
         if (expanded)
@@ -3403,24 +3547,33 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             if (extraH >= 56.0f && sample.counts[0] != 0)
             {
                 const float bandH = std::min(72.0f, extraH * 0.32f);
-                DrawCapacityBar(resources, list, panel.pad, extraY, panel.innerW, L"Physical", sample.display[4],
-                                sample.counts[0] != 0, sample.counts[4], sample.counts[0], panel.labelPx + 2.0f, 12.0f,
+                DrawCapacityBar(resources,
+                                list,
+                                panel.pad,
+                                extraY,
+                                panel.innerW,
+                                L"Physical",
+                                sample.display[4],
+                                sample.counts[0] != 0,
+                                sample.counts[4],
+                                sample.counts[0],
+                                panel.labelPx + 2.0f,
+                                12.0f,
                                 bandH);
                 extraY += bandH + 10.0f;
                 extraH = std::max(0.0f, height - panel.pad - extraY);
             }
             if (extraH >= 48.0f)
             {
-                DrawHistoryArea(list, panel.pad, extraY, panel.innerW, extraH, sample, sample.display[0],
-                                sample.available[0], true);
+                DrawHistoryArea(list, panel.pad, extraY, panel.innerW, extraH, sample, sample.display[0], sample.available[0], true);
             }
         }
         (void)width;
         return S_OK;
     }
 
-    [[nodiscard]] HRESULT DrawCpu(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
-                                  const PanelMetrics& panel, float width, float height) noexcept
+    [[nodiscard]] HRESULT DrawCpu(
+        ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample, const PanelMetrics& panel, float width, float height) noexcept
     {
         (void)width;
         wchar_t value[16]{};
@@ -3429,79 +3582,72 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         float ig = kTextG;
         float ib = kTextB;
         IntentTextColor(sample.display[0] / 100.0f, sample.available[0], ir, ig, ib);
-        float y = panel.contentTop;
+        float y                  = panel.contentTop;
         const float remainingAll = std::max(0.0f, height - panel.pad - y);
         if (panel.density == ViewerDensity::Hero)
         {
-            return resources.AppendText(list, panel.pad, y, panel.heroPx, ir, ig, ib, 1.0f, value,
-                                        static_cast<uint32_t>(wcsnlen(value, 16)));
+            return resources.AppendText(list, panel.pad, y, panel.heroPx, ir, ig, ib, 1.0f, value, static_cast<uint32_t>(wcsnlen(value, 16)));
         }
         const float hero = ClampOrdered(remainingAll * 0.18f, 32.0f, std::min(52.0f, remainingAll * 0.26f));
-        (void)resources.AppendText(list, panel.pad, y, hero, ir, ig, ib, 1.0f, value,
-                                   static_cast<uint32_t>(wcsnlen(value, 16)));
+        (void)resources.AppendText(list, panel.pad, y, hero, ir, ig, ib, 1.0f, value, static_cast<uint32_t>(wcsnlen(value, 16)));
         y += hero + 4.0f;
         const float barH = ClampOrdered((height - panel.pad - y) * 0.07f, 8.0f, 14.0f);
         {
-            const float user = CpuUnit(sample.display[1]);
+            const float user   = CpuUnit(sample.display[1]);
             const float kernel = CpuUnit(sample.display[2]);
-            const float load = CpuUnit(sample.display[0]);
-            const float lum = CpuHeatLuminance(load);
-            const float mix = std::max(lum, std::sqrt(load));
-            float red = kFillR;
-            float green = kFillG;
-            float blue = kFillB;
+            const float load   = CpuUnit(sample.display[0]);
+            const float lum    = CpuHeatLuminance(load);
+            const float mix    = std::max(lum, std::sqrt(load));
+            float red          = kFillR;
+            float green        = kFillG;
+            float blue         = kFillB;
             SignalColor(load, red, green, blue);
-            red = Lerp(kHeatIdle, red, mix);
+            red   = Lerp(kHeatIdle, red, mix);
             green = Lerp(kHeatIdle, green, mix);
-            blue = Lerp(kHeatIdle, blue, mix);
+            blue  = Lerp(kHeatIdle, blue, mix);
             (void)list.AddFill(panel.pad, y, panel.innerW, barH, kTroughR, kTroughG, kTroughB, 1.0f, 4.0f);
             (void)list.AddFill(panel.pad, y, panel.innerW * user, barH, red, green, blue, 0.95f, 4.0f);
-            (void)list.AddFill(panel.pad + panel.innerW * user, y, panel.innerW * kernel, barH, kWarnR, kWarnG, kWarnB,
-                               0.95f, 4.0f);
+            (void)list.AddFill(panel.pad + panel.innerW * user, y, panel.innerW * kernel, barH, kWarnR, kWarnG, kWarnB, 0.95f, 4.0f);
         }
         y += barH + 8.0f;
         const float areaH = std::max(0.0f, height - panel.pad - y);
         if (sample.heatCount == 0)
         {
-            DrawHistoryArea(list, panel.pad, y, panel.innerW, areaH, sample, sample.display[0], sample.available[0],
-                            true);
+            DrawHistoryArea(list, panel.pad, y, panel.innerW, areaH, sample, sample.display[0], sample.available[0], true);
             return S_OK;
         }
         const uint32_t heatCols = std::max(1U, static_cast<uint32_t>(std::ceil(std::sqrt(sample.heatCount))));
         const uint32_t heatRows = (sample.heatCount + heatCols - 1) / heatCols;
-        const float gap = 2.0f;
-        const float histMin = 80.0f;
-        const float heatBudgetW =
-            areaH >= 48.0f && panel.innerW > histMin + 24.0f ? std::min(panel.innerW * 0.46f, areaH) : panel.innerW;
-        float cell = std::min((heatBudgetW - gap * static_cast<float>(heatCols - 1)) / static_cast<float>(heatCols),
-                              (areaH - gap * static_cast<float>(heatRows - 1)) / static_cast<float>(heatRows));
+        const float gap         = 2.0f;
+        const float histMin     = 80.0f;
+        const float heatBudgetW = areaH >= 48.0f && panel.innerW > histMin + 24.0f ? std::min(panel.innerW * 0.46f, areaH) : panel.innerW;
+        float cell              = std::min((heatBudgetW - gap * static_cast<float>(heatCols - 1)) / static_cast<float>(heatCols),
+                                           (areaH - gap * static_cast<float>(heatRows - 1)) / static_cast<float>(heatRows));
         if (cell < kHeatMinCellPx)
         {
-            DrawHistoryArea(list, panel.pad, y, panel.innerW, areaH, sample, sample.display[0], sample.available[0],
-                            true);
+            DrawHistoryArea(list, panel.pad, y, panel.innerW, areaH, sample, sample.display[0], sample.available[0], true);
             return S_OK;
         }
         const float gridW = static_cast<float>(heatCols) * cell + gap * static_cast<float>(heatCols - 1);
         const float gridH = static_cast<float>(heatRows) * cell + gap * static_cast<float>(heatRows - 1);
         for (uint32_t index = 0; index < sample.heatCount; ++index)
         {
-            const float heatT = CpuUnit(sample.heatDisplay[index]);
+            const float heatT   = CpuUnit(sample.heatDisplay[index]);
             const float heatLum = CpuHeatLuminance(heatT);
-            float red = kFillR;
-            float green = kFillG;
-            float blue = kFillB;
+            float red           = kFillR;
+            float green         = kFillG;
+            float blue          = kFillB;
             SignalColor(heatT, red, green, blue);
-            const float x = panel.pad + static_cast<float>(index % heatCols) * (cell + gap);
+            const float x     = panel.pad + static_cast<float>(index % heatCols) * (cell + gap);
             const float cellY = y + static_cast<float>(index / heatCols) * (cell + gap);
-            (void)list.AddFill(x, cellY, cell, cell, Lerp(kHeatIdle, red, heatLum), Lerp(kHeatIdle, green, heatLum),
-                               Lerp(kHeatIdle, blue, heatLum), 1.0f, 2.0f);
+            (void)list.AddFill(
+                x, cellY, cell, cell, Lerp(kHeatIdle, red, heatLum), Lerp(kHeatIdle, green, heatLum), Lerp(kHeatIdle, blue, heatLum), 1.0f, 2.0f);
         }
         const float histX = panel.pad + gridW + 12.0f;
         const float histW = panel.innerW - gridW - 12.0f;
         if (histW >= 72.0f)
         {
-            DrawHistoryArea(list, histX, y, histW, std::max(gridH, areaH), sample, sample.display[0],
-                            sample.available[0], true);
+            DrawHistoryArea(list, histX, y, histW, std::max(gridH, areaH), sample, sample.display[0], sample.available[0], true);
         }
         if (sample.heatOverflow > 0)
         {
@@ -3510,19 +3656,18 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         return S_OK;
     }
 
-    [[nodiscard]] HRESULT DrawMemory(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
-                                     const PanelMetrics& panel, float width, float height) noexcept
+    [[nodiscard]] HRESULT DrawMemory(
+        ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample, const PanelMetrics& panel, float width, float height) noexcept
     {
         float y = panel.contentTop;
         if (panel.density == ViewerDensity::Hero)
         {
             wchar_t used[32]{};
             FormatBytes(used, 32, sample.counts[0], sample.available[0]);
-            return resources.AppendText(list, panel.pad, y, panel.heroPx, kTextR, kTextG, kTextB, 1.0f, used,
-                                        static_cast<uint32_t>(wcsnlen(used, 32)));
+            return resources.AppendText(list, panel.pad, y, panel.heroPx, kTextR, kTextG, kTextB, 1.0f, used, static_cast<uint32_t>(wcsnlen(used, 32)));
         }
         const float remaining = std::max(0.0f, height - panel.pad - y);
-        uint32_t bands = 1;
+        uint32_t bands        = 1;
         if (remaining >= panel.rowMin * 2.2f)
         {
             bands = 2;
@@ -3531,15 +3676,37 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             bands = 3;
         }
-        const float bandH = remaining / static_cast<float>(bands);
-        const float barH = std::clamp(bandH * 0.32f, 10.0f, 22.0f);
+        const float bandH  = remaining / static_cast<float>(bands);
+        const float barH   = std::clamp(bandH * 0.32f, 10.0f, 22.0f);
         const float typePx = TypeFromRow(bandH, 20.0f, 36.0f);
-        DrawCapacityBar(resources, list, panel.pad, y, panel.innerW, L"Physical", sample.display[0],
-                        sample.available[0], sample.counts[0], sample.counts[1], typePx, barH, bandH);
+        DrawCapacityBar(resources,
+                        list,
+                        panel.pad,
+                        y,
+                        panel.innerW,
+                        L"Physical",
+                        sample.display[0],
+                        sample.available[0],
+                        sample.counts[0],
+                        sample.counts[1],
+                        typePx,
+                        barH,
+                        bandH);
         if (bands >= 2)
         {
-            DrawCapacityBar(resources, list, panel.pad, y + bandH, panel.innerW, L"Commit", sample.display[1],
-                            sample.available[1], sample.counts[2], sample.counts[3], typePx, barH, bandH);
+            DrawCapacityBar(resources,
+                            list,
+                            panel.pad,
+                            y + bandH,
+                            panel.innerW,
+                            L"Commit",
+                            sample.display[1],
+                            sample.available[1],
+                            sample.counts[2],
+                            sample.counts[3],
+                            typePx,
+                            barH,
+                            bandH);
         }
         if (bands >= 3)
         {
@@ -3549,29 +3716,37 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         return S_OK;
     }
 
-    void DrawCapacityBar(ViewerGpuResources& resources, ViewerDrawList& list, float x, float y, float width,
-                         const wchar_t* label, float percent, bool available, uint64_t used, uint64_t total,
-                         float labelPx, float barH, float bandH) noexcept
+    void DrawCapacityBar(ViewerGpuResources& resources,
+                         ViewerDrawList& list,
+                         float x,
+                         float y,
+                         float width,
+                         const wchar_t* label,
+                         float percent,
+                         bool available,
+                         uint64_t used,
+                         uint64_t total,
+                         float labelPx,
+                         float barH,
+                         float bandH) noexcept
     {
         wchar_t value[40]{};
         FormatBytesPair(value, 40, used, total, available && total != 0);
         const float textY = y + 2.0f;
-        (void)resources.AppendText(list, x, textY, labelPx, kMuted, kMuted, kMuted, 1.0f, label,
-                                   static_cast<uint32_t>(wcsnlen(label, 32)));
+        (void)resources.AppendText(list, x, textY, labelPx, kMuted, kMuted, kMuted, 1.0f, label, static_cast<uint32_t>(wcsnlen(label, 32)));
         const float valueWidth = resources.MeasureText(value, static_cast<uint32_t>(wcsnlen(value, 40)), labelPx);
-        float ir = kTextR;
-        float ig = kTextG;
-        float ib = kTextB;
+        float ir               = kTextR;
+        float ig               = kTextG;
+        float ib               = kTextB;
         IntentTextColor(percent / 100.0f, available, ir, ig, ib);
-        (void)resources.AppendText(list, x + width - valueWidth, textY, labelPx, ir, ig, ib, 1.0f, value,
-                                   static_cast<uint32_t>(wcsnlen(value, 40)));
-        const float barY = textY + labelPx + 6.0f;
+        (void)resources.AppendText(list, x + width - valueWidth, textY, labelPx, ir, ig, ib, 1.0f, value, static_cast<uint32_t>(wcsnlen(value, 40)));
+        const float barY    = textY + labelPx + 6.0f;
         const float fitBarH = std::min(barH, std::max(6.0f, y + bandH - barY - 2.0f));
         DrawTrack(list, x, barY, width, fitBarH, std::clamp(percent, 0.0f, 100.0f) / 100.0f, available, false, 0.0f);
     }
 
-    [[nodiscard]] HRESULT DrawStorage(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
-                                      const PanelMetrics& panel, float width, float height) noexcept
+    [[nodiscard]] HRESULT DrawStorage(
+        ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample, const PanelMetrics& panel, float width, float height) noexcept
     {
         float y = panel.contentTop;
         if (sample.rowCount == 0)
@@ -3586,42 +3761,49 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             float ig = kTextG;
             float ib = kTextB;
             IntentTextColor(sample.rows[0].displayPrimary / 100.0f, sample.rows[0].primaryAvailable, ir, ig, ib);
-            (void)resources.AppendText(list, panel.pad, y, panel.heroPx, ir, ig, ib, 1.0f, used,
-                                       static_cast<uint32_t>(wcsnlen(used, 16)));
+            (void)resources.AppendText(list, panel.pad, y, panel.heroPx, ir, ig, ib, 1.0f, used, static_cast<uint32_t>(wcsnlen(used, 16)));
             const wchar_t* band = CapacityBandText(sample.rows[0].displayPrimary, sample.rows[0].primaryAvailable);
-            (void)resources.AppendText(list, panel.pad, y + panel.heroPx + 4.0f, panel.labelPx, ir, ig, ib, 1.0f, band,
-                                       static_cast<uint32_t>(wcsnlen(band, 8)));
-            (void)AppendClippedText(resources, list, panel.pad, y + panel.heroPx + panel.labelPx + 8.0f, panel.labelPx,
-                                    panel.innerW, kMuted, kMuted, kMuted, 1.0f, sample.rows[0].name.data(),
+            (void)resources.AppendText(
+                list, panel.pad, y + panel.heroPx + 4.0f, panel.labelPx, ir, ig, ib, 1.0f, band, static_cast<uint32_t>(wcsnlen(band, 8)));
+            (void)AppendClippedText(resources,
+                                    list,
+                                    panel.pad,
+                                    y + panel.heroPx + panel.labelPx + 8.0f,
+                                    panel.labelPx,
+                                    panel.innerW,
+                                    kMuted,
+                                    kMuted,
+                                    kMuted,
+                                    1.0f,
+                                    sample.rows[0].name.data(),
                                     sample.rows[0].nameCharacters);
             return S_OK;
         }
-        const float footer = panel.density == ViewerDensity::Standard ? panel.rowPx + 12.0f : 0.0f;
+        const float footer    = panel.density == ViewerDensity::Standard ? panel.rowPx + 12.0f : 0.0f;
         const float remaining = std::max(0.0f, height - panel.pad - y - footer);
-        uint32_t columns = 1;
-        uint32_t visible = 0;
-        uint32_t rows = 0;
-        float cardH = 0.0f;
-        float listHeight = 0.0f;
-        float cardW = 0.0f;
-        FitGridLayout(remaining, panel.innerW, 84.0f, panel.pageStripPx, 176.0f, sample.rowCount, columns, visible,
-                      rows, cardH, listHeight, cardW);
+        uint32_t columns      = 1;
+        uint32_t visible      = 0;
+        uint32_t rows         = 0;
+        float cardH           = 0.0f;
+        float listHeight      = 0.0f;
+        float cardW           = 0.0f;
+        FitGridLayout(remaining, panel.innerW, 84.0f, panel.pageStripPx, 176.0f, sample.rowCount, columns, visible, rows, cardH, listHeight, cardW);
         NotePageStrip(y, listHeight, remaining);
         const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
         for (uint32_t index = 0; index < slice.count; ++index)
         {
             const RankedRow& row = sample.rows[slice.start + index];
-            float cellX = 0.0f;
-            float cellY = 0.0f;
-            const float layoutY = slice.start == 0 ? row.displayY : static_cast<float>(index);
+            float cellX          = 0.0f;
+            float cellY          = 0.0f;
+            const float layoutY  = slice.start == 0 ? row.displayY : static_cast<float>(index);
             CellOrigin(panel.pad, y, index, columns, cardW, cardH, layoutY, columns == 1, cellX, cellY);
-            const float fill = std::clamp(row.displayPrimary, 0.0f, 100.0f) / 100.0f;
-            const float pad = 8.0f;
-            const float trackH = ClampOrdered(cardH * 0.14f, 8.0f, 12.0f);
-            const float trackY = cellY + cardH - pad - trackH;
-            const float namePx = TypeFromRow(cardH * 0.28f, panel.rowPx, 26.0f);
+            const float fill    = std::clamp(row.displayPrimary, 0.0f, 100.0f) / 100.0f;
+            const float pad     = 8.0f;
+            const float trackH  = ClampOrdered(cardH * 0.14f, 8.0f, 12.0f);
+            const float trackY  = cellY + cardH - pad - trackH;
+            const float namePx  = TypeFromRow(cardH * 0.28f, panel.rowPx, 26.0f);
             const float valuePx = TypeFromRow(cardH * 0.30f, panel.kpiPx, 32.0f);
-            const float metaPx = TypeFromRow(cardH * 0.20f, panel.labelPx, 16.0f);
+            const float metaPx  = TypeFromRow(cardH * 0.20f, panel.labelPx, 16.0f);
             (void)list.AddFill(cellX, cellY + 2.0f, cardW, cardH - 6.0f, kTrackR, kTrackG, kTrackB, 1.0f, 6.0f);
             float ir = kTextR;
             float ig = kTextG;
@@ -3630,24 +3812,42 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             wchar_t value[16]{};
             FormatPercent(value, 16, row.displayPrimary, row.primaryAvailable);
             const float valueWidth = resources.MeasureText(value, static_cast<uint32_t>(wcsnlen(value, 16)), valuePx);
-            const float nameY = cellY + pad;
-            (void)AppendClippedText(resources, list, cellX + pad, nameY, namePx,
-                                    std::max(20.0f, cardW - valueWidth - pad * 2.0f - 8.0f), kTextR, kTextG, kTextB,
-                                    1.0f, row.name.data(), row.nameCharacters);
-            (void)resources.AppendText(list, cellX + cardW - valueWidth - pad, nameY, valuePx, ir, ig, ib, 1.0f, value,
-                                       static_cast<uint32_t>(wcsnlen(value, 16)));
+            const float nameY      = cellY + pad;
+            (void)AppendClippedText(resources,
+                                    list,
+                                    cellX + pad,
+                                    nameY,
+                                    namePx,
+                                    std::max(20.0f, cardW - valueWidth - pad * 2.0f - 8.0f),
+                                    kTextR,
+                                    kTextG,
+                                    kTextB,
+                                    1.0f,
+                                    row.name.data(),
+                                    row.nameCharacters);
+            (void)resources.AppendText(
+                list, cellX + cardW - valueWidth - pad, nameY, valuePx, ir, ig, ib, 1.0f, value, static_cast<uint32_t>(wcsnlen(value, 16)));
             wchar_t pair[40]{};
             FormatBytesPair(pair, 40, row.pid, row.secondary, row.primaryAvailable && row.secondary != 0);
-            const wchar_t* band = CapacityBandText(row.displayPrimary, row.primaryAvailable);
+            const wchar_t* band   = CapacityBandText(row.displayPrimary, row.primaryAvailable);
             const float bandWidth = resources.MeasureText(band, static_cast<uint32_t>(wcsnlen(band, 8)), metaPx);
-            const float metaY = nameY + std::max(namePx, valuePx) + 4.0f;
+            const float metaY     = nameY + std::max(namePx, valuePx) + 4.0f;
             if (metaY + metaPx <= trackY - 4.0f)
             {
-                (void)AppendClippedText(resources, list, cellX + pad, metaY, metaPx,
-                                        std::max(20.0f, cardW - bandWidth - pad * 2.0f - 8.0f), kMuted, kMuted, kMuted,
-                                        1.0f, pair, static_cast<uint32_t>(wcsnlen(pair, 40)));
-                (void)resources.AppendText(list, cellX + cardW - bandWidth - pad, metaY, metaPx, ir, ig, ib, 1.0f, band,
-                                           static_cast<uint32_t>(wcsnlen(band, 8)));
+                (void)AppendClippedText(resources,
+                                        list,
+                                        cellX + pad,
+                                        metaY,
+                                        metaPx,
+                                        std::max(20.0f, cardW - bandWidth - pad * 2.0f - 8.0f),
+                                        kMuted,
+                                        kMuted,
+                                        kMuted,
+                                        1.0f,
+                                        pair,
+                                        static_cast<uint32_t>(wcsnlen(pair, 40)));
+                (void)resources.AppendText(
+                    list, cellX + cardW - bandWidth - pad, metaY, metaPx, ir, ig, ib, 1.0f, band, static_cast<uint32_t>(wcsnlen(band, 8)));
             }
             DrawTrack(list, cellX + pad, trackY, cardW - pad * 2.0f, trackH, fill, row.primaryAvailable, false, 0.0f);
         }
@@ -3659,15 +3859,15 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             wchar_t active[16]{};
             FormatPercent(active, 16, sample.display[7], sample.available[7]);
             (void)swprintf_s(disk, 48, L"%s · %s active", rate, active);
-            (void)resources.AppendText(list, panel.pad, height - panel.pad - panel.rowPx, panel.rowPx, kMuted, kMuted,
-                                       kMuted, 1.0f, disk, static_cast<uint32_t>(wcsnlen(disk, 48)));
+            (void)resources.AppendText(
+                list, panel.pad, height - panel.pad - panel.rowPx, panel.rowPx, kMuted, kMuted, kMuted, 1.0f, disk, static_cast<uint32_t>(wcsnlen(disk, 48)));
         }
         (void)width;
         return S_OK;
     }
 
-    [[nodiscard]] HRESULT DrawGpu(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
-                                  const PanelMetrics& panel, float width, float height) noexcept
+    [[nodiscard]] HRESULT DrawGpu(
+        ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample, const PanelMetrics& panel, float width, float height) noexcept
     {
         float y = panel.contentTop;
         if (sample.rowCount == 0)
@@ -3684,10 +3884,10 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         // Adapters that page reserve the page-control strip below the cards; the `+N` caption for non-graphics
         // adapters shares that strip. Only a list that does not page reserves a caption band of its own.
         const float minCard = panel.density == ViewerDensity::Hero ? std::max(remainingAll, 1.0f) : 56.0f;
-        uint32_t visible = 0;
-        float cardH = 0.0f;
-        float listHeight = 0.0f;
-        float remaining = remainingAll;
+        uint32_t visible    = 0;
+        float cardH         = 0.0f;
+        float listHeight    = 0.0f;
+        float remaining     = remainingAll;
         FitListLayout(remaining, minCard, panel.pageStripPx, sample.rowCount, visible, cardH, listHeight);
         if (listHeight + 0.5f >= remainingAll && sample.hiddenCount > 0)
         {
@@ -3695,18 +3895,18 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             FitListLayout(remaining, minCard, panel.pageStripPx, sample.rowCount, visible, cardH, listHeight);
         }
         NotePageStrip(y, listHeight, remaining);
-        visible = std::max(1u, visible);
-        cardH = listHeight / static_cast<float>(visible);
-        const float namePx = TypeFromRow(cardH * 0.42f, panel.rowPx, 32.0f);
-        const float detailPx = TypeFromRow(cardH * 0.28f, panel.labelPx, 24.0f);
-        const float trackH = std::clamp(cardH * 0.12f, 4.0f, 8.0f);
+        visible                   = std::max(1u, visible);
+        cardH                     = listHeight / static_cast<float>(visible);
+        const float namePx        = TypeFromRow(cardH * 0.42f, panel.rowPx, 32.0f);
+        const float detailPx      = TypeFromRow(cardH * 0.28f, panel.labelPx, 24.0f);
+        const float trackH        = std::clamp(cardH * 0.12f, 4.0f, 8.0f);
         const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
         for (uint32_t index = 0; index < slice.count; ++index)
         {
             const RankedRow& row = sample.rows[slice.start + index];
-            const float cardY = y + static_cast<float>(index) * cardH;
-            (void)AppendClippedText(resources, list, panel.pad, cardY + 4.0f, namePx, panel.innerW, kTextR, kTextG,
-                                    kTextB, 1.0f, row.name.data(), row.nameCharacters);
+            const float cardY    = y + static_cast<float>(index) * cardH;
+            (void)AppendClippedText(
+                resources, list, panel.pad, cardY + 4.0f, namePx, panel.innerW, kTextR, kTextG, kTextB, 1.0f, row.name.data(), row.nameCharacters);
             wchar_t temp[16]{};
             FormatCelsius(temp, 16, row.displayPrimary, row.primaryAvailable);
             wchar_t memory[32]{};
@@ -3716,14 +3916,12 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             float ib = kMuted;
             IntentThermalTextColor(row.displayPrimary, row.primaryAvailable, ir, ig, ib);
             const float tempWidth = resources.MeasureText(temp, static_cast<uint32_t>(wcsnlen(temp, 16)), detailPx);
-            (void)resources.AppendText(list, panel.pad, cardY + 8.0f + namePx, detailPx, ir, ig, ib, 1.0f, temp,
-                                       static_cast<uint32_t>(wcsnlen(temp, 16)));
+            (void)resources.AppendText(list, panel.pad, cardY + 8.0f + namePx, detailPx, ir, ig, ib, 1.0f, temp, static_cast<uint32_t>(wcsnlen(temp, 16)));
             wchar_t rest[40]{};
             (void)swprintf_s(rest, 40, L" · %s", memory);
-            (void)resources.AppendText(list, panel.pad + tempWidth, cardY + 8.0f + namePx, detailPx, kMuted, kMuted,
-                                       kMuted, 1.0f, rest, static_cast<uint32_t>(wcsnlen(rest, 40)));
-            DrawThermalLevel(list, panel.pad, cardY + cardH - trackH - 4.0f, panel.innerW, trackH, row.displayPrimary,
-                             row.primaryAvailable);
+            (void)resources.AppendText(
+                list, panel.pad + tempWidth, cardY + 8.0f + namePx, detailPx, kMuted, kMuted, kMuted, 1.0f, rest, static_cast<uint32_t>(wcsnlen(rest, 40)));
+            DrawThermalLevel(list, panel.pad, cardY + cardH - trackH - 4.0f, panel.innerW, trackH, row.displayPrimary, row.primaryAvailable);
         }
         // Adapters that are not graphics devices are on no page; their count keeps the caption.
         DrawOverflow(resources, list, panel, height, panel.labelPx, sample.hiddenCount);
@@ -3731,25 +3929,24 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         return S_OK;
     }
 
-    [[nodiscard]] HRESULT DrawPower(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
-                                    const PanelMetrics& panel, float width, float height) noexcept
+    [[nodiscard]] HRESULT DrawPower(
+        ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample, const PanelMetrics& panel, float width, float height) noexcept
     {
-        const float y = panel.contentTop;
+        const float y      = panel.contentTop;
         const float innerH = std::max(0.0f, height - panel.pad - y);
-        if (!sample.batteryPresent && sample.batteryCount == 0)
+        if (! sample.batteryPresent && sample.batteryCount == 0)
         {
-            const float hero = ClampOrdered(innerH * 0.42f, 44.0f, 88.0f);
-            const float sub = panel.density == ViewerDensity::Hero ? 0.0f : panel.labelPx + 8.0f;
+            const float hero   = ClampOrdered(innerH * 0.42f, 44.0f, 88.0f);
+            const float sub    = panel.density == ViewerDensity::Hero ? 0.0f : panel.labelPx + 8.0f;
             const float blockH = hero + sub;
             const float blockY = y + std::max(0.0f, (innerH - blockH) * 0.5f);
-            const float acW = resources.MeasureText(L"AC", 2, hero);
-            (void)resources.AppendText(list, panel.pad + (panel.innerW - acW) * 0.5f, blockY, hero, kTextR, kTextG,
-                                       kTextB, 1.0f, L"AC", 2);
+            const float acW    = resources.MeasureText(L"AC", 2, hero);
+            (void)resources.AppendText(list, panel.pad + (panel.innerW - acW) * 0.5f, blockY, hero, kTextR, kTextG, kTextB, 1.0f, L"AC", 2);
             if (sub > 0.0f)
             {
                 const float nbW = resources.MeasureText(L"no battery", 10, panel.labelPx);
-                (void)resources.AppendText(list, panel.pad + (panel.innerW - nbW) * 0.5f, blockY + hero + 4.0f,
-                                           panel.labelPx, kMuted, kMuted, kMuted, 1.0f, L"no battery", 10);
+                (void)resources.AppendText(
+                    list, panel.pad + (panel.innerW - nbW) * 0.5f, blockY + hero + 4.0f, panel.labelPx, kMuted, kMuted, kMuted, 1.0f, L"no battery", 10);
             }
             return S_OK;
         }
@@ -3758,73 +3955,75 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             wchar_t value[16]{};
             FormatPercent(value, 16, sample.display[0], sample.available[0]);
             const float hero = std::min(panel.heroPx, innerH * 0.55f);
-            float ir = kTextR;
-            float ig = kTextG;
-            float ib = kTextB;
-            IntentTextColor(1.0f - std::clamp(sample.display[0], 0.0f, 100.0f) / 100.0f, sample.available[0], ir, ig,
-                            ib);
-            (void)resources.AppendText(list, panel.pad, y, hero, ir, ig, ib, 1.0f, value,
-                                       static_cast<uint32_t>(wcsnlen(value, 16)));
+            float ir         = kTextR;
+            float ig         = kTextG;
+            float ib         = kTextB;
+            IntentTextColor(1.0f - std::clamp(sample.display[0], 0.0f, 100.0f) / 100.0f, sample.available[0], ir, ig, ib);
+            (void)resources.AppendText(list, panel.pad, y, hero, ir, ig, ib, 1.0f, value, static_cast<uint32_t>(wcsnlen(value, 16)));
             const wchar_t* status = sample.charging ? L"Charging" : (sample.acOnline ? L"AC" : L"Battery");
-            return resources.AppendText(list, panel.pad, y + hero + 4.0f, panel.labelPx, kMuted, kMuted, kMuted, 1.0f,
-                                        status, static_cast<uint32_t>(wcsnlen(status, 16)));
+            return resources.AppendText(
+                list, panel.pad, y + hero + 4.0f, panel.labelPx, kMuted, kMuted, kMuted, 1.0f, status, static_cast<uint32_t>(wcsnlen(status, 16)));
         }
         const float statusH = panel.labelPx + 10.0f;
-        const float size = std::min(panel.innerW, std::max(48.0f, innerH - statusH));
-        const float blockH = size + statusH;
-        const float blockY = y + std::max(0.0f, (innerH - blockH) * 0.5f);
-        const float x = panel.pad + (panel.innerW - size) * 0.5f;
+        const float size    = std::min(panel.innerW, std::max(48.0f, innerH - statusH));
+        const float blockH  = size + statusH;
+        const float blockY  = y + std::max(0.0f, (innerH - blockH) * 0.5f);
+        const float x       = panel.pad + (panel.innerW - size) * 0.5f;
         (void)list.AddRing(x, blockY, size, size, kTrackR, kTrackG, kTrackB, 1.0f, size * 0.36f);
         const float charge = std::clamp(sample.display[0], 0.0f, 100.0f);
-        float red = kFillR;
-        float green = kFillG;
-        float blue = kFillB;
+        float red          = kFillR;
+        float green        = kFillG;
+        float blue         = kFillB;
         IntentTextColor(1.0f - charge / 100.0f, sample.available[0], red, green, blue);
-        (void)list.AddRing(x, blockY, size, size, red, green, blue, sample.available[0] ? 0.95f : 0.25f,
-                           size * (0.36f + (1.0f - charge / 100.0f) * 0.12f));
+        (void)list.AddRing(x, blockY, size, size, red, green, blue, sample.available[0] ? 0.95f : 0.25f, size * (0.36f + (1.0f - charge / 100.0f) * 0.12f));
         wchar_t value[16]{};
         FormatPercent(value, 16, charge, sample.available[0]);
-        const float kpi = ClampOrdered(size * 0.22f, panel.kpiPx, panel.heroPx);
+        const float kpi   = ClampOrdered(size * 0.22f, panel.kpiPx, panel.heroPx);
         const float textW = resources.MeasureText(value, static_cast<uint32_t>(wcsnlen(value, 16)), kpi);
-        (void)resources.AppendText(list, x + (size - textW) * 0.5f, blockY + size * 0.38f, kpi, red, green, blue, 1.0f,
-                                   value, static_cast<uint32_t>(wcsnlen(value, 16)));
+        (void)resources.AppendText(
+            list, x + (size - textW) * 0.5f, blockY + size * 0.38f, kpi, red, green, blue, 1.0f, value, static_cast<uint32_t>(wcsnlen(value, 16)));
         const wchar_t* status = sample.charging ? L"Charging" : (sample.acOnline ? L"AC" : L"Battery");
-        const float statusW = resources.MeasureText(status, static_cast<uint32_t>(wcsnlen(status, 16)), panel.labelPx);
-        return resources.AppendText(list, panel.pad + (panel.innerW - statusW) * 0.5f, blockY + size + 6.0f,
-                                    panel.labelPx, kMuted, kMuted, kMuted, 1.0f, status,
+        const float statusW   = resources.MeasureText(status, static_cast<uint32_t>(wcsnlen(status, 16)), panel.labelPx);
+        return resources.AppendText(list,
+                                    panel.pad + (panel.innerW - statusW) * 0.5f,
+                                    blockY + size + 6.0f,
+                                    panel.labelPx,
+                                    kMuted,
+                                    kMuted,
+                                    kMuted,
+                                    1.0f,
+                                    status,
                                     static_cast<uint32_t>(wcsnlen(status, 16)));
     }
 
-    [[nodiscard]] HRESULT DrawThermal(ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample,
-                                      const PanelMetrics& panel, float width, float height) noexcept
+    [[nodiscard]] HRESULT DrawThermal(
+        ViewerGpuResources& resources, ViewerDrawList& list, const ViewerSample& sample, const PanelMetrics& panel, float width, float height) noexcept
     {
         float y = panel.contentTop;
         if (sample.rowCount == 0)
         {
             return resources.AppendText(list, panel.pad, y, panel.kpiPx, kMuted, kMuted, kMuted, 1.0f, L"--", 2);
         }
-        const float fanReserve = sample.available[7] && panel.density == ViewerDensity::Standard ? panel.rowMin : 0.0f;
-        const float remaining = std::max(0.0f, height - panel.pad - y - fanReserve);
+        const float fanReserve   = sample.available[7] && panel.density == ViewerDensity::Standard ? panel.rowMin : 0.0f;
+        const float remaining    = std::max(0.0f, height - panel.pad - y - fanReserve);
         const uint32_t available = panel.density == ViewerDensity::Hero ? 1u : sample.rowCount;
-        uint32_t columns = 1;
-        uint32_t visible = 0;
-        uint32_t rows = 0;
-        float cardH = 0.0f;
-        float listHeight = 0.0f;
-        float cardW = 0.0f;
-        FitGridLayout(remaining, panel.innerW, 84.0f, panel.pageStripPx, 168.0f, available, columns, visible, rows,
-                      cardH, listHeight, cardW);
+        uint32_t columns         = 1;
+        uint32_t visible         = 0;
+        uint32_t rows            = 0;
+        float cardH              = 0.0f;
+        float listHeight         = 0.0f;
+        float cardW              = 0.0f;
+        FitGridLayout(remaining, panel.innerW, 84.0f, panel.pageStripPx, 168.0f, available, columns, visible, rows, cardH, listHeight, cardW);
         visible = std::min(visible, sample.rowCount);
         NotePageStrip(y, listHeight, remaining);
         const OverflowSlice slice = BindOverflow(sample.rowCount, visible);
         for (uint32_t index = 0; index < slice.count; ++index)
         {
             const RankedRow& row = sample.rows[slice.start + index];
-            float cellX = 0.0f;
-            float cellY = 0.0f;
-            CellOrigin(panel.pad, y, index, columns, cardW, cardH,
-                       slice.start == 0 ? row.displayY : static_cast<float>(index), columns == 1, cellX, cellY);
-            const float pad = 8.0f;
+            float cellX          = 0.0f;
+            float cellY          = 0.0f;
+            CellOrigin(panel.pad, y, index, columns, cardW, cardH, slice.start == 0 ? row.displayY : static_cast<float>(index), columns == 1, cellX, cellY);
+            const float pad    = 8.0f;
             const float trackH = ClampOrdered(cardH * 0.14f, 8.0f, 12.0f);
             const float trackY = cellY + cardH - pad - trackH;
             const float tempPx = TypeFromRow(cardH * 0.36f, panel.kpiPx, 40.0f);
@@ -3837,21 +4036,19 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
             IntentThermalTextColor(row.displayPrimary, row.primaryAvailable, ir, ig, ib);
             wchar_t temp[16]{};
             FormatCelsius(temp, 16, row.displayPrimary, row.primaryAvailable);
-            const wchar_t* band = ThermalBandText(row.displayPrimary, row.primaryAvailable);
+            const wchar_t* band   = ThermalBandText(row.displayPrimary, row.primaryAvailable);
             const float bandWidth = resources.MeasureText(band, static_cast<uint32_t>(wcsnlen(band, 8)), bandPx);
-            const float tempY = cellY + pad;
-            (void)resources.AppendText(list, cellX + pad, tempY, tempPx, ir, ig, ib, 1.0f, temp,
-                                       static_cast<uint32_t>(wcsnlen(temp, 16)));
-            (void)resources.AppendText(list, cellX + cardW - bandWidth - pad, tempY + 2.0f, bandPx, ir, ig, ib, 1.0f,
-                                       band, static_cast<uint32_t>(wcsnlen(band, 8)));
+            const float tempY     = cellY + pad;
+            (void)resources.AppendText(list, cellX + pad, tempY, tempPx, ir, ig, ib, 1.0f, temp, static_cast<uint32_t>(wcsnlen(temp, 16)));
+            (void)resources.AppendText(
+                list, cellX + cardW - bandWidth - pad, tempY + 2.0f, bandPx, ir, ig, ib, 1.0f, band, static_cast<uint32_t>(wcsnlen(band, 8)));
             const float nameY = tempY + tempPx + 4.0f;
             if (nameY + namePx <= trackY - 4.0f)
             {
-                (void)AppendClippedText(resources, list, cellX + pad, nameY, namePx, cardW - pad * 2.0f, kMuted, kMuted,
-                                        kMuted, 1.0f, row.name.data(), row.nameCharacters);
+                (void)AppendClippedText(
+                    resources, list, cellX + pad, nameY, namePx, cardW - pad * 2.0f, kMuted, kMuted, kMuted, 1.0f, row.name.data(), row.nameCharacters);
             }
-            DrawThermalLevel(list, cellX + pad, trackY, cardW - pad * 2.0f, trackH, row.displayPrimary,
-                             row.primaryAvailable);
+            DrawThermalLevel(list, cellX + pad, trackY, cardW - pad * 2.0f, trackH, row.displayPrimary, row.primaryAvailable);
         }
         if (panel.density == ViewerDensity::Hero)
         {
@@ -3862,10 +4059,24 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
         {
             wchar_t fan[32]{};
             (void)swprintf_s(fan, 32, L"%llu RPM", static_cast<unsigned long long>(sample.counts[6]));
-            (void)resources.AppendText(list, panel.pad, height - panel.pad - panel.rowPx - 8.0f, panel.labelPx, kMuted,
-                                       kMuted, kMuted, 1.0f, fan, static_cast<uint32_t>(wcsnlen(fan, 32)));
-            DrawTrack(list, panel.pad, height - panel.pad - 6.0f, panel.innerW, 4.0f,
-                      std::clamp(sample.display[7], 0.0f, 100.0f) / 100.0f, sample.available[7], false,
+            (void)resources.AppendText(list,
+                                       panel.pad,
+                                       height - panel.pad - panel.rowPx - 8.0f,
+                                       panel.labelPx,
+                                       kMuted,
+                                       kMuted,
+                                       kMuted,
+                                       1.0f,
+                                       fan,
+                                       static_cast<uint32_t>(wcsnlen(fan, 32)));
+            DrawTrack(list,
+                      panel.pad,
+                      height - panel.pad - 6.0f,
+                      panel.innerW,
+                      4.0f,
+                      std::clamp(sample.display[7], 0.0f, 100.0f) / 100.0f,
+                      sample.available[7],
+                      false,
                       sample.display[7] / 100.0f);
         }
         (void)width;
@@ -3890,40 +4101,40 @@ class ViewerWidget final : public RedXeComObject<ViewerWidget, IRedXeWidget, IRe
     // UI-thread only: the page-control strip of the frame being built and the dots the last frame drew, which
     // OnPointer hit-tests so a tap lands on exactly what is on screen.
     bool _pageStripReserved = false;
-    float _pageStripTop = 0.0f;
-    uint32_t _lastHidden = 0;
+    float _pageStripTop     = 0.0f;
+    uint32_t _lastHidden    = 0;
     RedXePageIndicatorLayout _lastDots{};
-    float _pointerStartX = 0.0f;
-    float _pointerStartY = 0.0f;
-    bool _pointerDown = false;
-    bool _pagePan = false;
+    float _pointerStartX  = 0.0f;
+    float _pointerStartY  = 0.0f;
+    bool _pointerDown     = false;
+    bool _pagePan         = false;
     mutable SRWLOCK _lock = SRWLOCK_INIT;
     ViewerSample _sample{};
     ViewerSample _pendingSample{};
     std::array<NetIdleWatch, kMaximumRows> _netIdle{};
     uint32_t _netIdleCount = 0;
     std::array<PidNameEntry, kMaximumRows> _pidNames{};
-    uint32_t _pidNameCount = 0;
-    bool _easing = false;
-    bool _samplePending = false;
-    bool _pendingPulse = false;
+    uint32_t _pidNameCount   = 0;
+    bool _easing             = false;
+    bool _samplePending      = false;
+    bool _pendingPulse       = false;
     uint64_t _sampleRevision = 0;
-    bool _paintPending = false;
-    bool _paintReady = false;
-    bool _preparationFailed = false;
+    bool _paintPending       = false;
+    bool _paintReady         = false;
+    bool _preparationFailed  = false;
     uint64_t _failedRevision = 0;
     std::array<uint32_t, 5> _failedPreparationExtents{};
     bool _pulsePending = false;
     // UI-thread state read by GetNextFrameDelayMilliseconds without a worker lock or host call.
-    bool _animationScheduled = false;
-    bool _snapNextFrame = true;
-    uint32_t _animationWidth = 0;
+    bool _animationScheduled  = false;
+    bool _snapNextFrame       = true;
+    uint32_t _animationWidth  = 0;
     uint32_t _animationHeight = 0;
     ViewerMotionTarget _easeTarget{};
     ViewerMotionPose _easeFrom{};
-    float _easeStartSeconds = 0.0f;
+    float _easeStartSeconds  = 0.0f;
     float _pulseStartSeconds = 0.0f;
-    float _pulse = 0.0f;
+    float _pulse             = 0.0f;
 };
 #pragma warning(pop)
 
@@ -3938,14 +4149,22 @@ HRESULT ViewerSink::OnDataSnapshot(const RedXeDataSnapshot* snapshot) noexcept
 #pragma warning(disable : 4625 4626)
 class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetProvider>
 {
-  public:
-    ViewerProvider(wil::com_ptr_nothrow<IRedXeDataProvider>&& dataProvider, ViewerKind kind, uint32_t topN,
-                   bool hideIdle, ViewerPanelColor panelColor, IRedXeHost* host) noexcept
-        : _dataProvider(std::move(dataProvider)), _kind(kind), _topN(topN), _hideIdle(hideIdle),
-          _panelColor(panelColor), _host(host)
+public:
+    ViewerProvider(wil::com_ptr_nothrow<IRedXeDataProvider>&& dataProvider,
+                   ViewerKind kind,
+                   uint32_t topN,
+                   bool hideIdle,
+                   ViewerPanelColor panelColor,
+                   IRedXeHost* host) noexcept
+        : _dataProvider(std::move(dataProvider)),
+          _kind(kind),
+          _topN(topN),
+          _hideIdle(hideIdle),
+          _panelColor(panelColor),
+          _host(host)
     {
         const ViewerCatalogEntry& entry = Catalog(kind);
-        _types[0] = RedXeWidgetTypeDescriptor{
+        _types[0]                       = RedXeWidgetTypeDescriptor{
             sizeof(RedXeWidgetTypeDescriptor),
             entry.typeId,
             entry.typeName,
@@ -3964,8 +4183,7 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
         g_liveProviderCount.fetch_sub(1, std::memory_order_relaxed);
     }
 
-    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             uint32_t* count) noexcept override
+    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -3975,31 +4193,30 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
         {
             *count = 0;
         }
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
         {
             return E_POINTER;
         }
         *descriptors = _types.data();
-        *count = 1;
+        *count       = 1;
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
-                                           IRedXeWidget** widget) noexcept override
+    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId, IRedXeWidget** widget) noexcept override
     {
         if (widget)
         {
             *widget = nullptr;
         }
-        if (!widget)
+        if (! widget)
         {
             return E_POINTER;
         }
-        if (!typeId || !instanceId || instanceId[0] == '\0')
+        if (! typeId || ! instanceId || instanceId[0] == '\0')
         {
             return E_INVALIDARG;
         }
-        if (!RedXeAsciiEqualsIgnoreCase(typeId, Catalog(_kind).typeId))
+        if (! RedXeAsciiEqualsIgnoreCase(typeId, Catalog(_kind).typeId))
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
@@ -4009,9 +4226,8 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
         {
             return result;
         }
-        auto* created =
-            new (std::nothrow) ViewerWidget(std::move(providerOwner), _kind, _topN, _hideIdle, _panelColor, _host);
-        if (!created)
+        auto* created = new (std::nothrow) ViewerWidget(std::move(providerOwner), _kind, _topN, _hideIdle, _panelColor, _host);
+        if (! created)
         {
             return E_OUTOFMEMORY;
         }
@@ -4025,7 +4241,7 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
         return S_OK;
     }
 
-  private:
+private:
     wil::com_ptr_nothrow<IRedXeDataProvider> _dataProvider;
     ViewerKind _kind;
     uint32_t _topN;
@@ -4036,10 +4252,9 @@ class ViewerProvider final : public RedXeComObject<ViewerProvider, IRedXeWidgetP
 };
 #pragma warning(pop)
 
-HRESULT CreateViewerProviderFor(ViewerKind kind, REFIID interfaceId, const RedXeFactoryOptions* options,
-                                IRedXeHost* host, void** result) noexcept
+HRESULT CreateViewerProviderFor(ViewerKind kind, REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, void** result) noexcept
 {
-    if (!result)
+    if (! result)
     {
         return E_POINTER;
     }
@@ -4048,22 +4263,21 @@ HRESULT CreateViewerProviderFor(ViewerKind kind, REFIID interfaceId, const RedXe
     {
         return E_NOINTERFACE;
     }
-    if (!host)
+    if (! host)
     {
         return E_POINTER;
     }
     const ViewerCatalogEntry& entry = Catalog(kind);
-    uint32_t topN = entry.topNDefault;
-    bool hideIdle = false;
-    HRESULT configurationResult = S_OK;
+    uint32_t topN                   = entry.topNDefault;
+    bool hideIdle                   = false;
+    HRESULT configurationResult     = S_OK;
     if (entry.topNMax == 0)
     {
         configurationResult = RedXeValidateEmptyNormalizedConfiguration(options);
     }
     else
     {
-        configurationResult = ReadRankedOptions(options, entry.topNMax, entry.topNDefault,
-                                                kind == ViewerKind::ProcessViewer, topN, hideIdle);
+        configurationResult = ReadRankedOptions(options, entry.topNMax, entry.topNDefault, kind == ViewerKind::ProcessViewer, topN, hideIdle);
     }
     if (FAILED(configurationResult))
     {
@@ -4075,9 +4289,8 @@ HRESULT CreateViewerProviderFor(ViewerKind kind, REFIID interfaceId, const RedXe
     {
         return configurationResult;
     }
-    auto* provider = new (std::nothrow)
-        ViewerProvider(std::move(dataProvider), kind, topN, hideIdle, PanelColorFromOptions(options), host);
-    if (!provider)
+    auto* provider = new (std::nothrow) ViewerProvider(std::move(dataProvider), kind, topN, hideIdle, PanelColorFromOptions(options), host);
+    if (! provider)
     {
         return E_OUTOFMEMORY;
     }
@@ -4085,34 +4298,82 @@ HRESULT CreateViewerProviderFor(ViewerKind kind, REFIID interfaceId, const RedXe
     return S_OK;
 }
 
-template <ViewerKind Kind>
-HRESULT CreateViewerProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                             void** result) noexcept
+template <ViewerKind Kind> HRESULT CreateViewerProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, void** result) noexcept
 {
     return CreateViewerProviderFor(Kind, interfaceId, options, host, result);
 }
 
 constexpr std::array kMetadata{
-    RedXePluginMetadata{sizeof(RedXePluginMetadata), kCatalog[0].pluginId, kCatalog[0].pluginName,
-                        kCatalog[0].pluginDescription, L"RedXe", L"1.0.0", RedXePluginCapabilityWidgetProvider},
-    RedXePluginMetadata{sizeof(RedXePluginMetadata), kCatalog[1].pluginId, kCatalog[1].pluginName,
-                        kCatalog[1].pluginDescription, L"RedXe", L"1.0.0", RedXePluginCapabilityWidgetProvider},
-    RedXePluginMetadata{sizeof(RedXePluginMetadata), kCatalog[2].pluginId, kCatalog[2].pluginName,
-                        kCatalog[2].pluginDescription, L"RedXe", L"1.0.0", RedXePluginCapabilityWidgetProvider},
-    RedXePluginMetadata{sizeof(RedXePluginMetadata), kCatalog[3].pluginId, kCatalog[3].pluginName,
-                        kCatalog[3].pluginDescription, L"RedXe", L"1.0.0", RedXePluginCapabilityWidgetProvider},
-    RedXePluginMetadata{sizeof(RedXePluginMetadata), kCatalog[4].pluginId, kCatalog[4].pluginName,
-                        kCatalog[4].pluginDescription, L"RedXe", L"1.0.0", RedXePluginCapabilityWidgetProvider},
-    RedXePluginMetadata{sizeof(RedXePluginMetadata), kCatalog[5].pluginId, kCatalog[5].pluginName,
-                        kCatalog[5].pluginDescription, L"RedXe", L"1.0.0", RedXePluginCapabilityWidgetProvider},
-    RedXePluginMetadata{sizeof(RedXePluginMetadata), kCatalog[6].pluginId, kCatalog[6].pluginName,
-                        kCatalog[6].pluginDescription, L"RedXe", L"1.0.0", RedXePluginCapabilityWidgetProvider},
-    RedXePluginMetadata{sizeof(RedXePluginMetadata), kCatalog[7].pluginId, kCatalog[7].pluginName,
-                        kCatalog[7].pluginDescription, L"RedXe", L"1.0.0", RedXePluginCapabilityWidgetProvider},
-    RedXePluginMetadata{sizeof(RedXePluginMetadata), kCatalog[8].pluginId, kCatalog[8].pluginName,
-                        kCatalog[8].pluginDescription, L"RedXe", L"1.0.0", RedXePluginCapabilityWidgetProvider},
-    RedXePluginMetadata{sizeof(RedXePluginMetadata), kCatalog[9].pluginId, kCatalog[9].pluginName,
-                        kCatalog[9].pluginDescription, L"RedXe", L"1.0.0", RedXePluginCapabilityWidgetProvider},
+    RedXePluginMetadata{sizeof(RedXePluginMetadata),
+                        kCatalog[0].pluginId,
+                        kCatalog[0].pluginName,
+                        kCatalog[0].pluginDescription,
+                        L"RedXe",
+                        L"1.0.0",
+                        RedXePluginCapabilityWidgetProvider},
+    RedXePluginMetadata{sizeof(RedXePluginMetadata),
+                        kCatalog[1].pluginId,
+                        kCatalog[1].pluginName,
+                        kCatalog[1].pluginDescription,
+                        L"RedXe",
+                        L"1.0.0",
+                        RedXePluginCapabilityWidgetProvider},
+    RedXePluginMetadata{sizeof(RedXePluginMetadata),
+                        kCatalog[2].pluginId,
+                        kCatalog[2].pluginName,
+                        kCatalog[2].pluginDescription,
+                        L"RedXe",
+                        L"1.0.0",
+                        RedXePluginCapabilityWidgetProvider},
+    RedXePluginMetadata{sizeof(RedXePluginMetadata),
+                        kCatalog[3].pluginId,
+                        kCatalog[3].pluginName,
+                        kCatalog[3].pluginDescription,
+                        L"RedXe",
+                        L"1.0.0",
+                        RedXePluginCapabilityWidgetProvider},
+    RedXePluginMetadata{sizeof(RedXePluginMetadata),
+                        kCatalog[4].pluginId,
+                        kCatalog[4].pluginName,
+                        kCatalog[4].pluginDescription,
+                        L"RedXe",
+                        L"1.0.0",
+                        RedXePluginCapabilityWidgetProvider},
+    RedXePluginMetadata{sizeof(RedXePluginMetadata),
+                        kCatalog[5].pluginId,
+                        kCatalog[5].pluginName,
+                        kCatalog[5].pluginDescription,
+                        L"RedXe",
+                        L"1.0.0",
+                        RedXePluginCapabilityWidgetProvider},
+    RedXePluginMetadata{sizeof(RedXePluginMetadata),
+                        kCatalog[6].pluginId,
+                        kCatalog[6].pluginName,
+                        kCatalog[6].pluginDescription,
+                        L"RedXe",
+                        L"1.0.0",
+                        RedXePluginCapabilityWidgetProvider},
+    RedXePluginMetadata{sizeof(RedXePluginMetadata),
+                        kCatalog[7].pluginId,
+                        kCatalog[7].pluginName,
+                        kCatalog[7].pluginDescription,
+                        L"RedXe",
+                        L"1.0.0",
+                        RedXePluginCapabilityWidgetProvider},
+    RedXePluginMetadata{sizeof(RedXePluginMetadata),
+                        kCatalog[8].pluginId,
+                        kCatalog[8].pluginName,
+                        kCatalog[8].pluginDescription,
+                        L"RedXe",
+                        L"1.0.0",
+                        RedXePluginCapabilityWidgetProvider},
+    RedXePluginMetadata{sizeof(RedXePluginMetadata),
+                        kCatalog[9].pluginId,
+                        kCatalog[9].pluginName,
+                        kCatalog[9].pluginDescription,
+                        L"RedXe",
+                        L"1.0.0",
+                        RedXePluginCapabilityWidgetProvider},
 };
 
 constexpr std::array kFactoryEntries{
@@ -4142,11 +4403,9 @@ constexpr std::array kSettingsEntries{
 };
 } // namespace
 
-extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                                         const char* pluginId, void** result) noexcept
+extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
-                                         interfaceId, options, host, pluginId, result);
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()), interfaceId, options, host, pluginId, result);
 }
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
@@ -4154,11 +4413,9 @@ extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** m
     return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata, count);
 }
 
-extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,
-                                                            const RedXePluginSettingsContract** contract) noexcept
+extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId, const RedXePluginSettingsContract** contract) noexcept
 {
-    return RedXeGetPluginSettingsContractFromEntries(
-        kSettingsEntries.data(), static_cast<uint32_t>(kSettingsEntries.size()), pluginId, contract);
+    return RedXeGetPluginSettingsContractFromEntries(kSettingsEntries.data(), static_cast<uint32_t>(kSettingsEntries.size()), pluginId, contract);
 }
 
 extern "C" void __stdcall RedXeProcessViewerFailNextAtlasInitialization() noexcept
@@ -4173,7 +4430,7 @@ extern "C" void __stdcall RedXeProcessViewerFailNextGlyphPreparation() noexcept
 
 extern "C" HRESULT __stdcall RedXeProcessViewerGetTestDiagnostics(ProcessViewerTestDiagnostics* diagnostics) noexcept
 {
-    if (!diagnostics)
+    if (! diagnostics)
     {
         return E_POINTER;
     }
@@ -4181,27 +4438,27 @@ extern "C" HRESULT __stdcall RedXeProcessViewerGetTestDiagnostics(ProcessViewerT
     {
         return E_INVALIDARG;
     }
-    diagnostics->liveProviderCount = g_liveProviderCount.load(std::memory_order_relaxed);
-    diagnostics->liveWidgetCount = g_liveWidgetCount.load(std::memory_order_relaxed);
-    diagnostics->liveSubscriptionCount = g_liveSubscriptionCount.load(std::memory_order_relaxed);
-    diagnostics->sampleCount = g_sampleCount.load(std::memory_order_relaxed);
-    diagnostics->paintCount = g_paintCount.load(std::memory_order_relaxed);
-    diagnostics->lastPublishedRowCount = g_lastPublishedRowCount.load(std::memory_order_relaxed);
-    diagnostics->configuredTopN = g_configuredTopN.load(std::memory_order_relaxed);
+    diagnostics->liveProviderCount           = g_liveProviderCount.load(std::memory_order_relaxed);
+    diagnostics->liveWidgetCount             = g_liveWidgetCount.load(std::memory_order_relaxed);
+    diagnostics->liveSubscriptionCount       = g_liveSubscriptionCount.load(std::memory_order_relaxed);
+    diagnostics->sampleCount                 = g_sampleCount.load(std::memory_order_relaxed);
+    diagnostics->paintCount                  = g_paintCount.load(std::memory_order_relaxed);
+    diagnostics->lastPublishedRowCount       = g_lastPublishedRowCount.load(std::memory_order_relaxed);
+    diagnostics->configuredTopN              = g_configuredTopN.load(std::memory_order_relaxed);
     diagnostics->deviceCallbacksWhileVisible = g_deviceCallbacksWhileVisible.load(std::memory_order_relaxed);
-    diagnostics->pageCount = g_lastPageCount.load(std::memory_order_relaxed);
-    diagnostics->pageIndex = g_lastPageIndex.load(std::memory_order_relaxed);
-    diagnostics->pageDotFirstX = g_lastPageDotFirstX.load(std::memory_order_relaxed);
-    diagnostics->pageDotY = g_lastPageDotY.load(std::memory_order_relaxed);
-    diagnostics->pageDotGap = g_lastPageDotGap.load(std::memory_order_relaxed);
-    diagnostics->cpuAtlasBytes = ViewerGpuCpuAtlasBytes();
-    diagnostics->liveGpuResourceSets = ViewerGpuResourceSetCount();
-    diagnostics->glyphUploadCells = ViewerGpuUploadCellCount();
-    diagnostics->glyphUploadBytes = ViewerGpuUploadBytes();
-    diagnostics->fontSessions = ViewerGpuFontSessionCount();
-    diagnostics->pendingSampleBytes = sizeof(ViewerSample);
-    diagnostics->preparations = g_preparationCount.load(std::memory_order_relaxed);
-    diagnostics->livePreparationFonts = ViewerGpuLivePreparationFonts();
-    diagnostics->preparationFailures = g_preparationFailureCount.load(std::memory_order_relaxed);
+    diagnostics->pageCount                   = g_lastPageCount.load(std::memory_order_relaxed);
+    diagnostics->pageIndex                   = g_lastPageIndex.load(std::memory_order_relaxed);
+    diagnostics->pageDotFirstX               = g_lastPageDotFirstX.load(std::memory_order_relaxed);
+    diagnostics->pageDotY                    = g_lastPageDotY.load(std::memory_order_relaxed);
+    diagnostics->pageDotGap                  = g_lastPageDotGap.load(std::memory_order_relaxed);
+    diagnostics->cpuAtlasBytes               = ViewerGpuCpuAtlasBytes();
+    diagnostics->liveGpuResourceSets         = ViewerGpuResourceSetCount();
+    diagnostics->glyphUploadCells            = ViewerGpuUploadCellCount();
+    diagnostics->glyphUploadBytes            = ViewerGpuUploadBytes();
+    diagnostics->fontSessions                = ViewerGpuFontSessionCount();
+    diagnostics->pendingSampleBytes          = sizeof(ViewerSample);
+    diagnostics->preparations                = g_preparationCount.load(std::memory_order_relaxed);
+    diagnostics->livePreparationFonts        = ViewerGpuLivePreparationFonts();
+    diagnostics->preparationFailures         = g_preparationFailureCount.load(std::memory_order_relaxed);
     return S_OK;
 }

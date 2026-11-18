@@ -17,15 +17,14 @@
 
 namespace
 {
-constexpr float kGlyphEmSize = 40.0f;
-constexpr uint32_t kStaticGlyphFirst = 32;
-constexpr uint32_t kStaticGlyphLast = 126;
-constexpr uint32_t kStaticGlyphCount = kStaticGlyphLast - kStaticGlyphFirst + 1;
-constexpr wchar_t kStaticExtraGlyphs[] = {0x00B0};
-constexpr uint32_t kStaticExtraCount =
-    static_cast<uint32_t>(sizeof(kStaticExtraGlyphs) / sizeof(kStaticExtraGlyphs[0]));
+constexpr float kGlyphEmSize            = 40.0f;
+constexpr uint32_t kStaticGlyphFirst    = 32;
+constexpr uint32_t kStaticGlyphLast     = 126;
+constexpr uint32_t kStaticGlyphCount    = kStaticGlyphLast - kStaticGlyphFirst + 1;
+constexpr wchar_t kStaticExtraGlyphs[]  = {0x00B0};
+constexpr uint32_t kStaticExtraCount    = static_cast<uint32_t>(sizeof(kStaticExtraGlyphs) / sizeof(kStaticExtraGlyphs[0]));
 constexpr uint32_t kStaticReservedCount = kStaticGlyphCount + kStaticExtraCount;
-constexpr uint32_t kMissingGlyph = 0xFFFFFFFFu;
+constexpr uint32_t kMissingGlyph        = 0xFFFFFFFFu;
 
 SRWLOCK g_gpuLock = SRWLOCK_INIT;
 ViewerGpuResources g_resources;
@@ -41,8 +40,7 @@ std::atomic<uint32_t> g_fontSessionCount{0};
 std::atomic<uint32_t> g_livePreparationFonts{0};
 std::atomic<bool> g_failNextGlyphPreparationForTest{false};
 
-[[nodiscard]] HRESULT CreateViewerFontFace(IDWriteFactory& factory,
-                                           wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
+[[nodiscard]] HRESULT CreateViewerFontFace(IDWriteFactory& factory, wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept
 {
     face.reset();
     wil::com_ptr_nothrow<IDWriteFontCollection> collection;
@@ -55,9 +53,9 @@ std::atomic<bool> g_failNextGlyphPreparationForTest{false};
     for (const wchar_t* familyName : families)
     {
         UINT32 familyIndex = 0;
-        BOOL exists = FALSE;
-        result = collection->FindFamilyName(familyName, &familyIndex, &exists);
-        if (FAILED(result) || !exists)
+        BOOL exists        = FALSE;
+        result             = collection->FindFamilyName(familyName, &familyIndex, &exists);
+        if (FAILED(result) || ! exists)
         {
             continue;
         }
@@ -68,8 +66,7 @@ std::atomic<bool> g_failNextGlyphPreparationForTest{false};
             return result;
         }
         wil::com_ptr_nothrow<IDWriteFont> font;
-        result = family->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STRETCH_CONDENSED,
-                                              DWRITE_FONT_STYLE_NORMAL, font.put());
+        result = family->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STRETCH_CONDENSED, DWRITE_FONT_STYLE_NORMAL, font.put());
         if (FAILED(result))
         {
             continue;
@@ -98,7 +95,7 @@ struct DirectWriteSession final
 [[nodiscard]] HRESULT OpenDirectWrite(DirectWriteSession& session) noexcept
 {
     session.module.reset(LoadLibraryExW(L"dwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32));
-    if (!session.module)
+    if (! session.module)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -108,12 +105,11 @@ struct DirectWriteSession final
 // Owner: RedXe maintainers; review: 2027-01-31.
 #pragma warning(suppress : 4191)
         reinterpret_cast<DWriteCreateFactoryFn>(GetProcAddress(session.module.get(), "DWriteCreateFactory"));
-    if (!createFactory)
+    if (! createFactory)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
-    HRESULT result = createFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory),
-                                   reinterpret_cast<IUnknown**>(session.factory.put()));
+    HRESULT result = createFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(session.factory.put()));
     if (FAILED(result))
     {
         return result;
@@ -124,13 +120,12 @@ struct DirectWriteSession final
     return result;
 }
 
-[[nodiscard]] HRESULT RasterizeIntoAtlas(IDWriteFactory& factory, IDWriteFontFace& face, wchar_t character,
-                                         uint32_t atlasX, uint32_t atlasY, uint8_t* atlasPixels,
-                                         float& advance) noexcept
+[[nodiscard]] HRESULT RasterizeIntoAtlas(
+    IDWriteFactory& factory, IDWriteFontFace& face, wchar_t character, uint32_t atlasX, uint32_t atlasY, uint8_t* atlasPixels, float& advance) noexcept
 {
     const UINT32 codePoint = static_cast<UINT32>(character);
-    UINT16 glyphIndex = 0;
-    HRESULT result = face.GetGlyphIndices(&codePoint, 1, &glyphIndex);
+    UINT16 glyphIndex      = 0;
+    HRESULT result         = face.GetGlyphIndices(&codePoint, 1, &glyphIndex);
     if (FAILED(result))
     {
         return result;
@@ -152,17 +147,17 @@ struct DirectWriteSession final
     {
         return E_UNEXPECTED;
     }
-    const float designScale = kGlyphEmSize / static_cast<float>(fontMetrics.designUnitsPerEm);
+    const float designScale  = kGlyphEmSize / static_cast<float>(fontMetrics.designUnitsPerEm);
     const float pixelAdvance = static_cast<float>(glyphMetrics.advanceWidth) * designScale;
-    advance = pixelAdvance / static_cast<float>(kViewerGlyphCell);
-    const float baselineX = 4.0f - static_cast<float>(glyphMetrics.leftSideBearing) * designScale;
-    const float capHeight = static_cast<float>(fontMetrics.capHeight) * designScale;
-    const float descent = static_cast<float>(fontMetrics.descent) * designScale;
-    const float baselineY = (static_cast<float>(kViewerGlyphCell) - capHeight - descent) * 0.5f + capHeight;
+    advance                  = pixelAdvance / static_cast<float>(kViewerGlyphCell);
+    const float baselineX    = 4.0f - static_cast<float>(glyphMetrics.leftSideBearing) * designScale;
+    const float capHeight    = static_cast<float>(fontMetrics.capHeight) * designScale;
+    const float descent      = static_cast<float>(fontMetrics.descent) * designScale;
+    const float baselineY    = (static_cast<float>(kViewerGlyphCell) - capHeight - descent) * 0.5f + capHeight;
     const DWRITE_GLYPH_RUN run{&face, kGlyphEmSize, 1, &glyphIndex, &pixelAdvance, nullptr, FALSE, 0};
     wil::com_ptr_nothrow<IDWriteGlyphRunAnalysis> analysis;
-    result = factory.CreateGlyphRunAnalysis(&run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
-                                            DWRITE_MEASURING_MODE_NATURAL, baselineX, baselineY, analysis.put());
+    result = factory.CreateGlyphRunAnalysis(
+        &run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC, DWRITE_MEASURING_MODE_NATURAL, baselineX, baselineY, analysis.put());
     if (FAILED(result))
     {
         return result;
@@ -173,19 +168,19 @@ struct DirectWriteSession final
     {
         return result;
     }
-    bounds.left = std::max(bounds.left, 0L);
-    bounds.top = std::max(bounds.top, 0L);
-    bounds.right = std::min(bounds.right, static_cast<LONG>(kViewerGlyphCell));
+    bounds.left   = std::max(bounds.left, 0L);
+    bounds.top    = std::max(bounds.top, 0L);
+    bounds.right  = std::min(bounds.right, static_cast<LONG>(kViewerGlyphCell));
     bounds.bottom = std::min(bounds.bottom, static_cast<LONG>(kViewerGlyphCell));
     if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
     {
         return S_OK;
     }
-    const uint32_t width = static_cast<uint32_t>(bounds.right - bounds.left);
+    const uint32_t width  = static_cast<uint32_t>(bounds.right - bounds.left);
     const uint32_t height = static_cast<uint32_t>(bounds.bottom - bounds.top);
     std::array<uint8_t, kViewerGlyphCell * kViewerGlyphCell * 3> scratch{};
     const uint32_t required = width * height * 3U;
-    result = analysis->CreateAlphaTexture(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds, scratch.data(), required);
+    result                  = analysis->CreateAlphaTexture(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds, scratch.data(), required);
     if (FAILED(result))
     {
         return result;
@@ -194,12 +189,10 @@ struct DirectWriteSession final
     {
         for (uint32_t x = 0; x < width; ++x)
         {
-            const size_t source = (static_cast<size_t>(y) * width + x) * 3U;
-            const uint32_t coverage =
-                static_cast<uint32_t>(scratch[source]) + scratch[source + 1U] + scratch[source + 2U];
+            const size_t source     = (static_cast<size_t>(y) * width + x) * 3U;
+            const uint32_t coverage = static_cast<uint32_t>(scratch[source]) + scratch[source + 1U] + scratch[source + 2U];
             const size_t destination =
-                static_cast<size_t>(atlasY + static_cast<uint32_t>(bounds.top) + y) * kViewerAtlasSize + atlasX +
-                static_cast<uint32_t>(bounds.left) + x;
+                static_cast<size_t>(atlasY + static_cast<uint32_t>(bounds.top) + y) * kViewerAtlasSize + atlasX + static_cast<uint32_t>(bounds.left) + x;
             atlasPixels[destination] = static_cast<uint8_t>((coverage + 1U) / 3U);
         }
     }
@@ -214,7 +207,7 @@ ViewerGpuResources::~ViewerGpuResources()
 
 HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
 {
-    if (!device)
+    if (! device)
     {
         return E_POINTER;
     }
@@ -223,13 +216,12 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
         return S_OK;
     }
 
-    const auto cleanup = wil::scope_exit(
-        [this]() noexcept
-        {
-            if (!_instanceBuffer)
-                Reset();
-        });
-    HRESULT result = BuildStaticAtlas();
+    const auto cleanup = wil::scope_exit([this]() noexcept
+    {
+        if (! _instanceBuffer)
+            Reset();
+    });
+    HRESULT result     = BuildStaticAtlas();
     if (FAILED(result))
     {
         return result;
@@ -240,8 +232,7 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
         return E_OUTOFMEMORY;
 
     wil::com_ptr_nothrow<ID3D11VertexShader> vertexShader;
-    result =
-        device->CreateVertexShader(g_ViewerVertexShader, sizeof(g_ViewerVertexShader), nullptr, vertexShader.put());
+    result = device->CreateVertexShader(g_ViewerVertexShader, sizeof(g_ViewerVertexShader), nullptr, vertexShader.put());
     if (FAILED(result))
     {
         return result;
@@ -260,17 +251,16 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
         {"TEXCOORD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1},
     };
     wil::com_ptr_nothrow<ID3D11InputLayout> inputLayout;
-    result =
-        device->CreateInputLayout(layout, 4, g_ViewerVertexShader, sizeof(g_ViewerVertexShader), inputLayout.put());
+    result = device->CreateInputLayout(layout, 4, g_ViewerVertexShader, sizeof(g_ViewerVertexShader), inputLayout.put());
     if (FAILED(result))
     {
         return result;
     }
 
     D3D11_BUFFER_DESC constantDescription{};
-    constantDescription.ByteWidth = sizeof(ViewerConstants);
-    constantDescription.Usage = D3D11_USAGE_DYNAMIC;
-    constantDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    constantDescription.ByteWidth      = sizeof(ViewerConstants);
+    constantDescription.Usage          = D3D11_USAGE_DYNAMIC;
+    constantDescription.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
     constantDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     wil::com_ptr_nothrow<ID3D11Buffer> constantBuffer;
     result = device->CreateBuffer(&constantDescription, nullptr, constantBuffer.put());
@@ -280,9 +270,9 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
     }
 
     D3D11_BUFFER_DESC instanceDescription{};
-    instanceDescription.ByteWidth = sizeof(ViewerQuadInstance) * kViewerMaximumQuads;
-    instanceDescription.Usage = D3D11_USAGE_DYNAMIC;
-    instanceDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    instanceDescription.ByteWidth      = sizeof(ViewerQuadInstance) * kViewerMaximumQuads;
+    instanceDescription.Usage          = D3D11_USAGE_DYNAMIC;
+    instanceDescription.BindFlags      = D3D11_BIND_VERTEX_BUFFER;
     instanceDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     wil::com_ptr_nothrow<ID3D11Buffer> instanceBuffer;
     result = device->CreateBuffer(&instanceDescription, nullptr, instanceBuffer.put());
@@ -292,16 +282,16 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
     }
 
     D3D11_TEXTURE2D_DESC atlasDescription{};
-    atlasDescription.Width = kViewerAtlasSize;
-    atlasDescription.Height = kViewerAtlasSize;
-    atlasDescription.MipLevels = 1;
-    atlasDescription.ArraySize = 1;
-    atlasDescription.Format = DXGI_FORMAT_R8_UNORM;
+    atlasDescription.Width            = kViewerAtlasSize;
+    atlasDescription.Height           = kViewerAtlasSize;
+    atlasDescription.MipLevels        = 1;
+    atlasDescription.ArraySize        = 1;
+    atlasDescription.Format           = DXGI_FORMAT_R8_UNORM;
     atlasDescription.SampleDesc.Count = 1;
-    atlasDescription.Usage = D3D11_USAGE_DEFAULT;
-    atlasDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    atlasDescription.Usage            = D3D11_USAGE_DEFAULT;
+    atlasDescription.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
     D3D11_SUBRESOURCE_DATA atlasData{};
-    atlasData.pSysMem = _atlasPixels.get();
+    atlasData.pSysMem     = _atlasPixels.get();
     atlasData.SysMemPitch = kViewerAtlasSize;
     wil::com_ptr_nothrow<ID3D11Texture2D> atlas;
     result = device->CreateTexture2D(&atlasDescription, &atlasData, atlas.put());
@@ -317,11 +307,11 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
     }
 
     D3D11_SAMPLER_DESC samplerDescription{};
-    samplerDescription.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+    samplerDescription.Filter   = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
     samplerDescription.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
     samplerDescription.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
     samplerDescription.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-    samplerDescription.MaxLOD = D3D11_FLOAT32_MAX;
+    samplerDescription.MaxLOD   = D3D11_FLOAT32_MAX;
     wil::com_ptr_nothrow<ID3D11SamplerState> sampler;
     result = device->CreateSamplerState(&samplerDescription, sampler.put());
     if (FAILED(result))
@@ -330,8 +320,8 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
     }
 
     D3D11_RASTERIZER_DESC rasterizerDescription{};
-    rasterizerDescription.FillMode = D3D11_FILL_SOLID;
-    rasterizerDescription.CullMode = D3D11_CULL_NONE;
+    rasterizerDescription.FillMode        = D3D11_FILL_SOLID;
+    rasterizerDescription.CullMode        = D3D11_CULL_NONE;
     rasterizerDescription.DepthClipEnable = TRUE;
     wil::com_ptr_nothrow<ID3D11RasterizerState> rasterizer;
     result = device->CreateRasterizerState(&rasterizerDescription, rasterizer.put());
@@ -341,9 +331,9 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
     }
 
     D3D11_DEPTH_STENCIL_DESC depthDescription{};
-    depthDescription.DepthEnable = FALSE;
+    depthDescription.DepthEnable    = FALSE;
     depthDescription.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-    depthDescription.DepthFunc = D3D11_COMPARISON_ALWAYS;
+    depthDescription.DepthFunc      = D3D11_COMPARISON_ALWAYS;
     wil::com_ptr_nothrow<ID3D11DepthStencilState> depthState;
     result = device->CreateDepthStencilState(&depthDescription, depthState.put());
     if (FAILED(result))
@@ -353,14 +343,14 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
 
     D3D11_BLEND_DESC blendDescription{};
     D3D11_RENDER_TARGET_BLEND_DESC& target = blendDescription.RenderTarget[0];
-    target.BlendEnable = TRUE;
-    target.SrcBlend = D3D11_BLEND_SRC_ALPHA;
-    target.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-    target.BlendOp = D3D11_BLEND_OP_ADD;
-    target.SrcBlendAlpha = D3D11_BLEND_ONE;
-    target.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
-    target.BlendOpAlpha = D3D11_BLEND_OP_ADD;
-    target.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    target.BlendEnable                     = TRUE;
+    target.SrcBlend                        = D3D11_BLEND_SRC_ALPHA;
+    target.DestBlend                       = D3D11_BLEND_INV_SRC_ALPHA;
+    target.BlendOp                         = D3D11_BLEND_OP_ADD;
+    target.SrcBlendAlpha                   = D3D11_BLEND_ONE;
+    target.DestBlendAlpha                  = D3D11_BLEND_INV_SRC_ALPHA;
+    target.BlendOpAlpha                    = D3D11_BLEND_OP_ADD;
+    target.RenderTargetWriteMask           = D3D11_COLOR_WRITE_ENABLE_ALL;
     wil::com_ptr_nothrow<ID3D11BlendState> blendState;
     result = device->CreateBlendState(&blendDescription, blendState.put());
     if (FAILED(result))
@@ -370,17 +360,17 @@ HRESULT ViewerGpuResources::Initialize(ID3D11Device* device) noexcept
 
     ResetGpuResources();
     _deviceIdentity = device;
-    _vertexShader = std::move(vertexShader);
-    _pixelShader = std::move(pixelShader);
-    _inputLayout = std::move(inputLayout);
+    _vertexShader   = std::move(vertexShader);
+    _pixelShader    = std::move(pixelShader);
+    _inputLayout    = std::move(inputLayout);
     _constantBuffer = std::move(constantBuffer);
     _instanceBuffer = std::move(instanceBuffer);
-    _atlas = std::move(atlas);
-    _atlasView = std::move(atlasView);
-    _sampler = std::move(sampler);
-    _rasterizer = std::move(rasterizer);
-    _depthState = std::move(depthState);
-    _blendState = std::move(blendState);
+    _atlas          = std::move(atlas);
+    _atlasView      = std::move(atlasView);
+    _sampler        = std::move(sampler);
+    _rasterizer     = std::move(rasterizer);
+    _depthState     = std::move(depthState);
+    _blendState     = std::move(blendState);
     _dirtyGlyphs.reset();
     g_liveResourceSets.fetch_add(1, std::memory_order_relaxed);
     return S_OK;
@@ -418,18 +408,17 @@ void ViewerGpuResources::ResetGpuResources() noexcept
 
 HRESULT ViewerGpuResources::BuildStaticAtlas() noexcept
 {
-    if (!_atlasPixels)
+    if (! _atlasPixels)
     {
-        _atlasPixels.reset(static_cast<uint8_t*>(
-            VirtualAlloc(nullptr, kViewerAtlasSize * kViewerAtlasSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
-        if (!_atlasPixels)
+        _atlasPixels.reset(static_cast<uint8_t*>(VirtualAlloc(nullptr, kViewerAtlasSize * kViewerAtlasSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
+        if (! _atlasPixels)
             return HRESULT_FROM_WIN32(GetLastError());
     }
     else
         std::memset(_atlasPixels.get(), 0, kViewerAtlasSize * kViewerAtlasSize);
     _glyphCharacters.fill(0);
     _glyphAdvances.fill(0.0f);
-    _glyphCount = 0;
+    _glyphCount    = 0;
     _dynamicCursor = kStaticReservedCount;
     DirectWriteSession session;
     HRESULT result = OpenDirectWrite(session);
@@ -439,34 +428,32 @@ HRESULT ViewerGpuResources::BuildStaticAtlas() noexcept
     }
     for (uint32_t character = kStaticGlyphFirst; character <= kStaticGlyphLast; ++character)
     {
-        const uint32_t slot = _glyphCount;
+        const uint32_t slot   = _glyphCount;
         const uint32_t atlasX = (slot % kViewerGlyphColumns) * kViewerGlyphCell;
         const uint32_t atlasY = (slot / kViewerGlyphColumns) * kViewerGlyphCell;
-        float advance = 0.5f;
-        result = RasterizeIntoAtlas(*session.factory, *session.face, static_cast<wchar_t>(character), atlasX, atlasY,
-                                    _atlasPixels.get(), advance);
+        float advance         = 0.5f;
+        result = RasterizeIntoAtlas(*session.factory, *session.face, static_cast<wchar_t>(character), atlasX, atlasY, _atlasPixels.get(), advance);
         if (FAILED(result))
         {
             return result;
         }
         _glyphCharacters[slot] = static_cast<wchar_t>(character);
-        _glyphAdvances[slot] = advance;
+        _glyphAdvances[slot]   = advance;
         ++_glyphCount;
     }
     for (uint32_t extra = 0; extra < kStaticExtraCount; ++extra)
     {
-        const uint32_t slot = _glyphCount;
+        const uint32_t slot   = _glyphCount;
         const uint32_t atlasX = (slot % kViewerGlyphColumns) * kViewerGlyphCell;
         const uint32_t atlasY = (slot / kViewerGlyphColumns) * kViewerGlyphCell;
-        float advance = 0.5f;
-        result = RasterizeIntoAtlas(*session.factory, *session.face, kStaticExtraGlyphs[extra], atlasX, atlasY,
-                                    _atlasPixels.get(), advance);
+        float advance         = 0.5f;
+        result                = RasterizeIntoAtlas(*session.factory, *session.face, kStaticExtraGlyphs[extra], atlasX, atlasY, _atlasPixels.get(), advance);
         if (FAILED(result))
         {
             return result;
         }
         _glyphCharacters[slot] = kStaticExtraGlyphs[extra];
-        _glyphAdvances[slot] = advance;
+        _glyphAdvances[slot]   = advance;
         ++_glyphCount;
     }
     _dynamicCursor = _glyphCount;
@@ -493,7 +480,7 @@ uint32_t ViewerGpuResources::FindGlyph(wchar_t character) const noexcept
 
 HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t characters) noexcept
 {
-    if (!text && characters != 0)
+    if (! text && characters != 0)
     {
         return E_POINTER;
     }
@@ -515,21 +502,21 @@ HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t character
             break;
         }
     }
-    if (!missing)
+    if (! missing)
     {
         return S_OK;
     }
 
     HRESULT result = S_OK;
-    if (!_preparationFontFace)
+    if (! _preparationFontFace)
     {
         DirectWriteSession session;
         result = OpenDirectWrite(session);
         if (FAILED(result))
             return result;
-        _preparationFontModule = std::move(session.module);
+        _preparationFontModule  = std::move(session.module);
         _preparationFontFactory = std::move(session.factory);
-        _preparationFontFace = std::move(session.face);
+        _preparationFontFace    = std::move(session.face);
         g_livePreparationFonts.fetch_add(1, std::memory_order_relaxed);
     }
     // Inject after acquiring the real font owners so callers' failure cleanup is exercised too.
@@ -550,25 +537,23 @@ HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t character
         {
             _dynamicCursor = kStaticReservedCount;
         }
-        const uint32_t slot = _dynamicCursor++;
+        const uint32_t slot   = _dynamicCursor++;
         const uint32_t atlasX = (slot % kViewerGlyphColumns) * kViewerGlyphCell;
         const uint32_t atlasY = (slot / kViewerGlyphColumns) * kViewerGlyphCell;
-        float advance = 0.5f;
+        float advance         = 0.5f;
         // Fresh cells are already zeroed. Reused cells must also be blank before missing/empty glyph returns.
         if (slot < _glyphCount)
         {
             for (uint32_t row = 0; row < kViewerGlyphCell; ++row)
-                std::memset(_atlasPixels.get() + static_cast<size_t>(atlasY + row) * kViewerAtlasSize + atlasX, 0,
-                            kViewerGlyphCell);
+                std::memset(_atlasPixels.get() + static_cast<size_t>(atlasY + row) * kViewerAtlasSize + atlasX, 0, kViewerGlyphCell);
         }
-        result = RasterizeIntoAtlas(*_preparationFontFactory, *_preparationFontFace, character, atlasX, atlasY,
-                                    _atlasPixels.get(), advance);
+        result = RasterizeIntoAtlas(*_preparationFontFactory, *_preparationFontFace, character, atlasX, atlasY, _atlasPixels.get(), advance);
         if (FAILED(result))
         {
             return result;
         }
         _glyphCharacters[slot] = character;
-        _glyphAdvances[slot] = advance;
+        _glyphAdvances[slot]   = advance;
         if (slot >= _glyphCount)
         {
             _glyphCount = slot + 1;
@@ -581,7 +566,7 @@ HRESULT ViewerGpuResources::EnsureGlyphs(const wchar_t* text, uint32_t character
 
 float ViewerGpuResources::MeasureText(const wchar_t* text, uint32_t characters, float height) const noexcept
 {
-    if (!text || height <= 0.0f)
+    if (! text || height <= 0.0f)
     {
         return 0.0f;
     }
@@ -600,16 +585,16 @@ float ViewerGpuResources::MeasureText(const wchar_t* text, uint32_t characters, 
     return width;
 }
 
-HRESULT ViewerGpuResources::AppendText(ViewerDrawList& list, float x, float y, float height, float red, float green,
-                                       float blue, float alpha, const wchar_t* text, uint32_t characters) noexcept
+HRESULT ViewerGpuResources::AppendText(
+    ViewerDrawList& list, float x, float y, float height, float red, float green, float blue, float alpha, const wchar_t* text, uint32_t characters) noexcept
 {
-    if (!text || height <= 0.0f)
+    if (! text || height <= 0.0f)
     {
         return S_OK;
     }
-    float pen = x;
+    float pen                = x;
     const float inverseAtlas = 1.0f / static_cast<float>(kViewerAtlasSize);
-    const float cell = static_cast<float>(kViewerGlyphCell) * inverseAtlas;
+    const float cell         = static_cast<float>(kViewerGlyphCell) * inverseAtlas;
     for (uint32_t index = 0; index < characters; ++index)
     {
         const wchar_t character = text[index];
@@ -623,8 +608,7 @@ HRESULT ViewerGpuResources::AppendText(ViewerDrawList& list, float x, float y, f
         {
             const float u0 = static_cast<float>(slot % kViewerGlyphColumns) * cell;
             const float v0 = static_cast<float>(slot / kViewerGlyphColumns) * cell;
-            if (!list.Add(ViewerQuadKindGlyph, pen, y, height, height, red, green, blue, alpha, 0.0f, 0.0f, u0, v0,
-                          u0 + cell, v0 + cell))
+            if (! list.Add(ViewerQuadKindGlyph, pen, y, height, height, red, green, blue, alpha, 0.0f, 0.0f, u0, v0, u0 + cell, v0 + cell))
             {
                 return S_OK;
             }
@@ -646,39 +630,37 @@ void ViewerGpuResources::ReleasePreparationFonts() noexcept
 
 void ViewerGpuResources::UploadDirtyGlyphs() noexcept
 {
-    if (_dirtyGlyphs.none() || !_atlas || !_deviceIdentity)
+    if (_dirtyGlyphs.none() || ! _atlas || ! _deviceIdentity)
     {
         return;
     }
     wil::com_ptr_nothrow<ID3D11DeviceContext> context;
     _deviceIdentity->GetImmediateContext(context.put());
-    if (!context)
+    if (! context)
     {
         return;
     }
     for (uint32_t slot = 0; slot < kViewerGlyphCapacity; ++slot)
     {
-        if (!_dirtyGlyphs.test(slot))
+        if (! _dirtyGlyphs.test(slot))
             continue;
         const uint32_t x = (slot % kViewerGlyphColumns) * kViewerGlyphCell;
         const uint32_t y = (slot / kViewerGlyphColumns) * kViewerGlyphCell;
         const D3D11_BOX box{x, y, 0, x + kViewerGlyphCell, y + kViewerGlyphCell, 1};
-        context->UpdateSubresource(_atlas.get(), 0, &box, _atlasPixels.get() + y * kViewerAtlasSize + x,
-                                   kViewerAtlasSize, 0);
+        context->UpdateSubresource(_atlas.get(), 0, &box, _atlasPixels.get() + y * kViewerAtlasSize + x, kViewerAtlasSize, 0);
         g_uploadCellCount.fetch_add(1, std::memory_order_relaxed);
         g_uploadBytes.fetch_add(kViewerGlyphCell * kViewerGlyphCell, std::memory_order_relaxed);
     }
     _dirtyGlyphs.reset();
 }
 
-HRESULT ViewerGpuResources::Render(ID3D11DeviceContext* context, float width, float height,
-                                   const ViewerDrawList& list) noexcept
+HRESULT ViewerGpuResources::Render(ID3D11DeviceContext* context, float width, float height, const ViewerDrawList& list) noexcept
 {
-    if (!context)
+    if (! context)
     {
         return E_POINTER;
     }
-    if (!_instanceBuffer || width <= 0.0f || height <= 0.0f || list.Count() == 0)
+    if (! _instanceBuffer || width <= 0.0f || height <= 0.0f || list.Count() == 0)
     {
         return S_OK;
     }
@@ -689,7 +671,7 @@ HRESULT ViewerGpuResources::Render(ID3D11DeviceContext* context, float width, fl
     {
         return result;
     }
-    auto* constants = static_cast<ViewerConstants*>(mapped.pData);
+    auto* constants          = static_cast<ViewerConstants*>(mapped.pData);
     constants->targetSize[0] = width;
     constants->targetSize[1] = height;
     constants->targetSize[2] = 0.0f;
@@ -705,13 +687,13 @@ HRESULT ViewerGpuResources::Render(ID3D11DeviceContext* context, float width, fl
     context->Unmap(_instanceBuffer.get(), 0);
     g_mapCount.fetch_add(1, std::memory_order_relaxed);
 
-    const UINT stride = sizeof(ViewerQuadInstance);
-    const UINT offset = 0;
-    ID3D11Buffer* instanceBuffer = _instanceBuffer.get();
-    ID3D11Buffer* constantBuffer = _constantBuffer.get();
+    const UINT stride                   = sizeof(ViewerQuadInstance);
+    const UINT offset                   = 0;
+    ID3D11Buffer* instanceBuffer        = _instanceBuffer.get();
+    ID3D11Buffer* constantBuffer        = _constantBuffer.get();
     ID3D11ShaderResourceView* atlasView = _atlasView.get();
-    ID3D11SamplerState* sampler = _sampler.get();
-    const float blendFactor[4] = {};
+    ID3D11SamplerState* sampler         = _sampler.get();
+    const float blendFactor[4]          = {};
     context->IASetInputLayout(_inputLayout.get());
     context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->IASetVertexBuffers(0, 1, &instanceBuffer, &stride, &offset);

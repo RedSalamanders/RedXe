@@ -22,9 +22,9 @@ using ThreadSnapshot = wil::unique_any<HPSS, decltype(&FreeThreadSnapshot), Free
 
 struct ProcessMemorySnapshot final
 {
-    uint64_t privateBytes = 0;
-    uint64_t workingSetBytes = 0;
-    uint64_t peakCommitBytes = 0;
+    uint64_t privateBytes        = 0;
+    uint64_t workingSetBytes     = 0;
+    uint64_t peakCommitBytes     = 0;
     uint64_t peakWorkingSetBytes = 0;
 };
 
@@ -33,11 +33,9 @@ struct ProcessMemorySnapshot final
     snapshot = {};
     PROCESS_MEMORY_COUNTERS_EX counters{};
     counters.cb = sizeof(counters);
-    if (!K32GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
-                                 sizeof(counters)))
+    if (! K32GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters), sizeof(counters)))
         return HRESULT_FROM_WIN32(GetLastError());
-    snapshot = {counters.PrivateUsage, counters.WorkingSetSize, counters.PeakPagefileUsage,
-                counters.PeakWorkingSetSize};
+    snapshot = {counters.PrivateUsage, counters.WorkingSetSize, counters.PeakPagefileUsage, counters.PeakWorkingSetSize};
     return S_OK;
 }
 
@@ -51,8 +49,7 @@ struct ProcessMemorySnapshot final
     if (captured != ERROR_SUCCESS)
         return HRESULT_FROM_WIN32(captured);
     PSS_THREAD_INFORMATION information{};
-    const DWORD queried =
-        PssQuerySnapshot(snapshot.get(), PSS_QUERY_THREAD_INFORMATION, &information, sizeof(information));
+    const DWORD queried = PssQuerySnapshot(snapshot.get(), PSS_QUERY_THREAD_INFORMATION, &information, sizeof(information));
     if (queried != ERROR_SUCCESS)
         return HRESULT_FROM_WIN32(queried);
     count = information.ThreadsCaptured;
@@ -92,10 +89,9 @@ struct ProcessResourceSnapshot final
     if (SUCCEEDED(QueryProcessThreadCount(result.threads)))
         result.valid |= 8;
     HMODULE firstModule = nullptr;
-    DWORD moduleBytes = 0;
+    DWORD moduleBytes   = 0;
     // Only count modules: PSAPI returns the bytes needed for the entire list even when the supplied array is smaller.
-    if (K32EnumProcessModules(GetCurrentProcess(), &firstModule, sizeof(firstModule), &moduleBytes) &&
-        moduleBytes % sizeof(HMODULE) == 0)
+    if (K32EnumProcessModules(GetCurrentProcess(), &firstModule, sizeof(firstModule), &moduleBytes) && moduleBytes % sizeof(HMODULE) == 0)
     {
         result.modules = static_cast<DWORD>(moduleBytes / sizeof(HMODULE));
         result.valid |= 16;

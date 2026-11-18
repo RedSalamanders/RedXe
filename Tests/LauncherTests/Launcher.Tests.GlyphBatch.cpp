@@ -10,7 +10,7 @@
 #include <new>
 #include <ole2.h>
 
-#if defined(_DEBUG) && !defined(__SANITIZE_ADDRESS__)
+#if defined(_DEBUG) && ! defined(__SANITIZE_ADDRESS__)
 #include <crtdbg.h>
 namespace
 {
@@ -38,20 +38,19 @@ HRESULT ValidateLauncherGlyphRasterization(const wchar_t* pixelsPath) noexcept
     if (FAILED(initialized))
         return initialized;
     const auto uninitialize = wil::scope_exit([]() noexcept { OleUninitialize(); });
-    FILE* pixels = nullptr;
-    if (pixelsPath && (_wfopen_s(&pixels, pixelsPath, L"wb") != 0 || !pixels))
+    FILE* pixels            = nullptr;
+    if (pixelsPath && (_wfopen_s(&pixels, pixelsPath, L"wb") != 0 || ! pixels))
         return E_FAIL;
-    const auto close = wil::scope_exit(
-        [&]() noexcept
-        {
-            if (pixels)
-                (void)std::fclose(pixels);
-        });
-    constexpr size_t capacity = 512 * 512;
+    const auto close            = wil::scope_exit([&]() noexcept
+    {
+        if (pixels)
+            (void)std::fclose(pixels);
+    });
+    constexpr size_t capacity   = 512 * 512;
     constexpr uint32_t sentinel = 0x13579BDF;
     std::unique_ptr<uint32_t[]> reference(new (std::nothrow) uint32_t[capacity + 2]);
     std::unique_ptr<uint32_t[]> candidate(new (std::nothrow) uint32_t[capacity + 2]);
-    if (!reference || !candidate)
+    if (! reference || ! candidate)
         return E_OUTOFMEMORY;
     RedXeActions::FluentGlyphRasterizer batch;
     if (RedXeActions::RasterizeFluentGlyph(0, 24, reference.get()) != E_INVALIDARG ||
@@ -60,10 +59,8 @@ HRESULT ValidateLauncherGlyphRasterization(const wchar_t* pixelsPath) noexcept
         RedXeActions::RasterizeFluentGlyph(L'\xE713', 24, nullptr) != E_INVALIDARG ||
         RedXeActions::RasterizeFluentGlyph(L'\xFFFF', 24, reference.get()) != HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
         return E_FAIL;
-    if (batch.Rasterize(0, 24, candidate.get()) != E_INVALIDARG ||
-        batch.Rasterize(L'\xE713', 0, candidate.get()) != E_INVALIDARG ||
-        batch.Rasterize(L'\xE713', 513, candidate.get()) != E_INVALIDARG ||
-        batch.Rasterize(L'\xE713', 24, nullptr) != E_INVALIDARG ||
+    if (batch.Rasterize(0, 24, candidate.get()) != E_INVALIDARG || batch.Rasterize(L'\xE713', 0, candidate.get()) != E_INVALIDARG ||
+        batch.Rasterize(L'\xE713', 513, candidate.get()) != E_INVALIDARG || batch.Rasterize(L'\xE713', 24, nullptr) != E_INVALIDARG ||
         batch.Rasterize(L'\xFFFF', 24, candidate.get()) != HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
         return E_FAIL;
     uint32_t frames = 0;
@@ -90,42 +87,38 @@ HRESULT ValidateLauncherGlyphRasterization(const wchar_t* pixelsPath) noexcept
                 for (uint32_t byte = 0; byte < 4; ++byte)
                     hash = (hash ^ ((value >> (byte * 8)) & 255)) * 1099511628211ULL;
             }
-            if (pixels &&
-                std::fprintf(pixels, "%s %u %016llX\n", named.name, edge, static_cast<unsigned long long>(hash)) < 0)
+            if (pixels && std::fprintf(pixels, "%s %u %016llX\n", named.name, edge, static_cast<unsigned long long>(hash)) < 0)
                 return E_FAIL;
             ++frames;
         }
     }
     // A smaller glyph after the largest atlas must clear the whole output and ignore stale reusable coverage.
-    if (FAILED(RedXeActions::RasterizeFluentGlyph(L'\xE713', 24, reference.get())) ||
-        FAILED(batch.Rasterize(L'\xE713', 24, candidate.get())) ||
+    if (FAILED(RedXeActions::RasterizeFluentGlyph(L'\xE713', 24, reference.get())) || FAILED(batch.Rasterize(L'\xE713', 24, candidate.get())) ||
         std::memcmp(reference.get(), candidate.get(), 24 * 24 * sizeof(uint32_t)) != 0)
         return E_FAIL;
-#if defined(_DEBUG) && !defined(__SANITIZE_ADDRESS__)
+#if defined(_DEBUG) && ! defined(__SANITIZE_ADDRESS__)
     // Real CRT allocation failure after the font is ready: coverage growth keeps its preceding buffer usable.
     RedXeActions::FluentGlyphRasterizer failureBatch;
     if (FAILED(failureBatch.Rasterize(L'\xE713', 24, candidate.get())))
         return E_FAIL;
     HRESULT failed = S_OK;
-    bool consumed = false;
+    bool consumed  = false;
     {
         const auto previous = _CrtSetAllocHook(RejectNextAllocation);
-        const auto restore = wil::scope_exit(
-            [&]() noexcept
-            {
-                gRejectNextAllocation = false;
+        const auto restore  = wil::scope_exit([&]() noexcept
+        {
+            gRejectNextAllocation = false;
             // The CRT return type erases noexcept; restore the exact previous hook unchanged.
             // Owner: RedXe test maintainers; review: 2027-01-31.
 #pragma warning(suppress : 5039)
-                (void)_CrtSetAllocHook(previous);
-            });
+            (void)_CrtSetAllocHook(previous);
+        });
         gRejectNextAllocation = true;
-        failed = failureBatch.Rasterize(L'\xE713', 512, candidate.get());
-        consumed = !gRejectNextAllocation;
+        failed                = failureBatch.Rasterize(L'\xE713', 512, candidate.get());
+        consumed              = ! gRejectNextAllocation;
     }
-    if (!consumed || failed != E_OUTOFMEMORY || FAILED(failureBatch.Rasterize(L'\xE713', 24, candidate.get())) ||
-        std::memcmp(reference.get(), candidate.get(), 24 * 24 * sizeof(uint32_t)) != 0 ||
-        FAILED(failureBatch.Rasterize(L'\xE713', 512, candidate.get())))
+    if (! consumed || failed != E_OUTOFMEMORY || FAILED(failureBatch.Rasterize(L'\xE713', 24, candidate.get())) ||
+        std::memcmp(reference.get(), candidate.get(), 24 * 24 * sizeof(uint32_t)) != 0 || FAILED(failureBatch.Rasterize(L'\xE713', 512, candidate.get())))
         return E_FAIL;
 #endif
     std::wprintf(L"Shared Fluent rasterization: %u glyph/edge frames pass.\n", frames);

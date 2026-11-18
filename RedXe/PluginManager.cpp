@@ -36,8 +36,7 @@ static_assert(kRedXeBundledWidgets.size() <= kMaximumSettingsPlugins);
     return nullptr;
 }
 
-[[nodiscard]] const RedXeBundledWidgetSpec* FindBundledWidget(std::string_view pluginId,
-                                                              std::string_view typeId) noexcept
+[[nodiscard]] const RedXeBundledWidgetSpec* FindBundledWidget(std::string_view pluginId, std::string_view typeId) noexcept
 {
     for (const RedXeBundledWidgetSpec& candidate : kRedXeBundledWidgets)
     {
@@ -67,13 +66,13 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
 [[nodiscard]] bool IsHexColor(yyjson_val* value) noexcept
 {
     const char* text = yyjson_is_str(value) ? yyjson_get_str(value) : nullptr;
-    if (!text || yyjson_get_len(value) != 7 || text[0] != '#')
+    if (! text || yyjson_get_len(value) != 7 || text[0] != '#')
     {
         return false;
     }
     for (size_t index = 1; index < 7; ++index)
     {
-        if (!std::isxdigit(static_cast<unsigned char>(text[index])))
+        if (! std::isxdigit(static_cast<unsigned char>(text[index])))
         {
             return false;
         }
@@ -120,36 +119,36 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
 
 [[nodiscard]] bool ValidateValueAgainstPublishedSchema(yyjson_val* schema, yyjson_val* value) noexcept
 {
-    if (!yyjson_is_obj(schema))
+    if (! yyjson_is_obj(schema))
     {
         return false;
     }
     yyjson_val* type = yyjson_obj_get(schema, "type");
-    if (!yyjson_is_str(type))
+    if (! yyjson_is_str(type))
     {
         return false;
     }
     const std::string_view typeName{yyjson_get_str(type), yyjson_get_len(type)};
     if (typeName == "object")
     {
-        if (!yyjson_is_obj(value))
+        if (! yyjson_is_obj(value))
         {
             return false;
         }
         yyjson_val* properties = yyjson_obj_get(schema, "properties");
-        if (properties && !yyjson_is_obj(properties))
+        if (properties && ! yyjson_is_obj(properties))
         {
             return false;
         }
         yyjson_val* additional = yyjson_obj_get(schema, "additionalProperties");
-        if (additional && !yyjson_is_bool(additional))
+        if (additional && ! yyjson_is_bool(additional))
         {
             return false;
         }
         yyjson_val* required = yyjson_obj_get(schema, "required");
         if (required)
         {
-            if (!yyjson_is_arr(required))
+            if (! yyjson_is_arr(required))
             {
                 return false;
             }
@@ -157,7 +156,7 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
             for (size_t index = 0; index < requiredCount; ++index)
             {
                 yyjson_val* name = yyjson_arr_get(required, index);
-                if (!yyjson_is_str(name) || !yyjson_obj_getn(value, yyjson_get_str(name), yyjson_get_len(name)))
+                if (! yyjson_is_str(name) || ! yyjson_obj_getn(value, yyjson_get_str(name), yyjson_get_len(name)))
                 {
                     return false;
                 }
@@ -166,17 +165,16 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
         yyjson_obj_iter iterator = yyjson_obj_iter_with(value);
         while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
         {
-            yyjson_val* propertySchema =
-                properties ? yyjson_obj_getn(properties, yyjson_get_str(key), yyjson_get_len(key)) : nullptr;
-            if (!propertySchema)
+            yyjson_val* propertySchema = properties ? yyjson_obj_getn(properties, yyjson_get_str(key), yyjson_get_len(key)) : nullptr;
+            if (! propertySchema)
             {
-                if (!additional || !yyjson_get_bool(additional))
+                if (! additional || ! yyjson_get_bool(additional))
                 {
                     return false;
                 }
                 continue;
             }
-            if (!ValidateValueAgainstPublishedSchema(propertySchema, yyjson_obj_iter_get_val(key)))
+            if (! ValidateValueAgainstPublishedSchema(propertySchema, yyjson_obj_iter_get_val(key)))
             {
                 return false;
             }
@@ -185,35 +183,35 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
     }
     if (typeName == "integer")
     {
-        if (!yyjson_is_uint(value))
+        if (! yyjson_is_uint(value))
         {
             return false;
         }
         const uint64_t number = yyjson_get_uint(value);
-        yyjson_val* minimum = yyjson_obj_get(schema, "minimum");
-        yyjson_val* maximum = yyjson_obj_get(schema, "maximum");
-        return (!minimum || (yyjson_is_uint(minimum) && number >= yyjson_get_uint(minimum))) &&
-               (!maximum || (yyjson_is_uint(maximum) && number <= yyjson_get_uint(maximum)));
+        yyjson_val* minimum   = yyjson_obj_get(schema, "minimum");
+        yyjson_val* maximum   = yyjson_obj_get(schema, "maximum");
+        return (! minimum || (yyjson_is_uint(minimum) && number >= yyjson_get_uint(minimum))) &&
+               (! maximum || (yyjson_is_uint(maximum) && number <= yyjson_get_uint(maximum)));
     }
     if (typeName == "number")
     {
-        if (!yyjson_is_num(value))
+        if (! yyjson_is_num(value))
         {
             return false;
         }
         const double number = yyjson_get_num(value);
-        if (!std::isfinite(number))
+        if (! std::isfinite(number))
         {
             return false;
         }
         yyjson_val* minimum = yyjson_obj_get(schema, "minimum");
         yyjson_val* maximum = yyjson_obj_get(schema, "maximum");
-        return (!minimum || (yyjson_is_num(minimum) && number >= yyjson_get_num(minimum))) &&
-               (!maximum || (yyjson_is_num(maximum) && number <= yyjson_get_num(maximum)));
+        return (! minimum || (yyjson_is_num(minimum) && number >= yyjson_get_num(minimum))) &&
+               (! maximum || (yyjson_is_num(maximum) && number <= yyjson_get_num(maximum)));
     }
     if (typeName == "string")
     {
-        if (!yyjson_is_str(value))
+        if (! yyjson_is_str(value))
         {
             return false;
         }
@@ -225,35 +223,34 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
                 ++scalarCount;
         yyjson_val* minimum = yyjson_obj_get(schema, "minLength");
         yyjson_val* maximum = yyjson_obj_get(schema, "maxLength");
-        if ((minimum && (!yyjson_is_uint(minimum) || scalarCount < yyjson_get_uint(minimum))) ||
-            (maximum && (!yyjson_is_uint(maximum) || scalarCount > yyjson_get_uint(maximum))))
+        if ((minimum && (! yyjson_is_uint(minimum) || scalarCount < yyjson_get_uint(minimum))) ||
+            (maximum && (! yyjson_is_uint(maximum) || scalarCount > yyjson_get_uint(maximum))))
             return false;
         yyjson_val* allowedValues = yyjson_obj_get(schema, "enum");
         if (allowedValues)
         {
-            if (!yyjson_is_arr(allowedValues))
+            if (! yyjson_is_arr(allowedValues))
             {
                 return false;
             }
-            bool matched = false;
+            bool matched       = false;
             const size_t count = yyjson_arr_size(allowedValues);
             for (size_t index = 0; index < count; ++index)
             {
                 yyjson_val* candidate = yyjson_arr_get(allowedValues, index);
-                matched = matched || (yyjson_is_str(candidate) &&
-                                      text == std::string_view{yyjson_get_str(candidate), yyjson_get_len(candidate)});
+                matched               = matched || (yyjson_is_str(candidate) && text == std::string_view{yyjson_get_str(candidate), yyjson_get_len(candidate)});
             }
-            if (!matched)
+            if (! matched)
             {
                 return false;
             }
         }
         yyjson_val* pattern = yyjson_obj_get(schema, "pattern");
-        if (!pattern)
+        if (! pattern)
         {
             return true;
         }
-        if (!yyjson_is_str(pattern))
+        if (! yyjson_is_str(pattern))
             return false;
         const std::string_view expression{yyjson_get_str(pattern), yyjson_get_len(pattern)};
         if (expression == "^#[0-9A-Fa-f]{6}$")
@@ -270,8 +267,7 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
         if (expression != "^[A-Za-z0-9_-]+$" || text.empty())
             return false;
         for (const char byte : text)
-            if (!((byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') || (byte >= '0' && byte <= '9') ||
-                  byte == '_' || byte == '-'))
+            if (! ((byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') || (byte >= '0' && byte <= '9') || byte == '_' || byte == '-'))
                 return false;
         return true;
     }
@@ -281,26 +277,26 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
     }
     if (typeName == "array")
     {
-        if (!yyjson_is_arr(value))
+        if (! yyjson_is_arr(value))
         {
             return false;
         }
         const uint64_t count = yyjson_arr_size(value);
-        yyjson_val* minimum = yyjson_obj_get(schema, "minItems");
-        yyjson_val* maximum = yyjson_obj_get(schema, "maxItems");
-        if ((minimum && (!yyjson_is_uint(minimum) || count < yyjson_get_uint(minimum))) ||
-            (maximum && (!yyjson_is_uint(maximum) || count > yyjson_get_uint(maximum))))
+        yyjson_val* minimum  = yyjson_obj_get(schema, "minItems");
+        yyjson_val* maximum  = yyjson_obj_get(schema, "maxItems");
+        if ((minimum && (! yyjson_is_uint(minimum) || count < yyjson_get_uint(minimum))) ||
+            (maximum && (! yyjson_is_uint(maximum) || count > yyjson_get_uint(maximum))))
         {
             return false;
         }
         yyjson_val* items = yyjson_obj_get(schema, "items");
-        if (!items)
+        if (! items)
         {
             return false;
         }
         for (size_t index = 0; index < yyjson_arr_size(value); ++index)
         {
-            if (!ValidateValueAgainstPublishedSchema(items, yyjson_arr_get(value, index)))
+            if (! ValidateValueAgainstPublishedSchema(items, yyjson_arr_get(value, index)))
             {
                 return false;
             }
@@ -312,12 +308,12 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
 
 [[nodiscard]] bool ValidatePublishedSchemaShape(yyjson_val* schema, uint32_t arrayDepth) noexcept
 {
-    if (!yyjson_is_obj(schema) || arrayDepth > 1)
+    if (! yyjson_is_obj(schema) || arrayDepth > 1)
     {
         return false;
     }
     yyjson_val* type = yyjson_obj_get(schema, "type");
-    if (!yyjson_is_str(type))
+    if (! yyjson_is_str(type))
     {
         return false;
     }
@@ -326,7 +322,7 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
     while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
     {
         const std::string_view name{yyjson_get_str(key), yyjson_get_len(key)};
-        if (!SchemaKeyIsAllowed(typeName, name))
+        if (! SchemaKeyIsAllowed(typeName, name))
         {
             return false;
         }
@@ -336,26 +332,26 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
         yyjson_val* properties = yyjson_obj_get(schema, "properties");
         if (properties)
         {
-            if (!yyjson_is_obj(properties))
+            if (! yyjson_is_obj(properties))
             {
                 return false;
             }
             yyjson_obj_iter propertyIterator = yyjson_obj_iter_with(properties);
             while (yyjson_val* key = yyjson_obj_iter_next(&propertyIterator))
             {
-                if (!ValidatePublishedSchemaShape(yyjson_obj_iter_get_val(key), arrayDepth))
+                if (! ValidatePublishedSchemaShape(yyjson_obj_iter_get_val(key), arrayDepth))
                 {
                     return false;
                 }
             }
         }
         yyjson_val* additional = yyjson_obj_get(schema, "additionalProperties");
-        if (additional && !yyjson_is_bool(additional))
+        if (additional && ! yyjson_is_bool(additional))
         {
             return false;
         }
         yyjson_val* required = yyjson_obj_get(schema, "required");
-        if (required && !yyjson_is_arr(required))
+        if (required && ! yyjson_is_arr(required))
         {
             return false;
         }
@@ -367,16 +363,15 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
         {
             return false;
         }
-        yyjson_val* items = yyjson_obj_get(schema, "items");
+        yyjson_val* items     = yyjson_obj_get(schema, "items");
         yyjson_val* itemsType = items ? yyjson_obj_get(items, "type") : nullptr;
-        if (!yyjson_is_obj(items) || !yyjson_is_str(itemsType) ||
-            std::string_view{yyjson_get_str(itemsType), yyjson_get_len(itemsType)} != "object")
+        if (! yyjson_is_obj(items) || ! yyjson_is_str(itemsType) || std::string_view{yyjson_get_str(itemsType), yyjson_get_len(itemsType)} != "object")
         {
             return false;
         }
         yyjson_val* minimum = yyjson_obj_get(schema, "minItems");
         yyjson_val* maximum = yyjson_obj_get(schema, "maxItems");
-        if ((minimum && !yyjson_is_uint(minimum)) || (maximum && !yyjson_is_uint(maximum)))
+        if ((minimum && ! yyjson_is_uint(minimum)) || (maximum && ! yyjson_is_uint(maximum)))
         {
             return false;
         }
@@ -386,26 +381,25 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
     {
         yyjson_val* minimum = yyjson_obj_get(schema, "minLength");
         yyjson_val* maximum = yyjson_obj_get(schema, "maxLength");
-        if ((minimum && !yyjson_is_uint(minimum)) || (maximum && !yyjson_is_uint(maximum)) ||
+        if ((minimum && ! yyjson_is_uint(minimum)) || (maximum && ! yyjson_is_uint(maximum)) ||
             (minimum && maximum && yyjson_get_uint(minimum) > yyjson_get_uint(maximum)))
             return false;
         yyjson_val* pattern = yyjson_obj_get(schema, "pattern");
         if (pattern)
         {
-            if (!yyjson_is_str(pattern))
+            if (! yyjson_is_str(pattern))
                 return false;
             const std::string_view expression{yyjson_get_str(pattern), yyjson_get_len(pattern)};
-            if (expression != "^#[0-9A-Fa-f]{6}$" && expression != "^[A-Za-z0-9_-]+$" &&
-                expression != kActionNamePattern)
+            if (expression != "^#[0-9A-Fa-f]{6}$" && expression != "^[A-Za-z0-9_-]+$" && expression != kActionNamePattern)
                 return false;
         }
         yyjson_val* values = yyjson_obj_get(schema, "enum");
         if (values)
         {
-            if (!yyjson_is_arr(values) || yyjson_arr_size(values) == 0)
+            if (! yyjson_is_arr(values) || yyjson_arr_size(values) == 0)
                 return false;
             for (size_t i = 0; i < yyjson_arr_size(values); ++i)
-                if (!yyjson_is_str(yyjson_arr_get(values, i)))
+                if (! yyjson_is_str(yyjson_arr_get(values, i)))
                     return false;
         }
         return true;
@@ -417,37 +411,33 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
     return false;
 }
 
-[[nodiscard]] HRESULT GetAndValidateSettingsContract(const PluginHost::ModuleView& module, const char* pluginId,
+[[nodiscard]] HRESULT GetAndValidateSettingsContract(const PluginHost::ModuleView& module,
+                                                     const char* pluginId,
                                                      const RedXePluginSettingsContract** contract) noexcept
 {
     if (contract)
     {
         *contract = nullptr;
     }
-    if (!contract || !module.getSettingsContract || !RedXeIsValidMachineId(pluginId))
+    if (! contract || ! module.getSettingsContract || ! RedXeIsValidMachineId(pluginId))
     {
         return E_INVALIDARG;
     }
 
     const RedXePluginSettingsContract* selected = nullptr;
-    HRESULT result = module.getSettingsContract(pluginId, &selected);
-    if (FAILED(result) || !selected || selected->sizeBytes != sizeof(*selected) || !selected->schemaJsonUtf8 ||
-        selected->schemaBytes == 0 || selected->schemaBytes > kPrivateConfigurationCapacity ||
-        !selected->defaultsJsonUtf8 || selected->defaultsBytes == 0 ||
+    HRESULT result                              = module.getSettingsContract(pluginId, &selected);
+    if (FAILED(result) || ! selected || selected->sizeBytes != sizeof(*selected) || ! selected->schemaJsonUtf8 || selected->schemaBytes == 0 ||
+        selected->schemaBytes > kPrivateConfigurationCapacity || ! selected->defaultsJsonUtf8 || selected->defaultsBytes == 0 ||
         selected->defaultsBytes > kPrivateConfigurationCapacity)
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    unique_contract_doc schemaDocument{
-        yyjson_read(selected->schemaJsonUtf8, selected->schemaBytes, YYJSON_READ_NOFLAG)};
-    unique_contract_doc defaultsDocument{
-        yyjson_read(selected->defaultsJsonUtf8, selected->defaultsBytes, YYJSON_READ_NOFLAG)};
-    if (!schemaDocument || !defaultsDocument || !yyjson_is_obj(yyjson_doc_get_root(schemaDocument.get())) ||
-        !yyjson_is_obj(yyjson_doc_get_root(defaultsDocument.get())) ||
-        !ValidatePublishedSchemaShape(yyjson_doc_get_root(schemaDocument.get()), 0) ||
-        !ValidateValueAgainstPublishedSchema(yyjson_doc_get_root(schemaDocument.get()),
-                                             yyjson_doc_get_root(defaultsDocument.get())))
+    unique_contract_doc schemaDocument{yyjson_read(selected->schemaJsonUtf8, selected->schemaBytes, YYJSON_READ_NOFLAG)};
+    unique_contract_doc defaultsDocument{yyjson_read(selected->defaultsJsonUtf8, selected->defaultsBytes, YYJSON_READ_NOFLAG)};
+    if (! schemaDocument || ! defaultsDocument || ! yyjson_is_obj(yyjson_doc_get_root(schemaDocument.get())) ||
+        ! yyjson_is_obj(yyjson_doc_get_root(defaultsDocument.get())) || ! ValidatePublishedSchemaShape(yyjson_doc_get_root(schemaDocument.get()), 0) ||
+        ! ValidateValueAgainstPublishedSchema(yyjson_doc_get_root(schemaDocument.get()), yyjson_doc_get_root(defaultsDocument.get())))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -460,21 +450,24 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
 // Failed: the mapped module published an invalid contract (document-fatal).
 [[nodiscard]] HRESULT TryMapBundledWidgetModule(const char* pluginId, PluginHost::ModuleView& module) noexcept
 {
-    module = {};
-    const HRESULT mapResult =
-        PluginHost::Instance().GetPluginModule(pluginId, RedXePluginCapabilityWidgetProvider, &module);
+    module                  = {};
+    const HRESULT mapResult = PluginHost::Instance().GetPluginModule(pluginId, RedXePluginCapabilityWidgetProvider, &module);
     if (FAILED(mapResult))
     {
-        OutputDebugStringW(
-            L"A bundled plugin module could not be mapped; widget instances will use placeholder tiles.\n");
+        OutputDebugStringW(L"A bundled plugin module could not be mapped; widget instances will use placeholder tiles.\n");
         module = {};
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, pluginId, nullptr,
-                           "module-map-failed", "catalogued plugin DLL could not be mapped.", mapResult);
+        (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                           RedXeLogLevelError,
+                           pluginId,
+                           nullptr,
+                           "module-map-failed",
+                           "catalogued plugin DLL could not be mapped.",
+                           mapResult);
         return S_FALSE;
     }
 
     const RedXePluginSettingsContract* contract = nullptr;
-    const HRESULT contractResult = GetAndValidateSettingsContract(module, pluginId, &contract);
+    const HRESULT contractResult                = GetAndValidateSettingsContract(module, pluginId, &contract);
     if (FAILED(contractResult))
     {
         return contractResult;
@@ -482,18 +475,17 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
     return S_OK;
 }
 
-[[nodiscard]] HRESULT FindWidgetType(IRedXeWidgetProvider& provider, const char* expectedTypeId,
-                                     const RedXeWidgetTypeDescriptor*& selectedType) noexcept
+[[nodiscard]] HRESULT FindWidgetType(IRedXeWidgetProvider& provider, const char* expectedTypeId, const RedXeWidgetTypeDescriptor*& selectedType) noexcept
 {
-    selectedType = nullptr;
+    selectedType                           = nullptr;
     const RedXeWidgetTypeDescriptor* types = nullptr;
-    uint32_t count = 0;
-    HRESULT result = provider.GetWidgetTypes(&types, &count);
+    uint32_t count                         = 0;
+    HRESULT result                         = provider.GetWidgetTypes(&types, &count);
     if (FAILED(result))
     {
         return result;
     }
-    if (!types || count == 0 || count > 256 || !RedXeIsValidMachineId(expectedTypeId))
+    if (! types || count == 0 || count > 256 || ! RedXeIsValidMachineId(expectedTypeId))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -501,9 +493,8 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
     for (uint32_t index = 0; index < count; ++index)
     {
         const RedXeWidgetTypeDescriptor& candidate = types[index];
-        if (candidate.sizeBytes != sizeof(RedXeWidgetTypeDescriptor) || !RedXeIsValidMachineId(candidate.typeId) ||
-            !candidate.displayName || !candidate.description || candidate.minimumWidth <= 0.0f ||
-            candidate.minimumHeight <= 0.0f)
+        if (candidate.sizeBytes != sizeof(RedXeWidgetTypeDescriptor) || ! RedXeIsValidMachineId(candidate.typeId) || ! candidate.displayName ||
+            ! candidate.description || candidate.minimumWidth <= 0.0f || candidate.minimumHeight <= 0.0f)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -526,15 +517,14 @@ constexpr std::string_view kActionNamePattern = "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-z
 // schema is re-parsed once per widget appearance on every page, on every settings apply.
 class SchemaCache final
 {
-  public:
-    SchemaCache() = default;
-    SchemaCache(const SchemaCache&) = delete;
+public:
+    SchemaCache()                              = default;
+    SchemaCache(const SchemaCache&)            = delete;
     SchemaCache& operator=(const SchemaCache&) = delete;
-    SchemaCache(SchemaCache&&) = delete;
-    SchemaCache& operator=(SchemaCache&&) = delete;
+    SchemaCache(SchemaCache&&)                 = delete;
+    SchemaCache& operator=(SchemaCache&&)      = delete;
 
-    [[nodiscard]] HRESULT Acquire(const PluginHost::ModuleView& module, const char* pluginId,
-                                  yyjson_val*& root) noexcept
+    [[nodiscard]] HRESULT Acquire(const PluginHost::ModuleView& module, const char* pluginId, yyjson_val*& root) noexcept
     {
         root = nullptr;
         for (size_t index = 0; index < _count; ++index)
@@ -551,25 +541,25 @@ class SchemaCache final
         }
 
         const RedXePluginSettingsContract* contract = nullptr;
-        const HRESULT result = GetAndValidateSettingsContract(module, pluginId, &contract);
-        if (FAILED(result) || !contract)
+        const HRESULT result                        = GetAndValidateSettingsContract(module, pluginId, &contract);
+        if (FAILED(result) || ! contract)
         {
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         Entry& entry = _entries[_count];
         entry.document.reset(yyjson_read(contract->schemaJsonUtf8, contract->schemaBytes, YYJSON_READ_NOFLAG));
-        if (!entry.document)
+        if (! entry.document)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         entry.pluginId = pluginId;
-        entry.root = yyjson_doc_get_root(entry.document.get());
+        entry.root     = yyjson_doc_get_root(entry.document.get());
         ++_count;
         root = entry.root;
         return root ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-  private:
+private:
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
@@ -578,7 +568,7 @@ class SchemaCache final
     {
         unique_contract_doc document;
         const char* pluginId = nullptr;
-        yyjson_val* root = nullptr;
+        yyjson_val* root     = nullptr;
     };
 #pragma warning(pop)
 
@@ -590,8 +580,10 @@ class SchemaCache final
 constexpr size_t kMaximumValidationEvidenceBytes = 64U * 1024U;
 class SettingsEvidenceStream final
 {
-  public:
-    explicit SettingsEvidenceStream(std::vector<std::byte>* output = nullptr) noexcept : _output(output) {}
+public:
+    explicit SettingsEvidenceStream(std::vector<std::byte>* output = nullptr) noexcept : _output(output)
+    {
+    }
     explicit SettingsEvidenceStream(std::span<const std::byte> expected) noexcept : _expected(expected), _compare(true)
     {
     }
@@ -620,16 +612,15 @@ class SettingsEvidenceStream final
     }
     [[nodiscard]] bool Complete() const noexcept
     {
-        return !_compare || _size == _expected.size();
+        return ! _compare || _size == _expected.size();
     }
 
-  private:
+private:
     [[nodiscard]] bool Append(const void* data, size_t size)
     {
         if (size > kMaximumValidationEvidenceBytes - _size)
             return false;
-        if (_compare && (_size > _expected.size() || size > _expected.size() - _size ||
-                         std::memcmp(_expected.data() + _size, data, size) != 0))
+        if (_compare && (_size > _expected.size() || size > _expected.size() - _size || std::memcmp(_expected.data() + _size, data, size) != 0))
             return false;
         if (_output && size != 0)
         {
@@ -641,76 +632,70 @@ class SettingsEvidenceStream final
     }
     std::vector<std::byte>* _output = nullptr;
     std::span<const std::byte> _expected;
-    size_t _size = 0;
+    size_t _size  = 0;
     bool _compare = false;
 };
 [[nodiscard]] bool WalkSettingsEvidence(const AppSettings& settings, SettingsEvidenceStream& stream)
 {
     // Structured bindings deliberately make additions to these records require a witness-policy decision.
-    const auto& [major, minor, retention, background, dock, tray, rate, source, plugins, pluginCount, services,
-                 serviceCount, retired, dashboard] = settings;
-    const auto& [columns, rows, activeId, pages, pageCount, activeIndex, wrap] = dashboard;
+    const auto& [major, minor, retention, background, dock, tray, rate, source, plugins, pluginCount, services, serviceCount, retired, dashboard] = settings;
+    const auto& [columns, rows, activeId, pages, pageCount, activeIndex, wrap]                                                                    = dashboard;
     (void)source;
     (void)activeIndex;
-    if (pluginCount > kMaximumSettingsPlugins || plugins.size() != pluginCount ||
-        serviceCount > kMaximumSettingsServices || services.size() != serviceCount ||
-        retired.size() > kMaximumSettingsServices - serviceCount || pageCount == 0 ||
-        pageCount > kMaximumDashboardPages || pages.size() != pageCount || activeId.bytes == 0 ||
-        activeId.bytes >= activeId.utf8.size() || activeId.utf8[activeId.bytes] != '\0' ||
+    if (pluginCount > kMaximumSettingsPlugins || plugins.size() != pluginCount || serviceCount > kMaximumSettingsServices || services.size() != serviceCount ||
+        retired.size() > kMaximumSettingsServices - serviceCount || pageCount == 0 || pageCount > kMaximumDashboardPages || pages.size() != pageCount ||
+        activeId.bytes == 0 || activeId.bytes >= activeId.utf8.size() || activeId.utf8[activeId.bytes] != '\0' ||
         std::memchr(activeId.utf8.data(), '\0', activeId.bytes))
         return false;
     const auto& [edge, monitor, thickness, mode, reserve, peek, revealDelay, hideDelay, animation] = dock;
-    if (!(stream.Scalar(major) && stream.Scalar(minor) && stream.Scalar(retention) && stream.Scalar(background) &&
-          stream.Scalar(edge) && stream.Text(monitor) && stream.Scalar(thickness) && stream.Scalar(mode) &&
-          stream.Scalar(reserve) && stream.Scalar(peek) && stream.Scalar(revealDelay) && stream.Scalar(hideDelay) &&
-          stream.Scalar(animation) && stream.Scalar(tray) && stream.Scalar(rate) && stream.Scalar(pluginCount)))
+    if (! (stream.Scalar(major) && stream.Scalar(minor) && stream.Scalar(retention) && stream.Scalar(background) && stream.Scalar(edge) &&
+           stream.Text(monitor) && stream.Scalar(thickness) && stream.Scalar(mode) && stream.Scalar(reserve) && stream.Scalar(peek) &&
+           stream.Scalar(revealDelay) && stream.Scalar(hideDelay) && stream.Scalar(animation) && stream.Scalar(tray) && stream.Scalar(rate) &&
+           stream.Scalar(pluginCount)))
         return false;
     for (const auto& plugin : plugins)
     {
         const auto& [id, enabled, configuration] = plugin;
-        if (!(stream.Text(id) && stream.Scalar(enabled) && stream.Json(configuration)))
+        if (! (stream.Text(id) && stream.Scalar(enabled) && stream.Json(configuration)))
             return false;
     }
-    if (!stream.Scalar(serviceCount))
+    if (! stream.Scalar(serviceCount))
         return false;
     for (const auto& service : services)
     {
         const auto& [name, pluginId, configuration] = service;
-        if (!(stream.Text(name) && stream.Text(pluginId) && stream.Json(configuration)))
+        if (! (stream.Text(name) && stream.Text(pluginId) && stream.Json(configuration)))
             return false;
     }
-    if (!stream.Scalar(static_cast<uint32_t>(retired.size())))
+    if (! stream.Scalar(static_cast<uint32_t>(retired.size())))
         return false;
     for (const auto& id : retired)
-        if (!stream.Text(id))
+        if (! stream.Text(id))
             return false;
-    if (!(stream.Scalar(columns) && stream.Scalar(rows) && stream.Scalar(pageCount) && stream.Scalar(wrap)))
+    if (! (stream.Scalar(columns) && stream.Scalar(rows) && stream.Scalar(pageCount) && stream.Scalar(wrap)))
         return false;
     bool activeFound = false;
     for (const auto& page : pages)
     {
         const auto& [id, name, widgets, count] = page;
-        if (count > kMaximumWidgetsPerPage || widgets.size() != count ||
-            !(stream.Text(id) && stream.Text(name) && stream.Scalar(count)))
+        if (count > kMaximumWidgetsPerPage || widgets.size() != count || ! (stream.Text(id) && stream.Text(name) && stream.Scalar(count)))
             return false;
         activeFound = activeFound || SettingsIdEquals(id.View(), activeId.View());
         for (const auto& widget : widgets)
         {
-            const auto& [widgetId, pluginId, typeId, placement, adaptive, usesAdaptive, overridesBackground,
-                         widgetBackground, configuration] = widget;
-            const auto& [column, row, columnSpan, rowSpan] = placement;
-            const auto& [steps, depth] = adaptive;
-            if (!(stream.Text(widgetId) && stream.Text(pluginId) && stream.Text(typeId) && stream.Scalar(column) &&
-                  stream.Scalar(row) && stream.Scalar(columnSpan) && stream.Scalar(rowSpan) && stream.Scalar(depth)))
+            const auto& [widgetId, pluginId, typeId, placement, adaptive, usesAdaptive, overridesBackground, widgetBackground, configuration] = widget;
+            const auto& [column, row, columnSpan, rowSpan]                                                                                    = placement;
+            const auto& [steps, depth]                                                                                                        = adaptive;
+            if (! (stream.Text(widgetId) && stream.Text(pluginId) && stream.Text(typeId) && stream.Scalar(column) && stream.Scalar(row) &&
+                   stream.Scalar(columnSpan) && stream.Scalar(rowSpan) && stream.Scalar(depth)))
                 return false;
             for (const auto& step : steps)
             {
                 const auto& [axis, preceding, size, total] = step;
-                if (!(stream.Scalar(axis) && stream.Scalar(preceding) && stream.Scalar(size) && stream.Scalar(total)))
+                if (! (stream.Scalar(axis) && stream.Scalar(preceding) && stream.Scalar(size) && stream.Scalar(total)))
                     return false;
             }
-            if (!(stream.Scalar(usesAdaptive) && stream.Scalar(overridesBackground) &&
-                  stream.Scalar(widgetBackground) && stream.Json(configuration)))
+            if (! (stream.Scalar(usesAdaptive) && stream.Scalar(overridesBackground) && stream.Scalar(widgetBackground) && stream.Json(configuration)))
                 return false;
         }
     }
@@ -731,13 +716,13 @@ class SettingsEvidenceStream final
     for (uint32_t pluginIndex = 0; pluginIndex < settings.pluginCount; ++pluginIndex)
     {
         const PluginSettings& plugin = settings.plugins[pluginIndex];
-        if (!plugin.enabled)
+        if (! plugin.enabled)
         {
             continue;
         }
         const RedXeBundledWidgetSpec* widgetSpec = FindBundledWidget(plugin.id.View());
         const RedXeBundledPluginSpec* pluginSpec = FindBundledPlugin(plugin.id.View());
-        if (!widgetSpec || !pluginSpec)
+        if (! widgetSpec || ! pluginSpec)
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         }
@@ -759,10 +744,10 @@ class SettingsEvidenceStream final
         const DashboardPageSettings& candidatePage = settings.dashboard.pages[pageIndex];
         for (uint32_t widgetIndex = 0; widgetIndex < candidatePage.widgetCount; ++widgetIndex)
         {
-            const WidgetInstanceSettings& widget = candidatePage.widgets[widgetIndex];
+            const WidgetInstanceSettings& widget     = candidatePage.widgets[widgetIndex];
             const RedXeBundledWidgetSpec* widgetSpec = FindBundledWidget(widget.pluginId.View(), widget.typeId.View());
             const RedXeBundledPluginSpec* pluginSpec = FindBundledPlugin(widget.pluginId.View());
-            if (!widgetSpec || !pluginSpec)
+            if (! widgetSpec || ! pluginSpec)
             {
                 return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
             }
@@ -778,15 +763,13 @@ class SettingsEvidenceStream final
                 return mapResult;
             }
             yyjson_val* schemaRoot = nullptr;
-            result = schemaCache.Acquire(module, pluginSpec->pluginId, schemaRoot);
-            if (FAILED(result) || !schemaRoot)
+            result                 = schemaCache.Acquire(module, pluginSpec->pluginId, schemaRoot);
+            if (FAILED(result) || ! schemaRoot)
             {
                 return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
-            unique_contract_doc valueDocument{yyjson_read(widget.privateConfiguration.Data(),
-                                                          widget.privateConfiguration.Bytes(), YYJSON_READ_NOFLAG)};
-            if (!valueDocument ||
-                !ValidateValueAgainstPublishedSchema(schemaRoot, yyjson_doc_get_root(valueDocument.get())))
+            unique_contract_doc valueDocument{yyjson_read(widget.privateConfiguration.Data(), widget.privateConfiguration.Bytes(), YYJSON_READ_NOFLAG)};
+            if (! valueDocument || ! ValidateValueAgainstPublishedSchema(schemaRoot, yyjson_doc_get_root(valueDocument.get())))
             {
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
@@ -801,13 +784,12 @@ struct PluginManager::ValidationEvidence final
 {
     std::vector<std::byte> facts;
 };
-std::shared_ptr<const PluginManager::ValidationEvidence> PluginManager::BuildValidationEvidence(
-    const AppSettings& settings) noexcept
+std::shared_ptr<const PluginManager::ValidationEvidence> PluginManager::BuildValidationEvidence(const AppSettings& settings) noexcept
 {
     try
     {
         SettingsEvidenceStream count;
-        if (!WalkSettingsEvidence(settings, count))
+        if (! WalkSettingsEvidence(settings, count))
             return {};
 #if defined(REDXE_HOST_PLUGIN_TESTS)
         if (_failValidationEvidenceAllocation)
@@ -816,7 +798,7 @@ std::shared_ptr<const PluginManager::ValidationEvidence> PluginManager::BuildVal
         auto evidence = std::make_shared<ValidationEvidence>();
         evidence->facts.reserve(count.Size());
         SettingsEvidenceStream output{&evidence->facts};
-        if (!WalkSettingsEvidence(settings, output))
+        if (! WalkSettingsEvidence(settings, output))
             return {};
         return evidence;
     }
@@ -851,17 +833,15 @@ PluginManager::~PluginManager()
     _initialized = false;
 }
 
-HRESULT PluginManager::CreateBundledProvider(const char* pluginId, const char* configurationJson,
-                                             uint32_t configurationBytes, uint32_t backgroundRgb,
-                                             IRedXeWidgetProvider** provider) noexcept
+HRESULT PluginManager::CreateBundledProvider(
+    const char* pluginId, const char* configurationJson, uint32_t configurationBytes, uint32_t backgroundRgb, IRedXeWidgetProvider** provider) noexcept
 {
-    if (!provider)
+    if (! provider)
     {
         return E_POINTER;
     }
     *provider = nullptr;
-    if (!RedXeIsValidMachineId(pluginId) || !configurationJson || configurationBytes == 0 ||
-        configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
+    if (! RedXeIsValidMachineId(pluginId) || ! configurationJson || configurationBytes == 0 || configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
     {
         return E_INVALIDARG;
     }
@@ -879,17 +859,16 @@ HRESULT PluginManager::CreateBundledProvider(const char* pluginId, const char* c
     options.debugLevel = 1;
 #endif
     options.configurationJsonUtf8 = configurationJson;
-    options.configurationBytes = configurationBytes;
-    options.backgroundColor = 0xFF000000u | (backgroundRgb & 0x00FFFFFFu);
+    options.configurationBytes    = configurationBytes;
+    options.backgroundColor       = 0xFF000000u | (backgroundRgb & 0x00FFFFFFu);
 
     void* providerObject = nullptr;
-    result = module.create(__uuidof(IRedXeWidgetProvider), &options, PluginHost::Instance().Interface(), pluginId,
-                           &providerObject);
+    result               = module.create(__uuidof(IRedXeWidgetProvider), &options, PluginHost::Instance().Interface(), pluginId, &providerObject);
     if (FAILED(result))
     {
         return result;
     }
-    if (!providerObject)
+    if (! providerObject)
     {
         return E_UNEXPECTED;
     }
@@ -897,20 +876,21 @@ HRESULT PluginManager::CreateBundledProvider(const char* pluginId, const char* c
     return S_OK;
 }
 
-HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, const WidgetInstanceSettings& settings,
-                                            uint32_t backgroundRgb, WidgetSlot& widgetSlot) noexcept
+HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider,
+                                            const WidgetInstanceSettings& settings,
+                                            uint32_t backgroundRgb,
+                                            WidgetSlot& widgetSlot) noexcept
 {
-    if (!RedXeIsValidMachineId(settings.typeId.utf8.data()) || !RedXeIsValidMachineId(settings.id.utf8.data()) ||
-        widgetSlot.widget || widgetSlot.gpuWidget || widgetSlot.preparedGpuWidget ||
-        widgetSlot.constructionStateWidget || widgetSlot.scheduledWidget || widgetSlot.windowWidget ||
-        widgetSlot.raisedWidget || widgetSlot.interactiveWidget || widgetSlot.keyboardWidget ||
-        widgetSlot.textInputWidget || widgetSlot.accessibilityWidget || widgetSlot.networkWidget)
+    if (! RedXeIsValidMachineId(settings.typeId.utf8.data()) || ! RedXeIsValidMachineId(settings.id.utf8.data()) || widgetSlot.widget || widgetSlot.gpuWidget ||
+        widgetSlot.preparedGpuWidget || widgetSlot.constructionStateWidget || widgetSlot.scheduledWidget || widgetSlot.windowWidget ||
+        widgetSlot.raisedWidget || widgetSlot.interactiveWidget || widgetSlot.keyboardWidget || widgetSlot.textInputWidget || widgetSlot.accessibilityWidget ||
+        widgetSlot.networkWidget)
     {
         return E_INVALIDARG;
     }
 
     const RedXeWidgetTypeDescriptor* widgetType = nullptr;
-    HRESULT result = FindWidgetType(provider, settings.typeId.utf8.data(), widgetType);
+    HRESULT result                              = FindWidgetType(provider, settings.typeId.utf8.data(), widgetType);
     if (FAILED(result))
     {
         return result;
@@ -925,17 +905,17 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
         return result;
     }
 
-    const HRESULT gpuResult = widgetSlot.widget.query_to(widgetSlot.gpuWidget.put());
-    const HRESULT preparedResult = widgetSlot.widget.query_to(widgetSlot.preparedGpuWidget.put());
-    const HRESULT constructionResult = widgetSlot.widget.query_to(widgetSlot.constructionStateWidget.put());
-    const HRESULT scheduledResult = widgetSlot.widget.query_to(widgetSlot.scheduledWidget.put());
-    const HRESULT windowResult = widgetSlot.widget.query_to(widgetSlot.windowWidget.put());
-    const HRESULT raisedResult = widgetSlot.widget.query_to(widgetSlot.raisedWidget.put());
-    const HRESULT interactiveResult = widgetSlot.widget.query_to(widgetSlot.interactiveWidget.put());
-    const HRESULT keyboardResult = widgetSlot.widget.query_to(widgetSlot.keyboardWidget.put());
-    const HRESULT textResult = widgetSlot.widget.query_to(widgetSlot.textInputWidget.put());
+    const HRESULT gpuResult           = widgetSlot.widget.query_to(widgetSlot.gpuWidget.put());
+    const HRESULT preparedResult      = widgetSlot.widget.query_to(widgetSlot.preparedGpuWidget.put());
+    const HRESULT constructionResult  = widgetSlot.widget.query_to(widgetSlot.constructionStateWidget.put());
+    const HRESULT scheduledResult     = widgetSlot.widget.query_to(widgetSlot.scheduledWidget.put());
+    const HRESULT windowResult        = widgetSlot.widget.query_to(widgetSlot.windowWidget.put());
+    const HRESULT raisedResult        = widgetSlot.widget.query_to(widgetSlot.raisedWidget.put());
+    const HRESULT interactiveResult   = widgetSlot.widget.query_to(widgetSlot.interactiveWidget.put());
+    const HRESULT keyboardResult      = widgetSlot.widget.query_to(widgetSlot.keyboardWidget.put());
+    const HRESULT textResult          = widgetSlot.widget.query_to(widgetSlot.textInputWidget.put());
     const HRESULT accessibilityResult = widgetSlot.widget.query_to(widgetSlot.accessibilityWidget.put());
-    const HRESULT networkResult = widgetSlot.widget.query_to(widgetSlot.networkWidget.put());
+    const HRESULT networkResult       = widgetSlot.widget.query_to(widgetSlot.networkWidget.put());
     if (gpuResult != S_OK && gpuResult != E_NOINTERFACE)
     {
         return gpuResult;
@@ -944,13 +924,13 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     {
         return preparedResult;
     }
-    if (widgetSlot.preparedGpuWidget && !widgetSlot.gpuWidget)
+    if (widgetSlot.preparedGpuWidget && ! widgetSlot.gpuWidget)
     {
         return E_NOINTERFACE;
     }
     if (constructionResult != S_OK && constructionResult != E_NOINTERFACE)
         return constructionResult;
-    if (widgetSlot.constructionStateWidget && !widgetSlot.preparedGpuWidget)
+    if (widgetSlot.constructionStateWidget && ! widgetSlot.preparedGpuWidget)
         return E_NOINTERFACE;
     if (windowResult != S_OK && windowResult != E_NOINTERFACE)
     {
@@ -970,21 +950,21 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
     }
     if (keyboardResult != S_OK && keyboardResult != E_NOINTERFACE)
         return keyboardResult;
-    if (widgetSlot.keyboardWidget && !widgetSlot.gpuWidget)
+    if (widgetSlot.keyboardWidget && ! widgetSlot.gpuWidget)
         return E_NOINTERFACE;
     if (textResult != S_OK && textResult != E_NOINTERFACE)
         return textResult;
-    if (widgetSlot.textInputWidget && (!widgetSlot.preparedGpuWidget || !widgetSlot.keyboardWidget))
+    if (widgetSlot.textInputWidget && (! widgetSlot.preparedGpuWidget || ! widgetSlot.keyboardWidget))
         return E_NOINTERFACE;
     if (accessibilityResult != S_OK && accessibilityResult != E_NOINTERFACE)
         return accessibilityResult;
-    if (widgetSlot.accessibilityWidget && (!widgetSlot.preparedGpuWidget || !widgetSlot.keyboardWidget))
+    if (widgetSlot.accessibilityWidget && (! widgetSlot.preparedGpuWidget || ! widgetSlot.keyboardWidget))
         return E_NOINTERFACE;
     if (networkResult != S_OK && networkResult != E_NOINTERFACE)
     {
         return networkResult;
     }
-    if (!widgetSlot.gpuWidget && !widgetSlot.windowWidget)
+    if (! widgetSlot.gpuWidget && ! widgetSlot.windowWidget)
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
     }
@@ -1001,31 +981,34 @@ HRESULT PluginManager::CreateWidgetInstance(IRedXeWidgetProvider& provider, cons
             return registerResult;
         }
     }
-    widgetSlot.instanceId = settings.id;
-    widgetSlot.placement = settings.placement;
-    widgetSlot.adaptivePlacement = settings.adaptivePlacement;
+    widgetSlot.instanceId            = settings.id;
+    widgetSlot.placement             = settings.placement;
+    widgetSlot.adaptivePlacement     = settings.adaptivePlacement;
     widgetSlot.usesAdaptivePlacement = settings.usesAdaptivePlacement;
-    widgetSlot.backgroundRgb = backgroundRgb;
-    widgetSlot.flags = widgetType->flags;
+    widgetSlot.backgroundRgb         = backgroundRgb;
+    widgetSlot.flags                 = widgetType->flags;
     return S_OK;
 }
 
-void PluginManager::MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings,
-                                    uint32_t backgroundRgb, HRESULT failure) noexcept
+void PluginManager::MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings, uint32_t backgroundRgb, HRESULT failure) noexcept
 {
-    widgetSlot = WidgetSlot{};
-    widgetSlot.instanceId = settings.id;
-    widgetSlot.placement = settings.placement;
-    widgetSlot.adaptivePlacement = settings.adaptivePlacement;
+    widgetSlot                       = WidgetSlot{};
+    widgetSlot.instanceId            = settings.id;
+    widgetSlot.placement             = settings.placement;
+    widgetSlot.adaptivePlacement     = settings.adaptivePlacement;
     widgetSlot.usesAdaptivePlacement = settings.usesAdaptivePlacement;
-    widgetSlot.backgroundRgb = backgroundRgb;
-    widgetSlot.flags = RedXeWidgetFlagNone;
-    widgetSlot.placeholder = true;
-    widgetSlot.failure = FAILED(failure) ? failure : E_FAIL;
+    widgetSlot.backgroundRgb         = backgroundRgb;
+    widgetSlot.flags                 = RedXeWidgetFlagNone;
+    widgetSlot.placeholder           = true;
+    widgetSlot.failure               = FAILED(failure) ? failure : E_FAIL;
     OutputDebugStringW(L"A widget instance could not be created; the host is drawing a placeholder tile.\n");
-    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, settings.pluginId.utf8.data(),
-                       settings.id.utf8.data(), "widget-placeholder",
-                       "widget instance could not be constructed; host placeholder tile.", widgetSlot.failure);
+    (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                       RedXeLogLevelError,
+                       settings.pluginId.utf8.data(),
+                       settings.id.utf8.data(),
+                       "widget-placeholder",
+                       "widget instance could not be constructed; host placeholder tile.",
+                       widgetSlot.failure);
 }
 
 void PluginManager::ClearWidgetStatuses() noexcept
@@ -1046,27 +1029,27 @@ PluginManager::WidgetSlot& PluginManager::WidgetSlot::operator=(WidgetSlot&& oth
     if (this != &other)
     {
         ReleaseWidgetInterfaces(*this);
-        status = std::move(other.status);
-        gpuWidget = std::move(other.gpuWidget);
-        preparedGpuWidget = std::move(other.preparedGpuWidget);
+        status                  = std::move(other.status);
+        gpuWidget               = std::move(other.gpuWidget);
+        preparedGpuWidget       = std::move(other.preparedGpuWidget);
         constructionStateWidget = std::move(other.constructionStateWidget);
-        scheduledWidget = std::move(other.scheduledWidget);
-        windowWidget = std::move(other.windowWidget);
-        raisedWidget = std::move(other.raisedWidget);
-        interactiveWidget = std::move(other.interactiveWidget);
-        keyboardWidget = std::move(other.keyboardWidget);
-        textInputWidget = std::move(other.textInputWidget);
-        accessibilityWidget = std::move(other.accessibilityWidget);
-        networkWidget = std::move(other.networkWidget);
-        widget = std::move(other.widget);
-        instanceId = std::move(other.instanceId);
-        placement = other.placement;
-        adaptivePlacement = other.adaptivePlacement;
-        usesAdaptivePlacement = other.usesAdaptivePlacement;
-        backgroundRgb = other.backgroundRgb;
-        flags = other.flags;
-        placeholder = other.placeholder;
-        failure = other.failure;
+        scheduledWidget         = std::move(other.scheduledWidget);
+        windowWidget            = std::move(other.windowWidget);
+        raisedWidget            = std::move(other.raisedWidget);
+        interactiveWidget       = std::move(other.interactiveWidget);
+        keyboardWidget          = std::move(other.keyboardWidget);
+        textInputWidget         = std::move(other.textInputWidget);
+        accessibilityWidget     = std::move(other.accessibilityWidget);
+        networkWidget           = std::move(other.networkWidget);
+        widget                  = std::move(other.widget);
+        instanceId              = std::move(other.instanceId);
+        placement               = other.placement;
+        adaptivePlacement       = other.adaptivePlacement;
+        usesAdaptivePlacement   = other.usesAdaptivePlacement;
+        backgroundRgb           = other.backgroundRgb;
+        flags                   = other.flags;
+        placeholder             = other.placeholder;
+        failure                 = other.failure;
     }
     return *this;
 }
@@ -1096,7 +1079,7 @@ void PluginManager::ReleaseWidgets() noexcept
     for (size_t index = 0; index < _widgetCount; ++index)
     {
         const auto instanceId = _widgets[index].instanceId;
-        _widgets[index] = WidgetSlot{};
+        _widgets[index]       = WidgetSlot{};
         // Worker callbacks and widget destruction must finish before discarding their queued settings/status.
         PluginHost::Instance().ClearWidgetStatus(instanceId.utf8.data());
     }
@@ -1114,12 +1097,16 @@ uint64_t PluginManager::HashFactoryConfiguration(const char* json, uint32_t byte
     return hash;
 }
 
-bool PluginManager::ProviderConfigurationMatches(const ProviderBuildKey& key, const DashboardPageSettings& page,
-                                                 const WidgetInstanceSettings& instance, const char* pluginId,
-                                                 uint64_t hash, uint32_t bytes, uint32_t backgroundRgb) noexcept
+bool PluginManager::ProviderConfigurationMatches(const ProviderBuildKey& key,
+                                                 const DashboardPageSettings& page,
+                                                 const WidgetInstanceSettings& instance,
+                                                 const char* pluginId,
+                                                 uint64_t hash,
+                                                 uint32_t bytes,
+                                                 uint32_t backgroundRgb) noexcept
 {
-    if (key.pluginId != pluginId || key.configurationHash != hash || key.configurationBytes != bytes ||
-        key.backgroundRgb != backgroundRgb || key.widgetIndex >= page.widgetCount)
+    if (key.pluginId != pluginId || key.configurationHash != hash || key.configurationBytes != bytes || key.backgroundRgb != backgroundRgb ||
+        key.widgetIndex >= page.widgetCount)
     {
         return false;
     }
@@ -1130,36 +1117,36 @@ bool PluginManager::ProviderConfigurationMatches(const ProviderBuildKey& key, co
     return original == instance.privateConfiguration;
 }
 
-HRESULT PluginManager::StagePage(const AppSettings& settings, uint32_t pageIndex, const PluginManager* validated,
+HRESULT PluginManager::StagePage(const AppSettings& settings,
+                                 uint32_t pageIndex,
+                                 const PluginManager* validated,
                                  std::shared_ptr<const ValidationEvidence>& evidence,
                                  std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
                                  std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
-                                 size_t& providerCount, std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
+                                 size_t& providerCount,
+                                 std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
                                  size_t& widgetCount) noexcept
 {
-    providerCount = 0;
-    widgetCount = 0;
+    providerCount  = 0;
+    widgetCount    = 0;
     HRESULT result = S_OK;
-    if (!PluginHost::Instance().IsShutdown() && _validationEvidence &&
-        ValidationEvidenceMatches(*_validationEvidence, settings))
+    if (! PluginHost::Instance().IsShutdown() && _validationEvidence && ValidationEvidenceMatches(*_validationEvidence, settings))
         evidence = _validationEvidence;
-    else if (!PluginHost::Instance().IsShutdown() && validated && validated->_initialized &&
-             validated->_validationEvidence && ValidationEvidenceMatches(*validated->_validationEvidence, settings))
+    else if (! PluginHost::Instance().IsShutdown() && validated && validated->_initialized && validated->_validationEvidence &&
+             ValidationEvidenceMatches(*validated->_validationEvidence, settings))
         evidence = validated->_validationEvidence;
     else
     {
         bool complete = false;
-        result = ValidatePluginDocument(settings, complete);
+        result        = ValidatePluginDocument(settings, complete);
         if (FAILED(result))
             return result;
-        if (complete && !PluginHost::Instance().IsShutdown())
+        if (complete && ! PluginHost::Instance().IsShutdown())
             evidence = BuildValidationEvidence(settings);
     }
-    const DashboardPageSettings* page =
-        pageIndex == UINT32_MAX
-            ? FindActiveDashboardPage(settings)
-            : (pageIndex < settings.dashboard.pageCount ? &settings.dashboard.pages[pageIndex] : nullptr);
-    if (!page || page->widgetCount > kMaximumWidgetInstances)
+    const DashboardPageSettings* page = pageIndex == UINT32_MAX ? FindActiveDashboardPage(settings)
+                                                                : (pageIndex < settings.dashboard.pageCount ? &settings.dashboard.pages[pageIndex] : nullptr);
+    if (! page || page->widgetCount > kMaximumWidgetInstances)
     {
         return E_INVALIDARG;
     }
@@ -1170,31 +1157,30 @@ HRESULT PluginManager::StagePage(const AppSettings& settings, uint32_t pageIndex
 
     for (uint32_t index = 0; index < page->widgetCount; ++index)
     {
-        const WidgetInstanceSettings& instance = page->widgets[index];
-        const PluginSettings* plugin = FindPluginSettings(settings, instance.pluginId.View());
+        const WidgetInstanceSettings& instance   = page->widgets[index];
+        const PluginSettings* plugin             = FindPluginSettings(settings, instance.pluginId.View());
         const RedXeBundledWidgetSpec* widgetSpec = FindBundledWidget(instance.pluginId.View(), instance.typeId.View());
         const RedXeBundledPluginSpec* pluginSpec = FindBundledPlugin(instance.pluginId.View());
-        if (!plugin || !plugin->enabled || !widgetSpec || !pluginSpec)
+        if (! plugin || ! plugin->enabled || ! widgetSpec || ! pluginSpec)
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
         }
 
         std::array<char, kFactoryConfigurationCapacity> configuration{};
         uint32_t configurationBytes = 0;
-        result = SerializeFactoryConfigurationJson(*plugin, instance, configuration, configurationBytes);
+        result                      = SerializeFactoryConfigurationJson(*plugin, instance, configuration, configurationBytes);
         if (FAILED(result) || configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
         {
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
         }
-        const uint32_t backgroundRgb = EffectiveWidgetBackgroundRgb(settings, instance);
+        const uint32_t backgroundRgb     = EffectiveWidgetBackgroundRgb(settings, instance);
         const uint64_t configurationHash = HashFactoryConfiguration(configuration.data(), configurationBytes);
 
         size_t providerIndex = providerCount;
         for (size_t candidate = 0; candidate < providerCount; ++candidate)
         {
             const ProviderBuildKey& key = providerKeys[candidate];
-            if (ProviderConfigurationMatches(key, *page, instance, pluginSpec->pluginId, configurationHash,
-                                             configurationBytes, backgroundRgb))
+            if (ProviderConfigurationMatches(key, *page, instance, pluginSpec->pluginId, configurationHash, configurationBytes, backgroundRgb))
             {
                 providerIndex = candidate;
                 break;
@@ -1207,8 +1193,8 @@ HRESULT PluginManager::StagePage(const AppSettings& settings, uint32_t pageIndex
             {
                 return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
             }
-            result = CreateBundledProvider(pluginSpec->pluginId, configuration.data(), configurationBytes,
-                                           backgroundRgb, providers[providerCount].provider.put());
+            result =
+                CreateBundledProvider(pluginSpec->pluginId, configuration.data(), configurationBytes, backgroundRgb, providers[providerCount].provider.put());
             if (FAILED(result))
             {
                 // Runtime construction failure is isolated to this instance. The document is already validated, so a
@@ -1217,12 +1203,12 @@ HRESULT PluginManager::StagePage(const AppSettings& settings, uint32_t pageIndex
                 ++widgetCount;
                 continue;
             }
-            ProviderBuildKey& key = providerKeys[providerCount];
-            key.configurationHash = configurationHash;
+            ProviderBuildKey& key  = providerKeys[providerCount];
+            key.configurationHash  = configurationHash;
             key.configurationBytes = configurationBytes;
-            key.backgroundRgb = backgroundRgb;
-            key.pluginId = pluginSpec->pluginId;
-            key.widgetIndex = index;
+            key.backgroundRgb      = backgroundRgb;
+            key.pluginId           = pluginSpec->pluginId;
+            key.widgetIndex        = index;
             ++providerCount;
         }
 
@@ -1233,8 +1219,12 @@ HRESULT PluginManager::StagePage(const AppSettings& settings, uint32_t pageIndex
         }
         else
         {
-            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, pluginSpec->pluginId,
-                               instance.id.utf8.data(), "widget-created", "widget instance constructed.");
+            (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                               RedXeLogLevelInfo,
+                               pluginSpec->pluginId,
+                               instance.id.utf8.data(),
+                               "widget-created",
+                               "widget instance constructed.");
         }
         ++widgetCount;
     }
@@ -1245,15 +1235,13 @@ HRESULT PluginManager::Initialize(const AppSettings& settings) noexcept
 {
     return InitializePageImpl(settings, UINT32_MAX, nullptr);
 }
-HRESULT PluginManager::InitializePage(const AppSettings& settings, uint32_t pageIndex,
-                                      const PluginManager* validated) noexcept
+HRESULT PluginManager::InitializePage(const AppSettings& settings, uint32_t pageIndex, const PluginManager* validated) noexcept
 {
     if (settings.dashboard.pages.size() != settings.dashboard.pageCount || pageIndex >= settings.dashboard.pageCount)
         return E_INVALIDARG;
     return InitializePageImpl(settings, pageIndex, validated);
 }
-HRESULT PluginManager::InitializePageImpl(const AppSettings& settings, uint32_t pageIndex,
-                                          const PluginManager* validated) noexcept
+HRESULT PluginManager::InitializePageImpl(const AppSettings& settings, uint32_t pageIndex, const PluginManager* validated) noexcept
 {
     if (_initialized || _widgetCount != 0 || _providerCount != 0)
     {
@@ -1265,30 +1253,29 @@ HRESULT PluginManager::InitializePageImpl(const AppSettings& settings, uint32_t 
     std::array<WidgetSlot, kMaximumWidgetInstances> widgets;
     static_assert(sizeof(providers) + sizeof(providerKeys) + sizeof(widgets) < 28U * 1024U);
     size_t providerCount = 0;
-    size_t widgetCount = 0;
+    size_t widgetCount   = 0;
     std::shared_ptr<const ValidationEvidence> evidence;
-    const HRESULT result = StagePage(settings, pageIndex, validated, evidence, providers, providerKeys, providerCount,
-                                     widgets, widgetCount);
+    const HRESULT result = StagePage(settings, pageIndex, validated, evidence, providers, providerKeys, providerCount, widgets, widgetCount);
     if (FAILED(result))
     {
         return result;
     }
 
-    _providers = std::move(providers);
-    _widgets = std::move(widgets);
-    _providerCount = providerCount;
-    _widgetCount = widgetCount;
-    _gridColumns = settings.dashboard.gridColumns;
-    _gridRows = settings.dashboard.gridRows;
-    _backgroundRgb = settings.backgroundRgb;
+    _providers          = std::move(providers);
+    _widgets            = std::move(widgets);
+    _providerCount      = providerCount;
+    _widgetCount        = widgetCount;
+    _gridColumns        = settings.dashboard.gridColumns;
+    _gridRows           = settings.dashboard.gridRows;
+    _backgroundRgb      = settings.backgroundRgb;
     _validationEvidence = std::move(evidence);
-    _initialized = true;
+    _initialized        = true;
     return S_OK;
 }
 
 HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
 {
-    if (!_initialized)
+    if (! _initialized)
     {
         return E_INVALIDARG;
     }
@@ -1297,23 +1284,22 @@ HRESULT PluginManager::Reconfigure(const AppSettings& settings) noexcept
     std::array<WidgetSlot, kMaximumWidgetInstances> widgets;
     static_assert(sizeof(providers) + sizeof(providerKeys) + sizeof(widgets) < 28U * 1024U);
     size_t providerCount = 0;
-    size_t widgetCount = 0;
+    size_t widgetCount   = 0;
     std::shared_ptr<const ValidationEvidence> evidence;
-    const HRESULT result = StagePage(settings, UINT32_MAX, nullptr, evidence, providers, providerKeys, providerCount,
-                                     widgets, widgetCount);
+    const HRESULT result = StagePage(settings, UINT32_MAX, nullptr, evidence, providers, providerKeys, providerCount, widgets, widgetCount);
     if (FAILED(result))
     {
         return result;
     }
 
     ReleaseWidgets();
-    _widgets = std::move(widgets);
-    _widgetCount = widgetCount;
-    _providers = std::move(providers);
-    _providerCount = providerCount;
-    _gridColumns = settings.dashboard.gridColumns;
-    _gridRows = settings.dashboard.gridRows;
-    _backgroundRgb = settings.backgroundRgb;
+    _widgets            = std::move(widgets);
+    _widgetCount        = widgetCount;
+    _providers          = std::move(providers);
+    _providerCount      = providerCount;
+    _gridColumns        = settings.dashboard.gridColumns;
+    _gridRows           = settings.dashboard.gridRows;
+    _backgroundRgb      = settings.backgroundRgb;
     _validationEvidence = std::move(evidence);
     return S_OK;
 }
@@ -1445,21 +1431,17 @@ uint32_t PluginManager::GridRows() const noexcept
     return _initialized ? _gridRows : 0;
 }
 
-HRESULT PluginManager::ValidatePluginPublishedSchema(std::string_view schemaJson,
-                                                     std::string_view defaultsJson) noexcept
+HRESULT PluginManager::ValidatePluginPublishedSchema(std::string_view schemaJson, std::string_view defaultsJson) noexcept
 {
-    if (schemaJson.empty() || defaultsJson.empty() || schemaJson.size() > kPrivateConfigurationCapacity ||
-        defaultsJson.size() > kPrivateConfigurationCapacity)
+    if (schemaJson.empty() || defaultsJson.empty() || schemaJson.size() > kPrivateConfigurationCapacity || defaultsJson.size() > kPrivateConfigurationCapacity)
     {
         return E_INVALIDARG;
     }
     unique_contract_doc schemaDocument{yyjson_read(schemaJson.data(), schemaJson.size(), YYJSON_READ_NOFLAG)};
     unique_contract_doc defaultsDocument{yyjson_read(defaultsJson.data(), defaultsJson.size(), YYJSON_READ_NOFLAG)};
-    if (!schemaDocument || !defaultsDocument || !yyjson_is_obj(yyjson_doc_get_root(schemaDocument.get())) ||
-        !yyjson_is_obj(yyjson_doc_get_root(defaultsDocument.get())) ||
-        !ValidatePublishedSchemaShape(yyjson_doc_get_root(schemaDocument.get()), 0) ||
-        !ValidateValueAgainstPublishedSchema(yyjson_doc_get_root(schemaDocument.get()),
-                                             yyjson_doc_get_root(defaultsDocument.get())))
+    if (! schemaDocument || ! defaultsDocument || ! yyjson_is_obj(yyjson_doc_get_root(schemaDocument.get())) ||
+        ! yyjson_is_obj(yyjson_doc_get_root(defaultsDocument.get())) || ! ValidatePublishedSchemaShape(yyjson_doc_get_root(schemaDocument.get()), 0) ||
+        ! ValidateValueAgainstPublishedSchema(yyjson_doc_get_root(schemaDocument.get()), yyjson_doc_get_root(defaultsDocument.get())))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }

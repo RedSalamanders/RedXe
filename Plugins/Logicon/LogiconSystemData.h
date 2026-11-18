@@ -20,15 +20,15 @@
 
 namespace Logicon
 {
-inline constexpr char kSystemDataProviderId[] = "builtin.system-data";
+inline constexpr char kSystemDataProviderId[]             = "builtin.system-data";
 inline constexpr uint32_t kSystemDataIntervalMilliseconds = 1000;
 
 // Rounded percentages; -1 while unknown.
 struct SystemValues final
 {
-    int32_t cpuPercent = -1;
+    int32_t cpuPercent    = -1;
     int32_t memoryPercent = -1;
-    int32_t gpuPercent = -1;
+    int32_t gpuPercent    = -1;
 
     [[nodiscard]] bool operator==(const SystemValues& other) const noexcept
     {
@@ -39,10 +39,10 @@ struct SystemValues final
 // Receives the reduced values on the acquisition worker; must copy and return.
 class SystemValuesListener
 {
-  public:
+public:
     virtual void OnSystemValues(const SystemValues& values) noexcept = 0;
 
-  protected:
+protected:
     ~SystemValuesListener() = default;
 };
 
@@ -52,7 +52,7 @@ class SystemValuesListener
 #pragma warning(disable : 4625 4626)
 class SystemDataFeed final : public RedXeComObject<SystemDataFeed, IRedXeDataSink>
 {
-  public:
+public:
     explicit SystemDataFeed(SystemValuesListener& listener) noexcept;
     ~SystemDataFeed();
 
@@ -70,10 +70,9 @@ class SystemDataFeed final : public RedXeComObject<SystemDataFeed, IRedXeDataSin
     HRESULT STDMETHODCALLTYPE OnDataSnapshot(const RedXeDataSnapshot* snapshot) noexcept override;
 
     // Reduces one snapshot into values; exposed for tests. Unknown data sets leave values untouched.
-    static void Reduce(const RedXeDataSnapshot& snapshot, const std::array<int32_t, 8>& columns,
-                       SystemValues& values) noexcept;
+    static void Reduce(const RedXeDataSnapshot& snapshot, const std::array<int32_t, 8>& columns, SystemValues& values) noexcept;
 
-  private:
+private:
     enum Column : uint32_t
     {
         CpuTotal = 0,

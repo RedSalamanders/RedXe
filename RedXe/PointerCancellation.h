@@ -7,6 +7,5 @@
 [[nodiscard]] inline bool PointerMessageCancelsGesture(UINT message, WPARAM wParam) noexcept
 {
     return message == WM_POINTERCAPTURECHANGED ||
-           ((message == WM_POINTERDOWN || message == WM_POINTERUPDATE || message == WM_POINTERUP) &&
-            IS_POINTER_CANCELED_WPARAM(wParam));
+           ((message == WM_POINTERDOWN || message == WM_POINTERUPDATE || message == WM_POINTERUP) && IS_POINTER_CANCELED_WPARAM(wParam));
 }

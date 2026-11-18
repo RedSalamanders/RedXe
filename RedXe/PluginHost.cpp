@@ -28,7 +28,7 @@ constexpr size_t kMaximumPathCapacity = 32768;
 template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE module, const char* name) noexcept
 {
     const FARPROC procedure = GetProcAddress(module, name);
-    Function function = nullptr;
+    Function function       = nullptr;
     static_assert(sizeof(function) == sizeof(procedure));
     std::memcpy(&function, &procedure, sizeof(function));
     return function;
@@ -36,7 +36,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
 [[nodiscard]] size_t FindBundledPluginIndex(const char* pluginId) noexcept
 {
-    if (!RedXeIsValidMachineId(pluginId))
+    if (! RedXeIsValidMachineId(pluginId))
     {
         return kRedXeBundledPlugins.size();
     }
@@ -53,7 +53,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
 [[nodiscard]] HRESULT BuildPluginPath(const wchar_t* moduleName, wchar_t* path, size_t capacity) noexcept
 {
-    if (!moduleName || moduleName[0] == L'\0' || !path || capacity == 0 || capacity > static_cast<size_t>(MAXDWORD))
+    if (! moduleName || moduleName[0] == L'\0' || ! path || capacity == 0 || capacity > static_cast<size_t>(MAXDWORD))
     {
         return E_INVALIDARG;
     }
@@ -69,12 +69,12 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
 
     wchar_t* separator = std::wcsrchr(path, L'\\');
-    if (!separator)
+    if (! separator)
     {
         return HRESULT_FROM_WIN32(ERROR_BAD_PATHNAME);
     }
     const size_t prefixLength = static_cast<size_t>(separator - path) + 1;
-    HRESULT result = StringCchCopyW(separator + 1, capacity - prefixLength, L"Plugins\\");
+    HRESULT result            = StringCchCopyW(separator + 1, capacity - prefixLength, L"Plugins\\");
     if (FAILED(result))
     {
         return result;
@@ -86,22 +86,17 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 {
     switch (level)
     {
-    case RedXeLogLevelError:
-        return "error";
-    case RedXeLogLevelWarning:
-        return "warning";
-    case RedXeLogLevelInfo:
-        return "info";
-    case RedXeLogLevelDebug:
-        return "debug";
-    default:
-        return nullptr;
+        case RedXeLogLevelError: return "error";
+        case RedXeLogLevelWarning: return "warning";
+        case RedXeLogLevelInfo: return "info";
+        case RedXeLogLevelDebug: return "debug";
+        default: return nullptr;
     }
 }
 
 [[nodiscard]] bool IsValidLogEventId(const char* eventId) noexcept
 {
-    if (!eventId || eventId[0] == '\0')
+    if (! eventId || eventId[0] == '\0')
     {
         return false;
     }
@@ -113,9 +108,9 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         {
             return false;
         }
-        const bool allowed = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-                             (character >= '0' && character <= '9') || character == '-' || character == '.';
-        if (!allowed)
+        const bool allowed = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') ||
+                             character == '-' || character == '.';
+        if (! allowed)
         {
             return false;
         }
@@ -126,7 +121,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
 size_t AppendLogText(char* destination, size_t capacity, size_t used, const char* text) noexcept
 {
-    if (!text)
+    if (! text)
     {
         return used;
     }
@@ -141,8 +136,7 @@ size_t AppendLogText(char* destination, size_t capacity, size_t used, const char
     return used;
 }
 
-size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const char* text,
-                        uint32_t maxCharacters) noexcept
+size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const char* text, uint32_t maxCharacters) noexcept
 {
     uint32_t copied = 0;
     while (text && copied < maxCharacters && *text != '\0')
@@ -166,13 +160,13 @@ size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const c
             {
                 break;
             }
-            destination[used++] = '\\';
-            destination[used++] = 'u';
-            destination[used++] = '0';
-            destination[used++] = '0';
+            destination[used++]   = '\\';
+            destination[used++]   = 'u';
+            destination[used++]   = '0';
+            destination[used++]   = '0';
             constexpr char kHex[] = "0123456789abcdef";
-            destination[used++] = kHex[(character >> 4) & 0x0f];
-            destination[used++] = kHex[character & 0x0f];
+            destination[used++]   = kHex[(character >> 4) & 0x0f];
+            destination[used++]   = kHex[character & 0x0f];
             ++text;
             ++copied;
             continue;
@@ -192,14 +186,14 @@ size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const c
         for (uint32_t index = 1; valid && index < bytes; ++index)
         {
             const unsigned char next = static_cast<unsigned char>(text[index]);
-            valid = next >= 0x80 && next <= 0xBF;
+            valid                    = next >= 0x80 && next <= 0xBF;
             if (index == 1)
             {
-                valid = valid && !(character == 0xE0 && next < 0xA0) && !(character == 0xED && next >= 0xA0) &&
-                        !(character == 0xF0 && next < 0x90) && !(character == 0xF4 && next >= 0x90);
+                valid = valid && ! (character == 0xE0 && next < 0xA0) && ! (character == 0xED && next >= 0xA0) && ! (character == 0xF0 && next < 0x90) &&
+                        ! (character == 0xF4 && next >= 0x90);
             }
         }
-        if (!valid)
+        if (! valid)
         {
             if (used + 1 >= capacity)
                 break;
@@ -226,30 +220,30 @@ size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const c
 
 [[nodiscard]] uint32_t FormatLogLine(const RedXeLogRecord& record, char* destination, size_t capacity) noexcept
 {
-    if (!destination || capacity < 512)
+    if (! destination || capacity < 512)
     {
         return 0;
     }
     SYSTEMTIME utc{};
     GetSystemTime(&utc);
     char timestamp[32]{};
-    if (sprintf_s(timestamp, "%04u-%02u-%02uT%02u:%02u:%02u.%03uZ", utc.wYear, utc.wMonth, utc.wDay, utc.wHour,
-                  utc.wMinute, utc.wSecond, utc.wMilliseconds) < 0)
+    if (sprintf_s(timestamp, "%04u-%02u-%02uT%02u:%02u:%02u.%03uZ", utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond, utc.wMilliseconds) <
+        0)
     {
         return 0;
     }
     const char* level = LogLevelName(record.level);
-    if (!level)
+    if (! level)
     {
         return 0;
     }
 
     size_t used = 0;
-    used = AppendLogText(destination, capacity, used, "{\"ts\":\"");
-    used = AppendLogText(destination, capacity, used, timestamp);
-    used = AppendLogText(destination, capacity, used, "\",\"level\":\"");
-    used = AppendLogText(destination, capacity, used, level);
-    used = AppendLogText(destination, capacity, used, "\"");
+    used        = AppendLogText(destination, capacity, used, "{\"ts\":\"");
+    used        = AppendLogText(destination, capacity, used, timestamp);
+    used        = AppendLogText(destination, capacity, used, "\",\"level\":\"");
+    used        = AppendLogText(destination, capacity, used, level);
+    used        = AppendLogText(destination, capacity, used, "\"");
     if (record.pluginId && record.pluginId[0] != '\0')
     {
         used = AppendLogText(destination, capacity, used, ",\"plugin\":\"");
@@ -292,11 +286,10 @@ size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const c
     return HRESULT_FROM_WIN32(static_cast<DWORD>(result));
 }
 
-[[nodiscard]] HRESULT ValidateMetadata(const RedXePluginMetadata* metadata, uint32_t count,
-                                       const char* expectedPluginId, uint32_t& capabilities) noexcept
+[[nodiscard]] HRESULT ValidateMetadata(const RedXePluginMetadata* metadata, uint32_t count, const char* expectedPluginId, uint32_t& capabilities) noexcept
 {
     capabilities = RedXePluginCapabilityNone;
-    if (!metadata || count == 0 || count > 256 || !RedXeIsValidMachineId(expectedPluginId))
+    if (! metadata || count == 0 || count > 256 || ! RedXeIsValidMachineId(expectedPluginId))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -305,10 +298,10 @@ size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const c
     for (uint32_t index = 0; index < count; ++index)
     {
         const RedXePluginMetadata& candidate = metadata[index];
-        if (candidate.sizeBytes != sizeof(RedXePluginMetadata) || !RedXeIsValidMachineId(candidate.id) ||
-            !candidate.displayName || !candidate.description || !candidate.author || !candidate.version ||
-            (candidate.capabilities & ~(RedXePluginCapabilityWidgetProvider | RedXePluginCapabilityDataSource |
-                                        RedXePluginCapabilityService | RedXePluginCapabilityActions)) != 0)
+        if (candidate.sizeBytes != sizeof(RedXePluginMetadata) || ! RedXeIsValidMachineId(candidate.id) || ! candidate.displayName || ! candidate.description ||
+            ! candidate.author || ! candidate.version ||
+            (candidate.capabilities &
+             ~(RedXePluginCapabilityWidgetProvider | RedXePluginCapabilityDataSource | RedXePluginCapabilityService | RedXePluginCapabilityActions)) != 0)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -322,7 +315,7 @@ size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const c
         if (RedXeAsciiEqualsIgnoreCase(candidate.id, expectedPluginId))
         {
             capabilities = candidate.capabilities;
-            selected = true;
+            selected     = true;
         }
     }
     return selected ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
@@ -330,23 +323,23 @@ size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const c
 
 [[nodiscard]] int CompareDueDataSetIds(const char* left, const char* right) noexcept
 {
-    const bool leftStatus = left != nullptr && RedXeAsciiEqualsIgnoreCase(left, "source.status");
+    const bool leftStatus  = left != nullptr && RedXeAsciiEqualsIgnoreCase(left, "source.status");
     const bool rightStatus = right != nullptr && RedXeAsciiEqualsIgnoreCase(right, "source.status");
     if (leftStatus != rightStatus)
     {
         return leftStatus ? 1 : -1;
     }
-    if (!left)
+    if (! left)
     {
         return right ? -1 : 0;
     }
-    if (!right)
+    if (! right)
     {
         return 1;
     }
     while (*left != '\0' && *right != '\0')
     {
-        unsigned char leftValue = static_cast<unsigned char>(*left);
+        unsigned char leftValue  = static_cast<unsigned char>(*left);
         unsigned char rightValue = static_cast<unsigned char>(*right);
         if (leftValue >= 'A' && leftValue <= 'Z')
         {
@@ -371,37 +364,36 @@ size_t AppendLogEscaped(char* destination, size_t capacity, size_t used, const c
 }
 
 void SortDueDataSets(std::array<const char*, RedXeDataCollectMaximumDataSets>& ids,
-                     std::array<uint32_t, RedXeDataCollectMaximumDataSets>& indices, uint32_t count) noexcept
+                     std::array<uint32_t, RedXeDataCollectMaximumDataSets>& indices,
+                     uint32_t count) noexcept
 {
     for (uint32_t index = 1; index < count; ++index)
     {
-        const char* id = ids[index];
+        const char* id              = ids[index];
         const uint32_t dataSetIndex = indices[index];
-        uint32_t insert = index;
+        uint32_t insert             = index;
         while (insert > 0 && CompareDueDataSetIds(ids[insert - 1], id) > 0)
         {
-            ids[insert] = ids[insert - 1];
+            ids[insert]     = ids[insert - 1];
             indices[insert] = indices[insert - 1];
             --insert;
         }
-        ids[insert] = id;
+        ids[insert]     = id;
         indices[insert] = dataSetIndex;
     }
 }
 
-[[nodiscard]] bool CollectResultMatchesRequest(const RedXeDataCollectRequest& request,
-                                               const RedXeDataCollectResult* result) noexcept
+[[nodiscard]] bool CollectResultMatchesRequest(const RedXeDataCollectRequest& request, const RedXeDataCollectResult* result) noexcept
 {
-    if (!result || result->sizeBytes != sizeof(RedXeDataCollectResult) ||
-        result->snapshotCount != request.dataSetCount || !result->snapshots)
+    if (! result || result->sizeBytes != sizeof(RedXeDataCollectResult) || result->snapshotCount != request.dataSetCount || ! result->snapshots)
     {
         return false;
     }
     for (uint32_t index = 0; index < request.dataSetCount; ++index)
     {
         const RedXeDataSnapshot* snapshot = result->snapshots[index];
-        if (!snapshot || snapshot->sizeBytes != sizeof(RedXeDataSnapshot) || !snapshot->dataSetId ||
-            !RedXeAsciiEqualsIgnoreCase(snapshot->dataSetId, request.dataSetIds[index]))
+        if (! snapshot || snapshot->sizeBytes != sizeof(RedXeDataSnapshot) || ! snapshot->dataSetId ||
+            ! RedXeAsciiEqualsIgnoreCase(snapshot->dataSetId, request.dataSetIds[index]))
         {
             return false;
         }
@@ -425,12 +417,14 @@ void SortDueDataSets(std::array<const char*, RedXeDataCollectMaximumDataSets>& i
 #pragma warning(disable : 4625 4626 5026 5027)
 class PluginHost::DataProvider final : public RedXeComObject<PluginHost::DataProvider, IRedXeDataProvider>
 {
-  public:
-    DataProvider(PluginHost& host, size_t providerIndex) noexcept : _host(&host), _providerIndex(providerIndex) {}
+public:
+    DataProvider(PluginHost& host, size_t providerIndex) noexcept : _host(&host), _providerIndex(providerIndex)
+    {
+    }
 
     ULONG STDMETHODCALLTYPE Release() noexcept override
     {
-        PluginHost* host = _host;
+        PluginHost* host      = _host;
         const ULONG remaining = RedXeComObject<DataProvider, IRedXeDataProvider>::Release();
         // Release may have deleted this; use only the saved host pointer and returned count afterwards.
         if (remaining == 1 && host)
@@ -448,13 +442,14 @@ class PluginHost::DataProvider final : public RedXeComObject<PluginHost::DataPro
         return _host ? _host->GetDataSets(_providerIndex, descriptors, count) : E_UNEXPECTED;
     }
 
-    HRESULT STDMETHODCALLTYPE Subscribe(const RedXeDataSubscriptionOptions* options, IRedXeDataSink* sink,
+    HRESULT STDMETHODCALLTYPE Subscribe(const RedXeDataSubscriptionOptions* options,
+                                        IRedXeDataSink* sink,
                                         IRedXeDataSubscription** subscription) noexcept override
     {
         return _host ? _host->Subscribe(_providerIndex, options, sink, subscription) : E_UNEXPECTED;
     }
 
-  private:
+private:
     PluginHost* _host;
     size_t _providerIndex;
 };
@@ -466,7 +461,7 @@ class PluginHost::DataProvider final : public RedXeComObject<PluginHost::DataPro
 #pragma warning(disable : 4625 4626)
 class PluginHost::Subscription final : public RedXeComObject<PluginHost::Subscription, IRedXeDataSubscription>
 {
-  public:
+public:
     Subscription(PluginHost& host, size_t index, uint64_t token) noexcept : _host(&host), _index(index), _token(token)
     {
     }
@@ -484,7 +479,7 @@ class PluginHost::Subscription final : public RedXeComObject<PluginHost::Subscri
         return _host ? _host->SetSubscriptionActive(_index, _token, active != FALSE) : E_UNEXPECTED;
     }
 
-  private:
+private:
     PluginHost* _host;
     size_t _index;
     uint64_t _token;
@@ -513,13 +508,12 @@ PluginHost& PluginHost::Instance() noexcept
     {
         void operator()(PluginHost* runtime) const noexcept
         {
-            if (!runtime)
+            if (! runtime)
             {
                 return;
             }
             runtime->Shutdown();
-            if (runtime->RunningDeviceWorkerCount() == 0 && !runtime->LaunchWorkerRunning() &&
-                !runtime->ConstructionWorkerRunning())
+            if (runtime->RunningDeviceWorkerCount() == 0 && ! runtime->LaunchWorkerRunning() && ! runtime->ConstructionWorkerRunning())
             {
                 delete runtime;
             }
@@ -559,8 +553,8 @@ void PluginHost::Shutdown() noexcept
         // The lane still borrows this host and its module. The process singleton is intentionally retained,
         // and a private host's destructor joins before it releases this storage.
         HostActions::ReleaseHeld();
-        const bool first = !_shutdown;
-        _shutdown = true;
+        const bool first = ! _shutdown;
+        _shutdown        = true;
         // The writer and its events stay alive because the lane may still log, but process exit would discard
         // the queue, device-lane-drain-timeout and launch-stop-timeout included, so it is written out now within
         // a bound. Only the first such call waits: the process runtime is shut down again by its deleter at
@@ -575,7 +569,7 @@ void PluginHost::Shutdown() noexcept
         const auto guard = wil::AcquireSRWLockExclusive(&_hostActionLock);
         for (HostActionSlot& slot : _hostActions)
             slot = HostActionSlot{};
-        _hostActionHead = 0;
+        _hostActionHead  = 0;
         _hostActionCount = 0;
         _pendingHostActionPost.store(0, std::memory_order_release);
     }
@@ -608,21 +602,28 @@ void PluginHost::StopLaunches(uint32_t timeoutMilliseconds) noexcept
     // keeps only the launch worker's own slots. Only the first wait that runs out on it reports it: a later stop
     // (Shutdown after a session end, or the deleter's second shutdown) finds the same launch still stuck. An idle
     // worker that a zero wait (a spent session-end deadline) gave no time to exit is no launch and is not reported.
-    if (_launches.Stop(timeoutMilliseconds) == LaunchWorker::StopResult::LaunchInProgress && !_launchStopReported)
+    if (_launches.Stop(timeoutMilliseconds) == LaunchWorker::StopResult::LaunchInProgress && ! _launchStopReported)
     {
         _launchStopReported = true;
-        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "launch-stop-timeout",
+        (void)RedXeHostLog(Interface(),
+                           RedXeLogLevelWarning,
+                           nullptr,
+                           nullptr,
+                           "launch-stop-timeout",
                            "a launch was still in progress when RedXe stopped; RedXe exits without waiting for it.");
     }
 }
 
 void PluginHost::StopConstruction(uint32_t timeoutMilliseconds) noexcept
 {
-    if (_constructionWork.Stop(timeoutMilliseconds) == ConstructionWorkQueue::StopResult::WorkInProgress &&
-        !_constructionStopReported)
+    if (_constructionWork.Stop(timeoutMilliseconds) == ConstructionWorkQueue::StopResult::WorkInProgress && ! _constructionStopReported)
     {
         _constructionStopReported = true;
-        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "construction-stop-timeout",
+        (void)RedXeHostLog(Interface(),
+                           RedXeLogLevelWarning,
+                           nullptr,
+                           nullptr,
+                           "construction-stop-timeout",
                            "native construction was still in progress when RedXe stopped; its runtime is retained.");
     }
 }
@@ -637,7 +638,7 @@ IRedXeHost* PluginHost::Interface() noexcept
 // Plugins borrow IRedXeHost for the lifetime of the runtime and must not outlive it.
 HRESULT PluginHost::QueryInterface(REFIID interfaceId, void** result) noexcept
 {
-    if (!result)
+    if (! result)
     {
         return E_POINTER;
     }
@@ -672,15 +673,13 @@ void PluginHost::SetSettingsPersistHandler(SettingsPersistHandler handler, void*
     _settingsPersistContext = context;
 }
 
-HRESULT PluginHost::PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8,
-                                          uint32_t settingsBytes) noexcept
+HRESULT PluginHost::PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8, uint32_t settingsBytes) noexcept
 {
-    if (!instanceId || instanceId[0] == '\0' || !settingsJsonUtf8 || settingsBytes == 0 ||
-        settingsBytes > kPrivateConfigurationCapacity)
+    if (! instanceId || instanceId[0] == '\0' || ! settingsJsonUtf8 || settingsBytes == 0 || settingsBytes > kPrivateConfigurationCapacity)
     {
         return E_INVALIDARG;
     }
-    if (!_settingsPersistHandler)
+    if (! _settingsPersistHandler)
     {
         return E_UNEXPECTED;
     }
@@ -699,37 +698,40 @@ HRESULT PluginHost::PersistWidgetSettings(const char* instanceId, const char* se
     }
     if (earlier)
     {
-        const HRESULT result =
-            _settingsPersistHandler(_settingsPersistContext, instanceId, earlier->json.data(), earlier->bytes);
+        const HRESULT result = _settingsPersistHandler(_settingsPersistContext, instanceId, earlier->json.data(), earlier->bytes);
         if (FAILED(result))
-            (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, "host", instanceId, "settings-queue-failed",
-                               "Queued settings could not be committed before the interactive edit.", result);
+            (void)RedXeHostLog(Interface(),
+                               RedXeLogLevelWarning,
+                               "host",
+                               instanceId,
+                               "settings-queue-failed",
+                               "Queued settings could not be committed before the interactive edit.",
+                               result);
     }
     return _settingsPersistHandler(_settingsPersistContext, instanceId, settingsJsonUtf8, settingsBytes);
 }
 
 HRESULT PluginHost::QueueWidgetSettings(const char* instanceId, const char* jsonUtf8, uint32_t bytes) noexcept
 {
-    if (!instanceId || !instanceId[0] || strnlen_s(instanceId, 128) >= 128 || !jsonUtf8 || bytes == 0 || bytes > 4096)
+    if (! instanceId || ! instanceId[0] || strnlen_s(instanceId, 128) >= 128 || ! jsonUtf8 || bytes == 0 || bytes > 4096)
         return E_INVALIDARG;
     std::unique_ptr<PendingSettings> pending{new (std::nothrow) PendingSettings};
-    if (!pending)
+    if (! pending)
         return E_OUTOFMEMORY;
     strcpy_s(pending->instanceId.data(), pending->instanceId.size(), instanceId);
     std::memcpy(pending->json.data(), jsonUtf8, bytes);
     pending->bytes = bytes;
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_pendingSettingsLock);
-        size_t selected = _pendingSettings.size();
+        size_t selected  = _pendingSettings.size();
         for (size_t index = 0; index < _pendingSettings.size(); ++index)
         {
-            if (_pendingSettings[index] &&
-                RedXeAsciiEqualsIgnoreCase(_pendingSettings[index]->instanceId.data(), instanceId))
+            if (_pendingSettings[index] && RedXeAsciiEqualsIgnoreCase(_pendingSettings[index]->instanceId.data(), instanceId))
             {
                 selected = index;
                 break;
             }
-            if (!_pendingSettings[index] && selected == _pendingSettings.size())
+            if (! _pendingSettings[index] && selected == _pendingSettings.size())
                 selected = index;
         }
         if (selected == _pendingSettings.size())
@@ -743,16 +745,16 @@ HRESULT PluginHost::QueueWidgetSettings(const char* instanceId, const char* json
 
 HRESULT PluginHost::Log(const RedXeLogRecord* record) noexcept
 {
-    if (!record)
+    if (! record)
     {
         return E_POINTER;
     }
-    if (record->sizeBytes != sizeof(RedXeLogRecord) || !IsValidLogEventId(record->eventId) || !record->messageUtf8 ||
-        record->messageUtf8[0] == '\0' || !LogLevelName(record->level))
+    if (record->sizeBytes != sizeof(RedXeLogRecord) || ! IsValidLogEventId(record->eventId) || ! record->messageUtf8 || record->messageUtf8[0] == '\0' ||
+        ! LogLevelName(record->level))
     {
         return E_INVALIDARG;
     }
-#if !defined(_DEBUG)
+#if ! defined(_DEBUG)
     if (record->level == RedXeLogLevelDebug)
     {
         return S_OK;
@@ -769,8 +771,7 @@ HRESULT PluginHost::Log(const RedXeLogRecord* record) noexcept
     {
         return E_FAIL;
     }
-    if ((record->level == RedXeLogLevelError || record->level == RedXeLogLevelWarning) &&
-        _standardErrorLog.load(std::memory_order_acquire))
+    if ((record->level == RedXeLogLevelError || record->level == RedXeLogLevelWarning) && _standardErrorLog.load(std::memory_order_acquire))
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_standardErrorLock);
         RedXeFailureReports::WriteUtf8ToStandardError(line.data(), bytes);
@@ -830,13 +831,12 @@ HRESULT PluginHost::QueryAvProbeStatistics(AVControl::ProbeStatistics& statistic
     if (_shutdown)
         return E_UNEXPECTED;
     const size_t index = FindBundledPluginIndex("builtin.av-control");
-    if (index >= _modules.size() || !_modules[index].module)
+    if (index >= _modules.size() || ! _modules[index].module)
         return S_FALSE;
 // Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
 // Owner: RedXe maintainers; review: 2027-01-31.
 #pragma warning(suppress : 4191)
-    const auto query = reinterpret_cast<AVControl::QueryProbeStatisticsFn>(
-        GetProcAddress(_modules[index].module.get(), "RedXeAVControlQueryProbeStatistics"));
+    const auto query = reinterpret_cast<AVControl::QueryProbeStatisticsFn>(GetProcAddress(_modules[index].module.get(), "RedXeAVControlQueryProbeStatistics"));
     return query ? query(&statistics) : E_NOINTERFACE;
 }
 
@@ -847,7 +847,7 @@ void PluginHost::SetStandardErrorLog(bool enabled) noexcept
 
 HRESULT PluginHost::SetLogDirectory(const wchar_t* directory) noexcept
 {
-    if (!directory || directory[0] == L'\0')
+    if (! directory || directory[0] == L'\0')
     {
         return E_INVALIDARG;
     }
@@ -859,7 +859,7 @@ HRESULT PluginHost::SetLogDirectory(const wchar_t* directory) noexcept
     _logDirectory = directory;
     _logFile.reset();
     _logFilePath.clear();
-    _logFileUtcDate = {};
+    _logFileUtcDate         = {};
     _logPurgedRetentionDays = 0;
 
     HRESULT result = EnsureLogDirectory(_logDirectory.c_str());
@@ -872,8 +872,7 @@ HRESULT PluginHost::SetLogDirectory(const wchar_t* directory) noexcept
     {
         return result;
     }
-    const RedXeLogRecord opened{
-        sizeof(RedXeLogRecord), RedXeLogLevelInfo, nullptr, nullptr, "log-open", "host JSONL log opened.", S_OK};
+    const RedXeLogRecord opened{sizeof(RedXeLogRecord), RedXeLogLevelInfo, nullptr, nullptr, "log-open", "host JSONL log opened.", S_OK};
     return Log(&opened);
 }
 
@@ -908,7 +907,7 @@ HRESULT PluginHost::SetLogRetentionDays(uint32_t days) noexcept
 
 HRESULT PluginHost::FlushLog(uint32_t timeoutMilliseconds) noexcept
 {
-    if (!_logWorker.joinable())
+    if (! _logWorker.joinable())
     {
         return S_OK;
     }
@@ -922,7 +921,7 @@ HRESULT PluginHost::FlushLog(uint32_t timeoutMilliseconds) noexcept
     {
         SetEvent(_logWakeEvent.get());
     }
-    if (!_logIdleEvent)
+    if (! _logIdleEvent)
     {
         return E_UNEXPECTED;
     }
@@ -940,7 +939,7 @@ HRESULT PluginHost::FlushLog(uint32_t timeoutMilliseconds) noexcept
 
 HRESULT PluginHost::EnqueueLogLine(const char* line, uint32_t bytes, bool reportLoss) noexcept
 {
-    if (!line || bytes == 0 || bytes >= kLogLineCapacity)
+    if (! line || bytes == 0 || bytes >= kLogLineCapacity)
     {
         return E_INVALIDARG;
     }
@@ -964,7 +963,7 @@ HRESULT PluginHost::EnqueueLogLine(const char* line, uint32_t bytes, bool report
     LogLineSlot& slot = _logRing[_logHead];
     std::memcpy(slot.line.data(), line, bytes);
     slot.bytes = bytes;
-    _logHead = (_logHead + 1) % kLogRingSlots;
+    _logHead   = (_logHead + 1) % kLogRingSlots;
     ++_logCount;
     _logQueued.store(static_cast<uint32_t>(_logCount), std::memory_order_release);
     if (_logIdleEvent)
@@ -993,8 +992,7 @@ HRESULT PluginHost::EnsureLogFileForDate(const SYSTEMTIME& utc) noexcept
         return E_UNEXPECTED;
     }
     const uint32_t retention = _logRetentionDays.load(std::memory_order_acquire);
-    if (_logFile && _logFileUtcDate.wYear == utc.wYear && _logFileUtcDate.wMonth == utc.wMonth &&
-        _logFileUtcDate.wDay == utc.wDay)
+    if (_logFile && _logFileUtcDate.wYear == utc.wYear && _logFileUtcDate.wMonth == utc.wMonth && _logFileUtcDate.wDay == utc.wDay)
     {
         if (_logPurgedRetentionDays != retention)
         {
@@ -1003,22 +1001,26 @@ HRESULT PluginHost::EnsureLogFileForDate(const SYSTEMTIME& utc) noexcept
         return S_OK;
     }
     wchar_t name[kRedXeLogFileNameCapacity]{};
-    if (!RedXeFormatLogFileName(name, kRedXeLogFileNameCapacity, utc))
+    if (! RedXeFormatLogFileName(name, kRedXeLogFileNameCapacity, utc))
     {
         return E_FAIL;
     }
     std::wstring path = _logDirectory;
-    if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
+    if (! path.empty() && path.back() != L'\\' && path.back() != L'/')
     {
         path.push_back(L'\\');
     }
     path.append(name);
     _logFile.reset();
     _logFilePath = std::move(path);
-    _logFile.reset(CreateFileW(_logFilePath.c_str(), FILE_APPEND_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-                               FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+    _logFile.reset(CreateFileW(_logFilePath.c_str(),
+                               FILE_APPEND_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE,
+                               nullptr,
+                               OPEN_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL,
                                nullptr));
-    if (!_logFile)
+    if (! _logFile)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -1037,14 +1039,14 @@ void PluginHost::PurgeExpiredLogs(const SYSTEMTIME& today, uint32_t retention) n
     auto purgeWildcard = [&](const wchar_t* wildcard) noexcept
     {
         std::wstring pattern = _logDirectory;
-        if (!pattern.empty() && pattern.back() != L'\\' && pattern.back() != L'/')
+        if (! pattern.empty() && pattern.back() != L'\\' && pattern.back() != L'/')
         {
             pattern.push_back(L'\\');
         }
         pattern.append(wildcard);
         WIN32_FIND_DATAW found{};
         wil::unique_hfind handle{FindFirstFileW(pattern.c_str(), &found)};
-        if (!handle)
+        if (! handle)
         {
             return;
         }
@@ -1055,19 +1057,19 @@ void PluginHost::PurgeExpiredLogs(const SYSTEMTIME& today, uint32_t retention) n
                 continue;
             }
             SYSTEMTIME fileDate{};
-            const bool dated = RedXeTryParseLogFileDate(found.cFileName, fileDate);
+            const bool dated  = RedXeTryParseLogFileDate(found.cFileName, fileDate);
             const bool legacy = RedXeIsLegacyLogFileName(found.cFileName);
-            if (!dated && !legacy)
+            if (! dated && ! legacy)
             {
                 continue;
             }
             const bool expired = legacy || RedXeUtcDateDayDifference(fileDate, today) >= retention;
-            if (!expired)
+            if (! expired)
             {
                 continue;
             }
             std::wstring path = _logDirectory;
-            if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
+            if (! path.empty() && path.back() != L'\\' && path.back() != L'/')
             {
                 path.push_back(L'\\');
             }
@@ -1090,7 +1092,7 @@ HRESULT PluginHost::EnsureLogWorker() noexcept
     _logStopEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
     _logWakeEvent.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
     _logIdleEvent.reset(CreateEventW(nullptr, TRUE, TRUE, nullptr));
-    if (!_logStopEvent || !_logWakeEvent || !_logIdleEvent)
+    if (! _logStopEvent || ! _logWakeEvent || ! _logIdleEvent)
     {
         const DWORD error = GetLastError();
         _logIdleEvent.reset();
@@ -1125,7 +1127,7 @@ void PluginHost::LogWorker() noexcept
     for (;;)
     {
         const DWORD waitResult = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
-        const bool stopping = waitResult == WAIT_OBJECT_0;
+        const bool stopping    = waitResult == WAIT_OBJECT_0;
         if (waitResult != WAIT_OBJECT_0 && waitResult != WAIT_OBJECT_0 + 1)
         {
             return;
@@ -1148,7 +1150,7 @@ void PluginHost::LogWorker() noexcept
                 ReleaseSRWLockExclusive(&_logLock);
                 break;
             }
-            slot = _logRing[_logTail];
+            slot     = _logRing[_logTail];
             _logTail = (_logTail + 1) % kLogRingSlots;
             --_logCount;
             _logQueued.store(static_cast<uint32_t>(_logCount), std::memory_order_release);
@@ -1172,8 +1174,7 @@ void PluginHost::LogWorker() noexcept
         // Pair the idle transition with EnqueueLogLine's reset under the same lock. Otherwise a producer can
         // enqueue/reset between the empty check and SetEvent, making FlushLog observe a stale idle signal.
         AcquireSRWLockExclusive(&_logLock);
-        if (_logIdleEvent && _logCount == 0 &&
-            (_logPurgedRetentionDays == _logRetentionDays.load(std::memory_order_acquire) || !_logFile))
+        if (_logIdleEvent && _logCount == 0 && (_logPurgedRetentionDays == _logRetentionDays.load(std::memory_order_acquire) || ! _logFile))
         {
             SetEvent(_logIdleEvent.get());
         }
@@ -1205,8 +1206,8 @@ void PluginHost::StopLogService() noexcept
     _logWakeEvent.reset();
     _logStopEvent.reset();
     AcquireSRWLockExclusive(&_logLock);
-    _logHead = 0;
-    _logTail = 0;
+    _logHead  = 0;
+    _logTail  = 0;
     _logCount = 0;
     _logQueued.store(0, std::memory_order_release);
     ReleaseSRWLockExclusive(&_logLock);
@@ -1223,42 +1224,40 @@ HRESULT PluginHost::LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& s
     std::unique_ptr<wchar_t[]> longPath;
     wchar_t* pluginPath = shortPath.data();
     size_t pathCapacity = shortPath.size();
-    HRESULT result = BuildPluginPath(spec.moduleName, pluginPath, pathCapacity);
+    HRESULT result      = BuildPluginPath(spec.moduleName, pluginPath, pathCapacity);
     if (result == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER))
     {
         longPath.reset(new (std::nothrow) wchar_t[kMaximumPathCapacity]);
-        if (!longPath)
+        if (! longPath)
         {
             return E_OUTOFMEMORY;
         }
-        pluginPath = longPath.get();
+        pluginPath   = longPath.get();
         pathCapacity = kMaximumPathCapacity;
-        result = BuildPluginPath(spec.moduleName, pluginPath, pathCapacity);
+        result       = BuildPluginPath(spec.moduleName, pluginPath, pathCapacity);
     }
     if (FAILED(result))
     {
         return result;
     }
 
-    wil::unique_hmodule module{
-        LoadLibraryExW(pluginPath, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
-    if (!module)
+    wil::unique_hmodule module{LoadLibraryExW(pluginPath, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (! module)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
 
-    const RedXeCreateFn create = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
-    const RedXeEnumeratePluginsFn enumerate =
-        ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
-    if (!create || !enumerate)
+    const RedXeCreateFn create              = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    const RedXeEnumeratePluginsFn enumerate = ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
+    if (! create || ! enumerate)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
 
     const RedXePluginMetadata* metadata = nullptr;
-    uint32_t metadataCount = 0;
-    result = enumerate(&metadata, &metadataCount);
-    uint32_t capabilities = RedXePluginCapabilityNone;
+    uint32_t metadataCount              = 0;
+    result                              = enumerate(&metadata, &metadataCount);
+    uint32_t capabilities               = RedXePluginCapabilityNone;
     if (SUCCEEDED(result))
     {
         result = ValidateMetadata(metadata, metadataCount, spec.pluginId, capabilities);
@@ -1268,29 +1267,28 @@ HRESULT PluginHost::LoadModule(const RedXeBundledPluginSpec& spec, ModuleSlot& s
         return result;
     }
 
-    slot.create = create;
-    slot.enumerate = enumerate;
-    slot.getSettingsContract =
-        ResolveFunction<RedXeGetPluginSettingsContractFn>(module.get(), kRedXeGetPluginSettingsContractExport);
-    slot.getActionContract = ResolveFunction<RedXeGetActionContractFn>(module.get(), kRedXeGetActionContractExport);
-    slot.shutdown = ResolveFunction<RedXePluginShutdownFn>(module.get(), kRedXePluginShutdownExport);
-    slot.capabilities = capabilities;
-    slot.module = std::move(module);
+    slot.create              = create;
+    slot.enumerate           = enumerate;
+    slot.getSettingsContract = ResolveFunction<RedXeGetPluginSettingsContractFn>(module.get(), kRedXeGetPluginSettingsContractExport);
+    slot.getActionContract   = ResolveFunction<RedXeGetActionContractFn>(module.get(), kRedXeGetActionContractExport);
+    slot.shutdown            = ResolveFunction<RedXePluginShutdownFn>(module.get(), kRedXePluginShutdownExport);
+    slot.capabilities        = capabilities;
+    slot.module              = std::move(module);
     ReadActionContract(slot, spec.pluginId);
     return S_OK;
 }
 
 HRESULT PluginHost::AttachSharedModule(const ModuleSlot& owner, const char* pluginId, ModuleSlot& slot) noexcept
 {
-    if (!owner.enumerate || !owner.create || slot.module || slot.create)
+    if (! owner.enumerate || ! owner.create || slot.module || slot.create)
     {
         return E_UNEXPECTED;
     }
 
     const RedXePluginMetadata* metadata = nullptr;
-    uint32_t metadataCount = 0;
-    HRESULT result = owner.enumerate(&metadata, &metadataCount);
-    uint32_t capabilities = RedXePluginCapabilityNone;
+    uint32_t metadataCount              = 0;
+    HRESULT result                      = owner.enumerate(&metadata, &metadataCount);
+    uint32_t capabilities               = RedXePluginCapabilityNone;
     if (SUCCEEDED(result))
     {
         result = ValidateMetadata(metadata, metadataCount, pluginId, capabilities);
@@ -1300,12 +1298,12 @@ HRESULT PluginHost::AttachSharedModule(const ModuleSlot& owner, const char* plug
         return result;
     }
 
-    slot.create = owner.create;
-    slot.enumerate = owner.enumerate;
+    slot.create              = owner.create;
+    slot.enumerate           = owner.enumerate;
     slot.getSettingsContract = owner.getSettingsContract;
-    slot.getActionContract = owner.getActionContract;
-    slot.shutdown = owner.shutdown;
-    slot.capabilities = capabilities;
+    slot.getActionContract   = owner.getActionContract;
+    slot.shutdown            = owner.shutdown;
+    slot.capabilities        = capabilities;
     ReadActionContract(slot, pluginId);
     return S_OK;
 }
@@ -1319,7 +1317,7 @@ HRESULT PluginHost::BindModule(const RedXeBundledPluginSpec& spec, ModuleSlot& s
     for (size_t index = 0; index < kRedXeBundledPlugins.size(); ++index)
     {
         const ModuleSlot& candidate = _modules[index];
-        if (!candidate.module || !candidate.create || !candidate.enumerate)
+        if (! candidate.module || ! candidate.create || ! candidate.enumerate)
         {
             continue;
         }
@@ -1335,7 +1333,7 @@ HRESULT PluginHost::BindModule(const RedXeBundledPluginSpec& spec, ModuleSlot& s
 void PluginHost::SetUiInvalidateTarget(HWND window) noexcept
 {
     _uiWindow.store(window, std::memory_order_release);
-    if (!window)
+    if (! window)
     {
         _pendingInvalidate.store(0, std::memory_order_release);
     }
@@ -1346,7 +1344,7 @@ void PluginHost::AcknowledgeUiInvalidate() noexcept
     _pendingInvalidate.store(0, std::memory_order_release);
     _controlWork.DrainCompletions();
     _constructionWork.DrainCompletions();
-    if (!_hasPendingSettings.load(std::memory_order_acquire))
+    if (! _hasPendingSettings.load(std::memory_order_acquire))
         return;
     decltype(_pendingSettings) pending;
     {
@@ -1356,47 +1354,43 @@ void PluginHost::AcknowledgeUiInvalidate() noexcept
     }
     for (const auto& item : pending)
     {
-        if (!item)
+        if (! item)
             continue;
         // This batch was detached before newer worker submissions; never drain those ahead of the older batch.
-        const HRESULT result = _settingsPersistHandler
-                                   ? _settingsPersistHandler(_settingsPersistContext, item->instanceId.data(),
-                                                             item->json.data(), item->bytes)
-                                   : E_UNEXPECTED;
+        const HRESULT result =
+            _settingsPersistHandler ? _settingsPersistHandler(_settingsPersistContext, item->instanceId.data(), item->json.data(), item->bytes) : E_UNEXPECTED;
         if (FAILED(result))
-            (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, "host", item->instanceId.data(),
-                               "settings-queue-failed", "Queued settings could not be committed.", result);
+            (void)RedXeHostLog(
+                Interface(), RedXeLogLevelWarning, "host", item->instanceId.data(), "settings-queue-failed", "Queued settings could not be committed.", result);
     }
 }
 
 HRESULT PluginHost::QueueControlWork(IRedXeControlWork* work) noexcept
 {
-    if (!work)
+    if (! work)
         return E_POINTER;
-    if (!_controlAccessEnabled)
+    if (! _controlAccessEnabled)
         return E_ACCESSDENIED;
-    const HRESULT started = _controlWork.Start([](void* context) noexcept
-                                               { static_cast<PluginHost*>(context)->RequestUiInvalidate(); }, this);
+    const HRESULT started = _controlWork.Start([](void* context) noexcept { static_cast<PluginHost*>(context)->RequestUiInvalidate(); }, this);
     return FAILED(started) ? started : _controlWork.Enqueue(work);
 }
 
 HRESULT PluginHost::QueueConstructionWork(IRedXeConstructionWork* work) noexcept
 {
-    if (!work)
+    if (! work)
         return E_POINTER;
     if (_shutdown)
         return E_UNEXPECTED;
-    if (!_constructionAccessEnabled)
+    if (! _constructionAccessEnabled)
         return E_ACCESSDENIED;
-    const HRESULT started = _constructionWork.Start(
-        [](void* context) noexcept { static_cast<PluginHost*>(context)->RequestUiInvalidate(); }, this);
+    const HRESULT started = _constructionWork.Start([](void* context) noexcept { static_cast<PluginHost*>(context)->RequestUiInvalidate(); }, this);
     return FAILED(started) ? started : _constructionWork.Enqueue(work);
 }
 
 void PluginHost::RequestUiInvalidate() noexcept
 {
     const HWND window = _uiWindow.load(std::memory_order_acquire);
-    if (!window)
+    if (! window)
     {
         return;
     }
@@ -1404,7 +1398,7 @@ void PluginHost::RequestUiInvalidate() noexcept
     {
         return;
     }
-    if (!PostMessageW(window, kDataSnapshotInvalidateMessage, 0, 0))
+    if (! PostMessageW(window, kDataSnapshotInvalidateMessage, 0, 0))
     {
         _pendingInvalidate.store(0, std::memory_order_release);
     }
@@ -1416,7 +1410,7 @@ HRESULT PluginHost::GetPluginModule(const char* pluginId, uint32_t requiredCapab
     {
         *module = ModuleView{};
     }
-    if (!module)
+    if (! module)
     {
         return E_POINTER;
     }
@@ -1431,9 +1425,9 @@ HRESULT PluginHost::GetPluginModule(const char* pluginId, uint32_t requiredCapab
     }
 
     const RedXeBundledPluginSpec& spec = kRedXeBundledPlugins[pluginIndex];
-    ModuleSlot& slot = _modules[pluginIndex];
-    HRESULT result = S_OK;
-    if (!slot.create)
+    ModuleSlot& slot                   = _modules[pluginIndex];
+    HRESULT result                     = S_OK;
+    if (! slot.create)
     {
         result = BindModule(spec, slot);
     }
@@ -1445,14 +1439,14 @@ HRESULT PluginHost::GetPluginModule(const char* pluginId, uint32_t requiredCapab
     {
         return E_NOINTERFACE;
     }
-    module->create = slot.create;
+    module->create              = slot.create;
     module->getSettingsContract = slot.getSettingsContract;
     return S_OK;
 }
 
 HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
 {
-    if (!runtime.descriptors || runtime.descriptorCount == 0 || runtime.descriptorCount > kMaximumDataSetsPerProvider)
+    if (! runtime.descriptors || runtime.descriptorCount == 0 || runtime.descriptorCount > kMaximumDataSetsPerProvider)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -1460,11 +1454,9 @@ HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
     for (uint32_t index = 0; index < runtime.descriptorCount; ++index)
     {
         const RedXeDataSetDescriptor& descriptor = runtime.descriptors[index];
-        if (descriptor.sizeBytes != sizeof(RedXeDataSetDescriptor) || !RedXeIsValidMachineId(descriptor.dataSetId) ||
-            !descriptor.displayName || !descriptor.description || !descriptor.columns || descriptor.columnCount == 0 ||
-            descriptor.columnCount > 256 || descriptor.maximumRows == 0 ||
-            descriptor.recommendedIntervalMilliseconds == 0 ||
-            descriptor.recommendedIntervalMilliseconds > kMaximumSubscriptionIntervalMilliseconds)
+        if (descriptor.sizeBytes != sizeof(RedXeDataSetDescriptor) || ! RedXeIsValidMachineId(descriptor.dataSetId) || ! descriptor.displayName ||
+            ! descriptor.description || ! descriptor.columns || descriptor.columnCount == 0 || descriptor.columnCount > 256 || descriptor.maximumRows == 0 ||
+            descriptor.recommendedIntervalMilliseconds == 0 || descriptor.recommendedIntervalMilliseconds > kMaximumSubscriptionIntervalMilliseconds)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -1478,9 +1470,8 @@ HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
         for (uint32_t columnIndex = 0; columnIndex < descriptor.columnCount; ++columnIndex)
         {
             const RedXeDataColumnDescriptor& column = descriptor.columns[columnIndex];
-            if (column.sizeBytes != sizeof(RedXeDataColumnDescriptor) || !RedXeIsValidMachineId(column.columnId) ||
-                !column.displayName || column.valueType <= RedXeDataValueTypeInvalid ||
-                column.valueType > RedXeDataValueTypeUtf16)
+            if (column.sizeBytes != sizeof(RedXeDataColumnDescriptor) || ! RedXeIsValidMachineId(column.columnId) || ! column.displayName ||
+                column.valueType <= RedXeDataValueTypeInvalid || column.valueType > RedXeDataValueTypeUtf16)
             {
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
@@ -1498,7 +1489,7 @@ HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
         return E_OUTOFMEMORY;
 #endif
     std::unique_ptr<DataSetRuntime[]> dataSets{new (std::nothrow) DataSetRuntime[runtime.descriptorCount]};
-    if (!dataSets)
+    if (! dataSets)
         return E_OUTOFMEMORY;
     for (uint32_t index = 0; index < runtime.descriptorCount; ++index)
         dataSets[index].descriptor = &runtime.descriptors[index];
@@ -1508,7 +1499,7 @@ HRESULT PluginHost::ValidateDataSets(ProviderRuntime& runtime) noexcept
 
 HRESULT PluginHost::EnsureProvider(const char* providerId, IRedXeDataProvider** providerOutput) noexcept
 {
-    if (!RedXeIsValidMachineId(providerId))
+    if (! RedXeIsValidMachineId(providerId))
     {
         return E_INVALIDARG;
     }
@@ -1524,8 +1515,7 @@ HRESULT PluginHost::EnsureProvider(const char* providerId, IRedXeDataProvider** 
             if (RedXeAsciiEqualsIgnoreCase(runtime.providerId, providerId))
             {
                 if (runtime.source)
-                    return runtime.provider->QueryInterface(__uuidof(IRedXeDataProvider),
-                                                            reinterpret_cast<void**>(providerOutput));
+                    return runtime.provider->QueryInterface(__uuidof(IRedXeDataProvider), reinterpret_cast<void**>(providerOutput));
                 providerIndex = index;
                 break;
             }
@@ -1543,15 +1533,15 @@ HRESULT PluginHost::EnsureProvider(const char* providerId, IRedXeDataProvider** 
 
     ProviderRuntime runtime{};
     void* sourceObject = nullptr;
-    result = module.create(__uuidof(IRedXeDataSource), nullptr, Interface(), providerId, &sourceObject);
-    if (FAILED(result) || !sourceObject)
+    result             = module.create(__uuidof(IRedXeDataSource), nullptr, Interface(), providerId, &sourceObject);
+    if (FAILED(result) || ! sourceObject)
     {
         return FAILED(result) ? result : E_UNEXPECTED;
     }
     runtime.source.attach(static_cast<IRedXeDataSource*>(sourceObject));
     const size_t pluginIndex = FindBundledPluginIndex(providerId);
-    runtime.providerId = kRedXeBundledPlugins[pluginIndex].pluginId;
-    result = runtime.source->GetDataSets(&runtime.descriptors, &runtime.descriptorCount);
+    runtime.providerId       = kRedXeBundledPlugins[pluginIndex].pluginId;
+    result                   = runtime.source->GetDataSets(&runtime.descriptors, &runtime.descriptorCount);
     if (SUCCEEDED(result))
     {
         result = ValidateDataSets(runtime);
@@ -1571,8 +1561,7 @@ HRESULT PluginHost::EnsureProvider(const char* providerId, IRedXeDataProvider** 
         {
             providerIndex = index;
             if (_providers[index].source)
-                return _providers[index].provider->QueryInterface(__uuidof(IRedXeDataProvider),
-                                                                  reinterpret_cast<void**>(providerOutput));
+                return _providers[index].provider->QueryInterface(__uuidof(IRedXeDataProvider), reinterpret_cast<void**>(providerOutput));
             break;
         }
     }
@@ -1585,15 +1574,14 @@ HRESULT PluginHost::EnsureProvider(const char* providerId, IRedXeDataProvider** 
     else
     {
         auto* provider = new (std::nothrow) DataProvider(*this, providerIndex);
-        if (!provider)
+        if (! provider)
             return E_OUTOFMEMORY;
         runtime.provider.attach(provider);
         ++_providerCount;
     }
     _providers[providerIndex] = std::move(runtime);
     // Publish the external lease while still locked, before a pending trim can inspect the facade's refcount.
-    return _providers[providerIndex].provider->QueryInterface(__uuidof(IRedXeDataProvider),
-                                                              reinterpret_cast<void**>(providerOutput));
+    return _providers[providerIndex].provider->QueryInterface(__uuidof(IRedXeDataProvider), reinterpret_cast<void**>(providerOutput));
 }
 
 HRESULT PluginHost::GetDataProvider(const char* providerId, IRedXeDataProvider** provider) noexcept
@@ -1602,7 +1590,7 @@ HRESULT PluginHost::GetDataProvider(const char* providerId, IRedXeDataProvider**
     {
         *provider = nullptr;
     }
-    if (!provider)
+    if (! provider)
     {
         return E_POINTER;
     }
@@ -1620,26 +1608,24 @@ HRESULT PluginHost::RequestFrame() noexcept
 
 void PluginHost::SetHostActionHandler(HostActionHandler handler, HostActionCompleted completed, void* context) noexcept
 {
-    _hostActionHandler = handler;
+    _hostActionHandler   = handler;
     _hostActionCompleted = completed;
-    _hostActionContext = context;
+    _hostActionContext   = context;
 }
 
 namespace
 {
 // Bounds and grammar shared by RequestAction, ExecuteAction, and ValidateAction. Returns the action and target
 // lengths through the outputs.
-[[nodiscard]] HRESULT CheckActionRequest(const RedXeActionRequest* request, size_t& actionBytes,
-                                         size_t& targetBytes) noexcept
+[[nodiscard]] HRESULT CheckActionRequest(const RedXeActionRequest* request, size_t& actionBytes, size_t& targetBytes) noexcept
 {
     actionBytes = 0;
     targetBytes = 0;
-    if (!request)
+    if (! request)
     {
         return E_POINTER;
     }
-    if (request->sizeBytes != sizeof(RedXeActionRequest) || !request->actionUtf8 ||
-        !RedXeIsActionNameSyntax(request->actionUtf8))
+    if (request->sizeBytes != sizeof(RedXeActionRequest) || ! request->actionUtf8 || ! RedXeIsActionNameSyntax(request->actionUtf8))
     {
         return E_INVALIDARG;
     }
@@ -1667,14 +1653,12 @@ namespace
     return false;
 }
 
-void FormatNotice(wchar_t* text, size_t capacity, const wchar_t* format, const char* first,
-                  const char* second = nullptr) noexcept
+void FormatNotice(wchar_t* text, size_t capacity, const wchar_t* format, const char* first, const char* second = nullptr) noexcept
 {
     std::array<wchar_t, 129> wideFirst{};
     std::array<wchar_t, 129> wideSecond{};
     (void)MultiByteToWideChar(CP_UTF8, 0, first ? first : "", -1, wideFirst.data(), static_cast<int>(wideFirst.size()));
-    (void)MultiByteToWideChar(CP_UTF8, 0, second ? second : "", -1, wideSecond.data(),
-                              static_cast<int>(wideSecond.size()));
+    (void)MultiByteToWideChar(CP_UTF8, 0, second ? second : "", -1, wideSecond.data(), static_cast<int>(wideSecond.size()));
     (void)StringCchPrintfW(text, capacity, format, wideFirst.data(), wideSecond.data());
 }
 } // namespace
@@ -1686,7 +1670,7 @@ PluginHost::PublisherSlot* PluginHost::FindPublisher(std::string_view actionName
         if (actionNamespace == kRedXeBundledActionNamespaces[index].actionNamespace)
         {
             PublisherSlot& slot = _publishers[index];
-            slot.spec = &kRedXeBundledActionNamespaces[index];
+            slot.spec           = &kRedXeBundledActionNamespaces[index];
             return &slot;
         }
     }
@@ -1695,7 +1679,7 @@ PluginHost::PublisherSlot* PluginHost::FindPublisher(std::string_view actionName
 
 void PluginHost::AddActionNotice(const wchar_t* text) noexcept
 {
-    if (!text || text[0] == L'\0')
+    if (! text || text[0] == L'\0')
     {
         return;
     }
@@ -1708,7 +1692,7 @@ void PluginHost::AddActionNotice(const wchar_t* text) noexcept
     }
     for (ActionNotice& notice : _actionNotices)
     {
-        if (!notice.used)
+        if (! notice.used)
         {
             wcsncpy_s(notice.text.data(), notice.text.size(), text, _TRUNCATE);
             notice.used = true;
@@ -1727,7 +1711,7 @@ uint32_t PluginHost::CopyActionNotices(wchar_t* text, size_t capacity) const noe
     uint32_t count = 0;
     for (const ActionNotice& notice : _actionNotices)
     {
-        if (!notice.used)
+        if (! notice.used)
         {
             continue;
         }
@@ -1755,7 +1739,7 @@ void PluginHost::ResetActionPublishers() noexcept
     {
         if (slot.state == ActionPublisherState::Unavailable)
         {
-            slot.state = ActionPublisherState::Unresolved;
+            slot.state       = ActionPublisherState::Unresolved;
             slot.noticeShown = false;
         }
     }
@@ -1763,7 +1747,7 @@ void PluginHost::ResetActionPublishers() noexcept
     for (ActionNotice& notice : _actionNotices)
     {
         cleared = cleared || notice.used;
-        notice = ActionNotice{};
+        notice  = ActionNotice{};
     }
     if (cleared)
     {
@@ -1790,44 +1774,42 @@ void PluginHost::ReadActionContract(ModuleSlot& slot, const char* pluginId) noex
         // A registered plugin id without the capability cannot provide its namespace.
         for (PublisherSlot& publisher : _publishers)
         {
-            const size_t index = static_cast<size_t>(&publisher - _publishers.data());
+            const size_t index                          = static_cast<size_t>(&publisher - _publishers.data());
             const RedXeBundledActionNamespaceSpec& spec = kRedXeBundledActionNamespaces[index];
             if (RedXeAsciiEqualsIgnoreCase(spec.pluginId, pluginId) && publisher.state != ActionPublisherState::Missing)
             {
-                publisher.spec = &spec;
+                publisher.spec  = &spec;
                 publisher.state = ActionPublisherState::Missing;
                 std::array<wchar_t, kActionNoticeCharacters> text{};
-                FormatNotice(text.data(), text.size(),
-                             L"Action namespace \"%s\" is not provided by %s; its bindings are disabled.",
-                             spec.actionNamespace, pluginId);
+                FormatNotice(
+                    text.data(), text.size(), L"Action namespace \"%s\" is not provided by %s; its bindings are disabled.", spec.actionNamespace, pluginId);
                 AddActionNotice(text.data());
-                (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-namespace-missing",
+                (void)RedXeHostLog(Interface(),
+                                   RedXeLogLevelError,
+                                   pluginId,
+                                   nullptr,
+                                   "action-namespace-missing",
                                    "the registered plugin does not advertise the actions capability.");
             }
         }
         return;
     }
     const RedXeActionContract* contract = nullptr;
-    const HRESULT result =
-        slot.getActionContract ? slot.getActionContract(pluginId, &contract) : HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
-    bool valid = SUCCEEDED(result) && contract && contract->sizeBytes == sizeof(RedXeActionContract) &&
-                 contract->namespaceCount >= 1 && contract->namespaceCount <= kRedXeMaximumActionNamespacesPerPlugin &&
-                 contract->namespaces;
+    const HRESULT result                = slot.getActionContract ? slot.getActionContract(pluginId, &contract) : HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    bool valid = SUCCEEDED(result) && contract && contract->sizeBytes == sizeof(RedXeActionContract) && contract->namespaceCount >= 1 &&
+                 contract->namespaceCount <= kRedXeMaximumActionNamespacesPerPlugin && contract->namespaces;
     for (uint32_t space = 0; valid && space < contract->namespaceCount; ++space)
     {
         const RedXeActionNamespace& entry = contract->namespaces[space];
-        valid = entry.sizeBytes == sizeof(RedXeActionNamespace) && entry.name && entry.name[0] >= 'a' &&
-                entry.name[0] <= 'z' &&
-                strnlen_s(entry.name, kRedXeMaximumActionNamespaceBytes + 1) <= kRedXeMaximumActionNamespaceBytes &&
-                entry.actionCount >= 1 && entry.actionCount <= kRedXeMaximumActionsPerNamespace && entry.actions;
+        valid = entry.sizeBytes == sizeof(RedXeActionNamespace) && entry.name && entry.name[0] >= 'a' && entry.name[0] <= 'z' &&
+                strnlen_s(entry.name, kRedXeMaximumActionNamespaceBytes + 1) <= kRedXeMaximumActionNamespaceBytes && entry.actionCount >= 1 &&
+                entry.actionCount <= kRedXeMaximumActionsPerNamespace && entry.actions;
         for (uint32_t index = 0; valid && index < entry.actionCount; ++index)
         {
             const RedXeActionDescriptor& descriptor = entry.actions[index];
-            valid = descriptor.sizeBytes == sizeof(RedXeActionDescriptor) && descriptor.name &&
-                    RedXeIsActionNameSyntax(descriptor.name) && RedXeActionInNamespace(descriptor.name, entry.name) &&
-                    descriptor.displayName && descriptor.targetSyntax &&
-                    descriptor.targetKind <= RedXeActionTargetNowOrSeconds &&
-                    (descriptor.targetKind != RedXeActionTargetEnum || descriptor.targetOptions) &&
+            valid = descriptor.sizeBytes == sizeof(RedXeActionDescriptor) && descriptor.name && RedXeIsActionNameSyntax(descriptor.name) &&
+                    RedXeActionInNamespace(descriptor.name, entry.name) && descriptor.displayName && descriptor.targetSyntax &&
+                    descriptor.targetKind <= RedXeActionTargetNowOrSeconds && (descriptor.targetKind != RedXeActionTargetEnum || descriptor.targetOptions) &&
                     descriptor.targetMinimum <= descriptor.targetMaximum;
             for (uint32_t previous = 0; valid && previous < index; ++previous)
             {
@@ -1835,9 +1817,13 @@ void PluginHost::ReadActionContract(ModuleSlot& slot, const char* pluginId) noex
             }
         }
     }
-    if (!valid)
+    if (! valid)
     {
-        (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-contract-invalid",
+        (void)RedXeHostLog(Interface(),
+                           RedXeLogLevelError,
+                           pluginId,
+                           nullptr,
+                           "action-contract-invalid",
                            "the module's action contract is malformed; its namespaces are unavailable.",
                            FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
         for (size_t index = 0; index < kRedXeBundledActionNamespaces.size(); ++index)
@@ -1845,12 +1831,10 @@ void PluginHost::ReadActionContract(ModuleSlot& slot, const char* pluginId) noex
             const RedXeBundledActionNamespaceSpec& spec = kRedXeBundledActionNamespaces[index];
             if (RedXeAsciiEqualsIgnoreCase(spec.pluginId, pluginId))
             {
-                _publishers[index].spec = &spec;
+                _publishers[index].spec  = &spec;
                 _publishers[index].state = ActionPublisherState::Unavailable;
                 std::array<wchar_t, kActionNoticeCharacters> text{};
-                FormatNotice(text.data(), text.size(),
-                             L"Actions \"%s.*\" are unavailable: %s published an invalid contract.",
-                             spec.actionNamespace, pluginId);
+                FormatNotice(text.data(), text.size(), L"Actions \"%s.*\" are unavailable: %s published an invalid contract.", spec.actionNamespace, pluginId);
                 AddActionNotice(text.data());
             }
         }
@@ -1862,72 +1846,81 @@ void PluginHost::ReadActionContract(ModuleSlot& slot, const char* pluginId) noex
         std::array<wchar_t, kActionNoticeCharacters> text{};
         if (HostActionCatalog::IsDefaultNamespace(entry.name))
         {
-            FormatNotice(text.data(), text.size(),
-                         L"Action namespace \"%s\" is published by both RedXe and %s; only RedXe is used.", entry.name,
-                         pluginId);
+            FormatNotice(text.data(), text.size(), L"Action namespace \"%s\" is published by both RedXe and %s; only RedXe is used.", entry.name, pluginId);
             AddActionNotice(text.data());
-            (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-namespace-collision",
+            (void)RedXeHostLog(Interface(),
+                               RedXeLogLevelError,
+                               pluginId,
+                               nullptr,
+                               "action-namespace-collision",
                                "the module publishes a default namespace; the publication is refused.");
             continue;
         }
         PublisherSlot* publisher = FindPublisher(entry.name);
-        if (!publisher)
+        if (! publisher)
         {
-            FormatNotice(text.data(), text.size(), L"Action namespace \"%s\" from %s is not registered and is ignored.",
-                         entry.name, pluginId);
+            FormatNotice(text.data(), text.size(), L"Action namespace \"%s\" from %s is not registered and is ignored.", entry.name, pluginId);
             AddActionNotice(text.data());
-            (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-namespace-unregistered",
+            (void)RedXeHostLog(Interface(),
+                               RedXeLogLevelError,
+                               pluginId,
+                               nullptr,
+                               "action-namespace-unregistered",
                                "the module publishes a namespace the catalog does not register.");
             continue;
         }
-        if (!RedXeAsciiEqualsIgnoreCase(publisher->spec->pluginId, pluginId))
+        if (! RedXeAsciiEqualsIgnoreCase(publisher->spec->pluginId, pluginId))
         {
-            FormatNotice(text.data(), text.size(),
+            FormatNotice(text.data(),
+                         text.size(),
                          L"Action namespace \"%s\" is published by both %s and another module; only the registered "
                          L"publisher is used.",
-                         entry.name, pluginId);
+                         entry.name,
+                         pluginId);
             AddActionNotice(text.data());
-            (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-namespace-collision",
+            (void)RedXeHostLog(Interface(),
+                               RedXeLogLevelError,
+                               pluginId,
+                               nullptr,
+                               "action-namespace-collision",
                                "the module publishes a namespace registered to another plugin id.");
             continue;
         }
         publisher->contract = &entry;
-        publisher->state = ActionPublisherState::Ready;
+        publisher->state    = ActionPublisherState::Ready;
     }
     for (size_t index = 0; index < kRedXeBundledActionNamespaces.size(); ++index)
     {
         const RedXeBundledActionNamespaceSpec& spec = kRedXeBundledActionNamespaces[index];
-        PublisherSlot& publisher = _publishers[index];
+        PublisherSlot& publisher                    = _publishers[index];
         if (RedXeAsciiEqualsIgnoreCase(spec.pluginId, pluginId) && publisher.state != ActionPublisherState::Ready)
         {
-            publisher.spec = &spec;
+            publisher.spec  = &spec;
             publisher.state = ActionPublisherState::Missing;
             std::array<wchar_t, kActionNoticeCharacters> text{};
-            FormatNotice(text.data(), text.size(),
-                         L"Action namespace \"%s\" is not provided by %s; its bindings are disabled.",
-                         spec.actionNamespace, pluginId);
+            FormatNotice(
+                text.data(), text.size(), L"Action namespace \"%s\" is not provided by %s; its bindings are disabled.", spec.actionNamespace, pluginId);
             AddActionNotice(text.data());
-            (void)RedXeHostLog(Interface(), RedXeLogLevelError, pluginId, nullptr, "action-namespace-missing",
+            (void)RedXeHostLog(Interface(),
+                               RedXeLogLevelError,
+                               pluginId,
+                               nullptr,
+                               "action-namespace-missing",
                                "the registered plugin's contract does not publish its namespace.");
         }
     }
-    (void)RedXeHostLog(Interface(), RedXeLogLevelInfo, pluginId, nullptr, "action-contract-loaded",
-                       "action contract read and registered.");
+    (void)RedXeHostLog(Interface(), RedXeLogLevelInfo, pluginId, nullptr, "action-contract-loaded", "action contract read and registered.");
 }
 
 HRESULT PluginHost::EnsurePublisherContract(PublisherSlot& slot) noexcept
 {
     switch (slot.state)
     {
-    case ActionPublisherState::Ready:
-        return S_OK;
-    case ActionPublisherState::Missing:
-        return HRESULT_FROM_WIN32(ERROR_NOT_READY);
-    case ActionPublisherState::Unavailable:
-        return HRESULT_FROM_WIN32(ERROR_NOT_READY);
-    case ::PluginHost::ActionPublisherState::Unresolved:
-    default:
-        break;
+        case ActionPublisherState::Ready: return S_OK;
+        case ActionPublisherState::Missing: return HRESULT_FROM_WIN32(ERROR_NOT_READY);
+        case ActionPublisherState::Unavailable: return HRESULT_FROM_WIN32(ERROR_NOT_READY);
+        case ::PluginHost::ActionPublisherState::Unresolved:
+        default: break;
     }
     ModuleView module{};
     const HRESULT mapped = GetPluginModule(slot.spec->pluginId, RedXePluginCapabilityNone, &module);
@@ -1935,21 +1928,24 @@ HRESULT PluginHost::EnsurePublisherContract(PublisherSlot& slot) noexcept
     {
         slot.state = ActionPublisherState::Unavailable;
         std::array<wchar_t, kActionNoticeCharacters> text{};
-        FormatNotice(text.data(), text.size(), L"Actions \"%s.*\" are unavailable: %s could not be loaded.",
-                     slot.spec->actionNamespace, slot.spec->pluginId);
+        FormatNotice(text.data(), text.size(), L"Actions \"%s.*\" are unavailable: %s could not be loaded.", slot.spec->actionNamespace, slot.spec->pluginId);
         AddActionNotice(text.data());
-        (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec->pluginId, nullptr,
-                           "action-publisher-unavailable", "the publishing module could not be mapped.", mapped);
+        (void)RedXeHostLog(Interface(),
+                           RedXeLogLevelError,
+                           slot.spec->pluginId,
+                           nullptr,
+                           "action-publisher-unavailable",
+                           "the publishing module could not be mapped.",
+                           mapped);
         return HRESULT_FROM_WIN32(ERROR_NOT_READY);
     }
     // Mapping read the contract; the slot is Ready, Missing, or Unavailable now.
     return slot.state == ActionPublisherState::Ready ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_READY);
 }
 
-const RedXeActionDescriptor* PluginHost::FindPublishedAction(const PublisherSlot& slot,
-                                                             std::string_view actionName) const noexcept
+const RedXeActionDescriptor* PluginHost::FindPublishedAction(const PublisherSlot& slot, std::string_view actionName) const noexcept
 {
-    if (!slot.contract)
+    if (! slot.contract)
     {
         return nullptr;
     }
@@ -1965,7 +1961,7 @@ const RedXeActionDescriptor* PluginHost::FindPublishedAction(const PublisherSlot
 
 HRESULT PluginHost::EnsurePublisherExecutor(PublisherSlot& slot, IRedXeActionPack** executor) noexcept
 {
-    *executor = nullptr;
+    *executor              = nullptr;
     const HRESULT contract = EnsurePublisherContract(slot);
     if (FAILED(contract))
     {
@@ -1978,13 +1974,13 @@ HRESULT PluginHost::EnsurePublisherExecutor(PublisherSlot& slot, IRedXeActionPac
         if (RedXeAsciiEqualsIgnoreCase(service.pluginId, slot.spec->pluginId))
         {
             IRedXeService* started = ServiceFor(slot.spec->pluginId);
-            if (!started)
+            if (! started)
             {
                 return HRESULT_FROM_WIN32(ERROR_NOT_READY);
             }
             wil::com_ptr_nothrow<IRedXeActionPack> pack;
             const HRESULT queried = started->QueryInterface(__uuidof(IRedXeActionPack), pack.put_void());
-            if (FAILED(queried) || !pack)
+            if (FAILED(queried) || ! pack)
             {
                 return E_NOINTERFACE;
             }
@@ -1992,7 +1988,7 @@ HRESULT PluginHost::EnsurePublisherExecutor(PublisherSlot& slot, IRedXeActionPac
             return S_OK;
         }
     }
-    if (!slot.executor)
+    if (! slot.executor)
     {
         ModuleView module{};
         const HRESULT mapped = GetPluginModule(slot.spec->pluginId, RedXePluginCapabilityActions, &module);
@@ -2007,21 +2003,26 @@ HRESULT PluginHost::EnsurePublisherExecutor(PublisherSlot& slot, IRedXeActionPac
         options.debugLevel = 1;
 #endif
         options.configurationJsonUtf8 = kEnvelope;
-        options.configurationBytes = static_cast<uint32_t>(sizeof(kEnvelope) - 1);
-        options.backgroundColor = kRedXeDefaultBackgroundColor;
-        void* object = nullptr;
-        const HRESULT created =
-            module.create(__uuidof(IRedXeActionPack), &options, Interface(), slot.spec->pluginId, &object);
-        if (FAILED(created) || !object)
+        options.configurationBytes    = static_cast<uint32_t>(sizeof(kEnvelope) - 1);
+        options.backgroundColor       = kRedXeDefaultBackgroundColor;
+        void* object                  = nullptr;
+        const HRESULT created         = module.create(__uuidof(IRedXeActionPack), &options, Interface(), slot.spec->pluginId, &object);
+        if (FAILED(created) || ! object)
         {
             slot.state = ActionPublisherState::Unavailable;
             std::array<wchar_t, kActionNoticeCharacters> text{};
-            FormatNotice(text.data(), text.size(),
+            FormatNotice(text.data(),
+                         text.size(),
                          L"Actions \"%s.*\" are unavailable: %s could not create its executor.",
-                         slot.spec->actionNamespace, slot.spec->pluginId);
+                         slot.spec->actionNamespace,
+                         slot.spec->pluginId);
             AddActionNotice(text.data());
-            (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec->pluginId, nullptr,
-                               "action-publisher-unavailable", "IRedXeActionPack creation failed.",
+            (void)RedXeHostLog(Interface(),
+                               RedXeLogLevelError,
+                               slot.spec->pluginId,
+                               nullptr,
+                               "action-publisher-unavailable",
+                               "IRedXeActionPack creation failed.",
                                FAILED(created) ? created : E_UNEXPECTED);
             return HRESULT_FROM_WIN32(ERROR_NOT_READY);
         }
@@ -2036,8 +2037,8 @@ void PluginHost::ReleaseActionExecutors() noexcept
     for (PublisherSlot& slot : _publishers)
     {
         slot.executor.reset();
-        slot.contract = nullptr;
-        slot.state = ActionPublisherState::Unresolved;
+        slot.contract    = nullptr;
+        slot.state       = ActionPublisherState::Unresolved;
         slot.noticeShown = false;
     }
 }
@@ -2048,17 +2049,16 @@ HRESULT PluginHost::ValidateAction(const RedXeActionRequest* request, const RedX
     {
         *descriptor = nullptr;
     }
-    size_t actionBytes = 0;
-    size_t targetBytes = 0;
+    size_t actionBytes    = 0;
+    size_t targetBytes    = 0;
     const HRESULT checked = CheckActionRequest(request, actionBytes, targetBytes);
     if (FAILED(checked))
     {
         return checked;
     }
     const std::string_view action{request->actionUtf8, actionBytes};
-    const std::string_view target =
-        request->targetUtf8 ? std::string_view{request->targetUtf8, targetBytes} : std::string_view{};
-    const std::string_view space = HostActionCatalog::NamespaceOf(action);
+    const std::string_view target      = request->targetUtf8 ? std::string_view{request->targetUtf8, targetBytes} : std::string_view{};
+    const std::string_view space       = HostActionCatalog::NamespaceOf(action);
     const RedXeActionDescriptor* found = nullptr;
     if (HostActionCatalog::IsDefaultNamespace(space))
     {
@@ -2067,7 +2067,7 @@ HRESULT PluginHost::ValidateAction(const RedXeActionRequest* request, const RedX
     else
     {
         PublisherSlot* publisher = FindPublisher(space);
-        if (!publisher)
+        if (! publisher)
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
@@ -2078,7 +2078,7 @@ HRESULT PluginHost::ValidateAction(const RedXeActionRequest* request, const RedX
         }
         found = FindPublishedAction(*publisher, action);
     }
-    if (!found)
+    if (! found)
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
@@ -2096,15 +2096,15 @@ HRESULT PluginHost::ValidateAction(const RedXeActionRequest* request, const RedX
 
 HRESULT PluginHost::RequestAction(const RedXeActionRequest* request) noexcept
 {
-    size_t actionBytes = 0;
-    size_t targetBytes = 0;
+    size_t actionBytes    = 0;
+    size_t targetBytes    = 0;
     const HRESULT checked = CheckActionRequest(request, actionBytes, targetBytes);
     if (FAILED(checked))
     {
         return checked;
     }
     const std::string_view space = HostActionCatalog::NamespaceOf(std::string_view{request->actionUtf8, actionBytes});
-    if (!HostActionCatalog::IsDefaultNamespace(space) && !IsRegisteredNamespace(space))
+    if (! HostActionCatalog::IsDefaultNamespace(space) && ! IsRegisteredNamespace(space))
     {
         return E_INVALIDARG;
     }
@@ -2134,14 +2134,14 @@ HRESULT PluginHost::RequestAction(const RedXeActionRequest* request) noexcept
             return HRESULT_FROM_WIN32(ERROR_BUSY);
         }
         HostActionSlot& slot = _hostActions[(_hostActionHead + _hostActionCount) % kHostActionRingSlots];
-        slot = HostActionSlot{};
+        slot                 = HostActionSlot{};
         std::memcpy(slot.action.data(), request->actionUtf8, actionBytes);
         if (targetBytes != 0)
         {
             std::memcpy(slot.target.data(), request->targetUtf8, targetBytes);
         }
         slot.queued = now;
-        slot.used = true;
+        slot.used   = true;
         ++_hostActionCount;
     }
     RequestHostActionDrain();
@@ -2150,8 +2150,8 @@ HRESULT PluginHost::RequestAction(const RedXeActionRequest* request) noexcept
 
 HRESULT PluginHost::ExecuteAction(const RedXeActionRequest* request) noexcept
 {
-    size_t actionBytes = 0;
-    size_t targetBytes = 0;
+    size_t actionBytes    = 0;
+    size_t targetBytes    = 0;
     const HRESULT checked = CheckActionRequest(request, actionBytes, targetBytes);
     if (FAILED(checked))
     {
@@ -2176,16 +2176,15 @@ HRESULT PluginHost::ExecuteNow(const char* actionUtf8, const char* targetUtf8) n
     const std::string_view action{actionUtf8};
     const std::string_view target{targetUtf8 ? targetUtf8 : ""};
     const std::string_view space = HostActionCatalog::NamespaceOf(action);
-    HRESULT result = S_OK;
+    HRESULT result               = S_OK;
     if (HostActionCatalog::IsApplicationNamespace(action))
     {
-        result =
-            _hostActionHandler ? _hostActionHandler(_hostActionContext, actionUtf8, target.data()) : E_NOT_VALID_STATE;
+        result = _hostActionHandler ? _hostActionHandler(_hostActionContext, actionUtf8, target.data()) : E_NOT_VALID_STATE;
     }
     else if (HostActionCatalog::IsDefaultNamespace(space))
     {
         const RedXeActionDescriptor* descriptor = HostActionCatalog::Find(action);
-        result = descriptor ? RedXeActions::ValidateTarget(*descriptor, target) : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+        result                                  = descriptor ? RedXeActions::ValidateTarget(*descriptor, target) : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         if (SUCCEEDED(result))
         {
             result = HostActions::ValidateExtra(*descriptor, target);
@@ -2198,7 +2197,7 @@ HRESULT PluginHost::ExecuteNow(const char* actionUtf8, const char* targetUtf8) n
     else
     {
         PublisherSlot* publisher = FindPublisher(space);
-        if (!publisher)
+        if (! publisher)
         {
             result = HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
@@ -2209,17 +2208,15 @@ HRESULT PluginHost::ExecuteNow(const char* actionUtf8, const char* targetUtf8) n
             if (SUCCEEDED(result))
             {
                 const RedXeActionDescriptor* descriptor = FindPublishedAction(*publisher, action);
-                result = descriptor ? RedXeActions::ValidateTarget(*descriptor, target)
-                                    : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+                result                                  = descriptor ? RedXeActions::ValidateTarget(*descriptor, target) : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
                 if (SUCCEEDED(result))
                 {
                     RedXeActionRequest request{};
-                    request.sizeBytes = sizeof(request);
-                    request.flags =
-                        DeviceAccessEnabled() ? RedXeActionRequestFlagNone : RedXeActionRequestFlagDeviceAccessDisabled;
+                    request.sizeBytes  = sizeof(request);
+                    request.flags      = DeviceAccessEnabled() ? RedXeActionRequestFlagNone : RedXeActionRequestFlagDeviceAccessDisabled;
                     request.actionUtf8 = actionUtf8;
                     request.targetUtf8 = target.empty() ? nullptr : target.data();
-                    result = executor->Execute(&request);
+                    result             = executor->Execute(&request);
                 }
             }
         }
@@ -2236,7 +2233,7 @@ HRESULT PluginHost::ExecuteNow(const char* actionUtf8, const char* targetUtf8) n
 void PluginHost::RequestHostActionDrain() noexcept
 {
     const HWND window = _uiWindow.load(std::memory_order_acquire);
-    if (!window)
+    if (! window)
     {
         return;
     }
@@ -2244,7 +2241,7 @@ void PluginHost::RequestHostActionDrain() noexcept
     {
         return;
     }
-    if (!PostMessageW(window, kHostActionMessage, 0, 0))
+    if (! PostMessageW(window, kHostActionMessage, 0, 0))
     {
         _pendingHostActionPost.store(0, std::memory_order_release);
     }
@@ -2284,7 +2281,7 @@ bool PluginHost::IsExpiredInput(const HostActionSlot& slot, ULONGLONG now) noexc
     {
         return false;
     }
-    const std::string_view space = HostActionCatalog::NamespaceOf(action);
+    const std::string_view space            = HostActionCatalog::NamespaceOf(action);
     const RedXeActionDescriptor* descriptor = nullptr;
     if (HostActionCatalog::IsDefaultNamespace(space))
     {
@@ -2313,9 +2310,9 @@ void PluginHost::DrainHostActions() noexcept
             {
                 break;
             }
-            action = _hostActions[_hostActionHead];
+            action                        = _hostActions[_hostActionHead];
             _hostActions[_hostActionHead] = HostActionSlot{};
-            _hostActionHead = (_hostActionHead + 1) % kHostActionRingSlots;
+            _hostActionHead               = (_hostActionHead + 1) % kHostActionRingSlots;
             --_hostActionCount;
         }
         if (action.used)
@@ -2342,9 +2339,12 @@ void PluginHost::DrainHostActions() noexcept
     if (expired != 0)
     {
         std::array<char, kRedXeMaximumLogMessageBytes> message{};
-        (void)StringCchPrintfA(message.data(), message.size(),
+        (void)StringCchPrintfA(message.data(),
+                               message.size(),
                                "%u queued input action(s) waited more than %llu ms and were dropped (first \"%s\").",
-                               expired, kMaximumQueuedInputAgeMilliseconds, firstExpired.data());
+                               expired,
+                               kMaximumQueuedInputAgeMilliseconds,
+                               firstExpired.data());
         (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, nullptr, nullptr, "action-expired", message.data());
     }
 }
@@ -2381,7 +2381,7 @@ uint32_t PluginHost::RunningDeviceWorkerCount() const noexcept
 
 IRedXeService* PluginHost::ServiceFor(const char* pluginId) const noexcept
 {
-    if (!RedXeIsValidMachineId(pluginId))
+    if (! RedXeIsValidMachineId(pluginId))
     {
         return nullptr;
     }
@@ -2397,7 +2397,7 @@ IRedXeService* PluginHost::ServiceFor(const char* pluginId) const noexcept
 
 HRESULT PluginHost::CreateService(ServiceSlot& slot, const ServiceSettings& settings) noexcept
 {
-    if (!slot.spec || slot.service)
+    if (! slot.spec || slot.service)
     {
         return E_UNEXPECTED;
     }
@@ -2405,14 +2405,14 @@ HRESULT PluginHost::CreateService(ServiceSlot& slot, const ServiceSettings& sett
     HRESULT result = GetPluginModule(slot.spec->pluginId, RedXePluginCapabilityService, &module);
     if (FAILED(result))
     {
-        (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec->pluginId, nullptr, "module-map-failed",
-                           "catalogued service DLL could not be mapped.", result);
+        (void)RedXeHostLog(
+            Interface(), RedXeLogLevelError, slot.spec->pluginId, nullptr, "module-map-failed", "catalogued service DLL could not be mapped.", result);
         return result;
     }
 
     std::array<char, kFactoryConfigurationCapacity> configuration{};
     uint32_t configurationBytes = 0;
-    result = SerializeServiceConfigurationJson(settings, configuration, configurationBytes);
+    result                      = SerializeServiceConfigurationJson(settings, configuration, configurationBytes);
     if (FAILED(result))
     {
         return result;
@@ -2423,12 +2423,12 @@ HRESULT PluginHost::CreateService(ServiceSlot& slot, const ServiceSettings& sett
     options.debugLevel = 1;
 #endif
     options.configurationJsonUtf8 = configuration.data();
-    options.configurationBytes = configurationBytes;
-    options.backgroundColor = kRedXeDefaultBackgroundColor;
+    options.configurationBytes    = configurationBytes;
+    options.backgroundColor       = kRedXeDefaultBackgroundColor;
 
     void* serviceObject = nullptr;
-    result = module.create(__uuidof(IRedXeService), &options, Interface(), slot.spec->pluginId, &serviceObject);
-    if (FAILED(result) || !serviceObject)
+    result              = module.create(__uuidof(IRedXeService), &options, Interface(), slot.spec->pluginId, &serviceObject);
+    if (FAILED(result) || ! serviceObject)
     {
         return FAILED(result) ? result : E_UNEXPECTED;
     }
@@ -2440,7 +2440,7 @@ HRESULT PluginHost::CreateService(ServiceSlot& slot, const ServiceSettings& sett
 
 HRESULT PluginHost::StartService(ServiceSlot& slot) noexcept
 {
-    if (!slot.service)
+    if (! slot.service)
     {
         return E_UNEXPECTED;
     }
@@ -2453,23 +2453,27 @@ HRESULT PluginHost::StartService(ServiceSlot& slot) noexcept
         return HRESULT_FROM_WIN32(ERROR_BUSY);
     }
     RedXeServiceStartContext context{};
-    context.sizeBytes = sizeof(context);
-    context.flags = DeviceAccessEnabled() ? RedXeServiceFlagNone : RedXeServiceFlagDeviceAccessDisabled;
+    context.sizeBytes     = sizeof(context);
+    context.flags         = DeviceAccessEnabled() ? RedXeServiceFlagNone : RedXeServiceFlagDeviceAccessDisabled;
     const HRESULT started = slot.service->Start(&context);
     if (FAILED(started))
     {
-        (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec->pluginId, nullptr, "service-start-failed",
-                           "service Start failed; it stays created for a later settings apply.", started);
+        (void)RedXeHostLog(Interface(),
+                           RedXeLogLevelError,
+                           slot.spec->pluginId,
+                           nullptr,
+                           "service-start-failed",
+                           "service Start failed; it stays created for a later settings apply.",
+                           started);
         return started;
     }
     slot.started = true;
-    (void)RedXeHostLog(Interface(), RedXeLogLevelInfo, slot.spec->pluginId, nullptr, "service-started",
-                       "service started.");
+    (void)RedXeHostLog(Interface(), RedXeLogLevelInfo, slot.spec->pluginId, nullptr, "service-started", "service started.");
     const HRESULT lane = StartDeviceLane(slot);
     if (FAILED(lane))
     {
-        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, slot.spec->pluginId, nullptr, "device-lane-failed",
-                           "service device lane could not be started.", lane);
+        (void)RedXeHostLog(
+            Interface(), RedXeLogLevelWarning, slot.spec->pluginId, nullptr, "device-lane-failed", "service device lane could not be started.", lane);
     }
     return S_OK;
 }
@@ -2477,21 +2481,25 @@ HRESULT PluginHost::StartService(ServiceSlot& slot) noexcept
 void PluginHost::StopService(ServiceSlot& slot, uint32_t drainMilliseconds) noexcept
 {
     const bool wasStarted = slot.started || slot.stopPending;
-    if (!StopDeviceLane(slot, drainMilliseconds))
+    if (! StopDeviceLane(slot, drainMilliseconds))
     {
         slot.stopPending = wasStarted;
-        slot.started = false;
+        slot.started     = false;
         return;
     }
     if (slot.service && wasStarted)
     {
         const HRESULT stopped = slot.service->Stop();
-        (void)RedXeHostLog(Interface(), FAILED(stopped) ? RedXeLogLevelWarning : RedXeLogLevelInfo,
-                           slot.spec ? slot.spec->pluginId : nullptr, nullptr, "service-stopped", "service stopped.",
+        (void)RedXeHostLog(Interface(),
+                           FAILED(stopped) ? RedXeLogLevelWarning : RedXeLogLevelInfo,
+                           slot.spec ? slot.spec->pluginId : nullptr,
+                           nullptr,
+                           "service-stopped",
+                           "service stopped.",
                            stopped);
     }
-    slot.started = false;
-    slot.stopPending = false;
+    slot.started       = false;
+    slot.stopPending   = false;
     slot.startDeferred = false;
     slot.worker.reset();
     slot.service.reset();
@@ -2500,7 +2508,7 @@ void PluginHost::StopService(ServiceSlot& slot, uint32_t drainMilliseconds) noex
 
 HRESULT PluginHost::StartDeviceLane(ServiceSlot& slot) noexcept
 {
-    if (!slot.worker || slot.lane.joinable())
+    if (! slot.worker || slot.lane.joinable())
     {
         return S_FALSE;
     }
@@ -2515,7 +2523,7 @@ HRESULT PluginHost::StartDeviceLane(ServiceSlot& slot) noexcept
     }
     slot.stopEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
     slot.wakeEvent.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
-    if (!slot.stopEvent || !slot.wakeEvent)
+    if (! slot.stopEvent || ! slot.wakeEvent)
     {
         const DWORD error = GetLastError();
         slot.wakeEvent.reset();
@@ -2545,11 +2553,16 @@ void PluginHost::DeviceLane(ServiceSlot& slot) noexcept
 {
     // WIC, CfgMgr32 notifications, and any other COM the service uses on this lane need an MTA apartment.
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE);
-    const HRESULT result = slot.worker->RunDeviceWork(slot.stopEvent.get(), slot.wakeEvent.get());
+    const HRESULT result    = slot.worker->RunDeviceWork(slot.stopEvent.get(), slot.wakeEvent.get());
     if (FAILED(result))
     {
-        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, slot.spec ? slot.spec->pluginId : nullptr, nullptr,
-                           "device-lane-failed", "RunDeviceWork returned a failure.", result);
+        (void)RedXeHostLog(Interface(),
+                           RedXeLogLevelWarning,
+                           slot.spec ? slot.spec->pluginId : nullptr,
+                           nullptr,
+                           "device-lane-failed",
+                           "RunDeviceWork returned a failure.",
+                           result);
     }
     if (SUCCEEDED(apartment))
     {
@@ -2568,7 +2581,7 @@ void PluginHost::DeviceLane(ServiceSlot& slot) noexcept
 
 bool PluginHost::StopDeviceLane(ServiceSlot& slot, uint32_t drainMilliseconds) noexcept
 {
-    if (!slot.lane.joinable())
+    if (! slot.lane.joinable())
     {
         slot.wakeEvent.reset();
         slot.stopEvent.reset();
@@ -2581,8 +2594,7 @@ bool PluginHost::StopDeviceLane(ServiceSlot& slot, uint32_t drainMilliseconds) n
     const DWORD waited = WaitForSingleObject(slot.lane.native_handle(), slot.laneTombstoned ? 0U : drainMilliseconds);
     // A lane that already left RunDeviceWork has only its thread exit left, so joining it does not wait on the
     // plugin; otherwise the same exchange tells it to post kServiceLaneMessage when it returns.
-    if (waited == WAIT_OBJECT_0 ||
-        (slot.laneState.fetch_or(kLaneAbandoned, std::memory_order_acq_rel) & kLaneReturned) != 0)
+    if (waited == WAIT_OBJECT_0 || (slot.laneState.fetch_or(kLaneAbandoned, std::memory_order_acq_rel) & kLaneReturned) != 0)
     {
         slot.lane.join();
         slot.lane = std::jthread{};
@@ -2592,10 +2604,14 @@ bool PluginHost::StopDeviceLane(ServiceSlot& slot, uint32_t drainMilliseconds) n
         slot.laneState.store(0, std::memory_order_release);
         return true;
     }
-    if (!slot.laneTombstoned)
+    if (! slot.laneTombstoned)
     {
-        (void)RedXeHostLog(Interface(), RedXeLogLevelError, slot.spec ? slot.spec->pluginId : nullptr, nullptr,
-                           "device-lane-drain-timeout", "device lane did not return within the drain budget.");
+        (void)RedXeHostLog(Interface(),
+                           RedXeLogLevelError,
+                           slot.spec ? slot.spec->pluginId : nullptr,
+                           nullptr,
+                           "device-lane-drain-timeout",
+                           "device lane did not return within the drain budget.");
         slot.laneTombstoned = true;
     }
     return false;
@@ -2603,19 +2619,24 @@ bool PluginHost::StopDeviceLane(ServiceSlot& slot, uint32_t drainMilliseconds) n
 
 void PluginHost::LogDeferredStart(ServiceSlot& slot, const AppSettings& settings) noexcept
 {
-    if (slot.startDeferred || !FindServiceSettings(settings, slot.spec->pluginId))
+    if (slot.startDeferred || ! FindServiceSettings(settings, slot.spec->pluginId))
     {
         return;
     }
     slot.startDeferred = true;
-    (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, slot.spec->pluginId, nullptr, "service-start-deferred",
-                       "service starts when its previous device lane returns.", HRESULT_FROM_WIN32(ERROR_BUSY));
+    (void)RedXeHostLog(Interface(),
+                       RedXeLogLevelWarning,
+                       slot.spec->pluginId,
+                       nullptr,
+                       "service-start-deferred",
+                       "service starts when its previous device lane returns.",
+                       HRESULT_FROM_WIN32(ERROR_BUSY));
 }
 
 bool PluginHost::PrepareServiceSlot(size_t index, const AppSettings& settings, HRESULT& first) noexcept
 {
     ServiceSlot& slot = _services[index];
-    if (!slot.spec)
+    if (! slot.spec)
     {
         slot.spec = &kRedXeBundledServices[index];
     }
@@ -2644,13 +2665,13 @@ HRESULT PluginHost::StartServices(const AppSettings& settings) noexcept
     HRESULT first = S_OK;
     for (size_t index = 0; index < _services.size(); ++index)
     {
-        if (!PrepareServiceSlot(index, settings, first))
+        if (! PrepareServiceSlot(index, settings, first))
         {
             continue;
         }
-        ServiceSlot& slot = _services[index];
+        ServiceSlot& slot                 = _services[index];
         const ServiceSettings* configured = FindServiceSettings(settings, slot.spec->pluginId);
-        if (!configured)
+        if (! configured)
         {
             continue;
         }
@@ -2676,13 +2697,13 @@ HRESULT PluginHost::ApplyServiceSettings(const AppSettings& settings) noexcept
     HRESULT first = S_OK;
     for (size_t index = 0; index < _services.size(); ++index)
     {
-        if (!PrepareServiceSlot(index, settings, first))
+        if (! PrepareServiceSlot(index, settings, first))
         {
             continue;
         }
-        ServiceSlot& slot = _services[index];
+        ServiceSlot& slot                 = _services[index];
         const ServiceSettings* configured = FindServiceSettings(settings, slot.spec->pluginId);
-        if (!configured)
+        if (! configured)
         {
             if (slot.service)
             {
@@ -2690,7 +2711,7 @@ HRESULT PluginHost::ApplyServiceSettings(const AppSettings& settings) noexcept
             }
             continue;
         }
-        if (!slot.service)
+        if (! slot.service)
         {
             HRESULT result = CreateService(slot, *configured);
             if (SUCCEEDED(result))
@@ -2707,14 +2728,19 @@ HRESULT PluginHost::ApplyServiceSettings(const AppSettings& settings) noexcept
         {
             continue;
         }
-        slot.settings = configured->privateConfiguration;
+        slot.settings  = configured->privateConfiguration;
         HRESULT result = slot.service->ApplySettings(slot.settings.Data(), slot.settings.Bytes());
         if (FAILED(result))
         {
-            (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, slot.spec->pluginId, nullptr,
-                               "service-settings-rejected", "service rejected its effective settings.", result);
+            (void)RedXeHostLog(Interface(),
+                               RedXeLogLevelWarning,
+                               slot.spec->pluginId,
+                               nullptr,
+                               "service-settings-rejected",
+                               "service rejected its effective settings.",
+                               result);
         }
-        if (!slot.started)
+        if (! slot.started)
         {
             result = StartService(slot);
         }
@@ -2731,7 +2757,10 @@ void PluginHost::LogRetiredServiceSettings(const AppSettings& settings) noexcept
     // A retired service (today builtin.zoom, with or without its v1.0.102 members) still loads; its entry is ignored.
     for (const SettingsText& pluginId : settings.retiredServices)
     {
-        (void)RedXeHostLog(Interface(), RedXeLogLevelWarning, pluginId.utf8.data(), nullptr,
+        (void)RedXeHostLog(Interface(),
+                           RedXeLogLevelWarning,
+                           pluginId.utf8.data(),
+                           nullptr,
                            "service-retired-settings-ignored",
                            "This services entry is no longer needed: the plugin is not a service any more, so the "
                            "entry is ignored and can be deleted.");
@@ -2766,13 +2795,13 @@ void PluginHost::StopServices(uint32_t budgetMilliseconds) noexcept
             SetEvent(slot.stopEvent.get());
         }
     }
-    const bool budgeted = budgetMilliseconds != INFINITE;
+    const bool budgeted      = budgetMilliseconds != INFINITE;
     const ULONGLONG deadline = budgeted ? GetTickCount64() + budgetMilliseconds : 0;
     for (size_t index = _services.size(); index > 0; --index)
     {
-        StopService(_services[index - 1], budgeted ? TeardownStageMilliseconds(GetTickCount64(), deadline, 0,
-                                                                               kRedXeDeviceWorkerDrainMilliseconds)
-                                                   : kRedXeDeviceWorkerDrainMilliseconds);
+        StopService(_services[index - 1],
+                    budgeted ? TeardownStageMilliseconds(GetTickCount64(), deadline, 0, kRedXeDeviceWorkerDrainMilliseconds)
+                             : kRedXeDeviceWorkerDrainMilliseconds);
     }
 }
 
@@ -2782,7 +2811,8 @@ PluginHost::WidgetStatusBinding::~WidgetStatusBinding() noexcept
 }
 
 PluginHost::WidgetStatusBinding::WidgetStatusBinding(WidgetStatusBinding&& other) noexcept
-    : _host(std::exchange(other._host, nullptr)), _key(std::exchange(other._key, 0))
+    : _host(std::exchange(other._host, nullptr)),
+      _key(std::exchange(other._key, 0))
 {
 }
 
@@ -2792,7 +2822,7 @@ PluginHost::WidgetStatusBinding& PluginHost::WidgetStatusBinding::operator=(Widg
     {
         Reset();
         _host = std::exchange(other._host, nullptr);
-        _key = std::exchange(other._key, 0);
+        _key  = std::exchange(other._key, 0);
     }
     return *this;
 }
@@ -2807,26 +2837,25 @@ void PluginHost::WidgetStatusBinding::Reset() noexcept
     if (_host)
         _host->ReleaseWidgetStatusBinding(_key);
     _host = nullptr;
-    _key = 0;
+    _key  = 0;
 }
 
 void PluginHost::ResetWidgetStatusSlot(WidgetStatusSlot& slot) noexcept
 {
     const uint64_t generation = slot.statusAndGeneration.load(std::memory_order_relaxed) >> 32;
     // Retire at the generation ceiling, rather than allowing an old key to become valid through wraparound.
-    slot.statusAndGeneration.store(((std::min)(generation + 1, uint64_t{UINT32_MAX}) << 32) | RedXeWidgetStatusOk,
-                                   std::memory_order_release);
+    slot.statusAndGeneration.store(((std::min)(generation + 1, uint64_t{UINT32_MAX}) << 32) | RedXeWidgetStatusOk, std::memory_order_release);
     slot.instanceId.fill('\0');
     slot.reason.fill(L'\0');
     slot.bindings = 0;
-    slot.used = false;
+    slot.used     = false;
 }
 
 HRESULT PluginHost::BindWidgetStatus(const char* instanceId, WidgetStatusBinding& binding) noexcept
 {
     if (_shutdown)
         return E_UNEXPECTED;
-    if (!RedXeIsValidMachineId(instanceId))
+    if (! RedXeIsValidMachineId(instanceId))
         return E_INVALIDARG;
     binding.Reset();
     const auto guard = wil::AcquireSRWLockExclusive(&_widgetStatusLock);
@@ -2840,8 +2869,7 @@ HRESULT PluginHost::BindWidgetStatus(const char* instanceId, WidgetStatusBinding
             slotIndex = index;
             break;
         }
-        if (!slot.used && freeIndex == _widgetStatus.size() &&
-            (slot.statusAndGeneration.load(std::memory_order_relaxed) >> 32) != UINT32_MAX)
+        if (! slot.used && freeIndex == _widgetStatus.size() && (slot.statusAndGeneration.load(std::memory_order_relaxed) >> 32) != UINT32_MAX)
             freeIndex = index;
     }
     if (slotIndex == _widgetStatus.size())
@@ -2859,8 +2887,7 @@ HRESULT PluginHost::BindWidgetStatus(const char* instanceId, WidgetStatusBinding
         return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
     ++slot.bindings;
     binding._host = this;
-    binding._key = (slot.statusAndGeneration.load(std::memory_order_relaxed) & 0xFFFFFFFF00000000ULL) |
-                   static_cast<uint32_t>(slotIndex + 1);
+    binding._key  = (slot.statusAndGeneration.load(std::memory_order_relaxed) & 0xFFFFFFFF00000000ULL) | static_cast<uint32_t>(slotIndex + 1);
     return S_OK;
 }
 
@@ -2877,7 +2904,7 @@ void PluginHost::ReleaseWidgetStatusBinding(uint64_t key) noexcept
 {
     std::array<char, kMaximumWidgetStatusIdBytes> releasedId{};
     {
-        const auto guard = wil::AcquireSRWLockExclusive(&_widgetStatusLock);
+        const auto guard            = wil::AcquireSRWLockExclusive(&_widgetStatusLock);
         const uint32_t encodedIndex = static_cast<uint32_t>(key);
         if (encodedIndex == 0 || encodedIndex > _widgetStatus.size())
             return;
@@ -2893,7 +2920,7 @@ void PluginHost::ReleaseWidgetStatusBinding(uint64_t key) noexcept
 
 HRESULT PluginHost::ReportWidgetStatus(const char* instanceId, const RedXeWidgetStatusReport* report) noexcept
 {
-    if (!RedXeIsValidMachineId(instanceId) || !report || report->sizeBytes != sizeof(RedXeWidgetStatusReport) ||
+    if (! RedXeIsValidMachineId(instanceId) || ! report || report->sizeBytes != sizeof(RedXeWidgetStatusReport) ||
         report->status > RedXeWidgetStatusUnavailable)
     {
         return E_INVALIDARG;
@@ -2917,34 +2944,31 @@ HRESULT PluginHost::ReportWidgetStatus(const char* instanceId, const RedXeWidget
             slot = &candidate;
             break;
         }
-        if (!candidate.used && !free &&
-            (candidate.statusAndGeneration.load(std::memory_order_relaxed) >> 32) != UINT32_MAX)
+        if (! candidate.used && ! free && (candidate.statusAndGeneration.load(std::memory_order_relaxed) >> 32) != UINT32_MAX)
         {
             free = &candidate;
         }
     }
-    if (!slot)
+    if (! slot)
     {
         slot = free;
         if (slot)
         {
             ResetWidgetStatusSlot(*slot);
             slot->used = true;
-            (void)StringCchCopyNA(slot->instanceId.data(), slot->instanceId.size(), instanceId,
-                                  slot->instanceId.size() - 1);
+            (void)StringCchCopyNA(slot->instanceId.data(), slot->instanceId.size(), instanceId, slot->instanceId.size() - 1);
         }
     }
     if (slot)
     {
         const uint64_t state = slot->statusAndGeneration.load(std::memory_order_relaxed);
-        changed = static_cast<uint32_t>(state) != report->status ||
-                  std::wcsncmp(slot->reason.data(), reason.data(), reason.size()) != 0;
+        changed              = static_cast<uint32_t>(state) != report->status || std::wcsncmp(slot->reason.data(), reason.data(), reason.size()) != 0;
         slot->statusAndGeneration.store((state & 0xFFFFFFFF00000000ULL) | report->status, std::memory_order_release);
         slot->reason = reason;
     }
     ReleaseSRWLockExclusive(&_widgetStatusLock);
 
-    if (!slot)
+    if (! slot)
     {
         return HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES);
     }
@@ -2957,7 +2981,7 @@ HRESULT PluginHost::ReportWidgetStatus(const char* instanceId, const RedXeWidget
 
 uint32_t PluginHost::WidgetStatus(const char* instanceId) const noexcept
 {
-    if (!instanceId || instanceId[0] == '\0')
+    if (! instanceId || instanceId[0] == '\0')
     {
         return RedXeWidgetStatusOk;
     }
@@ -2977,19 +3001,18 @@ uint32_t PluginHost::WidgetStatus(const char* instanceId) const noexcept
 
 bool PluginHost::WidgetStatusReason(const char* instanceId, wchar_t* text, size_t capacity) const noexcept
 {
-    if (!instanceId || instanceId[0] == '\0' || !text || capacity == 0)
+    if (! instanceId || instanceId[0] == '\0' || ! text || capacity == 0)
     {
         return false;
     }
-    text[0] = L'\0';
+    text[0]    = L'\0';
     bool found = false;
     AcquireSRWLockShared(&_widgetStatusLock);
     for (const WidgetStatusSlot& candidate : _widgetStatus)
     {
         if (candidate.used && RedXeAsciiEqualsIgnoreCase(candidate.instanceId.data(), instanceId))
         {
-            found = candidate.reason[0] != L'\0' &&
-                    SUCCEEDED(StringCchCopyNW(text, capacity, candidate.reason.data(), capacity - 1));
+            found = candidate.reason[0] != L'\0' && SUCCEEDED(StringCchCopyNW(text, capacity, candidate.reason.data(), capacity - 1));
             break;
         }
     }
@@ -2999,7 +3022,7 @@ bool PluginHost::WidgetStatusReason(const char* instanceId, wchar_t* text, size_
 
 void PluginHost::ClearWidgetStatus(const char* instanceId) noexcept
 {
-    if (!instanceId || instanceId[0] == '\0')
+    if (! instanceId || instanceId[0] == '\0')
     {
         return;
     }
@@ -3023,8 +3046,7 @@ void PluginHost::ClearWidgetStatus(const char* instanceId) noexcept
             pending.reset();
 }
 
-HRESULT PluginHost::GetDataSets(size_t providerIndex, const RedXeDataSetDescriptor** descriptors,
-                                uint32_t* count) noexcept
+HRESULT PluginHost::GetDataSets(size_t providerIndex, const RedXeDataSetDescriptor** descriptors, uint32_t* count) noexcept
 {
     if (descriptors)
     {
@@ -3034,17 +3056,17 @@ HRESULT PluginHost::GetDataSets(size_t providerIndex, const RedXeDataSetDescript
     {
         *count = 0;
     }
-    if (!descriptors || !count)
+    if (! descriptors || ! count)
     {
         return E_POINTER;
     }
     const auto guard = wil::AcquireSRWLockShared(&_subscriptionLock);
-    if (_dataServiceStopping || providerIndex >= _providerCount || !_providers[providerIndex].source)
+    if (_dataServiceStopping || providerIndex >= _providerCount || ! _providers[providerIndex].source)
     {
         return E_UNEXPECTED;
     }
     *descriptors = _providers[providerIndex].descriptors;
-    *count = _providers[providerIndex].descriptorCount;
+    *count       = _providers[providerIndex].descriptorCount;
     return S_OK;
 }
 
@@ -3060,7 +3082,7 @@ HRESULT PluginHost::EnsureWorker() noexcept
 
     _stopEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
     _changeEvent.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
-    if (!_stopEvent || !_changeEvent)
+    if (! _stopEvent || ! _changeEvent)
     {
         const DWORD error = GetLastError();
         _changeEvent.reset();
@@ -3086,41 +3108,41 @@ HRESULT PluginHost::EnsureWorker() noexcept
     return S_OK;
 }
 
-HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionOptions* options, IRedXeDataSink* sink,
+HRESULT PluginHost::Subscribe(size_t providerIndex,
+                              const RedXeDataSubscriptionOptions* options,
+                              IRedXeDataSink* sink,
                               IRedXeDataSubscription** subscription) noexcept
 {
     if (subscription)
     {
         *subscription = nullptr;
     }
-    if (!subscription || !sink)
+    if (! subscription || ! sink)
     {
         return E_POINTER;
     }
-    if (!options || options->sizeBytes != sizeof(RedXeDataSubscriptionOptions) ||
-        !RedXeIsValidMachineId(options->dataSetId) || options->requestedIntervalMilliseconds == 0 ||
-        options->requestedIntervalMilliseconds > kMaximumSubscriptionIntervalMilliseconds)
+    if (! options || options->sizeBytes != sizeof(RedXeDataSubscriptionOptions) || ! RedXeIsValidMachineId(options->dataSetId) ||
+        options->requestedIntervalMilliseconds == 0 || options->requestedIntervalMilliseconds > kMaximumSubscriptionIntervalMilliseconds)
     {
         return E_INVALIDARG;
     }
 
-    size_t dataSetIndex = 0;
+    size_t dataSetIndex           = 0;
     uint32_t intervalMilliseconds = 0;
     {
         const auto guard = wil::AcquireSRWLockShared(&_subscriptionLock);
         if (_dataServiceStopping)
             return E_UNEXPECTED;
-        if (providerIndex >= _providerCount || !_providers[providerIndex].source)
+        if (providerIndex >= _providerCount || ! _providers[providerIndex].source)
             return E_INVALIDARG;
         const ProviderRuntime& runtime = _providers[providerIndex];
-        dataSetIndex = runtime.descriptorCount;
+        dataSetIndex                   = runtime.descriptorCount;
         for (size_t index = 0; index < runtime.descriptorCount; ++index)
         {
             if (RedXeAsciiEqualsIgnoreCase(runtime.descriptors[index].dataSetId, options->dataSetId))
             {
-                dataSetIndex = index;
-                intervalMilliseconds = std::max(options->requestedIntervalMilliseconds,
-                                                runtime.descriptors[index].recommendedIntervalMilliseconds);
+                dataSetIndex         = index;
+                intervalMilliseconds = std::max(options->requestedIntervalMilliseconds, runtime.descriptors[index].recommendedIntervalMilliseconds);
                 break;
             }
         }
@@ -3142,7 +3164,7 @@ HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionO
     }
 
     AcquireSRWLockExclusive(&_subscriptionLock);
-    if (_dataServiceStopping || providerIndex >= _providerCount || !_providers[providerIndex].source ||
+    if (_dataServiceStopping || providerIndex >= _providerCount || ! _providers[providerIndex].source ||
         dataSetIndex >= _providers[providerIndex].descriptorCount)
     {
         ReleaseSRWLockExclusive(&_subscriptionLock);
@@ -3151,7 +3173,7 @@ HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionO
     size_t index = _subscriptions.size();
     for (size_t candidate = 0; candidate < _subscriptions.size(); ++candidate)
     {
-        if (!_subscriptions[candidate].sink)
+        if (! _subscriptions[candidate].sink)
         {
             index = candidate;
             break;
@@ -3169,19 +3191,19 @@ HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionO
         token = _nextToken++;
     }
     auto* created = new (std::nothrow) Subscription(*this, index, token);
-    if (!created)
+    if (! created)
     {
         ReleaseSRWLockExclusive(&_subscriptionLock);
         return E_OUTOFMEMORY;
     }
 
-    SubscriptionSlot& slot = _subscriptions[index];
-    slot.sink = std::move(sinkOwner);
-    slot.token = token;
-    slot.providerIndex = providerIndex;
-    slot.dataSetIndex = dataSetIndex;
+    SubscriptionSlot& slot    = _subscriptions[index];
+    slot.sink                 = std::move(sinkOwner);
+    slot.token                = token;
+    slot.providerIndex        = providerIndex;
+    slot.dataSetIndex         = dataSetIndex;
     slot.intervalMilliseconds = intervalMilliseconds;
-    slot.active = false;
+    slot.active               = false;
     SetEvent(_changeEvent.get());
     ReleaseSRWLockExclusive(&_subscriptionLock);
 
@@ -3192,15 +3214,15 @@ HRESULT PluginHost::Subscribe(size_t providerIndex, const RedXeDataSubscriptionO
 HRESULT PluginHost::SetSubscriptionActive(size_t index, uint64_t token, bool active) noexcept
 {
     AcquireSRWLockExclusive(&_subscriptionLock);
-    if (_dataServiceStopping || index >= _subscriptions.size() || !_subscriptions[index].sink ||
-        _subscriptions[index].token != token || _subscriptions[index].removing)
+    if (_dataServiceStopping || index >= _subscriptions.size() || ! _subscriptions[index].sink || _subscriptions[index].token != token ||
+        _subscriptions[index].removing)
     {
         ReleaseSRWLockExclusive(&_subscriptionLock);
         return E_UNEXPECTED;
     }
-    const bool changed = _subscriptions[index].active != active;
+    const bool changed           = _subscriptions[index].active != active;
     _subscriptions[index].active = active;
-    while (!active && _subscriptions[index].token == token && _subscriptions[index].inFlight != 0)
+    while (! active && _subscriptions[index].token == token && _subscriptions[index].inFlight != 0)
     {
         SleepConditionVariableSRW(&_subscriptionDrained, &_subscriptionLock, INFINITE, 0);
     }
@@ -3218,13 +3240,13 @@ void PluginHost::RemoveSubscription(size_t index, uint64_t token) noexcept
     AcquireSRWLockExclusive(&_subscriptionLock);
     if (index < _subscriptions.size() && _subscriptions[index].token == token)
     {
-        _subscriptions[index].active = false;
+        _subscriptions[index].active   = false;
         _subscriptions[index].removing = true;
         while (_subscriptions[index].inFlight != 0)
         {
             SleepConditionVariableSRW(&_subscriptionDrained, &_subscriptionLock, INFINITE, 0);
         }
-        sink = std::move(_subscriptions[index].sink);
+        sink                  = std::move(_subscriptions[index].sink);
         _subscriptions[index] = SubscriptionSlot{};
     }
     ReleaseSRWLockExclusive(&_subscriptionLock);
@@ -3234,7 +3256,7 @@ void PluginHost::RemoveSubscription(size_t index, uint64_t token) noexcept
 
 void PluginHost::Deliver(size_t providerIndex, size_t dataSetIndex, const RedXeDataSnapshot* snapshot) noexcept
 {
-    if (!snapshot)
+    if (! snapshot)
     {
         return;
     }
@@ -3247,8 +3269,7 @@ void PluginHost::Deliver(size_t providerIndex, size_t dataSetIndex, const RedXeD
     for (size_t slotIndex = 0; slotIndex < _subscriptions.size(); ++slotIndex)
     {
         SubscriptionSlot& slot = _subscriptions[slotIndex];
-        if (slot.sink && slot.active && slot.providerIndex == providerIndex && slot.dataSetIndex == dataSetIndex &&
-            sinkCount < sinks.size())
+        if (slot.sink && slot.active && slot.providerIndex == providerIndex && slot.dataSetIndex == dataSetIndex && sinkCount < sinks.size())
         {
             sinks[sinkCount] = slot.sink;
             slots[sinkCount] = slotIndex;
@@ -3300,10 +3321,10 @@ void PluginHost::TrimIdleDataSources(bool onAcquisitionWorker) noexcept
 {
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
-        if (_dataServiceStopping || !_dataSourcesNeedTrim)
+        if (_dataServiceStopping || ! _dataSourcesNeedTrim)
             return;
         // EnsureWorker may have started between the request and this lock. Only that worker may then reclaim.
-        if (!onAcquisitionWorker && _changeEvent)
+        if (! onAcquisitionWorker && _changeEvent)
         {
             SetEvent(_changeEvent.get());
             return;
@@ -3319,20 +3340,19 @@ void PluginHost::TrimIdleDataSources(bool onAcquisitionWorker) noexcept
             if (index >= _providerCount)
                 break;
             auto& runtime = _providers[index];
-            if (!runtime.source || !runtime.provider ||
-                !static_cast<DataProvider*>(runtime.provider.get())->HasOnlyHostReference())
+            if (! runtime.source || ! runtime.provider || ! static_cast<DataProvider*>(runtime.provider.get())->HasOnlyHostReference())
                 continue;
-            const bool subscribed =
-                std::any_of(_subscriptions.begin(), _subscriptions.end(), [index](const SubscriptionSlot& slot) noexcept
-                            { return slot.sink && slot.providerIndex == index; });
+            const bool subscribed = std::any_of(_subscriptions.begin(), _subscriptions.end(), [index](const SubscriptionSlot& slot) noexcept {
+                return slot.sink && slot.providerIndex == index;
+            });
             // Inactive and removing subscriptions are leases too. A removing slot keeps its sink until every
             // reserved callback has drained. Worker reclamation runs only after its collection/delivery pass.
             if (subscribed)
                 continue;
-            retired = std::move(runtime.source);
-            runtime.descriptors = nullptr;
+            retired                 = std::move(runtime.source);
+            runtime.descriptors     = nullptr;
             runtime.descriptorCount = 0;
-            retiredDataSets = std::move(runtime.dataSets);
+            retiredDataSets         = std::move(runtime.dataSets);
         }
         // Source cleanup (PDH, IP Helper, device handles) may drain its own native callbacks. Never hold the registry
         // lock during that cleanup. The fixed facade and module image remain, so a revisit preserves COM identity.
@@ -3353,21 +3373,19 @@ void PluginHost::Worker() noexcept
             ProviderRuntime& provider = _providers[providerIndex];
             for (size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
             {
-                provider.dataSets[dataSetIndex].active = false;
+                provider.dataSets[dataSetIndex].active                     = false;
                 provider.dataSets[dataSetIndex].activeIntervalMilliseconds = kMaximumSubscriptionIntervalMilliseconds;
             }
         }
         for (const SubscriptionSlot& slot : _subscriptions)
         {
-            if (!slot.sink || !slot.active || slot.providerIndex >= providerCount ||
-                slot.dataSetIndex >= _providers[slot.providerIndex].descriptorCount)
+            if (! slot.sink || ! slot.active || slot.providerIndex >= providerCount || slot.dataSetIndex >= _providers[slot.providerIndex].descriptorCount)
             {
                 continue;
             }
-            DataSetRuntime& dataSet = _providers[slot.providerIndex].dataSets[slot.dataSetIndex];
-            dataSet.active = true;
-            dataSet.activeIntervalMilliseconds =
-                std::min(dataSet.activeIntervalMilliseconds, slot.intervalMilliseconds);
+            DataSetRuntime& dataSet            = _providers[slot.providerIndex].dataSets[slot.dataSetIndex];
+            dataSet.active                     = true;
+            dataSet.activeIntervalMilliseconds = std::min(dataSet.activeIntervalMilliseconds, slot.intervalMilliseconds);
         }
         ReleaseSRWLockExclusive(&_subscriptionLock);
 
@@ -3385,15 +3403,15 @@ void PluginHost::Worker() noexcept
                 for (size_t dataSetIndex = 0; dataSetIndex < provider.descriptorCount; ++dataSetIndex)
                 {
                     DataSetRuntime& dataSet = provider.dataSets[dataSetIndex];
-                    if (!dataSet.active)
+                    if (! dataSet.active)
                     {
                         dataSet.due = 0;
                         continue;
                     }
-                    if ((dataSet.due == 0 || now >= dataSet.due) && dueCount < RedXeDataCollectMaximumDataSets &&
-                        dataSet.descriptor && dataSet.descriptor->dataSetId)
+                    if ((dataSet.due == 0 || now >= dataSet.due) && dueCount < RedXeDataCollectMaximumDataSets && dataSet.descriptor &&
+                        dataSet.descriptor->dataSetId)
                     {
-                        dueIds[dueCount] = dataSet.descriptor->dataSetId;
+                        dueIds[dueCount]     = dataSet.descriptor->dataSetId;
                         dueIndices[dueCount] = static_cast<uint32_t>(dataSetIndex);
                         ++dueCount;
                     }
@@ -3417,8 +3435,7 @@ void PluginHost::Worker() noexcept
                 dueCount,
             };
             const RedXeDataCollectResult* collectResult = nullptr;
-            if (source && SUCCEEDED(source->CollectSnapshots(&request, &collectResult)) &&
-                CollectResultMatchesRequest(request, collectResult))
+            if (source && SUCCEEDED(source->CollectSnapshots(&request, &collectResult)) && CollectResultMatchesRequest(request, collectResult))
             {
                 for (uint32_t index = 0; index < dueCount; ++index)
                 {
@@ -3433,7 +3450,7 @@ void PluginHost::Worker() noexcept
             }
         }
 
-        DWORD timeout = INFINITE;
+        DWORD timeout                  = INFINITE;
         const uint64_t afterCollection = GetTickCount64();
         {
             const auto guard = wil::AcquireSRWLockShared(&_subscriptionLock);
@@ -3480,7 +3497,7 @@ void PluginHost::Worker() noexcept
 void PluginHost::StopDataService() noexcept
 {
     {
-        const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+        const auto guard     = wil::AcquireSRWLockExclusive(&_subscriptionLock);
         _dataServiceStopping = true;
         if (_stopEvent)
             SetEvent(_stopEvent.get());
@@ -3495,8 +3512,8 @@ void PluginHost::StopDataService() noexcept
     {
         wil::com_ptr_nothrow<IRedXeDataSink> sink;
         {
-            const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
-            sink = std::move(_subscriptions[index].sink);
+            const auto guard      = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+            sink                  = std::move(_subscriptions[index].sink);
             _subscriptions[index] = SubscriptionSlot{};
         }
         sink.reset();
@@ -3505,15 +3522,15 @@ void PluginHost::StopDataService() noexcept
     {
         ProviderRuntime retired{};
         {
-            const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
-            retired = std::move(_providers[index - 1]);
+            const auto guard      = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+            retired               = std::move(_providers[index - 1]);
             _providers[index - 1] = ProviderRuntime{};
         }
         retired.provider.reset();
         retired.source.reset();
     }
-    const auto guard = wil::AcquireSRWLockExclusive(&_subscriptionLock);
-    _providerCount = 0;
+    const auto guard     = wil::AcquireSRWLockExclusive(&_subscriptionLock);
+    _providerCount       = 0;
     _dataSourcesNeedTrim = false;
     _changeEvent.reset();
     _stopEvent.reset();
@@ -3532,7 +3549,7 @@ void PluginHost::SetNetworkAccessEnabled(bool enabled) noexcept
     for (NetworkSlot& slot : _networkSlots)
     {
         slot.active = false;
-        slot.due = 0;
+        slot.due    = 0;
         waitForIdle = waitForIdle || slot.inFlight;
     }
     ReleaseSRWLockExclusive(&_networkLock);
@@ -3559,7 +3576,7 @@ bool PluginHost::NetworkWorkerRunning() const noexcept
 
 HRESULT PluginHost::RegisterNetworkWidget(IRedXeNetworkWidget* widget) noexcept
 {
-    if (!widget)
+    if (! widget)
     {
         return E_POINTER;
     }
@@ -3574,7 +3591,7 @@ HRESULT PluginHost::RegisterNetworkWidget(IRedXeNetworkWidget* widget) noexcept
             ReleaseSRWLockExclusive(&_networkLock);
             return S_OK;
         }
-        if (!slot.widget && empty == kMaximumNetworkWidgets)
+        if (! slot.widget && empty == kMaximumNetworkWidgets)
         {
             empty = index;
         }
@@ -3584,9 +3601,9 @@ HRESULT PluginHost::RegisterNetworkWidget(IRedXeNetworkWidget* widget) noexcept
         ReleaseSRWLockExclusive(&_networkLock);
         return HRESULT_FROM_WIN32(ERROR_BUSY);
     }
-    _networkSlots[empty].widget = widget;
-    _networkSlots[empty].due = 0;
-    _networkSlots[empty].active = false;
+    _networkSlots[empty].widget   = widget;
+    _networkSlots[empty].due      = 0;
+    _networkSlots[empty].active   = false;
     _networkSlots[empty].inFlight = false;
     ReleaseSRWLockExclusive(&_networkLock);
     return S_OK;
@@ -3594,7 +3611,7 @@ HRESULT PluginHost::RegisterNetworkWidget(IRedXeNetworkWidget* widget) noexcept
 
 void PluginHost::UnregisterNetworkWidget(IRedXeNetworkWidget* widget) noexcept
 {
-    if (!widget)
+    if (! widget)
     {
         return;
     }
@@ -3613,7 +3630,7 @@ void PluginHost::UnregisterNetworkWidget(IRedXeNetworkWidget* widget) noexcept
 
 void PluginHost::SetNetworkWidgetActive(IRedXeNetworkWidget* widget, bool active) noexcept
 {
-    if (!widget)
+    if (! widget)
     {
         return;
     }
@@ -3629,7 +3646,7 @@ void PluginHost::SetNetworkWidgetActive(IRedXeNetworkWidget* widget, bool active
             break;
         }
     }
-    if (!selected)
+    if (! selected)
     {
         ReleaseSRWLockExclusive(&_networkLock);
         return;
@@ -3639,7 +3656,7 @@ void PluginHost::SetNetworkWidgetActive(IRedXeNetworkWidget* widget, bool active
     {
         const bool allow = _networkAccessEnabled.load(std::memory_order_acquire);
         selected->active = allow;
-        selected->due = 0;
+        selected->due    = 0;
         ReleaseSRWLockExclusive(&_networkLock);
         if (allow && SUCCEEDED(EnsureNetworkWorker()) && _networkWakeEvent)
         {
@@ -3649,8 +3666,8 @@ void PluginHost::SetNetworkWidgetActive(IRedXeNetworkWidget* widget, bool active
     }
 
     selected->active = false;
-    selected->due = 0;
-    waitForIdle = selected->inFlight;
+    selected->due    = 0;
+    waitForIdle      = selected->inFlight;
     if (waitForIdle && _networkCancelEvent)
     {
         SetEvent(_networkCancelEvent.get());
@@ -3664,7 +3681,7 @@ void PluginHost::SetNetworkWidgetActive(IRedXeNetworkWidget* widget, bool active
 
 HRESULT PluginHost::EnsureNetworkWorker() noexcept
 {
-    if (!_networkAccessEnabled.load(std::memory_order_acquire))
+    if (! _networkAccessEnabled.load(std::memory_order_acquire))
     {
         return HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE);
     }
@@ -3677,7 +3694,7 @@ HRESULT PluginHost::EnsureNetworkWorker() noexcept
     _networkWakeEvent.reset(CreateEventW(nullptr, FALSE, FALSE, nullptr));
     _networkCancelEvent.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
     _networkIdleEvent.reset(CreateEventW(nullptr, TRUE, TRUE, nullptr));
-    if (!_networkStopEvent || !_networkWakeEvent || !_networkCancelEvent || !_networkIdleEvent)
+    if (! _networkStopEvent || ! _networkWakeEvent || ! _networkCancelEvent || ! _networkIdleEvent)
     {
         const DWORD error = GetLastError();
         _networkIdleEvent.reset();
@@ -3714,12 +3731,12 @@ void PluginHost::NetworkWorker() noexcept
     HANDLE handles[] = {_networkStopEvent.get(), _networkWakeEvent.get()};
     for (;;)
     {
-        DWORD timeout = INFINITE;
+        DWORD timeout      = INFINITE;
         const uint64_t now = GetTickCount64();
         AcquireSRWLockExclusive(&_networkLock);
         for (const NetworkSlot& slot : _networkSlots)
         {
-            if (slot.widget && slot.active && !slot.inFlight)
+            if (slot.widget && slot.active && ! slot.inFlight)
             {
                 timeout = std::min(timeout, WaitMilliseconds(now, slot.due));
             }
@@ -3739,10 +3756,10 @@ void PluginHost::NetworkWorker() noexcept
         wil::com_ptr_nothrow<IRedXeNetworkWidget> selected;
         AcquireSRWLockExclusive(&_networkLock);
         const uint64_t afterWait = GetTickCount64();
-        NetworkSlot* dueSlot = nullptr;
+        NetworkSlot* dueSlot     = nullptr;
         for (NetworkSlot& slot : _networkSlots)
         {
-            if (!slot.widget || !slot.active || slot.inFlight)
+            if (! slot.widget || ! slot.active || slot.inFlight)
             {
                 continue;
             }
@@ -3754,7 +3771,7 @@ void PluginHost::NetworkWorker() noexcept
         }
         if (dueSlot)
         {
-            selected = dueSlot->widget;
+            selected          = dueSlot->widget;
             dueSlot->inFlight = true;
             if (_networkIdleEvent)
             {
@@ -3766,13 +3783,13 @@ void PluginHost::NetworkWorker() noexcept
             }
         }
         ReleaseSRWLockExclusive(&_networkLock);
-        if (!selected)
+        if (! selected)
         {
             continue;
         }
 
         uint32_t delayMilliseconds = 0;
-        const HRESULT result = selected->RunNetworkWork(_networkCancelEvent.get(), &delayMilliseconds);
+        const HRESULT result       = selected->RunNetworkWork(_networkCancelEvent.get(), &delayMilliseconds);
         AcquireSRWLockExclusive(&_networkLock);
         for (NetworkSlot& slot : _networkSlots)
         {
@@ -3781,19 +3798,18 @@ void PluginHost::NetworkWorker() noexcept
                 continue;
             }
             slot.inFlight = false;
-            if (!slot.active)
+            if (! slot.active)
             {
                 slot.due = 0;
             }
-            else if (result == S_OK && delayMilliseconds >= 1 &&
-                     delayMilliseconds <= kRedXeMaximumScheduledFrameDelayMilliseconds)
+            else if (result == S_OK && delayMilliseconds >= 1 && delayMilliseconds <= kRedXeMaximumScheduledFrameDelayMilliseconds)
             {
                 slot.due = GetTickCount64() + delayMilliseconds;
             }
             else if (result == S_FALSE)
             {
                 slot.active = false;
-                slot.due = 0;
+                slot.due    = 0;
             }
             else
             {
@@ -3872,12 +3888,12 @@ void PluginHost::ShutdownModules() noexcept
         {
             slot.shutdown();
         }
-        slot.shutdown = nullptr;
+        slot.shutdown            = nullptr;
         slot.getSettingsContract = nullptr;
-        slot.getActionContract = nullptr;
-        slot.enumerate = nullptr;
-        slot.create = nullptr;
-        slot.capabilities = RedXePluginCapabilityNone;
+        slot.getActionContract   = nullptr;
+        slot.enumerate           = nullptr;
+        slot.create              = nullptr;
+        slot.capabilities        = RedXePluginCapabilityNone;
         if (slot.module)
         {
             (void)slot.module.release();

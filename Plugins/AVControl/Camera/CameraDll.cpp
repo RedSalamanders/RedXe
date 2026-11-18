@@ -10,11 +10,10 @@
 // opens a physical camera, or initializes Media Foundation under the loader lock.
 extern "C" HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID iid, void** result)
 {
-    if (!result)
+    if (! result)
         return E_POINTER;
     *result = nullptr;
-    return clsid == AVControl::Camera::CameraSourceClsid ? AVControl::Camera::CreateCameraClassFactory(iid, result)
-                                                         : CLASS_E_CLASSNOTAVAILABLE;
+    return clsid == AVControl::Camera::CameraSourceClsid ? AVControl::Camera::CreateCameraClassFactory(iid, result) : CLASS_E_CLASSNOTAVAILABLE;
 }
 extern "C" HRESULT WINAPI DllCanUnloadNow()
 {

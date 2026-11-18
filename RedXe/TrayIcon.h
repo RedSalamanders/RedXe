@@ -23,7 +23,7 @@
 enum class TrayCommand : uint32_t
 {
     EditSettings = 1,
-    Exit = 2,
+    Exit         = 2,
 };
 
 enum class TrayIconAction : uint8_t
@@ -38,8 +38,7 @@ enum class TrayIconAction : uint8_t
 // (right-click, Shift+F10, the menu key) opens the menu; single clicks, hover, and balloon events do nothing. An edit
 // within `repeatMilliseconds` of the previous one (`lastEditTick`, 0 for none) is dropped: Enter reports NIN_KEYSELECT
 // twice, and a quick second double-click would start a second editor.
-[[nodiscard]] constexpr TrayIconAction TrayIconActionFor(UINT event, ULONGLONG nowTick, ULONGLONG lastEditTick,
-                                                         UINT repeatMilliseconds) noexcept
+[[nodiscard]] constexpr TrayIconAction TrayIconActionFor(UINT event, ULONGLONG nowTick, ULONGLONG lastEditTick, UINT repeatMilliseconds) noexcept
 {
     if (event == WM_CONTEXTMENU)
     {
@@ -73,7 +72,7 @@ enum class TrayIconAction : uint8_t
 // may have added it.
 [[nodiscard]] constexpr std::optional<HRESULT> TrayIconOutcomeOnArrival(bool shown, bool added) noexcept
 {
-    if (!shown)
+    if (! shown)
     {
         return std::nullopt;
     }
@@ -82,7 +81,7 @@ enum class TrayIconAction : uint8_t
 
 class TrayIcon final
 {
-  public:
+public:
     // Posted to the command target with a TrayCommand in wParam.
     static constexpr UINT kCommandMessage = WM_APP + 8;
     // Posted to the command target when an add made outside Show (the re-add after the taskbar is created, or a retry)
@@ -93,10 +92,10 @@ class TrayIcon final
     TrayIcon() noexcept = default;
     ~TrayIcon();
 
-    TrayIcon(const TrayIcon&) = delete;
+    TrayIcon(const TrayIcon&)            = delete;
     TrayIcon& operator=(const TrayIcon&) = delete;
-    TrayIcon(TrayIcon&&) = delete;
-    TrayIcon& operator=(TrayIcon&&) = delete;
+    TrayIcon(TrayIcon&&)                 = delete;
+    TrayIcon& operator=(TrayIcon&&)      = delete;
 
     // Creates the owner window and adds the icon, whose commands go to `commandTarget`; idempotent, and an icon already
     // added costs no shell call. S_FALSE: the owner exists but the shell refused the icon; it is tried again on the
@@ -114,17 +113,17 @@ class TrayIcon final
         return _iconAdded;
     }
 
-  private:
+private:
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct PluginHostTestAccess;
 #endif
     static constexpr wchar_t kWindowClassName[] = L"RedXe.TrayIcon";
     // The shell's callback to the owner window; private to that window.
-    static constexpr UINT kCallbackMessage = WM_APP + 1;
-    static constexpr UINT kIconId = 1;
+    static constexpr UINT kCallbackMessage     = WM_APP + 1;
+    static constexpr UINT kIconId              = 1;
     static constexpr UINT_PTR kAddRetryTimerId = 1;
-    using ShellNotify = BOOL(STDAPICALLTYPE*)(DWORD message, PNOTIFYICONDATAW data);
-    using TaskbarProbe = bool (*)() noexcept;
+    using ShellNotify                          = BOOL(STDAPICALLTYPE*)(DWORD message, PNOTIFYICONDATAW data);
+    using TaskbarProbe                         = bool (*)() noexcept;
 
     static LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
     LRESULT HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
@@ -144,14 +143,14 @@ class TrayIcon final
     wil::unique_hwnd _window;
     wil::unique_hicon _icon;
     UINT _taskbarCreatedMessage = 0;
-    ULONGLONG _lastEditTick = 0;
+    ULONGLONG _lastEditTick     = 0;
     // Retries armed since the last Show, TaskbarCreated, or success.
-    uint32_t _addRetries = 0;
+    uint32_t _addRetries  = 0;
     bool _classRegistered = false;
     // True only once NIM_SETVERSION has followed the add or update.
     bool _iconAdded = false;
-    bool _menuOpen = false;
+    bool _menuOpen  = false;
     // Every Shell_NotifyIconW call and the taskbar probe; tests substitute fakes that never reach the shell.
-    ShellNotify _shellNotify = &Shell_NotifyIconW;
+    ShellNotify _shellNotify    = &Shell_NotifyIconW;
     TaskbarProbe _taskbarExists = &TrayIcon::TaskbarExists;
 };

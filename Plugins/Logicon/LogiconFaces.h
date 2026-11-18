@@ -20,12 +20,12 @@
 
 namespace Logicon
 {
-inline constexpr uint32_t kFaceSize = 118;
-inline constexpr uint32_t kFacePixels = kFaceSize * kFaceSize;
+inline constexpr uint32_t kFaceSize                   = 118;
+inline constexpr uint32_t kFacePixels                 = kFaceSize * kFaceSize;
 inline constexpr uint32_t kMaximumFaceLabelCharacters = 16;
-inline constexpr uint32_t kMaximumFaceBigCharacters = 8;
-inline constexpr uint32_t kFaceIconPixels = 72;
-inline constexpr uint32_t kMaximumJpegBytes = 128U * 1024U;
+inline constexpr uint32_t kMaximumFaceBigCharacters   = 8;
+inline constexpr uint32_t kFaceIconPixels             = 72;
+inline constexpr uint32_t kMaximumJpegBytes           = 128U * 1024U;
 // Widest surface EncodeJpeg accepts: the whole 480-pixel panel.
 inline constexpr uint32_t kMaximumEncodeWidth = 480;
 
@@ -34,18 +34,18 @@ struct FaceSpec final
 {
     uint32_t backgroundRgb = 0x000000;
     uint32_t foregroundRgb = 0xFFFFFF;
-    uint32_t accentRgb = 0x2F80ED;
-    bool accentRing = false;
-    bool invalid = false;
-    wchar_t icon = 0;
-    const wchar_t* label = nullptr;
-    uint32_t labelLength = 0;
-    const wchar_t* big = nullptr;
-    uint32_t bigLength = 0;
+    uint32_t accentRgb     = 0x2F80ED;
+    bool accentRing        = false;
+    bool invalid           = false;
+    wchar_t icon           = 0;
+    const wchar_t* label   = nullptr;
+    uint32_t labelLength   = 0;
+    const wchar_t* big     = nullptr;
+    uint32_t bigLength     = 0;
     // Optional pre-decoded PNG icon (premultiplied BGRA), centered where the glyph icon would go.
     const uint32_t* image = nullptr;
-    uint32_t imageWidth = 0;
-    uint32_t imageHeight = 0;
+    uint32_t imageWidth   = 0;
+    uint32_t imageHeight  = 0;
 };
 
 // Segoe Fluent Icons glyph names accepted in settings ("icon": "ChevronRight"). Returns 0 for an unknown name.
@@ -55,10 +55,10 @@ struct FaceSpec final
 
 class FaceRenderer final
 {
-  public:
+public:
     FaceRenderer() = default;
     ~FaceRenderer();
-    FaceRenderer(const FaceRenderer&) = delete;
+    FaceRenderer(const FaceRenderer&)            = delete;
     FaceRenderer& operator=(const FaceRenderer&) = delete;
 
     // Creates the DirectWrite factory, the text and icon faces, and the WIC factory. Idempotent.
@@ -72,24 +72,36 @@ class FaceRenderer final
 
     // Encodes an opaque BGRA surface as a baseline JPEG (quality 80, 4:4:4) into out. STG_E_MEDIUMFULL when the
     // image does not fit capacity.
-    [[nodiscard]] HRESULT EncodeJpeg(const uint32_t* bgra, uint32_t width, uint32_t height, uint32_t stridePixels,
-                                     uint8_t* out, uint32_t capacity, uint32_t& bytes) noexcept;
+    [[nodiscard]] HRESULT EncodeJpeg(
+        const uint32_t* bgra, uint32_t width, uint32_t height, uint32_t stridePixels, uint8_t* out, uint32_t capacity, uint32_t& bytes) noexcept;
 
     // Decodes an image file to premultiplied BGRA scaled to fit maxSize × maxSize. Fails when the scaled image
     // exceeds capacityPixels.
-    [[nodiscard]] HRESULT DecodeImage(const wchar_t* path, uint32_t maxSize, uint32_t* bgra, uint32_t capacityPixels,
-                                      uint32_t& width, uint32_t& height) noexcept;
+    [[nodiscard]] HRESULT DecodeImage(
+        const wchar_t* path, uint32_t maxSize, uint32_t* bgra, uint32_t capacityPixels, uint32_t& width, uint32_t& height) noexcept;
 
-  private:
-    [[nodiscard]] HRESULT CreateFace(const wchar_t* family, DWRITE_FONT_WEIGHT weight,
-                                     wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept;
+private:
+    [[nodiscard]] HRESULT CreateFace(const wchar_t* family, DWRITE_FONT_WEIGHT weight, wil::com_ptr_nothrow<IDWriteFontFace>& face) noexcept;
     // Draws text with one face into the 118×118 surface, centered horizontally at centerX with its baseline at
     // baselineY, clipped to the surface. Text wider than maxWidth is ellipsized.
-    [[nodiscard]] HRESULT DrawText(IDWriteFontFace* face, const wchar_t* text, uint32_t length, float emSize,
-                                   float centerX, float baselineY, float maxWidth, uint32_t rgb,
+    [[nodiscard]] HRESULT DrawText(IDWriteFontFace* face,
+                                   const wchar_t* text,
+                                   uint32_t length,
+                                   float emSize,
+                                   float centerX,
+                                   float baselineY,
+                                   float maxWidth,
+                                   uint32_t rgb,
                                    uint32_t* bgra) noexcept;
-    [[nodiscard]] HRESULT DrawRun(IDWriteFontFace* face, const uint16_t* glyphs, const float* advances, uint32_t count,
-                                  float emSize, float originX, float baselineY, uint32_t rgb, uint32_t* bgra) noexcept;
+    [[nodiscard]] HRESULT DrawRun(IDWriteFontFace* face,
+                                  const uint16_t* glyphs,
+                                  const float* advances,
+                                  uint32_t count,
+                                  float emSize,
+                                  float originX,
+                                  float baselineY,
+                                  uint32_t rgb,
+                                  uint32_t* bgra) noexcept;
 
     wil::unique_hmodule _dwriteModule;
     wil::com_ptr_nothrow<IDWriteFactory> _factory;

@@ -9,7 +9,7 @@
 struct RedXeAdapterOutputRecord final
 {
     LUID adapterLuid{};
-    HMONITOR monitor = nullptr;
+    HMONITOR monitor     = nullptr;
     bool softwareAdapter = false;
 };
 
@@ -22,16 +22,15 @@ struct RedXeAdapterOutputRecord final
 // created on the hardware adapter that scans out the monitor the window sits on, so presentation never crosses
 // adapters through DWM. Returns the first non-software record whose output owns `target`, or SIZE_MAX when nothing
 // matches (null monitor, window off every monitor, hidden test window); callers then use the default adapter.
-[[nodiscard]] constexpr size_t RedXeSelectAdapterRecordForMonitor(std::span<const RedXeAdapterOutputRecord> records,
-                                                                  HMONITOR target) noexcept
+[[nodiscard]] constexpr size_t RedXeSelectAdapterRecordForMonitor(std::span<const RedXeAdapterOutputRecord> records, HMONITOR target) noexcept
 {
-    if (!target)
+    if (! target)
     {
         return SIZE_MAX;
     }
     for (size_t index = 0; index < records.size(); ++index)
     {
-        if (!records[index].softwareAdapter && records[index].monitor == target)
+        if (! records[index].softwareAdapter && records[index].monitor == target)
         {
             return index;
         }

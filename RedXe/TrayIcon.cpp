@@ -20,14 +20,14 @@ HRESULT TrayIcon::Show(HINSTANCE instance, HWND commandTarget) noexcept
         return _iconAdded || AddIconOrRetry() ? S_OK : S_FALSE;
     }
     _instance = instance;
-    if (!_classRegistered)
+    if (! _classRegistered)
     {
         WNDCLASSEXW windowClass{};
-        windowClass.cbSize = sizeof(windowClass);
-        windowClass.lpfnWndProc = WindowProcedure;
-        windowClass.hInstance = instance;
+        windowClass.cbSize        = sizeof(windowClass);
+        windowClass.lpfnWndProc   = WindowProcedure;
+        windowClass.hInstance     = instance;
         windowClass.lpszClassName = kWindowClassName;
-        if (!RegisterClassExW(&windowClass))
+        if (! RegisterClassExW(&windowClass))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -36,9 +36,7 @@ HRESULT TrayIcon::Show(HINSTANCE instance, HWND commandTarget) noexcept
     // TaskbarCreated is broadcast to top-level windows, so the owner is a hidden popup rather than a message-only
     // window, which would neither hear it nor be able to take the foreground for the menu.
     _taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
-    if (!CreateWindowExW(WS_EX_TOOLWINDOW, kWindowClassName, L"RedXe", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, instance,
-                         this) ||
-        !_window)
+    if (! CreateWindowExW(WS_EX_TOOLWINDOW, kWindowClassName, L"RedXe", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, instance, this) || ! _window)
     {
         const DWORD error = GetLastError();
         Hide();
@@ -56,7 +54,7 @@ void TrayIcon::Hide() noexcept
 {
     // The owner deletes the icon on WM_DESTROY, and its destruction kills a pending retry.
     _window.reset();
-    _iconAdded = false;
+    _iconAdded  = false;
     _addRetries = 0;
     _icon.reset();
     if (_classRegistered)
@@ -65,30 +63,30 @@ void TrayIcon::Hide() noexcept
         _classRegistered = false;
     }
     _commandTarget = nullptr;
-    _lastEditTick = 0;
+    _lastEditTick  = 0;
 }
 
 bool TrayIcon::AddIcon() noexcept
 {
-    if (!_window)
+    if (! _window)
     {
         return false;
     }
-    if (!_icon)
+    if (! _icon)
     {
         _icon = LoadIconForDpi();
-        if (!_icon)
+        if (! _icon)
         {
             return false;
         }
     }
     NOTIFYICONDATAW data{};
-    data.cbSize = sizeof(data);
-    data.hWnd = _window.get();
-    data.uID = kIconId;
-    data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+    data.cbSize           = sizeof(data);
+    data.hWnd             = _window.get();
+    data.uID              = kIconId;
+    data.uFlags           = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
     data.uCallbackMessage = kCallbackMessage;
-    data.hIcon = _icon.get();
+    data.hIcon            = _icon.get();
 #if defined(_DEBUG)
     (void)wcscpy_s(data.szTip, L"RedXe (Debug)");
 #else
@@ -99,7 +97,7 @@ bool TrayIcon::AddIcon() noexcept
     // passes it on); the update would only block the UI thread for a second timeout, so the retry makes it instead.
     SetLastError(ERROR_SUCCESS);
     bool listed = _shellNotify(NIM_ADD, &data) != FALSE;
-    if (!listed && GetLastError() != ERROR_TIMEOUT)
+    if (! listed && GetLastError() != ERROR_TIMEOUT)
     {
         listed = _shellNotify(NIM_MODIFY, &data) != FALSE;
     }
@@ -108,7 +106,7 @@ bool TrayIcon::AddIcon() noexcept
     // that landed after its call timed out). The icon counts as added only once it is set: an icon left on version 0
     // would never open its menu, so a retry repairs it.
     data.uVersion = NOTIFYICON_VERSION_4;
-    _iconAdded = listed && _shellNotify(NIM_SETVERSION, &data) != FALSE;
+    _iconAdded    = listed && _shellNotify(NIM_SETVERSION, &data) != FALSE;
     return _iconAdded;
 }
 
@@ -142,8 +140,8 @@ void TrayIcon::RemoveIcon() noexcept
     {
         NOTIFYICONDATAW data{};
         data.cbSize = sizeof(data);
-        data.hWnd = _window.get();
-        data.uID = kIconId;
+        data.hWnd   = _window.get();
+        data.uID    = kIconId;
         (void)_shellNotify(NIM_DELETE, &data);
     }
     _iconAdded = false;
@@ -156,22 +154,23 @@ wil::unique_hicon TrayIcon::LoadIconForDpi() const noexcept
     {
         dpi = GetDpiForSystem();
     }
-    return wil::unique_hicon{static_cast<HICON>(LoadImageW(_instance, MAKEINTRESOURCEW(IDI_REDXE), IMAGE_ICON,
+    return wil::unique_hicon{static_cast<HICON>(LoadImageW(_instance,
+                                                           MAKEINTRESOURCEW(IDI_REDXE),
+                                                           IMAGE_ICON,
                                                            GetSystemMetricsForDpi(SM_CXSMICON, dpi),
-                                                           GetSystemMetricsForDpi(SM_CYSMICON, dpi), LR_DEFAULTCOLOR))};
+                                                           GetSystemMetricsForDpi(SM_CYSMICON, dpi),
+                                                           LR_DEFAULTCOLOR))};
 }
 
 void TrayIcon::ShowMenu(POINT anchor) noexcept
 {
-    if (_menuOpen || !_window)
+    if (_menuOpen || ! _window)
     {
         return;
     }
     wil::unique_hmenu menu{CreatePopupMenu()};
-    if (!menu ||
-        !AppendMenuW(menu.get(), MF_STRING, static_cast<UINT_PTR>(TrayCommand::EditSettings), L"&Edit settings") ||
-        !AppendMenuW(menu.get(), MF_SEPARATOR, 0, nullptr) ||
-        !AppendMenuW(menu.get(), MF_STRING, static_cast<UINT_PTR>(TrayCommand::Exit), L"E&xit"))
+    if (! menu || ! AppendMenuW(menu.get(), MF_STRING, static_cast<UINT_PTR>(TrayCommand::EditSettings), L"&Edit settings") ||
+        ! AppendMenuW(menu.get(), MF_SEPARATOR, 0, nullptr) || ! AppendMenuW(menu.get(), MF_STRING, static_cast<UINT_PTR>(TrayCommand::Exit), L"E&xit"))
     {
         return;
     }
@@ -183,12 +182,11 @@ void TrayIcon::ShowMenu(POINT anchor) noexcept
     (void)SetForegroundWindow(_window.get());
     UINT flags = TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY;
     flags |= GetSystemMetrics(SM_MENUDROPALIGNMENT) != 0 ? TPM_RIGHTALIGN : TPM_LEFTALIGN;
-    _menuOpen = true;
-    const UINT chosen =
-        static_cast<UINT>(TrackPopupMenuEx(menu.get(), flags, anchor.x, anchor.y, _window.get(), nullptr));
-    _menuOpen = false;
+    _menuOpen         = true;
+    const UINT chosen = static_cast<UINT>(TrackPopupMenuEx(menu.get(), flags, anchor.x, anchor.y, _window.get(), nullptr));
+    _menuOpen         = false;
     // A settings reload during the menu may have hidden the icon; the owner is then gone.
-    if (!_window)
+    if (! _window)
     {
         return;
     }
@@ -208,8 +206,8 @@ void TrayIcon::ShowMenu(POINT anchor) noexcept
         // on this invisible window. A click on another window has already moved the foreground there, and keeps it.
         NOTIFYICONDATAW data{};
         data.cbSize = sizeof(data);
-        data.hWnd = _window.get();
-        data.uID = kIconId;
+        data.hWnd   = _window.get();
+        data.uID    = kIconId;
         (void)_shellNotify(NIM_SETFOCUS, &data);
     }
 }
@@ -242,8 +240,7 @@ LRESULT CALLBACK TrayIcon::WindowProcedure(HWND window, UINT message, WPARAM wPa
         tray->_window.reset(window);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(tray));
     }
-    return tray ? tray->HandleMessage(window, message, wParam, lParam)
-                : DefWindowProcW(window, message, wParam, lParam);
+    return tray ? tray->HandleMessage(window, message, wParam, lParam) : DefWindowProcW(window, message, wParam, lParam);
 }
 
 LRESULT TrayIcon::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
@@ -253,16 +250,13 @@ LRESULT TrayIcon::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM
         const ULONGLONG now = GetTickCount64();
         switch (TrayIconActionFor(LOWORD(lParam), now, _lastEditTick, GetDoubleClickTime()))
         {
-        case TrayIconAction::EditSettings:
-            _lastEditTick = now;
-            PostCommand(TrayCommand::EditSettings);
-            break;
-        case TrayIconAction::ShowMenu:
-            ShowMenu(POINT{GET_X_LPARAM(wParam), GET_Y_LPARAM(wParam)});
-            break;
-        case ::TrayIconAction::None:
-        default:
-            break;
+            case TrayIconAction::EditSettings:
+                _lastEditTick = now;
+                PostCommand(TrayCommand::EditSettings);
+                break;
+            case TrayIconAction::ShowMenu: ShowMenu(POINT{GET_X_LPARAM(wParam), GET_Y_LPARAM(wParam)}); break;
+            case ::TrayIconAction::None:
+            default: break;
         }
         return 0;
     }
@@ -278,54 +272,53 @@ LRESULT TrayIcon::HandleMessage(HWND window, UINT message, WPARAM wParam, LPARAM
     }
     switch (message)
     {
-    case WM_TIMER:
-        if (wParam == kAddRetryTimerId)
-        {
-            (void)KillTimer(window, kAddRetryTimerId);
-            if (!_iconAdded)
+        case WM_TIMER:
+            if (wParam == kAddRetryTimerId)
             {
-                PostAddResult(AddIconOrRetry());
+                (void)KillTimer(window, kAddRetryTimerId);
+                if (! _iconAdded)
+                {
+                    PostAddResult(AddIconOrRetry());
+                }
+                return 0;
+            }
+            break;
+        case WM_CLOSE:
+            // Only Hide ends the owner. A close from outside (Alt+F4 while the owner is the foreground window after its
+            // menu was dismissed) is ignored, so the running dashboard keeps its icon and menu.
+            return 0;
+        case WM_DESTROY:
+            // Every way the owner ends deletes the icon while the window still exists, so no icon outlives its owner.
+            RemoveIcon();
+            return 0;
+        case WM_DPICHANGED:
+            // The taskbar's display changed scale: the icon follows at the new small-icon size. The window stays hidden
+            // and is not moved. The update keeps version 4: the shell reads the version only from NIM_SETVERSION, which
+            // every NIM_ADD needs and a NIM_MODIFY does not. An icon not added yet takes the image with its next add.
+            if (wil::unique_hicon icon = LoadIconForDpi())
+            {
+                if (_iconAdded)
+                {
+                    NOTIFYICONDATAW data{};
+                    data.cbSize = sizeof(data);
+                    data.hWnd   = window;
+                    data.uID    = kIconId;
+                    data.uFlags = NIF_ICON;
+                    data.hIcon  = icon.get();
+                    (void)_shellNotify(NIM_MODIFY, &data);
+                }
+                _icon = std::move(icon);
             }
             return 0;
-        }
-        break;
-    case WM_CLOSE:
-        // Only Hide ends the owner. A close from outside (Alt+F4 while the owner is the foreground window after its
-        // menu was dismissed) is ignored, so the running dashboard keeps its icon and menu.
-        return 0;
-    case WM_DESTROY:
-        // Every way the owner ends deletes the icon while the window still exists, so no icon outlives its owner.
-        RemoveIcon();
-        return 0;
-    case WM_DPICHANGED:
-        // The taskbar's display changed scale: the icon follows at the new small-icon size. The window stays hidden
-        // and is not moved. The update keeps version 4: the shell reads the version only from NIM_SETVERSION, which
-        // every NIM_ADD needs and a NIM_MODIFY does not. An icon not added yet takes the image with its next add.
-        if (wil::unique_hicon icon = LoadIconForDpi())
-        {
-            if (_iconAdded)
+        case WM_NCDESTROY:
+            if (_window.get() == window)
             {
-                NOTIFYICONDATAW data{};
-                data.cbSize = sizeof(data);
-                data.hWnd = window;
-                data.uID = kIconId;
-                data.uFlags = NIF_ICON;
-                data.hIcon = icon.get();
-                (void)_shellNotify(NIM_MODIFY, &data);
+                (void)_window.release();
             }
-            _icon = std::move(icon);
-        }
-        return 0;
-    case WM_NCDESTROY:
-        if (_window.get() == window)
-        {
-            (void)_window.release();
-        }
-        _iconAdded = false;
-        SetWindowLongPtrW(window, GWLP_USERDATA, 0);
-        return DefWindowProcW(window, message, wParam, lParam);
-    default:
-        break;
+            _iconAdded = false;
+            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+            return DefWindowProcW(window, message, wParam, lParam);
+        default: break;
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }

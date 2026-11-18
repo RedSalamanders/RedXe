@@ -14,9 +14,9 @@
 // Services exposed by a logical plugin.
 enum RedXePluginCapabilities : uint32_t
 {
-    RedXePluginCapabilityNone = 0,
+    RedXePluginCapabilityNone           = 0,
     RedXePluginCapabilityWidgetProvider = 1U << 0U,
-    RedXePluginCapabilityDataSource = 1U << 1U,
+    RedXePluginCapabilityDataSource     = 1U << 1U,
     // The plugin creates an IRedXeService (Service.h): a headless object the host starts without a placed widget.
     RedXePluginCapabilityService = 1U << 2U,
     // The plugin publishes action namespaces (Action.h): RedXeGetActionContract answers for its id and the host
@@ -40,7 +40,7 @@ struct RedXeFactoryOptions final
 };
 
 inline constexpr uint32_t kRedXeMaximumFactoryConfigurationBytes = 8192;
-inline constexpr uint32_t kRedXeDefaultBackgroundColor = 0xFF000000;
+inline constexpr uint32_t kRedXeDefaultBackgroundColor           = 0xFF000000;
 static_assert(sizeof(RedXeFactoryOptions) == 24);
 static_assert(offsetof(RedXeFactoryOptions, configurationJsonUtf8) == 8);
 static_assert(offsetof(RedXeFactoryOptions, configurationBytes) == 16);
@@ -94,23 +94,21 @@ static_assert(offsetof(RedXePluginSettingsContract, defaultsBytes) == 32);
 
 extern "C"
 {
-    REDXE_PLUGIN_API HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options,
-                                                   IRedXeHost* host, const char* pluginId, void** result) noexcept;
-    REDXE_PLUGIN_API HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata,
-                                                             uint32_t* count) noexcept;
-    REDXE_PLUGIN_API HRESULT __stdcall RedXeGetPluginSettingsContract(
-        const char* pluginId, const RedXePluginSettingsContract** contract) noexcept;
+    REDXE_PLUGIN_API HRESULT __stdcall RedXeCreate(
+        REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, const char* pluginId, void** result) noexcept;
+    REDXE_PLUGIN_API HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept;
+    REDXE_PLUGIN_API HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId, const RedXePluginSettingsContract** contract) noexcept;
     REDXE_PLUGIN_API void __stdcall RedXePluginShutdown() noexcept;
 }
 
-using RedXeCreateFn = decltype(&RedXeCreate);
-using RedXeEnumeratePluginsFn = decltype(&RedXeEnumeratePlugins);
-using RedXePluginShutdownFn = decltype(&RedXePluginShutdown);
+using RedXeCreateFn                    = decltype(&RedXeCreate);
+using RedXeEnumeratePluginsFn          = decltype(&RedXeEnumeratePlugins);
+using RedXePluginShutdownFn            = decltype(&RedXePluginShutdown);
 using RedXeGetPluginSettingsContractFn = decltype(&RedXeGetPluginSettingsContract);
 
-inline constexpr char kRedXeCreateExport[] = "RedXeCreate";
-inline constexpr char kRedXeEnumeratePluginsExport[] = "RedXeEnumeratePlugins";
-inline constexpr char kRedXePluginShutdownExport[] = "RedXePluginShutdown";
+inline constexpr char kRedXeCreateExport[]                    = "RedXeCreate";
+inline constexpr char kRedXeEnumeratePluginsExport[]          = "RedXeEnumeratePlugins";
+inline constexpr char kRedXePluginShutdownExport[]            = "RedXePluginShutdown";
 inline constexpr char kRedXeGetPluginSettingsContractExport[] = "RedXeGetPluginSettingsContract";
 
 [[nodiscard]] constexpr char RedXeAsciiLower(char value) noexcept
@@ -120,7 +118,7 @@ inline constexpr char kRedXeGetPluginSettingsContractExport[] = "RedXeGetPluginS
 
 [[nodiscard]] constexpr bool RedXeAsciiEqualsIgnoreCase(const char* left, const char* right) noexcept
 {
-    if (!left || !right)
+    if (! left || ! right)
     {
         return false;
     }
@@ -138,21 +136,20 @@ inline constexpr char kRedXeGetPluginSettingsContractExport[] = "RedXeGetPluginS
 
 [[nodiscard]] constexpr bool RedXeIsMachineIdCharacter(char value, bool first) noexcept
 {
-    const bool alphaNumeric =
-        (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9');
-    return alphaNumeric || (!first && (value == '_' || value == '.' || value == '-'));
+    const bool alphaNumeric = (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9');
+    return alphaNumeric || (! first && (value == '_' || value == '.' || value == '-'));
 }
 
 [[nodiscard]] constexpr bool RedXeIsValidMachineId(const char* value) noexcept
 {
-    if (!value || value[0] == '\0')
+    if (! value || value[0] == '\0')
     {
         return false;
     }
     uint32_t length = 0;
     while (value[length] != '\0')
     {
-        if (length >= 128 || !RedXeIsMachineIdCharacter(value[length], length == 0))
+        if (length >= 128 || ! RedXeIsMachineIdCharacter(value[length], length == 0))
         {
             return false;
         }

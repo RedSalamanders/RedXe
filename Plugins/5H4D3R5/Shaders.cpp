@@ -57,9 +57,11 @@ using Shaders::Mode;
 
 class SetupPhaseTimer final
 {
-  public:
+public:
     SetupPhaseTimer(ShadersSetupTimings* timings, ShadersSetupPhase phase, const HRESULT* result = nullptr) noexcept
-        : _timings(timings), _phase(static_cast<uint32_t>(phase)), _result(result)
+        : _timings(timings),
+          _phase(static_cast<uint32_t>(phase)),
+          _result(result)
     {
         if (_timings)
             QueryPerformanceCounter(&_started);
@@ -68,22 +70,21 @@ class SetupPhaseTimer final
     {
         Finish(_result ? *_result : S_OK);
     }
-    SetupPhaseTimer(const SetupPhaseTimer&) = delete;
+    SetupPhaseTimer(const SetupPhaseTimer&)            = delete;
     SetupPhaseTimer& operator=(const SetupPhaseTimer&) = delete;
     void Finish(HRESULT result) noexcept
     {
-        if (!_timings)
+        if (! _timings)
             return;
         LARGE_INTEGER ended{};
         QueryPerformanceCounter(&ended);
-        _timings->phaseTicks[_phase] +=
-            static_cast<uint64_t>(std::max<LONGLONG>(0, ended.QuadPart - _started.QuadPart));
+        _timings->phaseTicks[_phase] += static_cast<uint64_t>(std::max<LONGLONG>(0, ended.QuadPart - _started.QuadPart));
         ++_timings->phaseCalls[_phase];
         _timings->phaseResults[_phase] = result;
-        _timings = nullptr;
+        _timings                       = nullptr;
     }
 
-  private:
+private:
     ShadersSetupTimings* _timings;
     uint32_t _phase;
     const HRESULT* _result;
@@ -91,7 +92,10 @@ class SetupPhaseTimer final
 };
 
 constexpr RedXePluginSettingsContract kSettingsContract{
-    sizeof(RedXePluginSettingsContract), Shaders::kSchemaJson, sizeof(Shaders::kSchemaJson) - 1, Shaders::kDefaultsJson,
+    sizeof(RedXePluginSettingsContract),
+    Shaders::kSchemaJson,
+    sizeof(Shaders::kSchemaJson) - 1,
+    Shaders::kDefaultsJson,
     sizeof(Shaders::kDefaultsJson) - 1,
 };
 
@@ -125,7 +129,7 @@ constexpr std::array kWidgetTypes{
 struct ShaderBlob final
 {
     const BYTE* data = nullptr;
-    size_t bytes = 0;
+    size_t bytes     = 0;
 };
 
 // A lookup table an entry builds once per device before its first frame: a fixed-size texture drawn by one pass.
@@ -133,7 +137,7 @@ struct ShaderBlob final
 struct LookupTablePass final
 {
     ShaderBlob shader;
-    uint32_t width = 0;
+    uint32_t width  = 0;
     uint32_t height = 0;
 };
 
@@ -151,15 +155,14 @@ struct ShaderProgram final
     std::array<LookupTablePass, kLookupTableSlots> lookupTables;
 };
 
-#define SHADERS_BLOB(symbol)                                                                                           \
-    ShaderBlob                                                                                                         \
-    {                                                                                                                  \
-        symbol, sizeof(symbol)                                                                                         \
+#define SHADERS_BLOB(symbol)                                                                                                                                   \
+    ShaderBlob                                                                                                                                                 \
+    {                                                                                                                                                          \
+        symbol, sizeof(symbol)                                                                                                                                 \
     }
 
 constexpr std::array<ShaderProgram, kShaderCount> kPrograms{
-    ShaderProgram{"fluid-solver", SHADERS_BLOB(g_ShadersFluidSolverImagePixelShader),
-                  SHADERS_BLOB(g_ShadersFluidSolverBufferAPixelShader), true},
+    ShaderProgram{"fluid-solver", SHADERS_BLOB(g_ShadersFluidSolverImagePixelShader), SHADERS_BLOB(g_ShadersFluidSolverBufferAPixelShader), true},
     ShaderProgram{"cineshader-lava", SHADERS_BLOB(g_ShadersCineShaderLavaPixelShader), {}, false},
     ShaderProgram{"synthwave-sunset", SHADERS_BLOB(g_ShadersSynthwaveSunsetPixelShader), {}, false},
     ShaderProgram{"seascape", SHADERS_BLOB(g_ShadersSeascapePixelShader), {}, false},
@@ -169,8 +172,7 @@ constexpr std::array<ShaderProgram, kShaderCount> kPrograms{
     ShaderProgram{"heartfelt", SHADERS_BLOB(g_ShadersHeartfeltPixelShader), {}, false},
     ShaderProgram{"protean-clouds", SHADERS_BLOB(g_ShadersProteanCloudsPixelShader), {}, false},
     ShaderProgram{"drive-home", SHADERS_BLOB(g_ShadersTheDriveHomePixelShader), {}, false},
-    ShaderProgram{"flammes-vortex", SHADERS_BLOB(g_ShadersFlammesVortexImagePixelShader),
-                  SHADERS_BLOB(g_ShadersFlammesVortexBufferAPixelShader), false},
+    ShaderProgram{"flammes-vortex", SHADERS_BLOB(g_ShadersFlammesVortexImagePixelShader), SHADERS_BLOB(g_ShadersFlammesVortexBufferAPixelShader), false},
     ShaderProgram{"neon-pulse", SHADERS_BLOB(g_ShadersNeonPulseFractalPixelShader), {}, false},
     ShaderProgram{"cosmic-orb", SHADERS_BLOB(g_ShadersCosmicOrbPixelShader), {}, false},
     ShaderProgram{"sky-atmosphere",
@@ -188,14 +190,13 @@ consteval bool ProgramsMatchCatalog() noexcept
     for (uint32_t index = 0; index < kShaderCount; ++index)
     {
         const ShaderProgram& program = kPrograms[index];
-        if (std::string_view(program.name) != kShaders[index].name || !program.image.data || program.image.bytes == 0 ||
+        if (std::string_view(program.name) != kShaders[index].name || ! program.image.data || program.image.bytes == 0 ||
             (kShaders[index].feedbackBuffer != (program.buffer.data != nullptr)))
         {
             return false;
         }
         const bool tables = program.lookupTables[0].shader.data != nullptr;
-        if ((tables && program.buffer.data) ||
-            (program.lookupTables[1].shader.data && !program.lookupTables[0].shader.data))
+        if ((tables && program.buffer.data) || (program.lookupTables[1].shader.data && ! program.lookupTables[0].shader.data))
         {
             return false;
         }
@@ -231,7 +232,7 @@ struct alignas(16) ShadersConstants final
 static_assert(sizeof(ShadersConstants) == 96);
 
 constexpr uint32_t kBackgroundTextureSize = 512;
-constexpr uint32_t kBackgroundMipCount = 10;
+constexpr uint32_t kBackgroundMipCount    = 10;
 static_assert((1U << (kBackgroundMipCount - 1)) == kBackgroundTextureSize);
 static_assert(kShadersBackgroundTexelCount == (kBackgroundTextureSize * kBackgroundTextureSize * 4U - 1U) / 3U);
 
@@ -265,10 +266,10 @@ std::atomic<uint32_t> gLookupTableBakeCount{0};
 
 enum ConfigurationMember : uint32_t
 {
-    ConfigurationMode = 1U << 0U,
-    ConfigurationShader = 1U << 1U,
-    ConfigurationInterval = 1U << 2U,
-    ConfigurationShuffle = 1U << 3U,
+    ConfigurationMode        = 1U << 0U,
+    ConfigurationShader      = 1U << 1U,
+    ConfigurationInterval    = 1U << 2U,
+    ConfigurationShuffle     = 1U << 3U,
     ConfigurationRenderScale = 1U << 4U,
 };
 
@@ -297,7 +298,7 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
 // schema. The host merges the defaults before it hands the object over, so a missing member is a host defect.
 [[nodiscard]] bool ParseInstanceObject(RedXeSettingsCursor& cursor, Configuration& configuration) noexcept
 {
-    if (!cursor.Consume('{'))
+    if (! cursor.Consume('{'))
     {
         return false;
     }
@@ -307,7 +308,7 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
     for (;;)
     {
         std::string_view key;
-        if (!cursor.ReadString(key) || !cursor.Consume(':'))
+        if (! cursor.ReadString(key) || ! cursor.Consume(':'))
         {
             return false;
         }
@@ -322,40 +323,39 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
         std::string_view text;
         switch (member)
         {
-        case ConfigurationMode:
-            if (!cursor.ReadString(text) || !Shaders::TryParseMode(text, parsed.mode))
-            {
-                return false;
-            }
-            break;
-        case ConfigurationShader:
-            if (!cursor.ReadString(text) || !Shaders::TryFindShader(text, parsed.shaderIndex))
-            {
-                return false;
-            }
-            break;
-        case ConfigurationInterval:
-            if (!cursor.ReadUnsigned(value) || !Shaders::IsValidIntervalSeconds(value))
-            {
-                return false;
-            }
-            parsed.intervalSeconds = value;
-            break;
-        case ConfigurationShuffle:
-            if (!cursor.ReadBoolean(parsed.shuffle))
-            {
-                return false;
-            }
-            break;
-        case ConfigurationRenderScale:
-            if (!cursor.ReadUnsigned(value) || !Shaders::IsValidRenderScalePercent(value))
-            {
-                return false;
-            }
-            parsed.renderScalePercent = value;
-            break;
-        default:
-            return false;
+            case ConfigurationMode:
+                if (! cursor.ReadString(text) || ! Shaders::TryParseMode(text, parsed.mode))
+                {
+                    return false;
+                }
+                break;
+            case ConfigurationShader:
+                if (! cursor.ReadString(text) || ! Shaders::TryFindShader(text, parsed.shaderIndex))
+                {
+                    return false;
+                }
+                break;
+            case ConfigurationInterval:
+                if (! cursor.ReadUnsigned(value) || ! Shaders::IsValidIntervalSeconds(value))
+                {
+                    return false;
+                }
+                parsed.intervalSeconds = value;
+                break;
+            case ConfigurationShuffle:
+                if (! cursor.ReadBoolean(parsed.shuffle))
+                {
+                    return false;
+                }
+                break;
+            case ConfigurationRenderScale:
+                if (! cursor.ReadUnsigned(value) || ! Shaders::IsValidRenderScalePercent(value))
+                {
+                    return false;
+                }
+                parsed.renderScalePercent = value;
+                break;
+            default: return false;
         }
 
         cursor.SkipWhitespace();
@@ -363,7 +363,7 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
         {
             break;
         }
-        if (!cursor.Consume(','))
+        if (! cursor.Consume(','))
         {
             return false;
         }
@@ -380,25 +380,25 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
 [[nodiscard]] bool ParseNormalizedConfiguration(std::string_view json, Configuration& configuration) noexcept
 {
     RedXeSettingsCursor cursor(json);
-    if (!cursor.Consume('{'))
+    if (! cursor.Consume('{'))
     {
         return false;
     }
 
-    constexpr uint32_t pluginSeen = 1U << 0U;
+    constexpr uint32_t pluginSeen   = 1U << 0U;
     constexpr uint32_t instanceSeen = 1U << 1U;
-    uint32_t seen = 0;
+    uint32_t seen                   = 0;
     Configuration parsed{};
     for (;;)
     {
         std::string_view key;
-        if (!cursor.ReadString(key) || !cursor.Consume(':'))
+        if (! cursor.ReadString(key) || ! cursor.Consume(':'))
         {
             return false;
         }
         if (key == "plugin")
         {
-            if ((seen & pluginSeen) != 0 || !cursor.Consume('{') || !cursor.Consume('}'))
+            if ((seen & pluginSeen) != 0 || ! cursor.Consume('{') || ! cursor.Consume('}'))
             {
                 return false;
             }
@@ -406,7 +406,7 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
         }
         else if (key == "instance")
         {
-            if ((seen & instanceSeen) != 0 || !ParseInstanceObject(cursor, parsed))
+            if ((seen & instanceSeen) != 0 || ! ParseInstanceObject(cursor, parsed))
             {
                 return false;
             }
@@ -421,13 +421,13 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
         {
             break;
         }
-        if (!cursor.Consume(','))
+        if (! cursor.Consume(','))
         {
             return false;
         }
     }
 
-    if (seen != (pluginSeen | instanceSeen) || !cursor.AtEnd())
+    if (seen != (pluginSeen | instanceSeen) || ! cursor.AtEnd())
     {
         return false;
     }
@@ -435,12 +435,11 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
     return true;
 }
 
-[[nodiscard]] HRESULT ReadFactoryConfiguration(const RedXeFactoryOptions* options, Configuration& configuration,
-                                               uint32_t& backgroundRgb) noexcept
+[[nodiscard]] HRESULT ReadFactoryConfiguration(const RedXeFactoryOptions* options, Configuration& configuration, uint32_t& backgroundRgb) noexcept
 {
     configuration = Configuration{};
     backgroundRgb = kRedXeDefaultBackgroundColor & 0x00FFFFFFu;
-    if (!options)
+    if (! options)
     {
         return S_OK;
     }
@@ -450,19 +449,19 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
     }
     backgroundRgb = RedXeBackgroundRgb(options);
 
-    const char* json = options->configurationJsonUtf8;
+    const char* json     = options->configurationJsonUtf8;
     const uint32_t bytes = options->configurationBytes;
-    if (!json && bytes == 0)
+    if (! json && bytes == 0)
     {
         return S_OK;
     }
-    if (!json || bytes == 0 || bytes > kRedXeMaximumFactoryConfigurationBytes)
+    if (! json || bytes == 0 || bytes > kRedXeMaximumFactoryConfigurationBytes)
     {
         return E_INVALIDARG;
     }
 
     Configuration parsed{};
-    if (!ParseNormalizedConfiguration(std::string_view(json, bytes), parsed))
+    if (! ParseNormalizedConfiguration(std::string_view(json, bytes), parsed))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -476,20 +475,16 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
 {
     switch (configuration.mode)
     {
-    case Mode::Single:
-        return kShaders[configuration.shaderIndex].feedbackBuffer;
-    case Mode::Random:
-        return kShaders[randomShaderIndex].feedbackBuffer;
-    case Mode::Slideshow:
-    default:
-        return true;
+        case Mode::Single: return kShaders[configuration.shaderIndex].feedbackBuffer;
+        case Mode::Random: return kShaders[randomShaderIndex].feedbackBuffer;
+        case Mode::Slideshow:
+        default: return true;
     }
 }
 
 // The catalog entries with lookup tables the widget can ever draw, one bit per entry, decided once like the feedback
 // buffers so a widget that never shows such an entry never draws its tables.
-[[nodiscard]] uint32_t ReachableLookupTableEntries(const Configuration& configuration,
-                                                   uint32_t randomShaderIndex) noexcept
+[[nodiscard]] uint32_t ReachableLookupTableEntries(const Configuration& configuration, uint32_t randomShaderIndex) noexcept
 {
     static_assert(kShaderCount <= 32);
     uint32_t entries = 0;
@@ -502,13 +497,10 @@ inline constexpr uint32_t kAllConfigurationMembers = (1U << 5U) - 1U;
     }
     switch (configuration.mode)
     {
-    case Mode::Single:
-        return entries & (1U << configuration.shaderIndex);
-    case Mode::Random:
-        return entries & (1U << randomShaderIndex);
-    case Mode::Slideshow:
-    default:
-        return entries;
+        case Mode::Single: return entries & (1U << configuration.shaderIndex);
+        case Mode::Random: return entries & (1U << randomShaderIndex);
+        case Mode::Slideshow:
+        default: return entries;
     }
 }
 
@@ -535,7 +527,7 @@ void FillBackgroundBaseLevel(uint32_t* pixels) noexcept
 {
     constexpr uint32_t lightCount = 56;
     std::array<BokehLight, lightCount> lights{};
-    uint32_t state = 0x5EA5C4FEU;
+    uint32_t state  = 0x5EA5C4FEU;
     const auto next = [&state]() noexcept
     {
         state = Hash(state + 0x9E3779B9U);
@@ -545,19 +537,19 @@ void FillBackgroundBaseLevel(uint32_t* pixels) noexcept
     {
         light.x = next();
         // Lights gather around the street: headlights and tail lights low, signs and lamps higher up.
-        const float band = next();
-        light.y = band < 0.55f ? 0.42f + next() * 0.30f : 0.18f + next() * 0.32f;
-        light.radius = 0.012f + next() * next() * 0.05f;
-        const float palette = next();
+        const float band       = next();
+        light.y                = band < 0.55f ? 0.42f + next() * 0.30f : 0.18f + next() * 0.32f;
+        light.radius           = 0.012f + next() * next() * 0.05f;
+        const float palette    = next();
         const float brightness = 0.35f + next() * 0.65f;
         // Sodium street lamp, headlight, tail light, or sign.
         const std::array<float, 3> color = palette < 0.34f   ? std::array{1.0f, 0.72f, 0.35f}
                                            : palette < 0.62f ? std::array{0.80f, 0.88f, 1.0f}
                                            : palette < 0.85f ? std::array{1.0f, 0.22f, 0.16f}
                                                              : std::array{0.30f, 0.95f, 0.75f};
-        light.red = color[0] * brightness;
-        light.green = color[1] * brightness;
-        light.blue = color[2] * brightness;
+        light.red                        = color[0] * brightness;
+        light.green                      = color[1] * brightness;
+        light.blue                       = color[2] * brightness;
     }
 
     constexpr float scale = 1.0f / static_cast<float>(kBackgroundTextureSize);
@@ -575,28 +567,28 @@ void FillBackgroundBaseLevel(uint32_t* pixels) noexcept
         row.fill(base);
         for (const BokehLight& light : lights)
         {
-            const float dy = v - light.y;
+            const float dy    = v - light.y;
             const float bound = light.radius * 2.0f;
             if (std::fabs(dy) > bound)
                 continue;
             const float horizontalBound = bound / 1.35f;
-            const int first = std::clamp(static_cast<int>((light.x - horizontalBound) * kBackgroundTextureSize) - 1, 0,
-                                         static_cast<int>(kBackgroundTextureSize));
-            const int last = std::clamp(static_cast<int>((light.x + horizontalBound) * kBackgroundTextureSize) + 2, 0,
-                                        static_cast<int>(kBackgroundTextureSize));
+            const int first =
+                std::clamp(static_cast<int>((light.x - horizontalBound) * kBackgroundTextureSize) - 1, 0, static_cast<int>(kBackgroundTextureSize));
+            const int last =
+                std::clamp(static_cast<int>((light.x + horizontalBound) * kBackgroundTextureSize) + 2, 0, static_cast<int>(kBackgroundTextureSize));
             for (int x = first; x < last; ++x)
             {
-                const float u = (static_cast<float>(x) + 0.5f) * scale;
-                const float dx = (u - light.x) * 1.35f;
+                const float u        = (static_cast<float>(x) + 0.5f) * scale;
+                const float dx       = (u - light.x) * 1.35f;
                 const float distance = std::sqrt(dx * dx + dy * dy);
                 if (distance >= light.radius * 1.9f)
                 {
                     continue;
                 }
-                const float disk = Smoothstep(light.radius, light.radius * 0.55f, distance);
-                const float halo = Smoothstep(light.radius * 1.9f, light.radius, distance) * 0.25f;
+                const float disk   = Smoothstep(light.radius, light.radius * 0.55f, distance);
+                const float halo   = Smoothstep(light.radius * 1.9f, light.radius, distance) * 0.25f;
                 const float weight = disk + halo;
-                auto& color = row[static_cast<size_t>(x)];
+                auto& color        = row[static_cast<size_t>(x)];
                 color[0] += light.red * weight;
                 color[1] += light.green * weight;
                 color[2] += light.blue * weight;
@@ -612,9 +604,8 @@ void FillBackgroundBaseLevel(uint32_t* pixels) noexcept
         }
         for (uint32_t x = 0; x < kBackgroundTextureSize; ++x)
         {
-            const auto& color = row[x];
-            const auto channel = [](float value) noexcept
-            { return static_cast<uint32_t>(std::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f); };
+            const auto& color  = row[x];
+            const auto channel = [](float value) noexcept { return static_cast<uint32_t>(std::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f); };
             pixels[static_cast<size_t>(y) * kBackgroundTextureSize + x] =
                 0xFF000000U | (channel(color[2]) << 16U) | (channel(color[1]) << 8U) | channel(color[0]);
         }
@@ -641,9 +632,8 @@ void DownsampleLevel(const uint32_t* source, uint32_t size, uint32_t* destinatio
                     sums[3] += (texel >> 24U) & 0xFFU;
                 }
             }
-            destination[static_cast<size_t>(y) * half + x] = ((sums[3] + 2U) / 4U) << 24U |
-                                                             ((sums[2] + 2U) / 4U) << 16U |
-                                                             ((sums[1] + 2U) / 4U) << 8U | ((sums[0] + 2U) / 4U);
+            destination[static_cast<size_t>(y) * half + x] =
+                ((sums[3] + 2U) / 4U) << 24U | ((sums[2] + 2U) / 4U) << 16U | ((sums[1] + 2U) / 4U) << 8U | ((sums[0] + 2U) / 4U);
         }
     }
 }
@@ -671,10 +661,9 @@ void BuildBackgroundPixels(uint32_t* texels, ShadersSetupTimings* timings = null
                                               ShadersSetupTimings* timings = nullptr) noexcept
 {
     // Every mip level in one heap block: 512² + 256² + ... + 1² texels.
-    constexpr size_t totalTexels =
-        (static_cast<size_t>(kBackgroundTextureSize) * kBackgroundTextureSize * 4U) / 3U + 1U;
+    constexpr size_t totalTexels = (static_cast<size_t>(kBackgroundTextureSize) * kBackgroundTextureSize * 4U) / 3U + 1U;
     std::unique_ptr<uint32_t[]> texels(new (std::nothrow) uint32_t[totalTexels]);
-    if (!texels)
+    if (! texels)
     {
         return E_OUTOFMEMORY;
     }
@@ -685,25 +674,25 @@ void BuildBackgroundPixels(uint32_t* texels, ShadersSetupTimings* timings = null
     BuildBackgroundPixels(texels.get(), timings);
     for (uint32_t level = 0; level < kBackgroundMipCount; ++level)
     {
-        levels[level].pSysMem = texels.get() + offset;
+        levels[level].pSysMem     = texels.get() + offset;
         levels[level].SysMemPitch = size * sizeof(uint32_t);
         if (level + 1 < kBackgroundMipCount)
         {
             const size_t nextOffset = offset + static_cast<size_t>(size) * size;
-            offset = nextOffset;
+            offset                  = nextOffset;
             size /= 2;
         }
     }
 
     D3D11_TEXTURE2D_DESC description{};
-    description.Width = kBackgroundTextureSize;
-    description.Height = kBackgroundTextureSize;
-    description.MipLevels = kBackgroundMipCount;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    description.Width            = kBackgroundTextureSize;
+    description.Height           = kBackgroundTextureSize;
+    description.MipLevels        = kBackgroundMipCount;
+    description.ArraySize        = 1;
+    description.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
     description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_IMMUTABLE;
-    description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    description.Usage            = D3D11_USAGE_IMMUTABLE;
+    description.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
     wil::com_ptr_nothrow<ID3D11Texture2D> texture;
     SetupPhaseTimer upload(timings, ShadersSetupPhase::BackgroundUpload);
     HRESULT result = device->CreateTexture2D(&description, levels.data(), texture.put());
@@ -713,10 +702,10 @@ void BuildBackgroundPixels(uint32_t* texels, ShadersSetupTimings* timings = null
         return result;
     }
     D3D11_SHADER_RESOURCE_VIEW_DESC viewDescription{};
-    viewDescription.Format = description.Format;
-    viewDescription.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    viewDescription.Format              = description.Format;
+    viewDescription.ViewDimension       = D3D11_SRV_DIMENSION_TEXTURE2D;
     viewDescription.Texture2D.MipLevels = kBackgroundMipCount;
-    result = device->CreateShaderResourceView(texture.get(), &viewDescription, view.put());
+    result                              = device->CreateShaderResourceView(texture.get(), &viewDescription, view.put());
     upload.Finish(result);
     return result;
 }
@@ -727,7 +716,7 @@ struct RenderTexture final
     wil::com_ptr_nothrow<ID3D11Texture2D> texture;
     wil::com_ptr_nothrow<ID3D11RenderTargetView> target;
     wil::com_ptr_nothrow<ID3D11ShaderResourceView> view;
-    uint32_t width = 0;
+    uint32_t width  = 0;
     uint32_t height = 0;
 
     void Reset() noexcept
@@ -735,24 +724,23 @@ struct RenderTexture final
         view.reset();
         target.reset();
         texture.reset();
-        width = 0;
+        width  = 0;
         height = 0;
     }
 
-    [[nodiscard]] HRESULT Create(ID3D11Device* device, uint32_t textureWidth, uint32_t textureHeight,
-                                 DXGI_FORMAT format) noexcept
+    [[nodiscard]] HRESULT Create(ID3D11Device* device, uint32_t textureWidth, uint32_t textureHeight, DXGI_FORMAT format) noexcept
     {
         Reset();
         D3D11_TEXTURE2D_DESC description{};
-        description.Width = textureWidth;
-        description.Height = textureHeight;
-        description.MipLevels = 1;
-        description.ArraySize = 1;
-        description.Format = format;
+        description.Width            = textureWidth;
+        description.Height           = textureHeight;
+        description.MipLevels        = 1;
+        description.ArraySize        = 1;
+        description.Format           = format;
         description.SampleDesc.Count = 1;
-        description.Usage = D3D11_USAGE_DEFAULT;
-        description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-        HRESULT result = device->CreateTexture2D(&description, nullptr, texture.put());
+        description.Usage            = D3D11_USAGE_DEFAULT;
+        description.BindFlags        = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        HRESULT result               = device->CreateTexture2D(&description, nullptr, texture.put());
         if (SUCCEEDED(result))
         {
             result = device->CreateRenderTargetView(texture.get(), nullptr, target.put());
@@ -766,7 +754,7 @@ struct RenderTexture final
             Reset();
             return result;
         }
-        width = textureWidth;
+        width  = textureWidth;
         height = textureHeight;
         return S_OK;
     }
@@ -779,18 +767,18 @@ constexpr float kTapSlopDips = 24.0f;
 // the Heartfelt background. Built by the first OnDeviceCreated for a device, released by any OnDeviceLost.
 class SharedDeviceResources final
 {
-  public:
+public:
     SharedDeviceResources() = default;
     ~SharedDeviceResources()
     {
         Reset();
     }
-    SharedDeviceResources(const SharedDeviceResources&) = delete;
+    SharedDeviceResources(const SharedDeviceResources&)            = delete;
     SharedDeviceResources& operator=(const SharedDeviceResources&) = delete;
 
     [[nodiscard]] HRESULT Initialize(ID3D11Device* device, ShadersSetupTimings* timings = nullptr) noexcept
     {
-        if (!device)
+        if (! device)
         {
             return E_POINTER;
         }
@@ -803,15 +791,13 @@ class SharedDeviceResources final
         SetupPhaseTimer core(timings, ShadersSetupPhase::CoreDeviceResources, &result);
 
         wil::com_ptr_nothrow<ID3D11VertexShader> vertexShader;
-        result = device->CreateVertexShader(g_ShadersVertexShader, sizeof(g_ShadersVertexShader), nullptr,
-                                            vertexShader.put());
+        result = device->CreateVertexShader(g_ShadersVertexShader, sizeof(g_ShadersVertexShader), nullptr, vertexShader.put());
         if (FAILED(result))
         {
             return result;
         }
         wil::com_ptr_nothrow<ID3D11PixelShader> blitShader;
-        result = device->CreatePixelShader(g_ShadersBlitPixelShader, sizeof(g_ShadersBlitPixelShader), nullptr,
-                                           blitShader.put());
+        result = device->CreatePixelShader(g_ShadersBlitPixelShader, sizeof(g_ShadersBlitPixelShader), nullptr, blitShader.put());
         if (FAILED(result))
         {
             return result;
@@ -821,16 +807,14 @@ class SharedDeviceResources final
         for (uint32_t index = 0; index < kShaderCount; ++index)
         {
             const ShaderProgram& program = kPrograms[index];
-            result =
-                device->CreatePixelShader(program.image.data, program.image.bytes, nullptr, imageShaders[index].put());
+            result                       = device->CreatePixelShader(program.image.data, program.image.bytes, nullptr, imageShaders[index].put());
             if (FAILED(result))
             {
                 return result;
             }
             if (program.buffer.data)
             {
-                result = device->CreatePixelShader(program.buffer.data, program.buffer.bytes, nullptr,
-                                                   bufferShaders[index].put());
+                result = device->CreatePixelShader(program.buffer.data, program.buffer.bytes, nullptr, bufferShaders[index].put());
                 if (FAILED(result))
                 {
                     return result;
@@ -846,16 +830,14 @@ class SharedDeviceResources final
             for (uint32_t slot = 0; slot < kLookupTableSlots; ++slot)
             {
                 const LookupTablePass& pass = program.lookupTables[slot];
-                if (!pass.shader.data)
+                if (! pass.shader.data)
                 {
                     continue;
                 }
-                result = device->CreatePixelShader(pass.shader.data, pass.shader.bytes, nullptr,
-                                                   lookupTables[index].shaders[slot].put());
+                result = device->CreatePixelShader(pass.shader.data, pass.shader.bytes, nullptr, lookupTables[index].shaders[slot].put());
                 if (SUCCEEDED(result))
                 {
-                    result = lookupTables[index].textures[slot].Create(device, pass.width, pass.height,
-                                                                       DXGI_FORMAT_R32G32B32A32_FLOAT);
+                    result = lookupTables[index].textures[slot].Create(device, pass.width, pass.height, DXGI_FORMAT_R32G32B32A32_FLOAT);
                 }
                 if (FAILED(result))
                 {
@@ -865,11 +847,11 @@ class SharedDeviceResources final
         }
 
         D3D11_SAMPLER_DESC samplerDescription{};
-        samplerDescription.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+        samplerDescription.Filter   = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
         samplerDescription.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
         samplerDescription.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
         samplerDescription.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-        samplerDescription.MaxLOD = D3D11_FLOAT32_MAX;
+        samplerDescription.MaxLOD   = D3D11_FLOAT32_MAX;
         wil::com_ptr_nothrow<ID3D11SamplerState> clampSampler;
         result = device->CreateSamplerState(&samplerDescription, clampSampler.put());
         if (FAILED(result))
@@ -894,8 +876,8 @@ class SharedDeviceResources final
         }
 
         D3D11_RASTERIZER_DESC rasterizerDescription{};
-        rasterizerDescription.FillMode = D3D11_FILL_SOLID;
-        rasterizerDescription.CullMode = D3D11_CULL_NONE;
+        rasterizerDescription.FillMode        = D3D11_FILL_SOLID;
+        rasterizerDescription.CullMode        = D3D11_CULL_NONE;
         rasterizerDescription.DepthClipEnable = TRUE;
         wil::com_ptr_nothrow<ID3D11RasterizerState> rasterizer;
         result = device->CreateRasterizerState(&rasterizerDescription, rasterizer.put());
@@ -905,9 +887,9 @@ class SharedDeviceResources final
         }
 
         D3D11_DEPTH_STENCIL_DESC depthDescription{};
-        depthDescription.DepthEnable = FALSE;
+        depthDescription.DepthEnable    = FALSE;
         depthDescription.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-        depthDescription.DepthFunc = D3D11_COMPARISON_ALWAYS;
+        depthDescription.DepthFunc      = D3D11_COMPARISON_ALWAYS;
         wil::com_ptr_nothrow<ID3D11DepthStencilState> depthState;
         result = device->CreateDepthStencilState(&depthDescription, depthState.put());
         if (FAILED(result))
@@ -934,18 +916,18 @@ class SharedDeviceResources final
 
         Reset();
         _deviceIdentity = device;
-        _vertexShader = std::move(vertexShader);
-        _blitShader = std::move(blitShader);
-        _imageShaders = std::move(imageShaders);
-        _bufferShaders = std::move(bufferShaders);
-        _clampSampler = std::move(clampSampler);
-        _wrapSampler = std::move(wrapSampler);
+        _vertexShader   = std::move(vertexShader);
+        _blitShader     = std::move(blitShader);
+        _imageShaders   = std::move(imageShaders);
+        _bufferShaders  = std::move(bufferShaders);
+        _clampSampler   = std::move(clampSampler);
+        _wrapSampler    = std::move(wrapSampler);
         _wrapMipSampler = std::move(wrapMipSampler);
-        _rasterizer = std::move(rasterizer);
-        _depthState = std::move(depthState);
-        _opaqueBlend = std::move(opaqueBlend);
-        _background = std::move(background);
-        _lookupTables = std::move(lookupTables);
+        _rasterizer     = std::move(rasterizer);
+        _depthState     = std::move(depthState);
+        _opaqueBlend    = std::move(opaqueBlend);
+        _background     = std::move(background);
+        _lookupTables   = std::move(lookupTables);
         gLiveSharedResourceSetCount.fetch_add(1, std::memory_order_relaxed);
         return S_OK;
     }
@@ -1053,7 +1035,7 @@ class SharedDeviceResources final
         return _lookupTables[index];
     }
 
-  private:
+private:
     ID3D11Device* _deviceIdentity = nullptr;
     wil::com_ptr_nothrow<ID3D11VertexShader> _vertexShader;
     wil::com_ptr_nothrow<ID3D11PixelShader> _blitShader;
@@ -1073,24 +1055,29 @@ class SharedDeviceResources final
 struct ShowState final
 {
     uint32_t shaderIndex = 0;
-    uint32_t cycle = 0;
-    float shaderTime = 0.0f;
-    float fade = 1.0f;
+    uint32_t cycle       = 0;
+    float shaderTime     = 0.0f;
+    float fade           = 1.0f;
 };
 
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
 #pragma warning(disable : 4625 4626)
-class ShadersWidget final
-    : public RedXeComObject<ShadersWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget, IRedXeInteractiveWidget>
+class ShadersWidget final : public RedXeComObject<ShadersWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget, IRedXeInteractiveWidget>
 {
-  public:
-    ShadersWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, SharedDeviceResources& shared,
-                  const Configuration& configuration, const std::array<float, 4>& background,
+public:
+    ShadersWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
+                  SharedDeviceResources& shared,
+                  const Configuration& configuration,
+                  const std::array<float, 4>& background,
                   uint32_t randomSeed) noexcept
-        : _providerOwner(std::move(providerOwner)), _shared(&shared), _configuration(configuration),
-          _background(background), _randomSeed(randomSeed), _randomShaderIndex(Hash(randomSeed) % kShaderCount),
+        : _providerOwner(std::move(providerOwner)),
+          _shared(&shared),
+          _configuration(configuration),
+          _background(background),
+          _randomSeed(randomSeed),
+          _randomShaderIndex(Hash(randomSeed) % kShaderCount),
           _mayUseFeedbackBuffers(MayUseFeedbackBuffers(configuration, _randomShaderIndex)),
           _lookupTableEntries(ReachableLookupTableEntries(configuration, _randomShaderIndex))
     {
@@ -1109,15 +1096,14 @@ class ShadersWidget final
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
-                                                        uint32_t* writtenBytes) noexcept override
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes, uint32_t* writtenBytes) noexcept override
     {
         return RedXeCollectNoPersistentSettings(jsonUtf8, capacityBytes, writtenBytes);
     }
 
     HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
     {
-        if (!extent)
+        if (! extent)
         {
             return E_POINTER;
         }
@@ -1136,7 +1122,7 @@ class ShadersWidget final
     // samples (host paging), and every other mode leave the host's behavior untouched.
     HRESULT STDMETHODCALLTYPE OnPointer(const RedXePointerEvent* event) noexcept override
     {
-        if (!event)
+        if (! event)
         {
             return E_POINTER;
         }
@@ -1146,37 +1132,33 @@ class ShadersWidget final
         }
         switch (event->phase)
         {
-        case RedXePointerPhaseDown:
-            _pointerDown = true;
-            _pointerStartX = event->x;
-            _pointerStartY = event->y;
-            return S_FALSE;
-        case RedXePointerPhaseUp:
-        {
-            const bool wasDown = _pointerDown;
-            _pointerDown = false;
-            if (!wasDown || _configuration.mode != Mode::Slideshow || !std::isfinite(event->x) ||
-                !std::isfinite(event->y))
-            {
+            case RedXePointerPhaseDown:
+                _pointerDown   = true;
+                _pointerStartX = event->x;
+                _pointerStartY = event->y;
                 return S_FALSE;
-            }
-            const float slop = kTapSlopDips * static_cast<float>(event->dpi ? event->dpi : USER_DEFAULT_SCREEN_DPI) /
-                               static_cast<float>(USER_DEFAULT_SCREEN_DPI);
-            if (std::fabs(event->x - _pointerStartX) > slop || std::fabs(event->y - _pointerStartY) > slop)
+            case RedXePointerPhaseUp:
             {
-                return S_FALSE;
+                const bool wasDown = _pointerDown;
+                _pointerDown       = false;
+                if (! wasDown || _configuration.mode != Mode::Slideshow || ! std::isfinite(event->x) || ! std::isfinite(event->y))
+                {
+                    return S_FALSE;
+                }
+                const float slop =
+                    kTapSlopDips * static_cast<float>(event->dpi ? event->dpi : USER_DEFAULT_SCREEN_DPI) / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
+                if (std::fabs(event->x - _pointerStartX) > slop || std::fabs(event->y - _pointerStartY) > slop)
+                {
+                    return S_FALSE;
+                }
+                AdvanceSlideshow();
+                return S_OK;
             }
-            AdvanceSlideshow();
-            return S_OK;
-        }
-        case RedXePointerPhaseCancel:
-            _pointerDown = false;
-            return S_FALSE;
-        case RedXePointerPhaseMove:
-        case RedXePointerPhaseWheel:
-        case RedXePointerPhaseHorizontalWheel:
-        default:
-            return S_FALSE;
+            case RedXePointerPhaseCancel: _pointerDown = false; return S_FALSE;
+            case RedXePointerPhaseMove:
+            case RedXePointerPhaseWheel:
+            case RedXePointerPhaseHorizontalWheel:
+            default: return S_FALSE;
         }
     }
 
@@ -1200,10 +1182,9 @@ class ShadersWidget final
         return InitializeDevice(context);
     }
 
-    [[nodiscard]] HRESULT InitializeDevice(const RedXeGpuDeviceContext* context,
-                                           ShadersSetupTimings* timings = nullptr) noexcept
+    [[nodiscard]] HRESULT InitializeDevice(const RedXeGpuDeviceContext* context, ShadersSetupTimings* timings = nullptr) noexcept
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
@@ -1211,7 +1192,7 @@ class ShadersWidget final
         {
             return E_INVALIDARG;
         }
-        if (!context->device)
+        if (! context->device)
         {
             return E_POINTER;
         }
@@ -1226,9 +1207,9 @@ class ShadersWidget final
         }
 
         D3D11_BUFFER_DESC constantDescription{};
-        constantDescription.ByteWidth = sizeof(ShadersConstants);
-        constantDescription.Usage = D3D11_USAGE_DYNAMIC;
-        constantDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        constantDescription.ByteWidth      = sizeof(ShadersConstants);
+        constantDescription.Usage          = D3D11_USAGE_DYNAMIC;
+        constantDescription.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
         constantDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         wil::com_ptr_nothrow<ID3D11Buffer> constantBuffer;
         SetupPhaseTimer constant(timings, ShadersSetupPhase::ConstantBuffer);
@@ -1241,9 +1222,9 @@ class ShadersWidget final
 
         ReleaseSizedResources();
         _constantBuffer = std::move(constantBuffer);
-        _device = context->device;
-        _targetFormat = context->targetFormat;
-        _shaderFrame = 0;
+        _device         = context->device;
+        _targetFormat   = context->targetFormat;
+        _shaderFrame    = 0;
         // The lookup tables depend on neither the target size nor the frame, so they are drawn here, once per device,
         // where a failure fails the device setup instead of leaving them undrawn behind a working tile.
         SetupPhaseTimer lookup(timings, ShadersSetupPhase::LookupTableBake);
@@ -1267,20 +1248,19 @@ class ShadersWidget final
 
     HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
     {
-        if (!context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
+        if (! context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
         {
             return E_INVALIDARG;
         }
-        if (!_device || context->widthPixels == 0 || context->heightPixels == 0)
+        if (! _device || context->widthPixels == 0 || context->heightPixels == 0)
         {
             return S_OK;
         }
-        const uint32_t width = ScaledExtent(context->widthPixels);
-        const uint32_t height = ScaledExtent(context->heightPixels);
+        const uint32_t width     = ScaledExtent(context->widthPixels);
+        const uint32_t height    = ScaledExtent(context->heightPixels);
         const bool wantOffscreen = _configuration.renderScalePercent < Shaders::kMaximumRenderScalePercent;
         const bool sizeUnchanged = width == _sizedWidth && height == _sizedHeight;
-        if (sizeUnchanged && (wantOffscreen == static_cast<bool>(_offscreen.texture)) &&
-            (_mayUseFeedbackBuffers == static_cast<bool>(_feedback[0].texture)))
+        if (sizeUnchanged && (wantOffscreen == static_cast<bool>(_offscreen.texture)) && (_mayUseFeedbackBuffers == static_cast<bool>(_feedback[0].texture)))
         {
             return S_OK;
         }
@@ -1306,9 +1286,9 @@ class ShadersWidget final
             return result;
         }
         ReleaseSizedResources();
-        _offscreen = std::move(offscreen);
-        _feedback = std::move(feedback);
-        _sizedWidth = width;
+        _offscreen   = std::move(offscreen);
+        _feedback    = std::move(feedback);
+        _sizedWidth  = width;
         _sizedHeight = height;
         // New buffers hold no simulation state: restart the shader's frame count so it re-initializes.
         _shaderFrame = 0;
@@ -1317,7 +1297,7 @@ class ShadersWidget final
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
@@ -1325,19 +1305,17 @@ class ShadersWidget final
         {
             return E_INVALIDARG;
         }
-        if (!context->widget || !context->deviceContext)
+        if (! context->widget || ! context->deviceContext)
         {
             return E_POINTER;
         }
 
         const RedXeWidgetFrameContext& widget = *context->widget;
-        const D3D11_VIEWPORT& viewport = context->viewport;
-        if (widget.sizeBytes != sizeof(RedXeWidgetFrameContext) || widget.dpi == 0 ||
-            !std::isfinite(widget.elapsedSeconds) || !std::isfinite(widget.deltaSeconds) ||
-            widget.elapsedSeconds < 0.0f || widget.deltaSeconds < 0.0f || !std::isfinite(viewport.TopLeftX) ||
-            !std::isfinite(viewport.TopLeftY) || !std::isfinite(viewport.Width) || !std::isfinite(viewport.Height) ||
-            !std::isfinite(viewport.MinDepth) || !std::isfinite(viewport.MaxDepth) || viewport.Width < 0.0f ||
-            viewport.Height < 0.0f || viewport.MinDepth < 0.0f || viewport.MaxDepth > 1.0f ||
+        const D3D11_VIEWPORT& viewport        = context->viewport;
+        if (widget.sizeBytes != sizeof(RedXeWidgetFrameContext) || widget.dpi == 0 || ! std::isfinite(widget.elapsedSeconds) ||
+            ! std::isfinite(widget.deltaSeconds) || widget.elapsedSeconds < 0.0f || widget.deltaSeconds < 0.0f || ! std::isfinite(viewport.TopLeftX) ||
+            ! std::isfinite(viewport.TopLeftY) || ! std::isfinite(viewport.Width) || ! std::isfinite(viewport.Height) || ! std::isfinite(viewport.MinDepth) ||
+            ! std::isfinite(viewport.MaxDepth) || viewport.Width < 0.0f || viewport.Height < 0.0f || viewport.MinDepth < 0.0f || viewport.MaxDepth > 1.0f ||
             viewport.MinDepth > viewport.MaxDepth)
         {
             return E_INVALIDARG;
@@ -1346,21 +1324,21 @@ class ShadersWidget final
         {
             return S_OK;
         }
-        if (!_constantBuffer || !_shared->IsReady(_device))
+        if (! _constantBuffer || ! _shared->IsReady(_device))
         {
             return E_UNEXPECTED;
         }
 
         ID3D11DeviceContext* const deviceContext = context->deviceContext;
-        _lastElapsedSeconds = widget.elapsedSeconds;
-        const ShowState show = ComputeShow(static_cast<double>(widget.elapsedSeconds) + _clockOffsetSeconds);
+        _lastElapsedSeconds                      = widget.elapsedSeconds;
+        const ShowState show                     = ComputeShow(static_cast<double>(widget.elapsedSeconds) + _clockOffsetSeconds);
         if (show.cycle != _shownCycle || show.shaderIndex != _shownShaderIndex)
         {
-            _shownCycle = show.cycle;
+            _shownCycle       = show.cycle;
             _shownShaderIndex = show.shaderIndex;
-            _shaderFrame = 0;
+            _shaderFrame      = 0;
         }
-        const ShaderProgram& program = kPrograms[show.shaderIndex];
+        const ShaderProgram& program    = kPrograms[show.shaderIndex];
         const Shaders::ShaderInfo& info = kShaders[show.shaderIndex];
 
         // The host bound only its render target and viewport; take a reference to both so the offscreen passes can
@@ -1368,49 +1346,48 @@ class ShadersWidget final
         wil::com_ptr_nothrow<ID3D11RenderTargetView> hostTarget;
         wil::com_ptr_nothrow<ID3D11DepthStencilView> hostDepth;
         deviceContext->OMGetRenderTargets(1, hostTarget.put(), hostDepth.put());
-        if (!hostTarget)
+        if (! hostTarget)
         {
             return E_UNEXPECTED;
         }
         // Feedback and offscreen passes can fail after rebinding OM. Always hand the borrowed host target back.
-        const auto restoreHostTarget = wil::scope_exit(
-            [&]() noexcept
-            {
-                ID3D11RenderTargetView* targets[] = {hostTarget.get()};
-                deviceContext->OMSetRenderTargets(1, targets, hostDepth.get());
-                deviceContext->RSSetViewports(1, &viewport);
-            });
+        const auto restoreHostTarget = wil::scope_exit([&]() noexcept
+        {
+            ID3D11RenderTargetView* targets[] = {hostTarget.get()};
+            deviceContext->OMSetRenderTargets(1, targets, hostDepth.get());
+            deviceContext->RSSetViewports(1, &viewport);
+        });
 
         BindCommonState(deviceContext);
 
         ShadersConstants constants{};
         constants.timeDelta = widget.deltaSeconds;
         constants.frameRate = widget.deltaSeconds > 0.0f ? 1.0f / widget.deltaSeconds : 0.0f;
-        constants.frame = static_cast<int32_t>(std::min<uint32_t>(_shaderFrame, 0x7FFFFFFFU));
-        constants.time = show.shaderTime;
-        constants.fade = show.fade;
+        constants.frame     = static_cast<int32_t>(std::min<uint32_t>(_shaderFrame, 0x7FFFFFFFU));
+        constants.time      = show.shaderTime;
+        constants.fade      = show.fade;
         std::memcpy(constants.background, _background.data(), sizeof(constants.background));
         FillDate(constants);
 
         // Feedback pass: once per presented frame at the buffer's own resolution, whatever size this draw has.
         const bool feedbackPass = info.feedbackBuffer && _feedback[0].texture && _feedback[1].texture;
-        HRESULT result = S_OK;
+        HRESULT result          = S_OK;
         if (feedbackPass && _lastSimulatedElapsed != widget.elapsedSeconds)
         {
-            const RenderTexture& read = _feedback[_feedbackRead];
-            const RenderTexture& write = _feedback[_feedbackRead ^ 1U];
-            constants.resolution[0] = static_cast<float>(write.width);
-            constants.resolution[1] = static_cast<float>(write.height);
-            constants.resolution[2] = 1.0f;
+            const RenderTexture& read   = _feedback[_feedbackRead];
+            const RenderTexture& write  = _feedback[_feedbackRead ^ 1U];
+            constants.resolution[0]     = static_cast<float>(write.width);
+            constants.resolution[1]     = static_cast<float>(write.height);
+            constants.resolution[2]     = 1.0f;
             constants.viewportOrigin[0] = 0.0f;
             constants.viewportOrigin[1] = 0.0f;
-            result = UploadConstants(deviceContext, constants);
+            result                      = UploadConstants(deviceContext, constants);
             if (FAILED(result))
             {
                 return result;
             }
             ID3D11ShaderResourceView* views[] = {read.view.get()};
-            ID3D11SamplerState* samplers[] = {program.bufferWraps ? _shared->WrapSampler() : _shared->ClampSampler()};
+            ID3D11SamplerState* samplers[]    = {program.bufferWraps ? _shared->WrapSampler() : _shared->ClampSampler()};
             ID3D11RenderTargetView* targets[] = {write.target.get()};
             deviceContext->OMSetRenderTargets(1, targets, nullptr);
             SetViewport(deviceContext, 0.0f, 0.0f, static_cast<float>(write.width), static_cast<float>(write.height));
@@ -1425,7 +1402,7 @@ class ShadersWidget final
 
         SharedDeviceResources::LookupTableSet& tables = _shared->LookupTables(show.shaderIndex);
 
-        ID3D11ShaderResourceView* channels[kLookupTableSlots] = {nullptr, nullptr};
+        ID3D11ShaderResourceView* channels[kLookupTableSlots]  = {nullptr, nullptr};
         ID3D11SamplerState* channelSamplers[kLookupTableSlots] = {_shared->ClampSampler(), _shared->ClampSampler()};
         if (feedbackPass)
         {
@@ -1433,7 +1410,7 @@ class ShadersWidget final
         }
         else if (info.backgroundTexture)
         {
-            channels[0] = _shared->Background();
+            channels[0]        = _shared->Background();
             channelSamplers[0] = _shared->WrapMipSampler();
         }
         else if (tables.built)
@@ -1442,21 +1419,19 @@ class ShadersWidget final
             channels[1] = tables.textures[1].view.get();
         }
 
-        const float viewWidth = std::floor(viewport.Width + 0.5f);
+        const float viewWidth  = std::floor(viewport.Width + 0.5f);
         const float viewHeight = std::floor(viewport.Height + 0.5f);
         if (_offscreen.texture)
         {
             // Image pass into the top-left of the offscreen texture at the scaled size, then a stretch into the tile.
-            const uint32_t renderWidth =
-                std::clamp(ScaledExtent(static_cast<uint32_t>(viewWidth)), 1U, _offscreen.width);
-            const uint32_t renderHeight =
-                std::clamp(ScaledExtent(static_cast<uint32_t>(viewHeight)), 1U, _offscreen.height);
-            constants.resolution[0] = static_cast<float>(renderWidth);
-            constants.resolution[1] = static_cast<float>(renderHeight);
-            constants.resolution[2] = 1.0f;
+            const uint32_t renderWidth  = std::clamp(ScaledExtent(static_cast<uint32_t>(viewWidth)), 1U, _offscreen.width);
+            const uint32_t renderHeight = std::clamp(ScaledExtent(static_cast<uint32_t>(viewHeight)), 1U, _offscreen.height);
+            constants.resolution[0]     = static_cast<float>(renderWidth);
+            constants.resolution[1]     = static_cast<float>(renderHeight);
+            constants.resolution[2]     = 1.0f;
             constants.viewportOrigin[0] = 0.0f;
             constants.viewportOrigin[1] = 0.0f;
-            result = UploadConstants(deviceContext, constants);
+            result                      = UploadConstants(deviceContext, constants);
             if (FAILED(result))
             {
                 return result;
@@ -1473,19 +1448,19 @@ class ShadersWidget final
             ID3D11RenderTargetView* hostTargets[] = {hostTarget.get()};
             deviceContext->OMSetRenderTargets(1, hostTargets, hostDepth.get());
             deviceContext->RSSetViewports(1, &viewport);
-            constants.resolution[0] = viewWidth;
-            constants.resolution[1] = viewHeight;
+            constants.resolution[0]     = viewWidth;
+            constants.resolution[1]     = viewHeight;
             constants.viewportOrigin[0] = viewport.TopLeftX;
             constants.viewportOrigin[1] = viewport.TopLeftY;
-            constants.blitScale[0] = static_cast<float>(renderWidth) / static_cast<float>(_offscreen.width);
-            constants.blitScale[1] = static_cast<float>(renderHeight) / static_cast<float>(_offscreen.height);
-            result = UploadConstants(deviceContext, constants);
+            constants.blitScale[0]      = static_cast<float>(renderWidth) / static_cast<float>(_offscreen.width);
+            constants.blitScale[1]      = static_cast<float>(renderHeight) / static_cast<float>(_offscreen.height);
+            result                      = UploadConstants(deviceContext, constants);
             if (FAILED(result))
             {
                 return result;
             }
             ID3D11ShaderResourceView* offscreenViews[] = {_offscreen.view.get()};
-            ID3D11SamplerState* offscreenSamplers[] = {_shared->ClampSampler()};
+            ID3D11SamplerState* offscreenSamplers[]    = {_shared->ClampSampler()};
             deviceContext->PSSetShaderResources(0, 1, offscreenViews);
             deviceContext->PSSetSamplers(0, 1, offscreenSamplers);
             deviceContext->PSSetShader(_shared->BlitShader(), nullptr, 0);
@@ -1494,12 +1469,12 @@ class ShadersWidget final
         }
         else
         {
-            constants.resolution[0] = viewWidth;
-            constants.resolution[1] = viewHeight;
-            constants.resolution[2] = 1.0f;
+            constants.resolution[0]     = viewWidth;
+            constants.resolution[1]     = viewHeight;
+            constants.resolution[2]     = 1.0f;
             constants.viewportOrigin[0] = viewport.TopLeftX;
             constants.viewportOrigin[1] = viewport.TopLeftY;
-            result = UploadConstants(deviceContext, constants);
+            result                      = UploadConstants(deviceContext, constants);
             if (FAILED(result))
             {
                 return result;
@@ -1523,7 +1498,7 @@ class ShadersWidget final
         return S_OK;
     }
 
-  private:
+private:
     [[nodiscard]] uint32_t ScaledExtent(uint32_t pixels) const noexcept
     {
         const uint64_t scaled = (static_cast<uint64_t>(pixels) * _configuration.renderScalePercent + 99U) / 100U;
@@ -1534,14 +1509,14 @@ class ShadersWidget final
     // with nothing left to draw returns before touching the immediate context.
     [[nodiscard]] HRESULT BakeLookupTables() noexcept
     {
-        if (!_device || !_constantBuffer || !_shared->IsReady(_device))
+        if (! _device || ! _constantBuffer || ! _shared->IsReady(_device))
         {
             return E_UNEXPECTED;
         }
         uint32_t pending = 0;
         for (uint32_t index = 0; index < kShaderCount; ++index)
         {
-            if ((_lookupTableEntries & (1U << index)) != 0 && !_shared->LookupTables(index).built)
+            if ((_lookupTableEntries & (1U << index)) != 0 && ! _shared->LookupTables(index).built)
             {
                 pending |= 1U << index;
             }
@@ -1552,7 +1527,7 @@ class ShadersWidget final
         }
         wil::com_ptr_nothrow<ID3D11DeviceContext> context;
         _device->GetImmediateContext(context.put());
-        if (!context)
+        if (! context)
         {
             return E_UNEXPECTED;
         }
@@ -1562,13 +1537,12 @@ class ShadersWidget final
         UINT viewportCount = 1;
         D3D11_VIEWPORT previousViewport{};
         context->RSGetViewports(&viewportCount, &previousViewport);
-        const auto restore = wil::scope_exit(
-            [&]() noexcept
-            {
-                ID3D11RenderTargetView* targets[] = {previousTarget.get()};
-                context->OMSetRenderTargets(1, targets, previousDepth.get());
-                context->RSSetViewports(viewportCount, viewportCount ? &previousViewport : nullptr);
-            });
+        const auto restore = wil::scope_exit([&]() noexcept
+        {
+            ID3D11RenderTargetView* targets[] = {previousTarget.get()};
+            context->OMSetRenderTargets(1, targets, previousDepth.get());
+            context->RSSetViewports(viewportCount, viewportCount ? &previousViewport : nullptr);
+        });
         BindCommonState(context.get());
         ShadersConstants constants{};
         std::memcpy(constants.background, _background.data(), sizeof(constants.background));
@@ -1582,25 +1556,24 @@ class ShadersWidget final
             SharedDeviceResources::LookupTableSet& tables = _shared->LookupTables(index);
             for (uint32_t slot = 0; slot < kLookupTableSlots; ++slot)
             {
-                if (!tables.shaders[slot])
+                if (! tables.shaders[slot])
                 {
                     continue;
                 }
                 const RenderTexture& table = tables.textures[slot];
-                constants.resolution[0] = static_cast<float>(table.width);
-                constants.resolution[1] = static_cast<float>(table.height);
-                constants.resolution[2] = 1.0f;
-                const HRESULT uploaded = UploadConstants(context.get(), constants);
+                constants.resolution[0]    = static_cast<float>(table.width);
+                constants.resolution[1]    = static_cast<float>(table.height);
+                constants.resolution[2]    = 1.0f;
+                const HRESULT uploaded     = UploadConstants(context.get(), constants);
                 if (FAILED(uploaded))
                 {
                     return uploaded;
                 }
                 ID3D11ShaderResourceView* previous[] = {slot > 0 ? tables.textures[slot - 1].view.get() : nullptr};
-                ID3D11SamplerState* samplers[] = {_shared->ClampSampler()};
-                ID3D11RenderTargetView* targets[] = {table.target.get()};
+                ID3D11SamplerState* samplers[]       = {_shared->ClampSampler()};
+                ID3D11RenderTargetView* targets[]    = {table.target.get()};
                 context->OMSetRenderTargets(1, targets, nullptr);
-                SetViewport(context.get(), 0.0f, 0.0f, static_cast<float>(table.width),
-                            static_cast<float>(table.height));
+                SetViewport(context.get(), 0.0f, 0.0f, static_cast<float>(table.width), static_cast<float>(table.height));
                 context->PSSetShaderResources(0, 1, previous);
                 context->PSSetSamplers(0, 1, samplers);
                 context->PSSetShader(tables.shaders[slot].get(), nullptr, 0);
@@ -1618,9 +1591,9 @@ class ShadersWidget final
         _offscreen.Reset();
         _feedback[0].Reset();
         _feedback[1].Reset();
-        _sizedWidth = 0;
-        _sizedHeight = 0;
-        _feedbackRead = 0;
+        _sizedWidth           = 0;
+        _sizedHeight          = 0;
+        _feedbackRead         = 0;
         _lastSimulatedElapsed = -1.0f;
     }
 
@@ -1628,7 +1601,7 @@ class ShadersWidget final
     // the widget's random seed and the round, so every shader shows once per round and no round repeats the last.
     [[nodiscard]] uint32_t ShuffledShader(uint32_t cycle) const noexcept
     {
-        const uint32_t round = cycle / kShaderCount;
+        const uint32_t round    = cycle / kShaderCount;
         const uint32_t position = cycle % kShaderCount;
         std::array<uint32_t, kShaderCount> order{};
         for (uint32_t index = 0; index < kShaderCount; ++index)
@@ -1646,18 +1619,17 @@ class ShadersWidget final
 
     [[nodiscard]] double CyclePeriodSeconds() const noexcept
     {
-        return static_cast<double>(_configuration.mode == Mode::Slideshow ? _configuration.intervalSeconds
-                                                                          : Shaders::kClockRestartSeconds);
+        return static_cast<double>(_configuration.mode == Mode::Slideshow ? _configuration.intervalSeconds : Shaders::kClockRestartSeconds);
     }
 
     // Moves the virtual clock (host elapsed time plus the offset every tap has added) to kFadeSeconds before the
     // next cycle boundary. Inside that final fade already, the change is imminent and nothing moves.
     void AdvanceSlideshow() noexcept
     {
-        const double period = CyclePeriodSeconds();
-        const double now = static_cast<double>(_lastElapsedSeconds) + _clockOffsetSeconds;
+        const double period   = CyclePeriodSeconds();
+        const double now      = static_cast<double>(_lastElapsedSeconds) + _clockOffsetSeconds;
         const double boundary = (std::floor(now / period) + 1.0) * period;
-        const double target = boundary - static_cast<double>(Shaders::kFadeSeconds);
+        const double target   = boundary - static_cast<double>(Shaders::kFadeSeconds);
         if (target > now)
         {
             _clockOffsetSeconds += target - now;
@@ -1669,26 +1641,21 @@ class ShadersWidget final
     [[nodiscard]] ShowState ComputeShow(double clockSeconds) const noexcept
     {
         ShowState state{};
-        const double period = CyclePeriodSeconds();
-        const double cycles = std::floor(clockSeconds / period);
-        state.cycle = cycles >= 4294967040.0 ? std::numeric_limits<uint32_t>::max() : static_cast<uint32_t>(cycles);
-        state.shaderTime = static_cast<float>(std::max(clockSeconds - cycles * period, 0.0));
+        const double period   = CyclePeriodSeconds();
+        const double cycles   = std::floor(clockSeconds / period);
+        state.cycle           = cycles >= 4294967040.0 ? std::numeric_limits<uint32_t>::max() : static_cast<uint32_t>(cycles);
+        state.shaderTime      = static_cast<float>(std::max(clockSeconds - cycles * period, 0.0));
         const float remaining = static_cast<float>(period) - state.shaderTime;
-        state.fade = std::clamp(std::min(state.shaderTime, remaining) / Shaders::kFadeSeconds, 0.0f, 1.0f);
+        state.fade            = std::clamp(std::min(state.shaderTime, remaining) / Shaders::kFadeSeconds, 0.0f, 1.0f);
         switch (_configuration.mode)
         {
-        case Mode::Single:
-            state.shaderIndex = _configuration.shaderIndex;
-            break;
-        case Mode::Random:
-            state.shaderIndex = _randomShaderIndex;
-            break;
-        case Mode::Slideshow:
-        default:
-            state.shaderIndex = _configuration.shuffle
-                                    ? ShuffledShader(state.cycle)
-                                    : (_configuration.shaderIndex + state.cycle % kShaderCount) % kShaderCount;
-            break;
+            case Mode::Single: state.shaderIndex = _configuration.shaderIndex; break;
+            case Mode::Random: state.shaderIndex = _randomShaderIndex; break;
+            case Mode::Slideshow:
+            default:
+                state.shaderIndex =
+                    _configuration.shuffle ? ShuffledShader(state.cycle) : (_configuration.shaderIndex + state.cycle % kShaderCount) % kShaderCount;
+                break;
         }
         return state;
     }
@@ -1700,8 +1667,8 @@ class ShadersWidget final
         constants.date[0] = static_cast<float>(now.wYear);
         constants.date[1] = static_cast<float>(now.wMonth - 1);
         constants.date[2] = static_cast<float>(now.wDay);
-        constants.date[3] = static_cast<float>(now.wHour) * 3600.0f + static_cast<float>(now.wMinute) * 60.0f +
-                            static_cast<float>(now.wSecond) + static_cast<float>(now.wMilliseconds) * 0.001f;
+        constants.date[3] = static_cast<float>(now.wHour) * 3600.0f + static_cast<float>(now.wMinute) * 60.0f + static_cast<float>(now.wSecond) +
+                            static_cast<float>(now.wMilliseconds) * 0.001f;
     }
 
     void BindCommonState(ID3D11DeviceContext* deviceContext) const noexcept
@@ -1724,8 +1691,7 @@ class ShadersWidget final
         deviceContext->PSSetConstantBuffers(0, 1, constantBuffers);
     }
 
-    [[nodiscard]] HRESULT UploadConstants(ID3D11DeviceContext* deviceContext,
-                                          const ShadersConstants& constants) const noexcept
+    [[nodiscard]] HRESULT UploadConstants(ID3D11DeviceContext* deviceContext, const ShadersConstants& constants) const noexcept
     {
         D3D11_MAPPED_SUBRESOURCE mapped{};
         const HRESULT result = deviceContext->Map(_constantBuffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
@@ -1738,14 +1704,13 @@ class ShadersWidget final
         return S_OK;
     }
 
-    static void SetViewport(ID3D11DeviceContext* deviceContext, float left, float top, float width,
-                            float height) noexcept
+    static void SetViewport(ID3D11DeviceContext* deviceContext, float left, float top, float width, float height) noexcept
     {
         D3D11_VIEWPORT viewport{};
         viewport.TopLeftX = left;
         viewport.TopLeftY = top;
-        viewport.Width = width;
-        viewport.Height = height;
+        viewport.Width    = width;
+        viewport.Height   = height;
         viewport.MinDepth = 0.0f;
         viewport.MaxDepth = 1.0f;
         deviceContext->RSSetViewports(1, &viewport);
@@ -1765,23 +1730,23 @@ class ShadersWidget final
     uint32_t _randomShaderIndex;
     bool _mayUseFeedbackBuffers;
     uint32_t _lookupTableEntries;
-    ID3D11Device* _device = nullptr;
+    ID3D11Device* _device     = nullptr;
     DXGI_FORMAT _targetFormat = DXGI_FORMAT_UNKNOWN;
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
     RenderTexture _offscreen;
     std::array<RenderTexture, 2> _feedback;
-    uint32_t _sizedWidth = 0;
-    uint32_t _sizedHeight = 0;
-    uint32_t _feedbackRead = 0;
+    uint32_t _sizedWidth        = 0;
+    uint32_t _sizedHeight       = 0;
+    uint32_t _feedbackRead      = 0;
     float _lastSimulatedElapsed = -1.0f;
-    uint32_t _shownCycle = std::numeric_limits<uint32_t>::max();
-    uint32_t _shownShaderIndex = std::numeric_limits<uint32_t>::max();
-    uint32_t _shaderFrame = 0;
-    float _lastElapsedSeconds = 0.0f;
-    double _clockOffsetSeconds = 0.0;
-    bool _pointerDown = false;
-    float _pointerStartX = 0.0f;
-    float _pointerStartY = 0.0f;
+    uint32_t _shownCycle        = std::numeric_limits<uint32_t>::max();
+    uint32_t _shownShaderIndex  = std::numeric_limits<uint32_t>::max();
+    uint32_t _shaderFrame       = 0;
+    float _lastElapsedSeconds   = 0.0f;
+    double _clockOffsetSeconds  = 0.0;
+    bool _pointerDown           = false;
+    float _pointerStartX        = 0.0f;
+    float _pointerStartY        = 0.0f;
 };
 #pragma warning(pop)
 
@@ -1791,9 +1756,10 @@ class ShadersWidget final
 #pragma warning(disable : 4625 4626)
 class ShadersProvider final : public RedXeComObject<ShadersProvider, IRedXeWidgetProvider>
 {
-  public:
+public:
     ShadersProvider(const Configuration& configuration, uint32_t backgroundRgb) noexcept
-        : _configuration(configuration), _background(ColorToFloat(backgroundRgb))
+        : _configuration(configuration),
+          _background(ColorToFloat(backgroundRgb))
     {
         gLiveProviderCount.fetch_add(1, std::memory_order_relaxed);
     }
@@ -1803,8 +1769,7 @@ class ShadersProvider final : public RedXeComObject<ShadersProvider, IRedXeWidge
         gLiveProviderCount.fetch_sub(1, std::memory_order_relaxed);
     }
 
-    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             uint32_t* count) noexcept override
+    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -1814,35 +1779,33 @@ class ShadersProvider final : public RedXeComObject<ShadersProvider, IRedXeWidge
         {
             *count = 0;
         }
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
         {
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<uint32_t>(kWidgetTypes.size());
+        *count       = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
-                                           IRedXeWidget** widget) noexcept override
+    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId, IRedXeWidget** widget) noexcept override
     {
-        if (!widget)
+        if (! widget)
         {
             return E_POINTER;
         }
         *widget = nullptr;
-        if (!typeId || !RedXeIsValidMachineId(instanceId))
+        if (! typeId || ! RedXeIsValidMachineId(instanceId))
         {
             return E_INVALIDARG;
         }
-        if (!RedXeAsciiEqualsIgnoreCase(typeId, Shaders::kWidgetTypeId))
+        if (! RedXeAsciiEqualsIgnoreCase(typeId, Shaders::kWidgetTypeId))
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
 
         wil::com_ptr_nothrow<IRedXeWidgetProvider> providerOwner;
-        const HRESULT result =
-            QueryInterface(__uuidof(IRedXeWidgetProvider), reinterpret_cast<void**>(providerOwner.put()));
+        const HRESULT result = QueryInterface(__uuidof(IRedXeWidgetProvider), reinterpret_cast<void**>(providerOwner.put()));
         if (FAILED(result))
         {
             return result;
@@ -1859,9 +1822,8 @@ class ShadersProvider final : public RedXeComObject<ShadersProvider, IRedXeWidge
         }
         seed = Hash(seed ^ GetCurrentProcessId());
 
-        auto* created =
-            new (std::nothrow) ShadersWidget(std::move(providerOwner), _shared, _configuration, _background, seed);
-        if (!created)
+        auto* created = new (std::nothrow) ShadersWidget(std::move(providerOwner), _shared, _configuration, _background, seed);
+        if (! created)
         {
             return E_OUTOFMEMORY;
         }
@@ -1869,7 +1831,7 @@ class ShadersProvider final : public RedXeComObject<ShadersProvider, IRedXeWidge
         return S_OK;
     }
 
-  private:
+private:
     Configuration _configuration;
     std::array<float, 4> _background;
     SharedDeviceResources _shared;
@@ -1880,8 +1842,7 @@ static_assert(sizeof(SharedDeviceResources) < 4U * 1024U);
 static_assert(sizeof(ShadersProvider) < 4U * 1024U);
 static_assert(sizeof(ShadersWidget) < 4U * 1024U);
 
-HRESULT CreateShadersProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
-                              void** result) noexcept
+HRESULT CreateShadersProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*, void** result) noexcept
 {
     if (interfaceId != __uuidof(IRedXeWidgetProvider))
     {
@@ -1889,7 +1850,7 @@ HRESULT CreateShadersProvider(REFIID interfaceId, const RedXeFactoryOptions* opt
     }
 
     Configuration configuration{};
-    uint32_t backgroundRgb = 0;
+    uint32_t backgroundRgb     = 0;
     const HRESULT createResult = ReadFactoryConfiguration(options, configuration, backgroundRgb);
     if (FAILED(createResult))
     {
@@ -1897,7 +1858,7 @@ HRESULT CreateShadersProvider(REFIID interfaceId, const RedXeFactoryOptions* opt
     }
 
     auto* provider = new (std::nothrow) ShadersProvider(configuration, backgroundRgb);
-    if (!provider)
+    if (! provider)
     {
         return E_OUTOFMEMORY;
     }
@@ -1910,11 +1871,9 @@ constexpr std::array kFactoryEntries{
 };
 } // namespace
 
-extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                                         const char* pluginId, void** result) noexcept
+extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
-                                         interfaceId, options, host, pluginId, result);
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()), interfaceId, options, host, pluginId, result);
 }
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
@@ -1922,26 +1881,26 @@ extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** m
     return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata, count);
 }
 
-extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,
-                                                            const RedXePluginSettingsContract** contract) noexcept
+extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId, const RedXePluginSettingsContract** contract) noexcept
 {
     return RedXeGetStaticPluginSettingsContract(Shaders::kPluginId, pluginId, &kSettingsContract, contract);
 }
 
-extern "C" void __stdcall RedXePluginShutdown() noexcept {}
-
-extern "C" HRESULT __stdcall RedXeShadersMeasureTestSetup(const RedXeGpuDeviceContext* context,
-                                                          ShadersSetupTimings* timings) noexcept
+extern "C" void __stdcall RedXePluginShutdown() noexcept
 {
-    if (!timings)
+}
+
+extern "C" HRESULT __stdcall RedXeShadersMeasureTestSetup(const RedXeGpuDeviceContext* context, ShadersSetupTimings* timings) noexcept
+{
+    if (! timings)
         return E_POINTER;
     if (timings->sizeBytes != sizeof(ShadersSetupTimings))
         return E_INVALIDARG;
-    *timings = {};
-    timings->sizeBytes = sizeof(ShadersSetupTimings);
+    *timings            = {};
+    timings->sizeBytes  = sizeof(ShadersSetupTimings);
     timings->phaseCount = kShadersSetupPhaseCount;
     LARGE_INTEGER frequency{};
-    if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
+    if (! QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
         return E_UNEXPECTED;
     timings->frequency = static_cast<uint64_t>(frequency.QuadPart);
     LARGE_INTEGER started{}, ended{};
@@ -1961,7 +1920,7 @@ extern "C" HRESULT __stdcall RedXeShadersMeasureTestSetup(const RedXeGpuDeviceCo
 
 extern "C" HRESULT __stdcall RedXeShadersCopyTestBackground(uint32_t* texels, uint32_t capacityTexels) noexcept
 {
-    if (!texels)
+    if (! texels)
         return E_POINTER;
     if (capacityTexels < kShadersBackgroundTexelCount)
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
@@ -1971,7 +1930,7 @@ extern "C" HRESULT __stdcall RedXeShadersCopyTestBackground(uint32_t* texels, ui
 
 extern "C" HRESULT __stdcall RedXeShadersGetTestDiagnostics(ShadersTestDiagnostics* diagnostics) noexcept
 {
-    if (!diagnostics)
+    if (! diagnostics)
     {
         return E_POINTER;
     }
@@ -1980,11 +1939,11 @@ extern "C" HRESULT __stdcall RedXeShadersGetTestDiagnostics(ShadersTestDiagnosti
         return E_INVALIDARG;
     }
 
-    diagnostics->liveProviderCount = gLiveProviderCount.load(std::memory_order_relaxed);
-    diagnostics->liveWidgetCount = gLiveWidgetCount.load(std::memory_order_relaxed);
+    diagnostics->liveProviderCount          = gLiveProviderCount.load(std::memory_order_relaxed);
+    diagnostics->liveWidgetCount            = gLiveWidgetCount.load(std::memory_order_relaxed);
     diagnostics->liveSharedResourceSetCount = gLiveSharedResourceSetCount.load(std::memory_order_relaxed);
-    diagnostics->lastShaderIndex = gLastShaderIndex.load(std::memory_order_relaxed);
-    diagnostics->lastShaderFrame = gLastShaderFrame.load(std::memory_order_relaxed);
-    diagnostics->lookupTableBakeCount = gLookupTableBakeCount.load(std::memory_order_relaxed);
+    diagnostics->lastShaderIndex            = gLastShaderIndex.load(std::memory_order_relaxed);
+    diagnostics->lastShaderFrame            = gLastShaderFrame.load(std::memory_order_relaxed);
+    diagnostics->lookupTableBakeCount       = gLookupTableBakeCount.load(std::memory_order_relaxed);
     return S_OK;
 }

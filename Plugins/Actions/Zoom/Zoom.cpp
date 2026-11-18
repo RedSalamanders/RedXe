@@ -20,23 +20,30 @@ namespace
 {
 // A dedicated action DLL (Plugins_Actions.md): no settings, no service, created on the first zoom.* execution.
 constexpr std::array kMetadata{
-    RedXePluginMetadata{sizeof(RedXePluginMetadata), Zoom::kPluginId, L"Zoom web",
-                        L"Open the Zoom web join page or a meeting invite in the default browser.", L"RedXe", L"1.0.0",
+    RedXePluginMetadata{sizeof(RedXePluginMetadata),
+                        Zoom::kPluginId,
+                        L"Zoom web",
+                        L"Open the Zoom web join page or a meeting invite in the default browser.",
+                        L"RedXe",
+                        L"1.0.0",
                         RedXePluginCapabilityActions},
 };
 
 constexpr std::array kZoomActions{
-    RedXeActionDescriptor{sizeof(RedXeActionDescriptor), RedXeActionFlagDeferred, "zoom.open", L"Open Zoom web", L"",
-                          RedXeActionTargetNone, 0, 0, nullptr},
-    RedXeActionDescriptor{sizeof(RedXeActionDescriptor), RedXeActionFlagDeferred, "zoom.join", L"Open Zoom meeting",
-                          L"<https://zoom.us/j/... or /wc/.../join meeting link>", RedXeActionTargetMeeting, 0, 0,
+    RedXeActionDescriptor{sizeof(RedXeActionDescriptor), RedXeActionFlagDeferred, "zoom.open", L"Open Zoom web", L"", RedXeActionTargetNone, 0, 0, nullptr},
+    RedXeActionDescriptor{sizeof(RedXeActionDescriptor),
+                          RedXeActionFlagDeferred,
+                          "zoom.join",
+                          L"Open Zoom meeting",
+                          L"<https://zoom.us/j/... or /wc/.../join meeting link>",
+                          RedXeActionTargetMeeting,
+                          0,
+                          0,
                           nullptr},
 };
-constexpr std::array kZoomNamespaces{RedXeActionNamespace{sizeof(RedXeActionNamespace),
-                                                          static_cast<uint32_t>(kZoomActions.size()),
-                                                          Zoom::kActionNamespace, kZoomActions.data()}};
-constexpr RedXeActionContract kZoomActionContract{
-    sizeof(RedXeActionContract), static_cast<uint32_t>(kZoomNamespaces.size()), kZoomNamespaces.data()};
+constexpr std::array kZoomNamespaces{
+    RedXeActionNamespace{sizeof(RedXeActionNamespace), static_cast<uint32_t>(kZoomActions.size()), Zoom::kActionNamespace, kZoomActions.data()}};
+constexpr RedXeActionContract kZoomActionContract{sizeof(RedXeActionContract), static_cast<uint32_t>(kZoomNamespaces.size()), kZoomNamespaces.data()};
 
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
@@ -44,37 +51,39 @@ constexpr RedXeActionContract kZoomActionContract{
 #pragma warning(disable : 4625 4626 5026 5027)
 class ZoomActions final : public RedXeComObject<ZoomActions, IRedXeActionPack>
 {
-  public:
-    explicit ZoomActions(IRedXeHost* host) noexcept : _host(host) {}
+public:
+    explicit ZoomActions(IRedXeHost* host) noexcept : _host(host)
+    {
+    }
 
     // The host creates the executor with the empty {"plugin":{},"instance":{}} envelope; Zoom has no settings.
     [[nodiscard]] static HRESULT ParseConfiguration(const char* json, uint32_t bytes) noexcept
     {
-        if (!json && bytes == 0)
+        if (! json && bytes == 0)
         {
             return S_OK;
         }
-        if (!json || bytes == 0)
+        if (! json || bytes == 0)
         {
             return E_INVALIDARG;
         }
         yyjson_doc* document = yyjson_read(json, bytes, YYJSON_READ_NOFLAG);
-        if (!document)
+        if (! document)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        yyjson_val* root = yyjson_doc_get_root(document);
-        yyjson_val* plugin = yyjson_is_obj(root) ? yyjson_obj_get(root, "plugin") : nullptr;
+        yyjson_val* root     = yyjson_doc_get_root(document);
+        yyjson_val* plugin   = yyjson_is_obj(root) ? yyjson_obj_get(root, "plugin") : nullptr;
         yyjson_val* instance = yyjson_is_obj(root) ? yyjson_obj_get(root, "instance") : nullptr;
-        const bool valid = yyjson_is_obj(root) && yyjson_obj_size(root) == 2 && yyjson_is_obj(plugin) &&
-                           yyjson_obj_size(plugin) == 0 && yyjson_is_obj(instance) && yyjson_obj_size(instance) == 0;
+        const bool valid     = yyjson_is_obj(root) && yyjson_obj_size(root) == 2 && yyjson_is_obj(plugin) && yyjson_obj_size(plugin) == 0 &&
+                               yyjson_is_obj(instance) && yyjson_obj_size(instance) == 0;
         yyjson_doc_free(document);
         return valid ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
     HRESULT STDMETHODCALLTYPE Execute(const RedXeActionRequest* request) noexcept override
     {
-        if (!request || request->sizeBytes != sizeof(RedXeActionRequest) || !request->actionUtf8)
+        if (! request || request->sizeBytes != sizeof(RedXeActionRequest) || ! request->actionUtf8)
         {
             return E_INVALIDARG;
         }
@@ -94,9 +103,9 @@ class ZoomActions final : public RedXeComObject<ZoomActions, IRedXeActionPack>
             return E_INVALIDARG;
         }
         RedXeActionRequest launch{};
-        launch.sizeBytes = sizeof(launch);
-        launch.actionUtf8 = "system.launch";
-        launch.targetUtf8 = url;
+        launch.sizeBytes      = sizeof(launch);
+        launch.actionUtf8     = "system.launch";
+        launch.targetUtf8     = url;
         launch.sourcePluginId = Zoom::kPluginId;
         // Both actions are Deferred: the host drains the queued (or coalesced) system.launch after this returns and
         // opens the browser on its launch worker; a refused request is returned unchanged.
@@ -104,37 +113,34 @@ class ZoomActions final : public RedXeComObject<ZoomActions, IRedXeActionPack>
         return FAILED(queued) ? queued : S_FALSE;
     }
 
-  private:
+private:
     // Borrowed from the process runtime, which releases this executor in PluginHost::Shutdown before it goes away.
     IRedXeHost* _host = nullptr;
 };
 #pragma warning(pop)
 
-HRESULT CreateZoomActions(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                          void** result) noexcept
+HRESULT CreateZoomActions(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, void** result) noexcept
 {
     if (interfaceId != __uuidof(IRedXeActionPack))
     {
         return E_NOINTERFACE;
     }
-    if (!host || !result)
+    if (! host || ! result)
     {
         return E_POINTER;
     }
-    if (options && (options->sizeBytes != sizeof(RedXeFactoryOptions) ||
-                    options->configurationBytes > kRedXeMaximumFactoryConfigurationBytes))
+    if (options && (options->sizeBytes != sizeof(RedXeFactoryOptions) || options->configurationBytes > kRedXeMaximumFactoryConfigurationBytes))
     {
         return E_INVALIDARG;
     }
-    const HRESULT parsed = ZoomActions::ParseConfiguration(options ? options->configurationJsonUtf8 : nullptr,
-                                                           options ? options->configurationBytes : 0);
+    const HRESULT parsed = ZoomActions::ParseConfiguration(options ? options->configurationJsonUtf8 : nullptr, options ? options->configurationBytes : 0);
     if (FAILED(parsed))
     {
         return parsed;
     }
     wil::com_ptr_nothrow<ZoomActions> actions;
     actions.attach(new (std::nothrow) ZoomActions(host));
-    if (!actions)
+    if (! actions)
     {
         return E_OUTOFMEMORY;
     }
@@ -145,11 +151,9 @@ HRESULT CreateZoomActions(REFIID interfaceId, const RedXeFactoryOptions* options
 constexpr std::array kFactoryEntries{RedXeFactoryEntry{&kMetadata[0], CreateZoomActions}};
 } // namespace
 
-extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                                         const char* pluginId, void** result) noexcept
+extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
-                                         interfaceId, options, host, pluginId, result);
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()), interfaceId, options, host, pluginId, result);
 }
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
@@ -159,12 +163,12 @@ extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** m
 
 extern "C" HRESULT __stdcall RedXeGetActionContract(const char* pluginId, const RedXeActionContract** contract) noexcept
 {
-    if (!contract)
+    if (! contract)
     {
         return E_POINTER;
     }
     *contract = nullptr;
-    if (!RedXeAsciiEqualsIgnoreCase(pluginId, Zoom::kPluginId))
+    if (! RedXeAsciiEqualsIgnoreCase(pluginId, Zoom::kPluginId))
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }

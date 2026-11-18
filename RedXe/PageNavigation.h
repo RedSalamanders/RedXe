@@ -62,7 +62,7 @@ inline constexpr uint32_t kPageSwipeMaxFingerCount = 3;
         return 0;
     }
     const LONG clamped = std::clamp(offset, -pageWidth, pageWidth);
-    if (!blocked)
+    if (! blocked)
     {
         return clamped;
     }
@@ -88,8 +88,8 @@ inline constexpr uint32_t kPageSwipeMaxFingerCount = 3;
     return pageWidth > 0 ? pageWidth / 4 : 0;
 }
 
-[[nodiscard]] inline bool ShouldCommitPageSwipe(LONG offset, LONG pageWidth, float velocityPxPerSec, UINT dpi,
-                                                bool wrapPages, bool atFirst, bool atLast) noexcept
+[[nodiscard]] inline bool ShouldCommitPageSwipe(
+    LONG offset, LONG pageWidth, float velocityPxPerSec, UINT dpi, bool wrapPages, bool atFirst, bool atLast) noexcept
 {
     if (pageWidth <= 0 || offset == 0 || PageSwipeBlocksDirection(offset, wrapPages, atFirst, atLast))
     {
@@ -129,9 +129,9 @@ inline constexpr uint32_t kPageSwipeMaxFingerCount = 3;
 
 [[nodiscard]] inline UINT PageSettleDurationMilliseconds(LONG remaining, float velocityPxPerSec) noexcept
 {
-    const float distance = std::fabs(static_cast<float>(remaining));
-    const float speed = std::max(std::fabs(velocityPxPerSec), 1400.0f);
+    const float distance     = std::fabs(static_cast<float>(remaining));
+    const float speed        = std::max(std::fabs(velocityPxPerSec), 1400.0f);
     const float milliseconds = distance / speed * 1000.0f;
-    const UINT rounded = static_cast<UINT>(milliseconds + 0.5f);
+    const UINT rounded       = static_cast<UINT>(milliseconds + 0.5f);
     return std::clamp(rounded, 140U, 280U);
 }

@@ -14,7 +14,7 @@ struct FrameChannelNames final
 struct ChannelState final
 {
     uint64_t revision = 1;
-    bool enabled = false;
+    bool enabled      = false;
 };
 
 // One latest NV12 image, shared between the Frame Server source and its owned physical-capture helper. The
@@ -27,7 +27,7 @@ struct ChannelState final
 #pragma warning(disable : 4625 4626)
 class FrameChannel final
 {
-  public:
+public:
     FrameChannel() = default;
     ~FrameChannel();
     HRESULT Create(PCWSTR ownerSid, bool localTestNamespace = false) noexcept;
@@ -44,7 +44,7 @@ class FrameChannel final
     HRESULT Read(BYTE* bytes, DWORD capacity, LONG pitch, LONGLONG now) noexcept;
     void EndRead() noexcept;
 
-  private:
+private:
     struct Shared;
     FrameChannelNames _names;
     wil::unique_handle _mapping, _mutex;

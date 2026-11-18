@@ -34,26 +34,27 @@ using StudioClock::kPluginId;
 using StudioClock::kWidgetTypeId;
 
 constexpr RedXePluginSettingsContract kSettingsContract{
-    sizeof(RedXePluginSettingsContract),    StudioClock::kSchemaJson,
-    sizeof(StudioClock::kSchemaJson) - 1,   StudioClock::kDefaultsJson,
+    sizeof(RedXePluginSettingsContract),
+    StudioClock::kSchemaJson,
+    sizeof(StudioClock::kSchemaJson) - 1,
+    StudioClock::kDefaultsJson,
     sizeof(StudioClock::kDefaultsJson) - 1,
 };
-constexpr uint32_t kTimeDotInstances = 114;
-constexpr uint32_t kSecondsDotInstances = 42;
-constexpr uint32_t kDateDotInstances = 174;
+constexpr uint32_t kTimeDotInstances     = 114;
+constexpr uint32_t kSecondsDotInstances  = 42;
+constexpr uint32_t kDateDotInstances     = 174;
 constexpr uint32_t kProgressDotInstances = 72;
-constexpr uint32_t kMaximumDotInstances =
-    kTimeDotInstances + kSecondsDotInstances + kDateDotInstances + kProgressDotInstances;
+constexpr uint32_t kMaximumDotInstances  = kTimeDotInstances + kSecondsDotInstances + kDateDotInstances + kProgressDotInstances;
 // A nonzero glow submits every dot twice in the same draw: one additive halo, then the LED core.
 constexpr uint32_t kMaximumSubmittedInstances = kMaximumDotInstances * 2U;
 // Halo light at glowPercent 100, relative to the LED color, before the falloff. The default 35 keeps the gaps between
 // the dots of a segment clearly darker than the dots, as on a real display; 100 merges each segment into a glowing bar.
 constexpr float kFullGlowStrength = 0.6f;
 // The halo quad spans this many LED radii from the dot center; the falloff reaches zero at its edge.
-constexpr float kGlowExtentRadii = 4.0f;
-constexpr float kDateCompositionHeightScale = 10.0f / 9.0f;
+constexpr float kGlowExtentRadii                            = 4.0f;
+constexpr float kDateCompositionHeightScale                 = 10.0f / 9.0f;
 constexpr ULONGLONG kMaximumClockSampleIntervalMilliseconds = 1000;
-constexpr ULONGLONG kLowCadenceFrameThresholdMilliseconds = 500;
+constexpr ULONGLONG kLowCadenceFrameThresholdMilliseconds   = 500;
 
 constexpr std::array kMetadata{
     RedXePluginMetadata{
@@ -99,14 +100,14 @@ constexpr std::array kDatedWidgetTypes{
 // as SettingsMatchCatalog checks below.
 struct StudioClockConfiguration final
 {
-    bool showSecondProgress = true;
+    bool showSecondProgress   = true;
     bool externalDotsAlwaysOn = true;
-    bool showSeconds = true;
-    uint32_t secondsColor = 0xFF1616;
-    bool showDate = false;
-    DateFormat dateFormat = DateFormat::DayMonthYear;
-    uint32_t timeColor = 0xFF1616;
-    uint32_t glowPercent = 35;
+    bool showSeconds          = true;
+    uint32_t secondsColor     = 0xFF1616;
+    bool showDate             = false;
+    DateFormat dateFormat     = DateFormat::DayMonthYear;
+    uint32_t timeColor        = 0xFF1616;
+    uint32_t glowPercent      = 35;
     // Host-resolved dashboard background from RedXeFactoryOptions, never a settings member of this plugin.
     uint32_t backgroundColor = kRedXeDefaultBackgroundColor & 0x00FFFFFFu;
 
@@ -115,14 +116,14 @@ struct StudioClockConfiguration final
 
 enum ConfigurationMember : uint32_t
 {
-    ConfigurationShowSecondProgress = 1U << 0U,
+    ConfigurationShowSecondProgress   = 1U << 0U,
     ConfigurationExternalDotsAlwaysOn = 1U << 1U,
-    ConfigurationShowSeconds = 1U << 2U,
-    ConfigurationSecondsColor = 1U << 3U,
-    ConfigurationShowDate = 1U << 4U,
-    ConfigurationDateFormat = 1U << 5U,
-    ConfigurationTimeColor = 1U << 6U,
-    ConfigurationGlowPercent = 1U << 7U,
+    ConfigurationShowSeconds          = 1U << 2U,
+    ConfigurationSecondsColor         = 1U << 3U,
+    ConfigurationShowDate             = 1U << 4U,
+    ConfigurationDateFormat           = 1U << 5U,
+    ConfigurationTimeColor            = 1U << 6U,
+    ConfigurationGlowPercent          = 1U << 7U,
 };
 
 inline constexpr uint32_t kAllConfigurationMembers = (1U << 8U) - 1U;
@@ -160,10 +161,9 @@ std::atomic<uint64_t> gTestTimeRevision{0};
     return 0;
 }
 
-[[nodiscard]] constexpr bool ParseSettingsObject(RedXeSettingsCursor& cursor,
-                                                 StudioClockConfiguration& configuration) noexcept
+[[nodiscard]] constexpr bool ParseSettingsObject(RedXeSettingsCursor& cursor, StudioClockConfiguration& configuration) noexcept
 {
-    if (!cursor.Consume('{'))
+    if (! cursor.Consume('{'))
     {
         return false;
     }
@@ -173,7 +173,7 @@ std::atomic<uint64_t> gTestTimeRevision{0};
     for (;;)
     {
         std::string_view key;
-        if (!cursor.ReadString(key) || !cursor.Consume(':'))
+        if (! cursor.ReadString(key) || ! cursor.Consume(':'))
         {
             return false;
         }
@@ -185,56 +185,55 @@ std::atomic<uint64_t> gTestTimeRevision{0};
         seen |= member;
 
         bool booleanValue = false;
-        uint32_t number = 0;
+        uint32_t number   = 0;
         std::string_view text;
         switch (member)
         {
-        case ConfigurationShowSecondProgress:
-            if (!cursor.ReadBoolean(booleanValue))
-                return false;
-            parsed.showSecondProgress = booleanValue;
-            break;
-        case ConfigurationExternalDotsAlwaysOn:
-            if (!cursor.ReadBoolean(booleanValue))
-                return false;
-            parsed.externalDotsAlwaysOn = booleanValue;
-            break;
-        case ConfigurationShowSeconds:
-            if (!cursor.ReadBoolean(booleanValue))
-                return false;
-            parsed.showSeconds = booleanValue;
-            break;
-        case ConfigurationSecondsColor:
-            if (!cursor.ReadString(text) || !RedXeParseHexColor(text, parsed.secondsColor))
-                return false;
-            break;
-        case ConfigurationShowDate:
-            if (!cursor.ReadBoolean(booleanValue))
-                return false;
-            parsed.showDate = booleanValue;
-            break;
-        case ConfigurationDateFormat:
-            if (!cursor.ReadString(text) || !StudioClock::TryParseDateFormat(text, parsed.dateFormat))
-                return false;
-            break;
-        case ConfigurationTimeColor:
-            if (!cursor.ReadString(text) || !RedXeParseHexColor(text, parsed.timeColor))
-                return false;
-            break;
-        case ConfigurationGlowPercent:
-            if (!cursor.ReadUnsigned(number) || !StudioClock::IsValidGlowPercent(number))
-                return false;
-            parsed.glowPercent = number;
-            break;
-        default:
-            return false;
+            case ConfigurationShowSecondProgress:
+                if (! cursor.ReadBoolean(booleanValue))
+                    return false;
+                parsed.showSecondProgress = booleanValue;
+                break;
+            case ConfigurationExternalDotsAlwaysOn:
+                if (! cursor.ReadBoolean(booleanValue))
+                    return false;
+                parsed.externalDotsAlwaysOn = booleanValue;
+                break;
+            case ConfigurationShowSeconds:
+                if (! cursor.ReadBoolean(booleanValue))
+                    return false;
+                parsed.showSeconds = booleanValue;
+                break;
+            case ConfigurationSecondsColor:
+                if (! cursor.ReadString(text) || ! RedXeParseHexColor(text, parsed.secondsColor))
+                    return false;
+                break;
+            case ConfigurationShowDate:
+                if (! cursor.ReadBoolean(booleanValue))
+                    return false;
+                parsed.showDate = booleanValue;
+                break;
+            case ConfigurationDateFormat:
+                if (! cursor.ReadString(text) || ! StudioClock::TryParseDateFormat(text, parsed.dateFormat))
+                    return false;
+                break;
+            case ConfigurationTimeColor:
+                if (! cursor.ReadString(text) || ! RedXeParseHexColor(text, parsed.timeColor))
+                    return false;
+                break;
+            case ConfigurationGlowPercent:
+                if (! cursor.ReadUnsigned(number) || ! StudioClock::IsValidGlowPercent(number))
+                    return false;
+                parsed.glowPercent = number;
+                break;
+            default: return false;
         }
 
         if (cursor.Consume('}'))
         {
             break;
         }
-        if (!cursor.Consume(','))
+        if (! cursor.Consume(','))
         {
             return false;
         }
@@ -264,8 +263,7 @@ consteval bool SettingsMatchCatalog() noexcept
     }
     RedXeSettingsCursor cursor(StudioClock::kDefaultsJson);
     StudioClockConfiguration parsed{};
-    return members == kAllConfigurationMembers && ParseSettingsObject(cursor, parsed) && cursor.AtEnd() &&
-           parsed == StudioClockConfiguration{};
+    return members == kAllConfigurationMembers && ParseSettingsObject(cursor, parsed) && cursor.AtEnd() && parsed == StudioClockConfiguration{};
 }
 
 static_assert(SettingsMatchCatalog());
@@ -273,25 +271,25 @@ static_assert(SettingsMatchCatalog());
 [[nodiscard]] bool ParseNormalizedConfiguration(std::string_view json, StudioClockConfiguration& configuration) noexcept
 {
     RedXeSettingsCursor cursor(json);
-    if (!cursor.Consume('{'))
+    if (! cursor.Consume('{'))
     {
         return false;
     }
 
-    constexpr uint32_t pluginSeen = 1U << 0U;
+    constexpr uint32_t pluginSeen   = 1U << 0U;
     constexpr uint32_t instanceSeen = 1U << 1U;
-    uint32_t seen = 0;
+    uint32_t seen                   = 0;
     StudioClockConfiguration parsed{};
     for (;;)
     {
         std::string_view key;
-        if (!cursor.ReadString(key) || !cursor.Consume(':'))
+        if (! cursor.ReadString(key) || ! cursor.Consume(':'))
         {
             return false;
         }
         if (key == "plugin")
         {
-            if ((seen & pluginSeen) != 0 || !cursor.Consume('{') || !cursor.Consume('}'))
+            if ((seen & pluginSeen) != 0 || ! cursor.Consume('{') || ! cursor.Consume('}'))
             {
                 return false;
             }
@@ -299,7 +297,7 @@ static_assert(SettingsMatchCatalog());
         }
         else if (key == "instance")
         {
-            if ((seen & instanceSeen) != 0 || !ParseSettingsObject(cursor, parsed))
+            if ((seen & instanceSeen) != 0 || ! ParseSettingsObject(cursor, parsed))
             {
                 return false;
             }
@@ -314,12 +312,12 @@ static_assert(SettingsMatchCatalog());
         {
             break;
         }
-        if (!cursor.Consume(','))
+        if (! cursor.Consume(','))
         {
             return false;
         }
     }
-    if (seen != (pluginSeen | instanceSeen) || !cursor.AtEnd())
+    if (seen != (pluginSeen | instanceSeen) || ! cursor.AtEnd())
     {
         return false;
     }
@@ -327,11 +325,10 @@ static_assert(SettingsMatchCatalog());
     return true;
 }
 
-[[nodiscard]] HRESULT ReadFactoryConfiguration(const RedXeFactoryOptions* options,
-                                               StudioClockConfiguration& configuration) noexcept
+[[nodiscard]] HRESULT ReadFactoryConfiguration(const RedXeFactoryOptions* options, StudioClockConfiguration& configuration) noexcept
 {
     configuration = StudioClockConfiguration{};
-    if (!options)
+    if (! options)
     {
         return S_OK;
     }
@@ -340,25 +337,25 @@ static_assert(SettingsMatchCatalog());
         return E_INVALIDARG;
     }
     configuration.backgroundColor = RedXeBackgroundRgb(options);
-    const char* json = options->configurationJsonUtf8;
-    const uint32_t bytes = options->configurationBytes;
-    if (!json && bytes == 0)
+    const char* json              = options->configurationJsonUtf8;
+    const uint32_t bytes          = options->configurationBytes;
+    if (! json && bytes == 0)
     {
         return S_OK;
     }
-    if (!json || bytes == 0 || bytes > kRedXeMaximumFactoryConfigurationBytes)
+    if (! json || bytes == 0 || bytes > kRedXeMaximumFactoryConfigurationBytes)
     {
         return E_INVALIDARG;
     }
 
     StudioClockConfiguration parsed{};
     const std::string_view text(json, bytes);
-    if (!ParseNormalizedConfiguration(text, parsed))
+    if (! ParseNormalizedConfiguration(text, parsed))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     parsed.backgroundColor = configuration.backgroundColor;
-    configuration = parsed;
+    configuration          = parsed;
     return S_OK;
 }
 
@@ -374,21 +371,20 @@ static_assert(SettingsMatchCatalog());
 
 [[nodiscard]] uint64_t PackTime(const SYSTEMTIME& time) noexcept
 {
-    return static_cast<uint64_t>(time.wYear) | (static_cast<uint64_t>(time.wMonth) << 14U) |
-           (static_cast<uint64_t>(time.wDay) << 18U) | (static_cast<uint64_t>(time.wHour) << 23U) |
-           (static_cast<uint64_t>(time.wMinute) << 28U) | (static_cast<uint64_t>(time.wSecond) << 34U) |
+    return static_cast<uint64_t>(time.wYear) | (static_cast<uint64_t>(time.wMonth) << 14U) | (static_cast<uint64_t>(time.wDay) << 18U) |
+           (static_cast<uint64_t>(time.wHour) << 23U) | (static_cast<uint64_t>(time.wMinute) << 28U) | (static_cast<uint64_t>(time.wSecond) << 34U) |
            (static_cast<uint64_t>(time.wMilliseconds) << 40U);
 }
 
 [[nodiscard]] SYSTEMTIME UnpackTime(uint64_t packed) noexcept
 {
     SYSTEMTIME time{};
-    time.wYear = static_cast<WORD>(packed & 0x3FFFU);
-    time.wMonth = static_cast<WORD>((packed >> 14U) & 0xFU);
-    time.wDay = static_cast<WORD>((packed >> 18U) & 0x1FU);
-    time.wHour = static_cast<WORD>((packed >> 23U) & 0x1FU);
-    time.wMinute = static_cast<WORD>((packed >> 28U) & 0x3FU);
-    time.wSecond = static_cast<WORD>((packed >> 34U) & 0x3FU);
+    time.wYear         = static_cast<WORD>(packed & 0x3FFFU);
+    time.wMonth        = static_cast<WORD>((packed >> 14U) & 0xFU);
+    time.wDay          = static_cast<WORD>((packed >> 18U) & 0x1FU);
+    time.wHour         = static_cast<WORD>((packed >> 23U) & 0x1FU);
+    time.wMinute       = static_cast<WORD>((packed >> 28U) & 0x3FU);
+    time.wSecond       = static_cast<WORD>((packed >> 34U) & 0x3FU);
     time.wMilliseconds = static_cast<WORD>((packed >> 40U) & 0x3FFU);
     return time;
 }
@@ -439,7 +435,7 @@ static_assert(kMaximumSubmittedInstances == 804);
 
 class StudioClockSharedResources final
 {
-  public:
+public:
     ~StudioClockSharedResources()
     {
         Reset();
@@ -447,7 +443,7 @@ class StudioClockSharedResources final
 
     [[nodiscard]] HRESULT Acquire(ID3D11Device* device) noexcept
     {
-        if (!device)
+        if (! device)
         {
             return E_POINTER;
         }
@@ -463,30 +459,26 @@ class StudioClockSharedResources final
 
         wil::com_ptr_nothrow<ID3D11VertexShader> backgroundVertexShader;
         HRESULT result =
-            device->CreateVertexShader(g_StudioClockBackgroundVertexShader, sizeof(g_StudioClockBackgroundVertexShader),
-                                       nullptr, backgroundVertexShader.put());
+            device->CreateVertexShader(g_StudioClockBackgroundVertexShader, sizeof(g_StudioClockBackgroundVertexShader), nullptr, backgroundVertexShader.put());
         if (FAILED(result))
             return result;
         wil::com_ptr_nothrow<ID3D11PixelShader> backgroundPixelShader;
         result =
-            device->CreatePixelShader(g_StudioClockBackgroundPixelShader, sizeof(g_StudioClockBackgroundPixelShader),
-                                      nullptr, backgroundPixelShader.put());
+            device->CreatePixelShader(g_StudioClockBackgroundPixelShader, sizeof(g_StudioClockBackgroundPixelShader), nullptr, backgroundPixelShader.put());
         if (FAILED(result))
             return result;
         wil::com_ptr_nothrow<ID3D11VertexShader> dotVertexShader;
-        result = device->CreateVertexShader(g_StudioClockDotVertexShader, sizeof(g_StudioClockDotVertexShader), nullptr,
-                                            dotVertexShader.put());
+        result = device->CreateVertexShader(g_StudioClockDotVertexShader, sizeof(g_StudioClockDotVertexShader), nullptr, dotVertexShader.put());
         if (FAILED(result))
             return result;
         wil::com_ptr_nothrow<ID3D11PixelShader> dotPixelShader;
-        result = device->CreatePixelShader(g_StudioClockDotPixelShader, sizeof(g_StudioClockDotPixelShader), nullptr,
-                                           dotPixelShader.put());
+        result = device->CreatePixelShader(g_StudioClockDotPixelShader, sizeof(g_StudioClockDotPixelShader), nullptr, dotPixelShader.put());
         if (FAILED(result))
             return result;
 
         D3D11_RASTERIZER_DESC rasterizerDescription{};
-        rasterizerDescription.FillMode = D3D11_FILL_SOLID;
-        rasterizerDescription.CullMode = D3D11_CULL_NONE;
+        rasterizerDescription.FillMode        = D3D11_FILL_SOLID;
+        rasterizerDescription.CullMode        = D3D11_CULL_NONE;
         rasterizerDescription.DepthClipEnable = TRUE;
         wil::com_ptr_nothrow<ID3D11RasterizerState> rasterizer;
         result = device->CreateRasterizerState(&rasterizerDescription, rasterizer.put());
@@ -494,9 +486,9 @@ class StudioClockSharedResources final
             return result;
 
         D3D11_DEPTH_STENCIL_DESC depthDescription{};
-        depthDescription.DepthEnable = FALSE;
+        depthDescription.DepthEnable    = FALSE;
         depthDescription.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-        depthDescription.DepthFunc = D3D11_COMPARISON_ALWAYS;
+        depthDescription.DepthFunc      = D3D11_COMPARISON_ALWAYS;
         wil::com_ptr_nothrow<ID3D11DepthStencilState> depthState;
         result = device->CreateDepthStencilState(&depthDescription, depthState.put());
         if (FAILED(result))
@@ -512,29 +504,29 @@ class StudioClockSharedResources final
         // Premultiplied: a core composites over what is below it, and a halo (zero alpha) adds light to it.
         D3D11_BLEND_DESC alphaDescription{};
         D3D11_RENDER_TARGET_BLEND_DESC& target = alphaDescription.RenderTarget[0];
-        target.BlendEnable = TRUE;
-        target.SrcBlend = D3D11_BLEND_ONE;
-        target.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-        target.BlendOp = D3D11_BLEND_OP_ADD;
-        target.SrcBlendAlpha = D3D11_BLEND_ONE;
-        target.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
-        target.BlendOpAlpha = D3D11_BLEND_OP_ADD;
-        target.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        target.BlendEnable                     = TRUE;
+        target.SrcBlend                        = D3D11_BLEND_ONE;
+        target.DestBlend                       = D3D11_BLEND_INV_SRC_ALPHA;
+        target.BlendOp                         = D3D11_BLEND_OP_ADD;
+        target.SrcBlendAlpha                   = D3D11_BLEND_ONE;
+        target.DestBlendAlpha                  = D3D11_BLEND_INV_SRC_ALPHA;
+        target.BlendOpAlpha                    = D3D11_BLEND_OP_ADD;
+        target.RenderTargetWriteMask           = D3D11_COLOR_WRITE_ENABLE_ALL;
         wil::com_ptr_nothrow<ID3D11BlendState> alphaBlend;
         result = device->CreateBlendState(&alphaDescription, alphaBlend.put());
         if (FAILED(result))
             return result;
 
-        _deviceIdentity = device;
+        _deviceIdentity         = device;
         _backgroundVertexShader = std::move(backgroundVertexShader);
-        _backgroundPixelShader = std::move(backgroundPixelShader);
-        _dotVertexShader = std::move(dotVertexShader);
-        _dotPixelShader = std::move(dotPixelShader);
-        _rasterizer = std::move(rasterizer);
-        _depthState = std::move(depthState);
-        _opaqueBlend = std::move(opaqueBlend);
-        _alphaBlend = std::move(alphaBlend);
-        _users = 1;
+        _backgroundPixelShader  = std::move(backgroundPixelShader);
+        _dotVertexShader        = std::move(dotVertexShader);
+        _dotPixelShader         = std::move(dotPixelShader);
+        _rasterizer             = std::move(rasterizer);
+        _depthState             = std::move(depthState);
+        _opaqueBlend            = std::move(opaqueBlend);
+        _alphaBlend             = std::move(alphaBlend);
+        _users                  = 1;
         gLiveSharedDeviceResourceSetCount.fetch_add(1, std::memory_order_relaxed);
         return S_OK;
     }
@@ -552,11 +544,13 @@ class StudioClockSharedResources final
         }
     }
 
-    [[nodiscard]] HRESULT Render(ID3D11DeviceContext* context, ID3D11Buffer* constantBuffer,
-                                 const StudioClockConstants& constants, bool uploadConstants,
+    [[nodiscard]] HRESULT Render(ID3D11DeviceContext* context,
+                                 ID3D11Buffer* constantBuffer,
+                                 const StudioClockConstants& constants,
+                                 bool uploadConstants,
                                  uint32_t instanceCount) noexcept
     {
-        if (!context || !constantBuffer || !_deviceIdentity)
+        if (! context || ! constantBuffer || ! _deviceIdentity)
         {
             return E_UNEXPECTED;
         }
@@ -607,7 +601,7 @@ class StudioClockSharedResources final
         return S_OK;
     }
 
-  private:
+private:
     void Reset() noexcept
     {
         if (_deviceIdentity)
@@ -623,11 +617,11 @@ class StudioClockSharedResources final
         _backgroundPixelShader.reset();
         _backgroundVertexShader.reset();
         _deviceIdentity = nullptr;
-        _users = 0;
+        _users          = 0;
     }
 
     ID3D11Device* _deviceIdentity = nullptr;
-    uint32_t _users = 0;
+    uint32_t _users               = 0;
     wil::com_ptr_nothrow<ID3D11VertexShader> _backgroundVertexShader;
     wil::com_ptr_nothrow<ID3D11PixelShader> _backgroundPixelShader;
     wil::com_ptr_nothrow<ID3D11VertexShader> _dotVertexShader;
@@ -646,17 +640,19 @@ class StudioClockSharedResources final
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
 #pragma warning(disable : 4625 4626)
-class StudioClockWidget final
-    : public RedXeComObject<StudioClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
+class StudioClockWidget final : public RedXeComObject<StudioClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
 {
-  public:
+public:
     StudioClockWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
-                      const StudioClockConfiguration& configuration, StudioClockSharedResources& resources) noexcept
-        : _providerOwner(std::move(providerOwner)), _configuration(configuration), _resources(&resources),
-          _timeColor(ConvertColor(configuration.timeColor)), _secondsColor(ConvertColor(configuration.secondsColor)),
+                      const StudioClockConfiguration& configuration,
+                      StudioClockSharedResources& resources) noexcept
+        : _providerOwner(std::move(providerOwner)),
+          _configuration(configuration),
+          _resources(&resources),
+          _timeColor(ConvertColor(configuration.timeColor)),
+          _secondsColor(ConvertColor(configuration.secondsColor)),
           _backgroundColor(ConvertColor(configuration.backgroundColor)),
-          _glowStrength(kFullGlowStrength * static_cast<float>(configuration.glowPercent) /
-                        static_cast<float>(kMaximumGlowPercent)),
+          _glowStrength(kFullGlowStrength * static_cast<float>(configuration.glowPercent) / static_cast<float>(kMaximumGlowPercent)),
           _glowExtent(configuration.glowPercent != 0 ? kGlowExtentRadii : 0.0f)
     {
         gLiveWidgetCount.fetch_add(1, std::memory_order_relaxed);
@@ -673,15 +669,14 @@ class StudioClockWidget final
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
-                                                        uint32_t* writtenBytes) noexcept override
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes, uint32_t* writtenBytes) noexcept override
     {
         return RedXeCollectNoPersistentSettings(jsonUtf8, capacityBytes, writtenBytes);
     }
 
     HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
     {
-        if (!extent)
+        if (! extent)
         {
             return E_POINTER;
         }
@@ -696,7 +691,7 @@ class StudioClockWidget final
 
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
@@ -704,7 +699,7 @@ class StudioClockWidget final
         {
             return E_INVALIDARG;
         }
-        if (!context->device)
+        if (! context->device)
         {
             return E_POINTER;
         }
@@ -723,9 +718,9 @@ class StudioClockWidget final
             return result;
         }
         D3D11_BUFFER_DESC description{};
-        description.ByteWidth = sizeof(StudioClockConstants);
-        description.Usage = D3D11_USAGE_DYNAMIC;
-        description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        description.ByteWidth      = sizeof(StudioClockConstants);
+        description.Usage          = D3D11_USAGE_DYNAMIC;
+        description.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
         description.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         wil::com_ptr_nothrow<ID3D11Buffer> constantBuffer;
         result = context->device->CreateBuffer(&description, nullptr, constantBuffer.put());
@@ -743,7 +738,7 @@ class StudioClockWidget final
 
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
     {
-        if (!_deviceAttached)
+        if (! _deviceAttached)
         {
             return;
         }
@@ -756,7 +751,7 @@ class StudioClockWidget final
 
     HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
     {
-        if (!context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
+        if (! context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
         {
             return E_INVALIDARG;
         }
@@ -767,7 +762,7 @@ class StudioClockWidget final
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
@@ -775,51 +770,46 @@ class StudioClockWidget final
         {
             return E_INVALIDARG;
         }
-        if (!context->widget || !context->deviceContext)
+        if (! context->widget || ! context->deviceContext)
         {
             return E_POINTER;
         }
         const RedXeWidgetFrameContext& frame = *context->widget;
-        if (frame.sizeBytes != sizeof(RedXeWidgetFrameContext) || frame.dpi == 0 ||
-            !std::isfinite(frame.elapsedSeconds) || !std::isfinite(frame.deltaSeconds) || frame.elapsedSeconds < 0.0f ||
-            frame.deltaSeconds < 0.0f || !std::isfinite(context->viewport.TopLeftX) ||
-            !std::isfinite(context->viewport.TopLeftY) || !std::isfinite(context->viewport.Width) ||
-            !std::isfinite(context->viewport.Height) || !std::isfinite(context->viewport.MinDepth) ||
-            !std::isfinite(context->viewport.MaxDepth) || context->viewport.Width < 0.0f ||
+        if (frame.sizeBytes != sizeof(RedXeWidgetFrameContext) || frame.dpi == 0 || ! std::isfinite(frame.elapsedSeconds) ||
+            ! std::isfinite(frame.deltaSeconds) || frame.elapsedSeconds < 0.0f || frame.deltaSeconds < 0.0f || ! std::isfinite(context->viewport.TopLeftX) ||
+            ! std::isfinite(context->viewport.TopLeftY) || ! std::isfinite(context->viewport.Width) || ! std::isfinite(context->viewport.Height) ||
+            ! std::isfinite(context->viewport.MinDepth) || ! std::isfinite(context->viewport.MaxDepth) || context->viewport.Width < 0.0f ||
             context->viewport.Height < 0.0f || context->viewport.MinDepth < 0.0f || context->viewport.MaxDepth > 1.0f ||
             context->viewport.MinDepth > context->viewport.MaxDepth)
         {
             return E_INVALIDARG;
         }
-        if (frame.widthPixels == 0 || frame.heightPixels == 0 || context->viewport.Width == 0.0f ||
-            context->viewport.Height == 0.0f)
+        if (frame.widthPixels == 0 || frame.heightPixels == 0 || context->viewport.Width == 0.0f || context->viewport.Height == 0.0f)
         {
             return S_OK;
         }
-        if (!_deviceAttached || !_constantBuffer)
+        if (! _deviceAttached || ! _constantBuffer)
         {
             return E_UNEXPECTED;
         }
 
         const ULONGLONG renderTick = GetTickCount64();
-        const bool lowCadenceFrame =
-            _lastRenderTick == 0 || renderTick - _lastRenderTick >= kLowCadenceFrameThresholdMilliseconds;
-        _lastRenderTick = renderTick;
+        const bool lowCadenceFrame = _lastRenderTick == 0 || renderTick - _lastRenderTick >= kLowCadenceFrameThresholdMilliseconds;
+        _lastRenderTick            = renderTick;
         SampleTime(renderTick, lowCadenceFrame);
         if (_width != frame.widthPixels || _height != frame.heightPixels || _dpi != frame.dpi)
         {
-            _width = frame.widthPixels;
-            _height = frame.heightPixels;
-            _dpi = frame.dpi;
+            _width          = frame.widthPixels;
+            _height         = frame.heightPixels;
+            _dpi            = frame.dpi;
             _constantsDirty = true;
         }
         if (_constantsDirty)
         {
             BuildConstants();
         }
-        const bool upload = _constantsDirty;
-        const HRESULT result =
-            _resources->Render(context->deviceContext, _constantBuffer.get(), _constants, upload, _instanceCount);
+        const bool upload    = _constantsDirty;
+        const HRESULT result = _resources->Render(context->deviceContext, _constantBuffer.get(), _constants, upload, _instanceCount);
         if (SUCCEEDED(result))
         {
             _constantsDirty = false;
@@ -829,18 +819,18 @@ class StudioClockWidget final
 
     HRESULT STDMETHODCALLTYPE GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) noexcept override
     {
-        if (!delayMilliseconds)
+        if (! delayMilliseconds)
         {
             return E_POINTER;
         }
-        *delayMilliseconds = 0;
+        *delayMilliseconds    = 0;
         const SYSTEMTIME time = ReadClockTime();
         if (_hasTime && VisualTimeChanged(time))
         {
-            _time = time;
-            _hasTime = true;
-            _constantsDirty = true;
-            _nextSampleTick = GetTickCount64();
+            _time              = time;
+            _hasTime           = true;
+            _constantsDirty    = true;
+            _nextSampleTick    = GetTickCount64();
             *delayMilliseconds = 1;
             return S_OK;
         }
@@ -848,7 +838,7 @@ class StudioClockWidget final
         return S_OK;
     }
 
-  private:
+private:
     [[nodiscard]] bool ShowsSecondDetail() const noexcept
     {
         return _configuration.showSeconds || _configuration.showSecondProgress;
@@ -856,7 +846,7 @@ class StudioClockWidget final
 
     [[nodiscard]] bool VisualTimeChanged(const SYSTEMTIME& value) const noexcept
     {
-        if (!_hasTime || value.wHour != _time.wHour || value.wMinute != _time.wMinute)
+        if (! _hasTime || value.wHour != _time.wHour || value.wMinute != _time.wMinute)
         {
             return true;
         }
@@ -864,16 +854,15 @@ class StudioClockWidget final
         {
             return true;
         }
-        return _configuration.showDate &&
-               (value.wYear != _time.wYear || value.wMonth != _time.wMonth || value.wDay != _time.wDay);
+        return _configuration.showDate && (value.wYear != _time.wYear || value.wMonth != _time.wMonth || value.wDay != _time.wDay);
     }
 
     void SampleTime(ULONGLONG now, bool forceSample) noexcept
     {
         const uint64_t testTimeRevision = gTestTimeRevision.load(std::memory_order_acquire);
-        const bool testTimeChanged = testTimeRevision != _lastTestTimeRevision;
-        const bool sampleDue = forceSample || !_hasTime || now >= _nextSampleTick;
-        if (!testTimeChanged && !sampleDue)
+        const bool testTimeChanged      = testTimeRevision != _lastTestTimeRevision;
+        const bool sampleDue            = forceSample || ! _hasTime || now >= _nextSampleTick;
+        if (! testTimeChanged && ! sampleDue)
         {
             return;
         }
@@ -883,18 +872,17 @@ class StudioClockWidget final
         {
             _constantsDirty = true;
         }
-        _time = sampled;
-        _hasTime = true;
-        _lastTestTimeRevision = testTimeRevision;
-        const uint32_t boundary = DelayToNextBoundary(sampled, ShowsSecondDetail());
+        _time                         = sampled;
+        _hasTime                      = true;
+        _lastTestTimeRevision         = testTimeRevision;
+        const uint32_t boundary       = DelayToNextBoundary(sampled, ShowsSecondDetail());
         const uint32_t sampleInterval = boundary > 1 ? boundary - 1 : 1;
-        _nextSampleTick =
-            now + std::min(sampleInterval, static_cast<uint32_t>(kMaximumClockSampleIntervalMilliseconds));
+        _nextSampleTick               = now + std::min(sampleInterval, static_cast<uint32_t>(kMaximumClockSampleIntervalMilliseconds));
     }
 
     static void SplitTwoDigits(uint32_t value, uint32_t& first, uint32_t& second) noexcept
     {
-        first = value / 10U;
+        first  = value / 10U;
         second = value % 10U;
     }
 
@@ -934,17 +922,16 @@ class StudioClockWidget final
         std::array<uint32_t, 8> dateDigits{};
         BuildDateDigits(dateDigits);
 
-        const float viewportWidth = static_cast<float>(_width);
-        const float viewportHeight = static_cast<float>(_height);
-        const float heightLimitedSquare =
-            _configuration.showDate ? viewportHeight / kDateCompositionHeightScale : viewportHeight;
-        const float squareSize = viewportWidth < heightLimitedSquare ? viewportWidth : heightLimitedSquare;
-        const float compositionHeight = squareSize * (_configuration.showDate ? kDateCompositionHeightScale : 1.0f);
-        const float originX = (static_cast<float>(_width) - squareSize) * 0.5f;
-        const float originY = (viewportHeight - compositionHeight) * 0.5f;
-        const uint32_t secondsCount = _configuration.showSeconds ? kSecondsDotInstances : 0;
-        const uint32_t dateCount = _configuration.showDate ? kDateDotInstances : 0;
-        const uint32_t progressCount = _configuration.showSecondProgress ? kProgressDotInstances : 0;
+        const float viewportWidth       = static_cast<float>(_width);
+        const float viewportHeight      = static_cast<float>(_height);
+        const float heightLimitedSquare = _configuration.showDate ? viewportHeight / kDateCompositionHeightScale : viewportHeight;
+        const float squareSize          = viewportWidth < heightLimitedSquare ? viewportWidth : heightLimitedSquare;
+        const float compositionHeight   = squareSize * (_configuration.showDate ? kDateCompositionHeightScale : 1.0f);
+        const float originX             = (static_cast<float>(_width) - squareSize) * 0.5f;
+        const float originY             = (viewportHeight - compositionHeight) * 0.5f;
+        const uint32_t secondsCount     = _configuration.showSeconds ? kSecondsDotInstances : 0;
+        const uint32_t dateCount        = _configuration.showDate ? kDateDotInstances : 0;
+        const uint32_t progressCount    = _configuration.showSecondProgress ? kProgressDotInstances : 0;
 
         _constants = StudioClockConstants{
             {_backgroundColor[0], _backgroundColor[1], _backgroundColor[2], _backgroundColor[3]},
@@ -959,7 +946,7 @@ class StudioClockWidget final
             {kTimeDotInstances, secondsCount, dateCount, progressCount},
         };
         const uint32_t dotCount = kTimeDotInstances + secondsCount + dateCount + progressCount;
-        _instanceCount = _glowExtent > 0.0f ? dotCount * 2U : dotCount;
+        _instanceCount          = _glowExtent > 0.0f ? dotCount * 2U : dotCount;
     }
 
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
@@ -973,16 +960,16 @@ class StudioClockWidget final
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
     StudioClockConstants _constants{};
     SYSTEMTIME _time{};
-    ULONGLONG _nextSampleTick = 0;
-    ULONGLONG _lastRenderTick = 0;
+    ULONGLONG _nextSampleTick      = 0;
+    ULONGLONG _lastRenderTick      = 0;
     uint64_t _lastTestTimeRevision = 0;
-    uint32_t _width = 0;
-    uint32_t _height = 0;
-    uint32_t _dpi = 0;
-    uint32_t _instanceCount = 0;
-    bool _hasTime = false;
-    bool _deviceAttached = false;
-    bool _constantsDirty = true;
+    uint32_t _width                = 0;
+    uint32_t _height               = 0;
+    uint32_t _dpi                  = 0;
+    uint32_t _instanceCount        = 0;
+    bool _hasTime                  = false;
+    bool _deviceAttached           = false;
+    bool _constantsDirty           = true;
 };
 #pragma warning(pop)
 
@@ -994,7 +981,7 @@ class StudioClockWidget final
 #pragma warning(disable : 4625 4626)
 class StudioClockProvider final : public RedXeComObject<StudioClockProvider, IRedXeWidgetProvider>
 {
-  public:
+public:
     explicit StudioClockProvider(const StudioClockConfiguration& configuration) noexcept : _configuration(configuration)
     {
         gLiveProviderCount.fetch_add(1, std::memory_order_relaxed);
@@ -1005,30 +992,28 @@ class StudioClockProvider final : public RedXeComObject<StudioClockProvider, IRe
         gLiveProviderCount.fetch_sub(1, std::memory_order_relaxed);
     }
 
-    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             uint32_t* count) noexcept override
+    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
             *descriptors = nullptr;
         if (count)
             *count = 0;
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
             return E_POINTER;
         const auto& widgetTypes = _configuration.showDate ? kDatedWidgetTypes : kSquareWidgetTypes;
-        *descriptors = widgetTypes.data();
-        *count = static_cast<uint32_t>(widgetTypes.size());
+        *descriptors            = widgetTypes.data();
+        *count                  = static_cast<uint32_t>(widgetTypes.size());
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
-                                           IRedXeWidget** widget) noexcept override
+    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId, IRedXeWidget** widget) noexcept override
     {
-        if (!widget)
+        if (! widget)
             return E_POINTER;
         *widget = nullptr;
-        if (!typeId || !instanceId || instanceId[0] == '\0')
+        if (! typeId || ! instanceId || instanceId[0] == '\0')
             return E_INVALIDARG;
-        if (!RedXeAsciiEqualsIgnoreCase(typeId, kWidgetTypeId))
+        if (! RedXeAsciiEqualsIgnoreCase(typeId, kWidgetTypeId))
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 
         wil::com_ptr_nothrow<IRedXeWidgetProvider> providerOwner;
@@ -1036,13 +1021,13 @@ class StudioClockProvider final : public RedXeComObject<StudioClockProvider, IRe
         if (FAILED(result))
             return result;
         auto* created = new (std::nothrow) StudioClockWidget(std::move(providerOwner), _configuration, _resources);
-        if (!created)
+        if (! created)
             return E_OUTOFMEMORY;
         *widget = static_cast<IRedXeWidget*>(created);
         return S_OK;
     }
 
-  private:
+private:
     StudioClockConfiguration _configuration;
     StudioClockSharedResources _resources;
 };
@@ -1052,8 +1037,7 @@ static_assert(sizeof(StudioClockSharedResources) < 16U * 1024U);
 static_assert(sizeof(StudioClockProvider) < 16U * 1024U);
 static_assert(sizeof(StudioClockWidget) < 2U * 1024U);
 
-HRESULT CreateStudioClockProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
-                                  void** result) noexcept
+HRESULT CreateStudioClockProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*, void** result) noexcept
 {
     if (interfaceId != __uuidof(IRedXeWidgetProvider))
     {
@@ -1066,7 +1050,7 @@ HRESULT CreateStudioClockProvider(REFIID interfaceId, const RedXeFactoryOptions*
         return configurationResult;
     }
     auto* provider = new (std::nothrow) StudioClockProvider(configuration);
-    if (!provider)
+    if (! provider)
     {
         return E_OUTOFMEMORY;
     }
@@ -1079,11 +1063,9 @@ constexpr std::array kFactoryEntries{
 };
 } // namespace
 
-extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                                         const char* pluginId, void** result) noexcept
+extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
-                                         interfaceId, options, host, pluginId, result);
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()), interfaceId, options, host, pluginId, result);
 }
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
@@ -1091,8 +1073,7 @@ extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** m
     return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata, count);
 }
 
-extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,
-                                                            const RedXePluginSettingsContract** contract) noexcept
+extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId, const RedXePluginSettingsContract** contract) noexcept
 {
     return RedXeGetStaticPluginSettingsContract(kPluginId, pluginId, &kSettingsContract, contract);
 }
@@ -1105,7 +1086,7 @@ extern "C" void __stdcall RedXePluginShutdown() noexcept
 
 extern "C" HRESULT __stdcall RedXeStudioClockSetTestTime(const StudioClockTestTime* testTime) noexcept
 {
-    if (!testTime)
+    if (! testTime)
     {
         gTestTimePacked.store(0, std::memory_order_release);
         gTestTimeRevision.fetch_add(1, std::memory_order_release);
@@ -1116,15 +1097,15 @@ extern "C" HRESULT __stdcall RedXeStudioClockSetTestTime(const StudioClockTestTi
         return E_INVALIDARG;
     }
     SYSTEMTIME time{};
-    time.wYear = testTime->year;
-    time.wMonth = testTime->month;
-    time.wDay = testTime->day;
-    time.wHour = testTime->hour;
-    time.wMinute = testTime->minute;
-    time.wSecond = testTime->second;
+    time.wYear         = testTime->year;
+    time.wMonth        = testTime->month;
+    time.wDay          = testTime->day;
+    time.wHour         = testTime->hour;
+    time.wMinute       = testTime->minute;
+    time.wSecond       = testTime->second;
     time.wMilliseconds = testTime->milliseconds;
     FILETIME fileTime{};
-    if (!SystemTimeToFileTime(&time, &fileTime) || time.wSecond > 59 || time.wMilliseconds > 999)
+    if (! SystemTimeToFileTime(&time, &fileTime) || time.wSecond > 59 || time.wMilliseconds > 999)
     {
         return E_INVALIDARG;
     }
@@ -1135,7 +1116,7 @@ extern "C" HRESULT __stdcall RedXeStudioClockSetTestTime(const StudioClockTestTi
 
 extern "C" HRESULT __stdcall RedXeStudioClockGetTestDiagnostics(StudioClockTestDiagnostics* diagnostics) noexcept
 {
-    if (!diagnostics)
+    if (! diagnostics)
     {
         return E_POINTER;
     }
@@ -1143,13 +1124,13 @@ extern "C" HRESULT __stdcall RedXeStudioClockGetTestDiagnostics(StudioClockTestD
     {
         return E_INVALIDARG;
     }
-    diagnostics->liveProviderCount = gLiveProviderCount.load(std::memory_order_relaxed);
-    diagnostics->liveWidgetCount = gLiveWidgetCount.load(std::memory_order_relaxed);
+    diagnostics->liveProviderCount                = gLiveProviderCount.load(std::memory_order_relaxed);
+    diagnostics->liveWidgetCount                  = gLiveWidgetCount.load(std::memory_order_relaxed);
     diagnostics->liveSharedDeviceResourceSetCount = gLiveSharedDeviceResourceSetCount.load(std::memory_order_relaxed);
-    diagnostics->liveConstantBufferCount = gLiveConstantBufferCount.load(std::memory_order_relaxed);
-    diagnostics->lastMapCount = gLastMapCount.load(std::memory_order_relaxed);
-    diagnostics->lastDrawCount = gLastDrawCount.load(std::memory_order_relaxed);
-    diagnostics->lastInstanceCount = gLastInstanceCount.load(std::memory_order_relaxed);
-    diagnostics->timeSampleCount = gTimeSampleCount.load(std::memory_order_relaxed);
+    diagnostics->liveConstantBufferCount          = gLiveConstantBufferCount.load(std::memory_order_relaxed);
+    diagnostics->lastMapCount                     = gLastMapCount.load(std::memory_order_relaxed);
+    diagnostics->lastDrawCount                    = gLastDrawCount.load(std::memory_order_relaxed);
+    diagnostics->lastInstanceCount                = gLastInstanceCount.load(std::memory_order_relaxed);
+    diagnostics->timeSampleCount                  = gTimeSampleCount.load(std::memory_order_relaxed);
     return S_OK;
 }

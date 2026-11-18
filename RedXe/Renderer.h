@@ -23,7 +23,7 @@ class DashboardHost;
 
 class Renderer final
 {
-  public:
+public:
     static constexpr UINT kOcclusionStatusMessage = WM_APP + 1;
 
     // Identity of the live Direct3D device, logged as the `device-created` JSONL record and probed by tests.
@@ -40,10 +40,10 @@ class Renderer final
     Renderer() = default;
     ~Renderer();
 
-    Renderer(const Renderer&) = delete;
+    Renderer(const Renderer&)            = delete;
     Renderer& operator=(const Renderer&) = delete;
-    Renderer(Renderer&&) = delete;
-    Renderer& operator=(Renderer&&) = delete;
+    Renderer(Renderer&&)                 = delete;
+    Renderer& operator=(Renderer&&)      = delete;
 
     HRESULT Initialize(HWND window, bool forceWarp, DashboardHost& dashboardHost) noexcept;
     // Dock window kind: the swap chain is created with DXGI_SCALING_NONE at the full bar size (`width` × `height`,
@@ -56,8 +56,9 @@ class Renderer final
     HRESULT SetDpi(UINT dpi) noexcept;
     HRESULT Resize(UINT width, UINT height) noexcept;
     HRESULT RefreshLayout() noexcept;
-    HRESULT SetTransitionDashboard(DashboardHost* dashboardHost, RuntimePageCallbackContext* callbacks = nullptr,
-                                   HRESULT* preparationTraceResult = nullptr) noexcept;
+    HRESULT SetTransitionDashboard(DashboardHost* dashboardHost,
+                                   RuntimePageCallbackContext* callbacks = nullptr,
+                                   HRESULT* preparationTraceResult       = nullptr) noexcept;
     HRESULT AdoptPrimaryDashboard(DashboardHost& dashboardHost) noexcept;
     HRESULT SetRaisedOverlay(size_t widgetIndex, const RECT& content, SIZE targetPixels = {}) noexcept;
     void ClearRaisedOverlay() noexcept;
@@ -69,8 +70,7 @@ class Renderer final
     [[nodiscard]] size_t LastFrameChromeQuadCount() const noexcept;
     HRESULT Render(float elapsedSeconds, float deltaSeconds) noexcept;
     // Separate from Render: dirty retained controls may prepare their bounded resources here.
-    HRESULT PrepareWidgets(size_t observedWidget = SIZE_MAX, bool* observedChanged = nullptr,
-                           uint64_t* changedWidgets = nullptr) noexcept;
+    HRESULT PrepareWidgets(size_t observedWidget = SIZE_MAX, bool* observedChanged = nullptr, uint64_t* changedWidgets = nullptr) noexcept;
     // UI-thread cached value supplied by Application; no registry/system-color queries in Prepare/Render.
     void SetAppearance(const RedXeAppearance& appearance) noexcept
     {
@@ -100,7 +100,7 @@ class Renderer final
     [[nodiscard]] size_t RaisedOverlayIndex() const noexcept;
     [[nodiscard]] RECT RaisedContentRect() const noexcept;
 
-  private:
+private:
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct RendererResourceTestAccess;
     friend struct RendererConstructionTestAccess;
@@ -111,16 +111,15 @@ class Renderer final
 
     struct ReportedTarget final
     {
-        LONG cx = 0;
-        LONG cy = 0;
+        LONG cx  = 0;
+        LONG cy  = 0;
         UINT dpi = 0;
     };
 
     HRESULT CreateDeviceResources() noexcept;
     HRESULT CreateDevice(bool useWarp) noexcept;
     // Adapter-of-output lookup for `monitor`: the hardware adapter with an output on that monitor, or ERROR_NOT_FOUND.
-    static HRESULT FindAdapterForMonitor(HMONITOR monitor, wil::com_ptr_nothrow<IDXGIAdapter1>& adapter,
-                                         LUID& adapterLuid) noexcept;
+    static HRESULT FindAdapterForMonitor(HMONITOR monitor, wil::com_ptr_nothrow<IDXGIAdapter1>& adapter, LUID& adapterLuid) noexcept;
     void RecordDeviceIdentity(bool warp, bool adapterOwnsWindowMonitor) noexcept;
     HRESULT CreateSwapChain() noexcept;
     HRESULT CreateRenderTarget(UINT width, UINT height) noexcept;
@@ -148,29 +147,29 @@ class Renderer final
 
     static bool IsDeviceLost(HRESULT result) noexcept;
 
-    HWND _window = nullptr;
-    DashboardHost* _dashboardHost = nullptr;
+    HWND _window                            = nullptr;
+    DashboardHost* _dashboardHost           = nullptr;
     DashboardHost* _transitionDashboardHost = nullptr;
     std::unique_ptr<RuntimePagePreparationProbe> _pagePreparationProbe;
-    bool _forceWarp = false;
-    bool _dockPresentation = false;
-    UINT _dockWidth = 0;
-    UINT _dockHeight = 0;
-    bool _suspended = true;
-    bool _occluded = false;
-    bool _gpuWidgetsDeviceReady = false;
+    bool _forceWarp                    = false;
+    bool _dockPresentation             = false;
+    UINT _dockWidth                    = 0;
+    UINT _dockHeight                   = 0;
+    bool _suspended                    = true;
+    bool _occluded                     = false;
+    bool _gpuWidgetsDeviceReady        = false;
     bool _transitionWidgetsDeviceReady = false;
-    UINT _width = 0;
-    UINT _height = 0;
-    UINT _dpi = USER_DEFAULT_SCREEN_DPI;
+    UINT _width                        = 0;
+    UINT _height                       = 0;
+    UINT _dpi                          = USER_DEFAULT_SCREEN_DPI;
     RedXeAppearance _appearance;
-    D3D_FEATURE_LEVEL _featureLevel = D3D_FEATURE_LEVEL_11_0;
-    size_t _lastFrameWidgetCount = 0;
+    D3D_FEATURE_LEVEL _featureLevel        = D3D_FEATURE_LEVEL_11_0;
+    size_t _lastFrameWidgetCount           = 0;
     size_t _lastFrameSuccessfulWidgetCount = 0;
-    size_t _lastFrameChromeQuadCount = 0;
+    size_t _lastFrameChromeQuadCount       = 0;
     HostChromeResources _hostChrome;
     HostChromeState _hostChromeState{};
-    bool _raisedOverlayActive = false;
+    bool _raisedOverlayActive  = false;
     size_t _raisedOverlayIndex = SIZE_MAX;
     RECT _raisedContent{};
     SIZE _raisedTargetSize{};
@@ -193,10 +192,10 @@ class Renderer final
     wil::com_ptr_nothrow<ID3D11RenderTargetView> _renderTarget;
     wil::unique_handle _frameLatencyWaitable;
     DeviceIdentity _deviceInfo{};
-    uint64_t _swapChainGeneration = 0;
+    uint64_t _swapChainGeneration    = 0;
     uint64_t _frameLatencyGeneration = 0;
     // Monitor the device was matched against; null on the default-adapter fallback.
-    HMONITOR _deviceMonitor = nullptr;
-    DWORD _occlusionStatusCookie = 0;
+    HMONITOR _deviceMonitor         = nullptr;
+    DWORD _occlusionStatusCookie    = 0;
     bool _occlusionStatusRegistered = false;
 };

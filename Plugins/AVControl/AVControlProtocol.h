@@ -8,7 +8,7 @@ namespace AVControl
 // Private, same-build parent/helper protocol. No pointers, handles, strings of unbounded length, or C++ ownership
 // cross the mapping. The mapping and events are unnamed, inherited only by the owned child through a handle list.
 inline constexpr uint32_t BrokerProtocolVersion = 3;
-inline constexpr uint32_t BrokerMagic = 0x56415852;
+inline constexpr uint32_t BrokerMagic           = 0x56415852;
 enum class BrokerOperation : uint32_t
 {
     Observe,
@@ -26,9 +26,9 @@ enum class BrokerOperation : uint32_t
 };
 enum BackendCapability : uint32_t
 {
-    CapabilityAudioLevels = 1U << 0,
+    CapabilityAudioLevels   = 1U << 0,
     CapabilityAudioDefaults = 1U << 1,
-    CapabilityCameraRoute = 1U << 2
+    CapabilityCameraRoute   = 1U << 2
 };
 struct CameraDescriptor final
 {
@@ -45,19 +45,19 @@ struct Inventory final
     std::array<uint64_t, 3> outputRoleRevisions{};
     std::array<uint64_t, 3> inputRoleRevisions{};
     uint32_t outputCount = 0, inputCount = 0, cameraCount = 0;
-    uint32_t capabilities = 0;
-    bool truncated = false;
+    uint32_t capabilities     = 0;
+    bool truncated            = false;
     bool cameraRequiresHelper = false;
 };
 struct BrokerCommand final
 {
     BrokerOperation operation = BrokerOperation::Observe;
-    DeviceKind device = DeviceKind::Output;
+    DeviceKind device         = DeviceKind::Output;
     DeviceId id;
-    uint32_t value = 0;
-    uint32_t role = 0;
+    uint32_t value              = 0;
+    uint32_t role               = 0;
     uint64_t expectedGeneration = 0;
-    uint64_t expectedRevision = 0;
+    uint64_t expectedRevision   = 0;
 };
 struct BrokerReply final
 {
@@ -66,12 +66,12 @@ struct BrokerReply final
 };
 struct BrokerShared final
 {
-    uint32_t magic = BrokerMagic;
-    uint32_t version = BrokerProtocolVersion;
-    uint32_t sizeBytes = sizeof(BrokerShared);
-    uint32_t synthetic = 0;
+    uint32_t magic           = BrokerMagic;
+    uint32_t version         = BrokerProtocolVersion;
+    uint32_t sizeBytes       = sizeof(BrokerShared);
+    uint32_t synthetic       = 0;
     uint32_t requestSequence = 0;
-    uint32_t replySequence = 0;
+    uint32_t replySequence   = 0;
     InventoryPreferences preferences;
     BrokerCommand command;
     BrokerReply reply;

@@ -10,13 +10,11 @@ std::wstring Wide(std::string_view utf8)
 {
     if (utf8.empty())
         return {};
-    const int length =
-        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
     if (length <= 0)
         return {};
     std::wstring result(static_cast<size_t>(length), 0);
-    (void)MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), static_cast<int>(utf8.size()), result.data(),
-                              length);
+    (void)MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), static_cast<int>(utf8.size()), result.data(), length);
     return result;
 }
 void Bounds(DxUi::Control* control, float x, float y, float width, float height) noexcept
@@ -28,9 +26,7 @@ struct CameraSetupStep final
     std::wstring_view shortText, detail;
 };
 constexpr std::array cameraSetupSteps{
-    CameraSetupStep{
-        L"RedXe Camera needs Windows 11.",
-        L"RedXe Camera requires Windows 11. Output volume and microphone controls also work on Windows 10."},
+    CameraSetupStep{L"RedXe Camera needs Windows 11.", L"RedXe Camera requires Windows 11. Output volume and microphone controls also work on Windows 10."},
     CameraSetupStep{L"Install the RedXe Camera component.",
                     L"Install the native RedXe Camera Release package with the supplied installer. Machine "
                     L"installation needs administrator approval. Close apps using RedXe Camera before updating it."},
@@ -66,24 +62,22 @@ ProfileControls::ProfileControls(DxUi::Panel& parent, ProfileCallbacks callbacks
     _cameraSetup = _panel->AddChild<DxUi::Button>(L"Camera setup");
     _cameraSetup->SetAccessibleName(L"Camera setup guide");
     _cameraSetup->SetAccessibleAutomationId(L"av.camera.setup");
-    _cameraSetup->SetOnClick(
-        [this]
-        {
-            _mode = Mode::CameraSetup;
-            _page = 0;
-            _error[0] = 0;
-            Invalidate();
-        });
+    _cameraSetup->SetOnClick([this]
+    {
+        _mode     = Mode::CameraSetup;
+        _page     = 0;
+        _error[0] = 0;
+        Invalidate();
+    });
     _indicator = _panel->AddChild<DxUi::PageIndicator>();
     // UI Automation reads the indicator as a slider whose value is the page; DxUi leaves its name to the application.
     _indicator->SetAccessibleName(L"Page");
     _indicator->SetAccessibleAutomationId(L"av.page.indicator");
-    _indicator->SetOnSelected(
-        [this](uint32_t index)
-        {
-            _page = index;
-            Invalidate();
-        });
+    _indicator->SetOnSelected([this](uint32_t index)
+    {
+        _page = index;
+        Invalidate();
+    });
     for (uint32_t i = 0; i < MaximumProfiles; ++i)
     {
         _profiles[i] = _panel->AddChild<DxUi::Button>();
@@ -94,87 +88,87 @@ ProfileControls::ProfileControls(DxUi::Panel& parent, ProfileCallbacks callbacks
         _footer[i] = _panel->AddChild<DxUi::Button>();
         _footer[i]->SetOnClick([this, i] { Footer(i); });
     }
-    constexpr std::array captions{L"Profile name",        L"Audio output",         L"Microphone",
-                                  L"Camera source",       L"Audio role scope",     L"Optional saved levels",
-                                  L"Saved output volume", L"Saved microphone gain"};
+    constexpr std::array captions{L"Profile name",
+                                  L"Audio output",
+                                  L"Microphone",
+                                  L"Camera source",
+                                  L"Audio role scope",
+                                  L"Optional saved levels",
+                                  L"Saved output volume",
+                                  L"Saved microphone gain"};
     for (size_t i = 0; i < _captions.size(); ++i)
     {
         _captions[i] = _panel->AddChild<DxUi::Label>(captions[i]);
         _captions[i]->SetFontRole(DxUi::FontRole::BodyLarge);
     }
-    _name = _panel->AddChild<DxUi::TextField>();
+    _name      = _panel->AddChild<DxUi::TextField>();
     _fields[0] = _name;
     _name->SetClearButtonEnabled(false);
     _name->SetAccessibleName(L"Profile name, up to 48 characters");
     _name->SetAccessibleAutomationId(L"av.profile.name");
-    _name->SetOnTextChanged(
-        [this](std::wstring_view text)
+    _name->SetOnTextChanged([this](std::wstring_view text)
+    {
+        // A transient IME draft may be incomplete Unicode. Bound its storage here and validate scalar count at
+        // Save.
+        if (text.size() > MaximumNameScalars * 2)
         {
-            // A transient IME draft may be incomplete Unicode. Bound its storage here and validate scalar count at
-            // Save.
-            if (text.size() > MaximumNameScalars * 2)
+            size_t count = MaximumNameScalars * 2;
+            if (text[count - 1] >= 0xd800 && text[count - 1] <= 0xdbff)
+                --count;
+            try
             {
-                size_t count = MaximumNameScalars * 2;
-                if (text[count - 1] >= 0xd800 && text[count - 1] <= 0xdbff)
-                    --count;
-                try
-                {
-                    _name->SetText(std::wstring(text.substr(0, count)));
-                }
-                catch (...)
-                {
-                    Error(L"Unable to update the profile name.");
-                }
+                _name->SetText(std::wstring(text.substr(0, count)));
             }
-        });
+            catch (...)
+            {
+                Error(L"Unable to update the profile name.");
+            }
+        }
+    });
     for (size_t i = 0; i < 3; ++i)
     {
         auto* combo = _devices[i] = _panel->AddChild<DxUi::ComboBox>();
-        _fields[i + 1] = combo;
+        _fields[i + 1]            = combo;
         combo->SetMinimumPopupItemHeight(48.0f);
         combo->SetEditable(false);
         combo->SetMaxVisibleItems(5);
         combo->SetAccessibleName(captions[i + 1]);
-        combo->SetOnSelectionChanged(
-            [this, i](size_t selected)
-            {
-                if (selected >= _deviceCounts[i])
-                    return;
-                auto& id = i == 0 ? _draft.outputId : i == 1 ? _draft.microphoneId : _draft.cameraId;
-                id = _deviceIds[i][selected];
-            });
+        combo->SetOnSelectionChanged([this, i](size_t selected)
+        {
+            if (selected >= _deviceCounts[i])
+                return;
+            auto& id = i == 0 ? _draft.outputId : i == 1 ? _draft.microphoneId : _draft.cameraId;
+            id       = _deviceIds[i][selected];
+        });
     }
-    _roles = _panel->AddChild<DxUi::ComboBox>();
+    _roles     = _panel->AddChild<DxUi::ComboBox>();
     _fields[4] = _roles;
     _roles->SetMinimumPopupItemHeight(48.0f);
     _roles->SetItems({{L"all", L"All Windows roles"}, {L"communications", L"Communications only"}});
     _roles->SetAccessibleName(L"Audio role scope");
-    _roles->SetOnSelectionChanged([this](size_t selected)
-                                  { _draft.audioRoles = selected ? AudioRoles::Communications : AudioRoles::All; });
-    _restore = _panel->AddChild<DxUi::Checkbox>(L"Restore saved levels");
+    _roles->SetOnSelectionChanged([this](size_t selected) { _draft.audioRoles = selected ? AudioRoles::Communications : AudioRoles::All; });
+    _restore   = _panel->AddChild<DxUi::Checkbox>(L"Restore saved levels");
     _fields[5] = _restore;
-    _restore->SetOnToggled(
-        [this](bool value)
-        {
-            _draft.restoreLevels = value;
-            Invalidate();
-        });
+    _restore->SetOnToggled([this](bool value)
+    {
+        _draft.restoreLevels = value;
+        Invalidate();
+    });
     for (size_t i = 0; i < 2; ++i)
     {
         auto* slider = _savedLevels[i] = _panel->AddChild<DxUi::Slider>();
-        _fields[i + 6] = slider;
+        _fields[i + 6]                 = slider;
         slider->SetStep(1);
         slider->SetLargeStep(5);
         slider->SetAccessibleName(captions[i + 6]);
-        slider->SetOnChange(
-            [this, i](DxUi::SliderChange change)
-            {
-                if (change.phase != DxUi::SliderChangePhase::Commit)
-                    return;
-                auto& value = i ? _draft.microphoneLevel : _draft.outputLevel;
-                value = static_cast<uint32_t>(std::clamp(change.value, 0.0, 100.0));
-                Invalidate();
-            });
+        slider->SetOnChange([this, i](DxUi::SliderChange change)
+        {
+            if (change.phase != DxUi::SliderChangePhase::Commit)
+                return;
+            auto& value = i ? _draft.microphoneLevel : _draft.outputLevel;
+            value       = static_cast<uint32_t>(std::clamp(change.value, 0.0, 100.0));
+            Invalidate();
+        });
     }
 }
 void ProfileControls::SetConfiguration(const Configuration& configuration) noexcept
@@ -185,24 +179,24 @@ void ProfileControls::SetConfiguration(const Configuration& configuration) noexc
 ProfileControls::RetainedState ProfileControls::CaptureState() const noexcept
 {
     RetainedState result;
-    result.draft = _draft;
-    result.error = _error;
+    result.draft        = _draft;
+    result.error        = _error;
     result.editingIndex = _editingIndex;
-    result.mode = static_cast<uint32_t>(_mode);
-    result.page = _page;
-    const auto text = _name->GetText();
+    result.mode         = static_cast<uint32_t>(_mode);
+    result.page         = _page;
+    const auto text     = _name->GetText();
     std::copy_n(text.data(), (std::min)(text.size(), result.name.size() - 1), result.name.data());
     return result;
 }
 void ProfileControls::RestoreState(const RetainedState& state) noexcept
 {
-    _draft = state.draft;
-    _error = state.error;
+    _draft        = state.draft;
+    _error        = state.error;
     _editingIndex = state.editingIndex;
-    _mode = state.mode <= static_cast<uint32_t>(Mode::CameraSetup) ? static_cast<Mode>(state.mode) : Mode::Chooser;
-    _page = state.page;
-    _shown = true;
-    _draftDirty = true;
+    _mode         = state.mode <= static_cast<uint32_t>(Mode::CameraSetup) ? static_cast<Mode>(state.mode) : Mode::Chooser;
+    _page         = state.page;
+    _shown        = true;
+    _draftDirty   = true;
     _optionsDirty = true;
     try
     {
@@ -222,7 +216,7 @@ void ProfileControls::SetInventory(const Inventory* inventory, uint64_t deviceRe
     if (_deviceRevision != deviceRevision)
     {
         _deviceRevision = deviceRevision;
-        _optionsDirty = true;
+        _optionsDirty   = true;
         Invalidate();
     }
 }
@@ -241,9 +235,9 @@ void ProfileControls::Error(std::wstring_view text) noexcept
 }
 void ProfileControls::Show() noexcept
 {
-    _shown = true;
-    _mode = Mode::Chooser;
-    _page = 0;
+    _shown    = true;
+    _mode     = Mode::Chooser;
+    _page     = 0;
     _error[0] = 0;
     Invalidate();
 }
@@ -262,8 +256,8 @@ void ProfileControls::Back() noexcept
     }
     if (_mode != Mode::Chooser)
     {
-        _mode = Mode::Chooser;
-        _page = 0;
+        _mode     = Mode::Chooser;
+        _page     = 0;
         _error[0] = 0;
         Invalidate();
     }
@@ -287,7 +281,7 @@ void ProfileControls::Edit(size_t index) noexcept
         return;
     }
     _editingIndex = index;
-    _draft = index < _configuration.count ? _configuration.profiles[index] : Profile{};
+    _draft        = index < _configuration.count ? _configuration.profiles[index] : Profile{};
     if (index >= _configuration.count)
     {
         for (uint32_t n = 1; n <= MaximumProfiles + 1; ++n)
@@ -297,7 +291,7 @@ void ProfileControls::Edit(size_t index) noexcept
             bool duplicate = false;
             for (uint32_t i = 0; i < _configuration.count; ++i)
                 duplicate = duplicate || SameProfileId(_configuration.profiles[i].id.View(), id);
-            if (!duplicate)
+            if (! duplicate)
             {
                 (void)_draft.id.Assign(id);
                 break;
@@ -306,17 +300,17 @@ void ProfileControls::Edit(size_t index) noexcept
         (void)_draft.name.Assign("New profile");
         if (_inventory)
         {
-            _draft.outputId = _inventory->state.output.id;
-            _draft.microphoneId = _inventory->state.microphone.id;
-            _draft.cameraId = _inventory->state.camera.sourceId;
-            _draft.outputLevel = _inventory->state.output.level;
+            _draft.outputId        = _inventory->state.output.id;
+            _draft.microphoneId    = _inventory->state.microphone.id;
+            _draft.cameraId        = _inventory->state.camera.sourceId;
+            _draft.outputLevel     = _inventory->state.output.level;
             _draft.microphoneLevel = _inventory->state.microphone.level;
         }
     }
-    _mode = Mode::Editor;
-    _page = 0;
+    _mode       = Mode::Editor;
+    _page       = 0;
     _draftDirty = _optionsDirty = true;
-    _error[0] = 0;
+    _error[0]                   = 0;
     Invalidate();
 }
 void ProfileControls::Footer(size_t index) noexcept
@@ -365,19 +359,23 @@ void ProfileControls::Save(bool remove) noexcept
     else
     {
         const auto name = _name->GetText();
-        const int bytes = name.empty()
-                              ? 0
-                              : WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, name.data(),
-                                                    static_cast<int>(name.size()), _draft.name.bytes.data(),
-                                                    static_cast<int>(_draft.name.bytes.size() - 1), nullptr, nullptr);
+        const int bytes = name.empty() ? 0
+                                       : WideCharToMultiByte(CP_UTF8,
+                                                             WC_ERR_INVALID_CHARS,
+                                                             name.data(),
+                                                             static_cast<int>(name.size()),
+                                                             _draft.name.bytes.data(),
+                                                             static_cast<int>(_draft.name.bytes.size() - 1),
+                                                             nullptr,
+                                                             nullptr);
         if (bytes <= 0)
         {
             Error(L"Enter a name with at most 48 characters.");
             return;
         }
-        _draft.name.length = static_cast<uint32_t>(bytes);
+        _draft.name.length                            = static_cast<uint32_t>(bytes);
         _draft.name.bytes[static_cast<size_t>(bytes)] = 0;
-        const size_t index = _editingIndex < edited.count ? _editingIndex : edited.count;
+        const size_t index                            = _editingIndex < edited.count ? _editingIndex : edited.count;
         if (index >= MaximumProfiles)
         {
             Error(L"Four profiles maximum.");
@@ -402,9 +400,9 @@ void ProfileControls::Save(bool remove) noexcept
         return;
     }
     _configuration = edited;
-    _mode = Mode::Chooser;
-    _page = 0;
-    _error[0] = 0;
+    _mode          = Mode::Chooser;
+    _page          = 0;
+    _error[0]      = 0;
     Invalidate();
 }
 void ProfileControls::FillDevices()
@@ -415,27 +413,20 @@ void ProfileControls::FillDevices()
         items.reserve(MaximumOutputs + 1);
         const auto& selectedId = kind == 0 ? _draft.outputId : kind == 1 ? _draft.microphoneId : _draft.cameraId;
         std::optional<size_t> selected;
-        _deviceCounts[kind] = 0;
-        const uint32_t count = !_inventory ? 0
-                               : kind == 0 ? _inventory->outputCount
-                               : kind == 1 ? _inventory->inputCount
-                                           : _inventory->cameraCount;
+        _deviceCounts[kind]  = 0;
+        const uint32_t count = ! _inventory ? 0 : kind == 0 ? _inventory->outputCount : kind == 1 ? _inventory->inputCount : _inventory->cameraCount;
         for (uint32_t i = 0; i < count && i < (kind == 2 ? MaximumCameras : MaximumOutputs); ++i)
         {
-            const auto& id = kind == 0   ? _inventory->outputs[i].id
-                             : kind == 1 ? _inventory->inputs[i].id
-                                         : _inventory->cameras[i].id;
-            const auto& name = kind == 0   ? _inventory->outputs[i].name
-                               : kind == 1 ? _inventory->inputs[i].name
-                                           : _inventory->cameras[i].name;
+            const auto& id                 = kind == 0 ? _inventory->outputs[i].id : kind == 1 ? _inventory->inputs[i].id : _inventory->cameras[i].id;
+            const auto& name               = kind == 0 ? _inventory->outputs[i].name : kind == 1 ? _inventory->inputs[i].name : _inventory->cameras[i].name;
             _deviceIds[kind][items.size()] = id;
             if (id == selectedId)
                 selected = items.size();
             items.push_back({Wide(id.View()), name[0] ? std::wstring(name.data()) : Wide(id.View())});
         }
-        if (!selected && !selectedId.View().empty())
+        if (! selected && ! selectedId.View().empty())
         {
-            selected = items.size();
+            selected                       = items.size();
             _deviceIds[kind][items.size()] = selectedId;
             items.push_back({Wide(selectedId.View()), L"Missing · " + Wide(selectedId.View())});
         }
@@ -465,31 +456,28 @@ DxUi::Control* ProfileControls::InitialFocus() const noexcept
 }
 void ProfileControls::Prepare(float width, float height)
 {
-    if (!_shown)
+    if (! _shown)
         return;
-    if (!_dirty && width == _width && height == _height)
+    if (! _dirty && width == _width && height == _height)
         return;
-    _width = width;
+    _width  = width;
     _height = height;
-    _dirty = false;
+    _dirty  = false;
     _panel->SetVisible(true);
     Bounds(_panel, 0, 0, width, height);
-    const bool editing = _mode == Mode::Editor;
+    const bool editing    = _mode == Mode::Editor;
     const float bodyWidth = width - 16;
     Bounds(_back, 8, 8, 48, 48);
     Bounds(_title, 64, 8, bodyWidth - (editing && _editingIndex < _configuration.count ? 112.0f : 56.0f), 48);
-    _title->SetText(editing                      ? (width < 240 ? L"Edit" : L"Profile")
-                    : _mode == Mode::Definitions ? (width < 320 ? L"Define" : L"Define profiles")
-                                                 : L"Profiles");
+    _title->SetText(editing ? (width < 240 ? L"Edit" : L"Profile") : _mode == Mode::Definitions ? (width < 320 ? L"Define" : L"Define profiles") : L"Profiles");
     if (_inventory && _inventory->truncated)
         _title->SetText(width < 240   ? (editing && _editingIndex < _configuration.count ? L"!" : L"Limited")
                         : width < 480 ? L"Limited devices"
                         : editing     ? L"Profile · Limited devices"
                                       : L"Profiles · Limited devices");
-    _title->SetAccessibleName(_inventory && _inventory->truncated
-                                  ? L"Device list is limited. Defaults and saved profile bindings are shown first. "
-                                    L"Some devices may be omitted."
-                                  : std::wstring(_title->GetText()));
+    _title->SetAccessibleName(_inventory && _inventory->truncated ? L"Device list is limited. Defaults and saved profile bindings are shown first. "
+                                                                    L"Some devices may be omitted."
+                                                                  : std::wstring(_title->GetText()));
     _remove->SetVisible(editing && _editingIndex < _configuration.count);
     Bounds(_remove, width - 56, 8, 48, 48);
     for (auto* button : _profiles)
@@ -504,7 +492,7 @@ void ProfileControls::Prepare(float width, float height)
     if (_mode == Mode::CameraSetup)
     {
         _pageCount = static_cast<uint32_t>(cameraSetupSteps.size());
-        _page = (std::min)(_page, _pageCount - 1);
+        _page      = (std::min)(_page, _pageCount - 1);
         if (_pageCount > 1)
             available = height - 132;
         wchar_t title[64]{};
@@ -513,8 +501,7 @@ void ProfileControls::Prepare(float width, float height)
         else
             swprintf_s(title, L"Camera setup · %u / %u", _page + 1, _pageCount);
         _title->SetText(title);
-        _title->SetAccessibleName(std::wstring(L"Camera setup, step ") + std::to_wstring(_page + 1) + L" of " +
-                                  std::to_wstring(_pageCount));
+        _title->SetAccessibleName(std::wstring(L"Camera setup, step ") + std::to_wstring(_page + 1) + L" of " + std::to_wstring(_pageCount));
     }
     else if (editing)
     {
@@ -523,28 +510,27 @@ void ProfileControls::Prepare(float width, float height)
         if (_optionsDirty)
             FillDevices();
         const uint32_t columns = width >= 640 ? 2U : 1U;
-        const uint32_t fields = _draft.restoreLevels ? 8U : 6U;
-        auto paginate = [&](float space) noexcept
+        const uint32_t fields  = _draft.restoreLevels ? 8U : 6U;
+        auto paginate          = [&](float space) noexcept
         {
-            const uint32_t rows = (std::max)(1U, static_cast<uint32_t>(space / 80));
+            const uint32_t rows    = (std::max)(1U, static_cast<uint32_t>(space / 80));
             const uint32_t perPage = columns * rows;
-            _pageCount = (fields + perPage - 1) / perPage;
-            _page = (std::min)(_page, _pageCount - 1);
+            _pageCount             = (fields + perPage - 1) / perPage;
+            _page                  = (std::min)(_page, _pageCount - 1);
             return perPage;
         };
         uint32_t perPage = paginate(available);
         if (_pageCount > 1)
         {
             available = height - 132;
-            perPage = paginate(available);
+            perPage   = paginate(available);
         }
         const float fieldWidth = (bodyWidth - static_cast<float>(columns - 1) * 16.0f) / static_cast<float>(columns);
-        const float rowHeight = (std::min)(88.0f, available / static_cast<float>((std::max)(1U, perPage / columns)));
+        const float rowHeight  = (std::min)(88.0f, available / static_cast<float>((std::max)(1U, perPage / columns)));
         for (uint32_t slot = 0; slot < perPage && _page * perPage + slot < fields; ++slot)
         {
             const uint32_t field = _page * perPage + slot;
-            const float x = 8 + static_cast<float>(slot % columns) * (fieldWidth + 16),
-                        y = 56 + static_cast<float>(slot / columns) * rowHeight;
+            const float x = 8 + static_cast<float>(slot % columns) * (fieldWidth + 16), y = 56 + static_cast<float>(slot / columns) * rowHeight;
             _fields[field]->SetVisible(true);
             _captions[field]->SetVisible(true);
             Bounds(_captions[field], x, y, fieldWidth, 20);
@@ -559,18 +545,18 @@ void ProfileControls::Prepare(float width, float height)
     else
     {
         const uint32_t entries = _configuration.count + (_mode == Mode::Chooser ? 1U : 0U);
-        auto paginate = [&](float space) noexcept
+        auto paginate          = [&](float space) noexcept
         {
             const uint32_t perPage = (std::max)(1U, static_cast<uint32_t>(space / 56));
-            _pageCount = (std::max)(1U, (entries + perPage - 1) / perPage);
-            _page = (std::min)(_page, _pageCount - 1);
+            _pageCount             = (std::max)(1U, (entries + perPage - 1) / perPage);
+            _page                  = (std::min)(_page, _pageCount - 1);
             return perPage;
         };
         uint32_t perPage = paginate(available);
         if (_pageCount > 1)
         {
             available = height - 132;
-            perPage = paginate(available);
+            perPage   = paginate(available);
         }
         for (uint32_t slot = 0; slot < perPage && _page * perPage + slot < entries; ++slot)
         {
@@ -581,8 +567,7 @@ void ProfileControls::Prepare(float width, float height)
                 Bounds(_cameraSetup, 8, 56 + static_cast<float>(slot) * 56.0f, bodyWidth, 48);
                 continue;
             }
-            _profiles[index]->SetText((_mode == Mode::Definitions ? L"Edit · " : L"") +
-                                      Wide(_configuration.profiles[index].name.View()));
+            _profiles[index]->SetText((_mode == Mode::Definitions ? L"Edit · " : L"") + Wide(_configuration.profiles[index].name.View()));
             _profiles[index]->SetAccessibleName((_mode == Mode::Definitions ? L"Edit profile " : L"Apply profile ") +
                                                 Wide(_configuration.profiles[index].name.View()));
             _profiles[index]->SetVisible(true);
@@ -604,19 +589,18 @@ void ProfileControls::Prepare(float width, float height)
     _footer[1]->SetText(L"Next");
     _footer[0]->SetAccessibleName(L"Previous");
     _footer[1]->SetAccessibleName(L"Next");
-    _footer[0]->SetEnabled(!_error[0] && _page > 0);
-    _footer[1]->SetEnabled(!_error[0] && _page + 1 < _pageCount);
+    _footer[0]->SetEnabled(! _error[0] && _page > 0);
+    _footer[1]->SetEnabled(! _error[0] && _page + 1 < _pageCount);
     _footer[2]->SetText(_error[0] ? L"Edit" : editing ? L"Save" : _mode == Mode::Definitions ? L"New" : L"Define");
     _footer[2]->SetEnabled(_mode != Mode::Definitions || _configuration.count < MaximumProfiles);
     _footer[2]->SetAccessibleName(editing                      ? L"Save profile definition without changing devices"
                                   : _mode == Mode::Definitions ? L"Create a new profile"
                                                                : L"Define profiles");
-    _message->SetVisible(_error[0] || (!editing && _configuration.count == 0));
-    _message->SetText(_error[0] ? (available < 160 ? L"Cannot save.\nBack to edit." : _error.data())
-                                : L"No profiles yet. Choose Define, then New.");
+    _message->SetVisible(_error[0] || (! editing && _configuration.count == 0));
+    _message->SetText(_error[0] ? (available < 160 ? L"Cannot save.\nBack to edit." : _error.data()) : L"No profiles yet. Choose Define, then New.");
     _message->SetAccessibleName(_error[0] ? _error.data() : L"No profiles yet. Choose Define, then New.");
     _message->SetFontRole(DxUi::FontRole::Body);
-    if (_mode == Mode::Chooser && !_error[0])
+    if (_mode == Mode::Chooser && ! _error[0])
         _message->SetVisible(false);
     if (_mode == Mode::CameraSetup)
     {
@@ -632,7 +616,7 @@ void ProfileControls::Prepare(float width, float height)
         if (width >= 320)
         {
             const float buttonWidth = (std::min)(160.0f, (bodyWidth - 16) / 3);
-            const float start = (width - (buttonWidth * 3 + 16)) / 2;
+            const float start       = (width - (buttonWidth * 3 + 16)) / 2;
             for (size_t i = 0; i < 3; ++i)
                 Bounds(_footer[i], start + static_cast<float>(i) * (buttonWidth + 8), height - 56, buttonWidth, 48);
         }
@@ -652,7 +636,7 @@ void ProfileControls::Prepare(float width, float height)
         Bounds(_message, (width - 720) / 2, 72, 720, height - 144);
     _indicator->SetPageCount(_pageCount);
     _indicator->SetSelectedIndex(_page);
-    _indicator->SetVisible(_pageCount > 1 && !_error[0]);
+    _indicator->SetVisible(_pageCount > 1 && ! _error[0]);
     if (_pageCount > 1)
         Bounds(_indicator, 8, height - 76, bodyWidth, DxUi::PageIndicator::kStripHeightDip);
 }

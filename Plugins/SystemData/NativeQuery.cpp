@@ -32,22 +32,21 @@ using NtQuerySystemInformationFn = NTSTATUS(NTAPI*)(SYSTEM_INFORMATION_CLASS, PV
 [[nodiscard]] NtQuerySystemInformationFn ResolveNtQuerySystem() noexcept
 {
     const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
-    if (!ntdll)
+    if (! ntdll)
     {
         return nullptr;
     }
-    const FARPROC procedure = GetProcAddress(ntdll, "NtQuerySystemInformation");
+    const FARPROC procedure             = GetProcAddress(ntdll, "NtQuerySystemInformation");
     NtQuerySystemInformationFn function = nullptr;
     static_assert(sizeof(function) == sizeof(procedure));
     std::memcpy(&function, &procedure, sizeof(function));
     return function;
 }
 
-[[nodiscard]] bool QuerySystem(NtQuerySystemInformationFn query, SYSTEM_INFORMATION_CLASS infoClass, void* buffer,
-                               ULONG length, ULONG& returned) noexcept
+[[nodiscard]] bool QuerySystem(NtQuerySystemInformationFn query, SYSTEM_INFORMATION_CLASS infoClass, void* buffer, ULONG length, ULONG& returned) noexcept
 {
     returned = 0;
-    if (!query || !buffer || length == 0)
+    if (! query || ! buffer || length == 0)
     {
         return false;
     }
@@ -73,15 +72,15 @@ struct GroupBaseTable final
 {
     std::array<uint32_t, kMaximumProcessorGroups> base{};
     uint16_t groupCount = 0;
-    uint32_t total = 0;
+    uint32_t total      = 0;
 };
 
 [[nodiscard]] GroupBaseTable BuildGroupBases() noexcept
 {
     GroupBaseTable table{};
     const WORD groups = GetActiveProcessorGroupCount();
-    table.groupCount = static_cast<uint16_t>((std::min)(static_cast<size_t>(groups), table.base.size()));
-    uint32_t running = 0;
+    table.groupCount  = static_cast<uint16_t>((std::min)(static_cast<size_t>(groups), table.base.size()));
+    uint32_t running  = 0;
     for (uint16_t group = 0; group < table.groupCount; ++group)
     {
         table.base[group] = running;
@@ -91,8 +90,7 @@ struct GroupBaseTable final
     return table;
 }
 
-[[nodiscard]] bool FlatIndex(const GroupBaseTable& table, uint16_t group, uint32_t groupRelative,
-                             uint32_t& flat) noexcept
+[[nodiscard]] bool FlatIndex(const GroupBaseTable& table, uint16_t group, uint32_t groupRelative, uint32_t& flat) noexcept
 {
     if (group >= table.groupCount)
     {
@@ -110,7 +108,7 @@ struct GroupBaseTable final
 void FillProcessorIdentity(RedXeNativeCheapSample& sample) noexcept
 {
     const WORD groupCount = GetActiveProcessorGroupCount();
-    uint32_t logical = 0;
+    uint32_t logical      = 0;
     for (WORD group = 0; group < groupCount && logical < sample.logical.size(); ++group)
     {
         const DWORD count = GetActiveProcessorCount(group);
@@ -121,7 +119,7 @@ void FillProcessorIdentity(RedXeNativeCheapSample& sample) noexcept
             ++logical;
         }
     }
-    sample.logicalCount = logical;
+    sample.logicalCount  = logical;
     sample.topologyValid = logical != 0;
 }
 
@@ -130,16 +128,14 @@ void FillProcessorIdentity(RedXeNativeCheapSample& sample) noexcept
 void FillTopologyCache(RedXeNativeState& state, const GroupBaseTable& groups) noexcept
 {
     RedXeNativeTopologyCache& cache = state.topology;
-    DWORD required = 0;
+    DWORD required                  = 0;
     (void)GetLogicalProcessorInformationEx(RelationAll, nullptr, &required);
     if (required == 0 || required > state.topologyBuffer.size())
     {
         return;
     }
     DWORD size = required;
-    if (GetLogicalProcessorInformationEx(
-            RelationAll, reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(state.topologyBuffer.data()),
-            &size) == FALSE)
+    if (GetLogicalProcessorInformationEx(RelationAll, reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(state.topologyBuffer.data()), &size) == FALSE)
     {
         return;
     }
@@ -147,23 +143,22 @@ void FillTopologyCache(RedXeNativeState& state, const GroupBaseTable& groups) no
     cache.packageIndex.fill(0);
     cache.numaNode.fill(0);
     cache.hasTopology.fill(false);
-    uint32_t cores = 0;
+    uint32_t cores    = 0;
     uint32_t packages = 0;
-    uint32_t numa = 0;
-    DWORD offset = 0;
+    uint32_t numa     = 0;
+    DWORD offset      = 0;
     while (offset + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) <= size)
     {
-        const auto* record =
-            reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(state.topologyBuffer.data() + offset);
+        const auto* record = reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(state.topologyBuffer.data() + offset);
         if (record->Size == 0 || offset + record->Size > size)
         {
             return;
         }
         if (record->Relationship == RelationProcessorCore || record->Relationship == RelationProcessorPackage)
         {
-            const bool isCore = record->Relationship == RelationProcessorCore;
+            const bool isCore         = record->Relationship == RelationProcessorCore;
             const uint32_t identifier = isCore ? cores : packages;
-            const WORD affinityCount = isCore ? WORD{1} : record->Processor.GroupCount;
+            const WORD affinityCount  = isCore ? WORD{1} : record->Processor.GroupCount;
             for (WORD entry = 0; entry < affinityCount; ++entry)
             {
                 const GROUP_AFFINITY& affinity = record->Processor.GroupMask[entry];
@@ -174,7 +169,7 @@ void FillTopologyCache(RedXeNativeState& state, const GroupBaseTable& groups) no
                         continue;
                     }
                     uint32_t flat = 0;
-                    if (!FlatIndex(groups, affinity.Group, bit, flat))
+                    if (! FlatIndex(groups, affinity.Group, bit, flat))
                     {
                         continue;
                     }
@@ -217,18 +212,17 @@ void FillTopologyCache(RedXeNativeState& state, const GroupBaseTable& groups) no
         }
         offset += record->Size;
     }
-    cache.coreCount = cores;
-    cache.packageCount = packages;
+    cache.coreCount     = cores;
+    cache.packageCount  = packages;
     cache.numaNodeCount = numa;
-    cache.logicalCount = groups.total;
-    cache.valid = true;
+    cache.logicalCount  = groups.total;
+    cache.valid         = true;
 }
 
 // CPU-set identity, efficiency class, and the dynamic parked/allocated flags. Documented Win32; no native class.
 // Identity is written into the topology cache when `refreshCache` is set; parked/allocated are per-sample and always
 // written straight into the sample.
-void FillCpuSets(RedXeNativeState& state, RedXeNativeCheapSample& sample, const GroupBaseTable& groups,
-                 bool refreshCache) noexcept
+void FillCpuSets(RedXeNativeState& state, RedXeNativeCheapSample& sample, const GroupBaseTable& groups, bool refreshCache) noexcept
 {
     RedXeNativeTopologyCache& cache = state.topology;
     if (refreshCache)
@@ -241,7 +235,7 @@ void FillCpuSets(RedXeNativeState& state, RedXeNativeCheapSample& sample, const 
     {
         return;
     }
-    ULONG size = required;
+    ULONG size   = required;
     auto* buffer = reinterpret_cast<PSYSTEM_CPU_SET_INFORMATION>(state.cpuSetBuffer.data());
     if (GetSystemCpuSetInformation(buffer, size, &size, nullptr, 0) == FALSE)
     {
@@ -262,15 +256,14 @@ void FillCpuSets(RedXeNativeState& state, RedXeNativeCheapSample& sample, const 
             {
                 if (refreshCache)
                 {
-                    cache.cpuSetId[flat] = record->CpuSet.Id;
+                    cache.cpuSetId[flat]        = record->CpuSet.Id;
                     cache.efficiencyClass[flat] = record->CpuSet.EfficiencyClass;
-                    cache.hasCpuSet[flat] = true;
+                    cache.hasCpuSet[flat]       = true;
                 }
                 if (flat < sample.logicalCount)
                 {
-                    sample.logical[flat].parked = (record->CpuSet.AllFlags & SYSTEM_CPU_SET_INFORMATION_PARKED) != 0;
-                    sample.logical[flat].allocated =
-                        (record->CpuSet.AllFlags & SYSTEM_CPU_SET_INFORMATION_ALLOCATED) != 0;
+                    sample.logical[flat].parked    = (record->CpuSet.AllFlags & SYSTEM_CPU_SET_INFORMATION_PARKED) != 0;
+                    sample.logical[flat].allocated = (record->CpuSet.AllFlags & SYSTEM_CPU_SET_INFORMATION_ALLOCATED) != 0;
                 }
             }
         }
@@ -281,23 +274,23 @@ void FillCpuSets(RedXeNativeState& state, RedXeNativeCheapSample& sample, const 
 void ApplyTopologyCache(const RedXeNativeState& state, RedXeNativeCheapSample& sample) noexcept
 {
     const RedXeNativeTopologyCache& cache = state.topology;
-    if (!cache.valid)
+    if (! cache.valid)
     {
         return;
     }
-    sample.coreCount = cache.coreCount;
-    sample.packageCount = cache.packageCount;
+    sample.coreCount     = cache.coreCount;
+    sample.packageCount  = cache.packageCount;
     sample.numaNodeCount = cache.numaNodeCount;
     for (uint32_t index = 0; index < sample.logicalCount; ++index)
     {
         RedXeNativeLogicalCpu& cpu = sample.logical[index];
-        cpu.coreIndex = cache.coreIndex[index];
-        cpu.packageIndex = cache.packageIndex[index];
-        cpu.numaNode = cache.numaNode[index];
-        cpu.hasTopology = cache.hasTopology[index];
-        cpu.cpuSetId = cache.cpuSetId[index];
-        cpu.efficiencyClass = cache.efficiencyClass[index];
-        cpu.hasCpuSet = cache.hasCpuSet[index];
+        cpu.coreIndex              = cache.coreIndex[index];
+        cpu.packageIndex           = cache.packageIndex[index];
+        cpu.numaNode               = cache.numaNode[index];
+        cpu.hasTopology            = cache.hasTopology[index];
+        cpu.cpuSetId               = cache.cpuSetId[index];
+        cpu.efficiencyClass        = cache.efficiencyClass[index];
+        cpu.hasCpuSet              = cache.hasCpuSet[index];
     }
 }
 
@@ -321,21 +314,20 @@ void FillProcessorFrequency(RedXeNativeState& state, RedXeNativeCheapSample& sam
     for (uint32_t index = 0; index < sample.logicalCount; ++index)
     {
         RedXeNativeLogicalCpu& cpu = sample.logical[index];
-        cpu.maxMhz = power[index].MaxMhz;
-        cpu.currentMhz = power[index].CurrentMhz;
-        cpu.mhzLimit = power[index].MhzLimit;
-        cpu.hasFrequency = power[index].MaxMhz != 0;
+        cpu.maxMhz                 = power[index].MaxMhz;
+        cpu.currentMhz             = power[index].CurrentMhz;
+        cpu.mhzLimit               = power[index].MhzLimit;
+        cpu.hasFrequency           = power[index].MaxMhz != 0;
     }
 }
 
-void FillProcessorTimes(NtQuerySystemInformationFn query, RedXeNativeState& state,
-                        RedXeNativeCheapSample& sample) noexcept
+void FillProcessorTimes(NtQuerySystemInformationFn query, RedXeNativeState& state, RedXeNativeCheapSample& sample) noexcept
 {
     auto* records = reinterpret_cast<RedXeNtProcessorPerformance*>(state.processorTimeBuffer.data());
     static_assert(sizeof(decltype(RedXeNativeState::processorTimeBuffer){}) % sizeof(RedXeNtProcessorPerformance) == 0);
     const ULONG capacity = static_cast<ULONG>(kRedXeMaximumLogicalProcessors * sizeof(RedXeNtProcessorPerformance));
-    ULONG returned = 0;
-    if (!QuerySystem(query, SystemProcessorPerformanceInformation, records, capacity, returned))
+    ULONG returned       = 0;
+    if (! QuerySystem(query, SystemProcessorPerformanceInformation, records, capacity, returned))
     {
         return;
     }
@@ -353,23 +345,22 @@ void FillProcessorTimes(NtQuerySystemInformationFn query, RedXeNativeState& stat
         FillProcessorIdentity(sample);
     }
     const uint32_t limit = (std::min)(count, sample.logicalCount != 0 ? sample.logicalCount : count);
-    sample.logicalCount = limit;
+    sample.logicalCount  = limit;
     for (uint32_t index = 0; index < limit; ++index)
     {
         RedXeNativeLogicalCpu& cpu = sample.logical[index];
-        cpu.idleTime = NonNegative(records[index].idleTime);
-        cpu.kernelTime = NonNegative(records[index].kernelTime);
-        cpu.userTime = NonNegative(records[index].userTime);
-        cpu.dpcTime = NonNegative(records[index].dpcTime);
-        cpu.interruptTime = NonNegative(records[index].interruptTime);
-        cpu.interruptCount = records[index].interruptCount;
-        cpu.hasTimes = true;
+        cpu.idleTime               = NonNegative(records[index].idleTime);
+        cpu.kernelTime             = NonNegative(records[index].kernelTime);
+        cpu.userTime               = NonNegative(records[index].userTime);
+        cpu.dpcTime                = NonNegative(records[index].dpcTime);
+        cpu.interruptTime          = NonNegative(records[index].interruptTime);
+        cpu.interruptCount         = records[index].interruptCount;
+        cpu.hasTimes               = true;
     }
     sample.processorTimesValid = true;
 }
 
-void FillInterruptCounts(NtQuerySystemInformationFn query, RedXeNativeState& state,
-                         RedXeNativeCheapSample& sample) noexcept
+void FillInterruptCounts(NtQuerySystemInformationFn query, RedXeNativeState& state, RedXeNativeCheapSample& sample) noexcept
 {
     if (sample.logicalCount == 0)
     {
@@ -378,8 +369,8 @@ void FillInterruptCounts(NtQuerySystemInformationFn query, RedXeNativeState& sta
     auto* records = reinterpret_cast<RedXeNtInterruptRecord*>(state.interruptBuffer.data());
     static_assert(sizeof(decltype(RedXeNativeState::interruptBuffer){}) % sizeof(RedXeNtInterruptRecord) == 0);
     const ULONG capacity = static_cast<ULONG>(kRedXeMaximumLogicalProcessors * sizeof(RedXeNtInterruptRecord));
-    ULONG returned = 0;
-    if (!QuerySystem(query, SystemInterruptInformation, records, capacity, returned))
+    ULONG returned       = 0;
+    if (! QuerySystem(query, SystemInterruptInformation, records, capacity, returned))
     {
         return;
     }
@@ -392,12 +383,12 @@ void FillInterruptCounts(NtQuerySystemInformationFn query, RedXeNativeState& sta
     for (uint32_t index = 0; index < limit; ++index)
     {
         RedXeNativeLogicalCpu& cpu = sample.logical[index];
-        cpu.contextSwitches = records[index].contextSwitches;
-        cpu.dpcCount = records[index].dpcCount;
-        cpu.dpcRate = records[index].dpcRate;
-        cpu.dpcBypassCount = records[index].dpcBypassCount;
-        cpu.apcBypassCount = records[index].apcBypassCount;
-        cpu.hasInterrupt = true;
+        cpu.contextSwitches        = records[index].contextSwitches;
+        cpu.dpcCount               = records[index].dpcCount;
+        cpu.dpcRate                = records[index].dpcRate;
+        cpu.dpcBypassCount         = records[index].dpcBypassCount;
+        cpu.apcBypassCount         = records[index].apcBypassCount;
+        cpu.hasInterrupt           = true;
     }
 }
 
@@ -408,7 +399,7 @@ void FillSystemPerformance(NtQuerySystemInformationFn query, RedXeNativeCheapSam
     std::array<std::byte, kPerformanceProbeBytes> buffer{};
     static_assert(kPerformanceProbeBytes >= sizeof(RedXeNtPerformance));
     ULONG returned = 0;
-    if (!QuerySystem(query, SystemPerformanceInformation, buffer.data(), static_cast<ULONG>(buffer.size()), returned))
+    if (! QuerySystem(query, SystemPerformanceInformation, buffer.data(), static_cast<ULONG>(buffer.size()), returned))
     {
         return;
     }
@@ -416,51 +407,51 @@ void FillSystemPerformance(NtQuerySystemInformationFn query, RedXeNativeCheapSam
     {
         return;
     }
-    const auto* record = reinterpret_cast<const RedXeNtPerformance*>(buffer.data());
+    const auto* record                = reinterpret_cast<const RedXeNtPerformance*>(buffer.data());
     RedXeNativeSystemPerformance& out = sample.performance;
-    out.valid = true;
-    out.readableBytes = returned;
-    out.idleProcessTime = NonNegative(record->idleProcessTime);
-    out.ioReadTransferBytes = NonNegative(record->ioReadTransferCount);
-    out.ioWriteTransferBytes = NonNegative(record->ioWriteTransferCount);
-    out.ioOtherTransferBytes = NonNegative(record->ioOtherTransferCount);
-    out.ioReadOperationCount = record->ioReadOperationCount;
-    out.ioWriteOperationCount = record->ioWriteOperationCount;
-    out.ioOtherOperationCount = record->ioOtherOperationCount;
-    out.availablePages = record->availablePages;
-    out.committedPages = record->committedPages;
-    out.commitLimit = record->commitLimit;
-    out.peakCommitment = record->peakCommitment;
-    out.pageFaultCount = record->pageFaultCount;
-    out.copyOnWriteCount = record->copyOnWriteCount;
-    out.transitionCount = record->transitionCount;
-    out.demandZeroCount = record->demandZeroCount;
-    out.pageReadCount = record->pageReadCount;
-    out.pageReadIoCount = record->pageReadIoCount;
-    out.dirtyPagesWriteCount = record->dirtyPagesWriteCount;
-    out.mappedPagesWriteCount = record->mappedPagesWriteCount;
-    out.pagedPoolPages = record->pagedPoolPages;
-    out.nonPagedPoolPages = record->nonPagedPoolPages;
-    out.availablePagedPoolPages = record->availablePagedPoolPages;
-    out.freeSystemPtes = record->freeSystemPtes;
-    out.residentSystemCachePage = record->residentSystemCachePage;
-    out.contextSwitches = record->contextSwitches;
-    out.systemCalls = record->systemCalls;
-    out.firstLevelTbFills = record->firstLevelTbFills;
-    out.secondLevelTbFills = record->secondLevelTbFills;
+    out.valid                         = true;
+    out.readableBytes                 = returned;
+    out.idleProcessTime               = NonNegative(record->idleProcessTime);
+    out.ioReadTransferBytes           = NonNegative(record->ioReadTransferCount);
+    out.ioWriteTransferBytes          = NonNegative(record->ioWriteTransferCount);
+    out.ioOtherTransferBytes          = NonNegative(record->ioOtherTransferCount);
+    out.ioReadOperationCount          = record->ioReadOperationCount;
+    out.ioWriteOperationCount         = record->ioWriteOperationCount;
+    out.ioOtherOperationCount         = record->ioOtherOperationCount;
+    out.availablePages                = record->availablePages;
+    out.committedPages                = record->committedPages;
+    out.commitLimit                   = record->commitLimit;
+    out.peakCommitment                = record->peakCommitment;
+    out.pageFaultCount                = record->pageFaultCount;
+    out.copyOnWriteCount              = record->copyOnWriteCount;
+    out.transitionCount               = record->transitionCount;
+    out.demandZeroCount               = record->demandZeroCount;
+    out.pageReadCount                 = record->pageReadCount;
+    out.pageReadIoCount               = record->pageReadIoCount;
+    out.dirtyPagesWriteCount          = record->dirtyPagesWriteCount;
+    out.mappedPagesWriteCount         = record->mappedPagesWriteCount;
+    out.pagedPoolPages                = record->pagedPoolPages;
+    out.nonPagedPoolPages             = record->nonPagedPoolPages;
+    out.availablePagedPoolPages       = record->availablePagedPoolPages;
+    out.freeSystemPtes                = record->freeSystemPtes;
+    out.residentSystemCachePage       = record->residentSystemCachePage;
+    out.contextSwitches               = record->contextSwitches;
+    out.systemCalls                   = record->systemCalls;
+    out.firstLevelTbFills             = record->firstLevelTbFills;
+    out.secondLevelTbFills            = record->secondLevelTbFills;
 
     if (returned >= kRedXeNtPerformanceThresholdBytes)
     {
-        out.hasThresholdTail = true;
-        out.ccTotalDirtyPages = record->ccTotalDirtyPages;
-        out.ccDirtyPageThreshold = record->ccDirtyPageThreshold;
+        out.hasThresholdTail       = true;
+        out.ccTotalDirtyPages      = record->ccTotalDirtyPages;
+        out.ccDirtyPageThreshold   = record->ccDirtyPageThreshold;
         out.residentAvailablePages = record->residentAvailablePages;
-        out.sharedCommittedPages = record->sharedCommittedPages;
+        out.sharedCommittedPages   = record->sharedCommittedPages;
     }
     if (returned >= kRedXeNtPerformance24H2Bytes)
     {
-        out.has24H2Tail = true;
-        out.pfnDatabaseCommittedPages = record->pfnDatabaseCommittedPages;
+        out.has24H2Tail                   = true;
+        out.pfnDatabaseCommittedPages     = record->pfnDatabaseCommittedPages;
         out.systemPageTableCommittedPages = record->systemPageTableCommittedPages;
     }
 }
@@ -469,7 +460,7 @@ void FillTimeOfDay(NtQuerySystemInformationFn query, RedXeNativeCheapSample& sam
 {
     RedXeNtTimeOfDay record{};
     ULONG returned = 0;
-    if (!QuerySystem(query, SystemTimeOfDayInformation, &record, static_cast<ULONG>(sizeof(record)), returned))
+    if (! QuerySystem(query, SystemTimeOfDayInformation, &record, static_cast<ULONG>(sizeof(record)), returned))
     {
         return;
     }
@@ -478,20 +469,20 @@ void FillTimeOfDay(NtQuerySystemInformationFn query, RedXeNativeCheapSample& sam
         return;
     }
     RedXeNativeTimeOfDay& out = sample.timeOfDay;
-    out.valid = true;
-    out.bootTime = NonNegative(record.bootTime);
-    out.currentTime = NonNegative(record.currentTime);
-    out.timeZoneBias = record.timeZoneBias;
-    out.timeZoneId = record.timeZoneId;
-    out.bootTimeBias = record.bootTimeBias;
-    out.sleepTimeBias = record.sleepTimeBias;
+    out.valid                 = true;
+    out.bootTime              = NonNegative(record.bootTime);
+    out.currentTime           = NonNegative(record.currentTime);
+    out.timeZoneBias          = record.timeZoneBias;
+    out.timeZoneId            = record.timeZoneId;
+    out.bootTimeBias          = record.bootTimeBias;
+    out.sleepTimeBias         = record.sleepTimeBias;
 }
 
 void FillExceptions(NtQuerySystemInformationFn query, RedXeNativeCheapSample& sample) noexcept
 {
     RedXeNtExceptionRecord record{};
     ULONG returned = 0;
-    if (!QuerySystem(query, SystemExceptionInformation, &record, static_cast<ULONG>(sizeof(record)), returned))
+    if (! QuerySystem(query, SystemExceptionInformation, &record, static_cast<ULONG>(sizeof(record)), returned))
     {
         return;
     }
@@ -500,8 +491,8 @@ void FillExceptions(NtQuerySystemInformationFn query, RedXeNativeCheapSample& sa
         return;
     }
     RedXeNativeExceptions& out = sample.exceptions;
-    out.valid = true;
-    out.alignmentFixupCount = record.alignmentFixupCount;
+    out.valid                  = true;
+    out.alignmentFixupCount    = record.alignmentFixupCount;
     out.exceptionDispatchCount = record.exceptionDispatchCount;
     out.floatingEmulationCount = record.floatingEmulationCount;
     out.byteWordEmulationCount = record.byteWordEmulationCount;
@@ -510,12 +501,11 @@ void FillExceptions(NtQuerySystemInformationFn query, RedXeNativeCheapSample& sa
 // Copies one image name into the walk sample's shared arena and points the row at it. Returns false only when the
 // source string lies outside the queried buffer, which is a malformed record; an arena that is full leaves the row
 // unnamed rather than failing the walk. PID 0 has an empty NT image name; Task Manager labels it System Idle Process.
-[[nodiscard]] bool CopyFixedImageName(const wchar_t* text, RedXeNativeWalkSample& sample,
-                                      RedXeNativeProcessRow& row) noexcept
+[[nodiscard]] bool CopyFixedImageName(const wchar_t* text, RedXeNativeWalkSample& sample, RedXeNativeProcessRow& row) noexcept
 {
     row.imageCharacters = 0;
-    row.imageOffset = 0;
-    if (!text || text[0] == L'\0')
+    row.imageOffset     = 0;
+    if (! text || text[0] == L'\0')
     {
         return true;
     }
@@ -527,18 +517,18 @@ void FillExceptions(NtQuerySystemInformationFn query, RedXeNativeCheapSample& sa
     wchar_t* destination = sample.imageArena.data() + sample.imageArenaUsed;
     std::wmemcpy(destination, text, characters);
     destination[characters] = L'\0';
-    row.imageOffset = sample.imageArenaUsed;
-    row.imageCharacters = characters;
+    row.imageOffset         = sample.imageArenaUsed;
+    row.imageCharacters     = characters;
     sample.imageArenaUsed += characters + 1;
     return true;
 }
 
-[[nodiscard]] bool CopyImageName(const UNICODE_STRING& image, const std::byte* bufferBase, size_t bufferBytes,
-                                 RedXeNativeWalkSample& sample, RedXeNativeProcessRow& row) noexcept
+[[nodiscard]] bool CopyImageName(
+    const UNICODE_STRING& image, const std::byte* bufferBase, size_t bufferBytes, RedXeNativeWalkSample& sample, RedXeNativeProcessRow& row) noexcept
 {
     row.imageCharacters = 0;
-    row.imageOffset = 0;
-    if (!image.Buffer || image.Length == 0)
+    row.imageOffset     = 0;
+    if (! image.Buffer || image.Length == 0)
     {
         return row.processId == 0 ? CopyFixedImageName(L"System Idle Process", sample, row) : true;
     }
@@ -547,8 +537,7 @@ void FillExceptions(NtQuerySystemInformationFn query, RedXeNativeCheapSample& sa
     {
         return false;
     }
-    const uint32_t characters = (std::min)(static_cast<uint32_t>(image.Length / sizeof(wchar_t)),
-                                           static_cast<uint32_t>(kRedXeNativeImageCharacters - 1));
+    const uint32_t characters = (std::min)(static_cast<uint32_t>(image.Length / sizeof(wchar_t)), static_cast<uint32_t>(kRedXeNativeImageCharacters - 1));
     if (static_cast<size_t>(sample.imageArenaUsed) + characters + 1 > sample.imageArena.size())
     {
         return true;
@@ -556,8 +545,8 @@ void FillExceptions(NtQuerySystemInformationFn query, RedXeNativeCheapSample& sa
     wchar_t* destination = sample.imageArena.data() + sample.imageArenaUsed;
     std::wmemcpy(destination, image.Buffer, characters);
     destination[characters] = L'\0';
-    row.imageOffset = sample.imageArenaUsed;
-    row.imageCharacters = characters;
+    row.imageOffset         = sample.imageArenaUsed;
+    row.imageCharacters     = characters;
     sample.imageArenaUsed += characters + 1;
     return true;
 }
@@ -569,7 +558,7 @@ bool RedXeNativeQueryCheap(RedXeNativeState& state, RedXeNativeCheapSample& samp
     FillProcessorIdentity(sample);
 
     const GroupBaseTable groups = BuildGroupBases();
-    const bool topologyChanged = !state.topology.valid || state.topology.logicalCount != groups.total;
+    const bool topologyChanged  = ! state.topology.valid || state.topology.logicalCount != groups.total;
     if (topologyChanged)
     {
         FillTopologyCache(state, groups);
@@ -579,20 +568,19 @@ bool RedXeNativeQueryCheap(RedXeNativeState& state, RedXeNativeCheapSample& samp
     FillProcessorFrequency(state, sample);
 
     const NtQuerySystemInformationFn query = ResolveNtQuerySystem();
-    if (!query)
+    if (! query)
     {
         return sample.topologyValid;
     }
 
     SYSTEM_HANDLECOUNT_INFORMATION handles{};
     ULONG returned = 0;
-    if (QuerySystem(query, SystemHandleCountInformation, &handles, static_cast<ULONG>(sizeof(handles)), returned) &&
-        returned == sizeof(handles))
+    if (QuerySystem(query, SystemHandleCountInformation, &handles, static_cast<ULONG>(sizeof(handles)), returned) && returned == sizeof(handles))
     {
         sample.handleCountsValid = true;
-        sample.processCount = handles.ProcessCount;
-        sample.threadCount = handles.ThreadCount;
-        sample.handleCount = handles.HandleCount;
+        sample.processCount      = handles.ProcessCount;
+        sample.threadCount       = handles.ThreadCount;
+        sample.handleCount       = handles.HandleCount;
     }
 
     FillProcessorTimes(query, state, sample);
@@ -605,15 +593,15 @@ bool RedXeNativeQueryCheap(RedXeNativeState& state, RedXeNativeCheapSample& samp
 
 bool RedXeNativeQueryWalk(std::span<std::byte> buffer, RedXeNativeWalkSample& sample) noexcept
 {
-    sample.valid = false;
-    sample.processesTruncated = false;
-    sample.threadsTruncated = false;
-    sample.processCount = 0;
-    sample.threadCount = 0;
-    sample.imageArenaUsed = 0;
+    sample.valid                           = false;
+    sample.processesTruncated              = false;
+    sample.threadsTruncated                = false;
+    sample.processCount                    = 0;
+    sample.threadCount                     = 0;
+    sample.imageArenaUsed                  = 0;
     const NtQuerySystemInformationFn query = ResolveNtQuerySystem();
-    ULONG returned = 0;
-    if (!query || !RedXeNativeProcessQuery::Collect(query, buffer, returned))
+    ULONG returned                         = 0;
+    if (! query || ! RedXeNativeProcessQuery::Collect(query, buffer, returned))
     {
         sample.valid = false;
         return false;
@@ -621,19 +609,18 @@ bool RedXeNativeQueryWalk(std::span<std::byte> buffer, RedXeNativeWalkSample& sa
     return RedXeNativeDecodeWalk(buffer, returned, sample);
 }
 
-bool RedXeNativeDecodeWalk(std::span<const std::byte> buffer, uint32_t readableBytes,
-                           RedXeNativeWalkSample& sample) noexcept
+bool RedXeNativeDecodeWalk(std::span<const std::byte> buffer, uint32_t readableBytes, RedXeNativeWalkSample& sample) noexcept
 {
-    sample.valid = false;
+    sample.valid              = false;
     sample.processesTruncated = false;
-    sample.threadsTruncated = false;
-    sample.processCount = 0;
-    sample.threadCount = 0;
-    sample.imageArenaUsed = 0;
-    const size_t returned = readableBytes;
+    sample.threadsTruncated   = false;
+    sample.processCount       = 0;
+    sample.threadCount        = 0;
+    sample.imageArenaUsed     = 0;
+    const size_t returned     = readableBytes;
     if (returned == 0 || returned > buffer.size() || buffer.size() > kRedXeNtProcessBufferBytes ||
-        reinterpret_cast<uintptr_t>(buffer.data()) % alignof(RedXeNtProcessRecord) != 0 ||
-        sample.threads.size() > kRedXeMaximumNativeThreads || (!sample.threads.empty() && !sample.threads.data()))
+        reinterpret_cast<uintptr_t>(buffer.data()) % alignof(RedXeNtProcessRecord) != 0 || sample.threads.size() > kRedXeMaximumNativeThreads ||
+        (! sample.threads.empty() && ! sample.threads.data()))
     {
         return false;
     }
@@ -648,51 +635,49 @@ bool RedXeNativeDecodeWalk(std::span<const std::byte> buffer, uint32_t readableB
         {
             return false;
         }
-        const auto* record = reinterpret_cast<const RedXeNtProcessRecord*>(buffer.data() + offset);
+        const auto* record       = reinterpret_cast<const RedXeNtProcessRecord*>(buffer.data() + offset);
         const size_t threadBytes = static_cast<size_t>(record->numberOfThreads) * sizeof(RedXeNtThreadRecord);
         if (offset + sizeof(RedXeNtProcessRecord) + threadBytes > returned)
         {
             return false;
         }
-        const auto* threads =
-            reinterpret_cast<const RedXeNtThreadRecord*>(buffer.data() + offset + sizeof(RedXeNtProcessRecord));
+        const auto* threads = reinterpret_cast<const RedXeNtThreadRecord*>(buffer.data() + offset + sizeof(RedXeNtProcessRecord));
 
         if (sample.processCount < sample.processes.size())
         {
             RedXeNativeProcessRow& row = sample.processes[sample.processCount];
-            row.processId = HandleToPid(record->uniqueProcessId);
-            row.parentProcessId = HandleToPid(record->inheritedFromUniqueProcessId);
-            row.hasParent = true;
-            row.threadCount = record->numberOfThreads;
-            row.handleCount = record->handleCount;
-            row.sessionId = record->sessionId;
-            row.basePriority = record->basePriority;
-            row.pageFaultCount = record->pageFaultCount;
-            row.hardFaultCount = record->hardFaultCount;
-            row.createTime = NonNegative(record->createTime);
-            row.userTime = NonNegative(record->userTime);
-            row.kernelTime = NonNegative(record->kernelTime);
-            row.cycleTime = record->cycleTime;
-            row.virtualBytes = record->virtualSize;
-            row.peakWorkingSetBytes = record->peakWorkingSetSize;
-            row.workingSetBytes = record->workingSetSize;
+            row.processId              = HandleToPid(record->uniqueProcessId);
+            row.parentProcessId        = HandleToPid(record->inheritedFromUniqueProcessId);
+            row.hasParent              = true;
+            row.threadCount            = record->numberOfThreads;
+            row.handleCount            = record->handleCount;
+            row.sessionId              = record->sessionId;
+            row.basePriority           = record->basePriority;
+            row.pageFaultCount         = record->pageFaultCount;
+            row.hardFaultCount         = record->hardFaultCount;
+            row.createTime             = NonNegative(record->createTime);
+            row.userTime               = NonNegative(record->userTime);
+            row.kernelTime             = NonNegative(record->kernelTime);
+            row.cycleTime              = record->cycleTime;
+            row.virtualBytes           = record->virtualSize;
+            row.peakWorkingSetBytes    = record->peakWorkingSetSize;
+            row.workingSetBytes        = record->workingSetSize;
             row.workingSetPrivateBytes = record->workingSetPrivateSize;
-            row.pagefileBytes = record->pagefileUsage;
-            row.ioReadBytes = NonNegative(record->readTransferCount);
-            row.ioWriteBytes = NonNegative(record->writeTransferCount);
-            row.ioOtherBytes = NonNegative(record->otherTransferCount);
-            row.ioReadOperations = NonNegative(record->readOperationCount);
-            row.ioWriteOperations = NonNegative(record->writeOperationCount);
-            row.ioOtherOperations = NonNegative(record->otherOperationCount);
+            row.pagefileBytes          = record->pagefileUsage;
+            row.ioReadBytes            = NonNegative(record->readTransferCount);
+            row.ioWriteBytes           = NonNegative(record->writeTransferCount);
+            row.ioOtherBytes           = NonNegative(record->otherTransferCount);
+            row.ioReadOperations       = NonNegative(record->readOperationCount);
+            row.ioWriteOperations      = NonNegative(record->writeOperationCount);
+            row.ioOtherOperations      = NonNegative(record->otherOperationCount);
             // Rows are reused across walks without clearing the whole array, so every field must be written on every
             // pass. This one is conditional, so it is zeroed first rather than left holding a previous process's value.
             row.privateBytes = 0;
             if (systemInfo.dwPageSize != 0 && record->privatePageCount <= (UINT64_MAX / systemInfo.dwPageSize))
             {
-                row.privateBytes =
-                    static_cast<uint64_t>(record->privatePageCount) * static_cast<uint64_t>(systemInfo.dwPageSize);
+                row.privateBytes = static_cast<uint64_t>(record->privatePageCount) * static_cast<uint64_t>(systemInfo.dwPageSize);
             }
-            if (!CopyImageName(record->imageName, buffer.data(), returned, sample, row))
+            if (! CopyImageName(record->imageName, buffer.data(), returned, sample, row))
             {
                 return false;
             }
@@ -703,22 +688,22 @@ bool RedXeNativeDecodeWalk(std::span<const std::byte> buffer, uint32_t readableB
             sample.processesTruncated = true;
         }
 
-        for (uint32_t threadIndex = 0; !sample.threads.empty() && threadIndex < record->numberOfThreads; ++threadIndex)
+        for (uint32_t threadIndex = 0; ! sample.threads.empty() && threadIndex < record->numberOfThreads; ++threadIndex)
         {
             if (sample.threadCount < sample.threads.size())
             {
                 const RedXeNtThreadRecord& thread = threads[threadIndex];
-                RedXeNativeThreadRow& row = sample.threads[sample.threadCount];
-                row.processId = HandleToPid(thread.clientId.UniqueProcess);
-                row.threadId = HandleToPid(thread.clientId.UniqueThread);
-                row.priority = thread.priority;
-                row.basePriority = thread.basePriority;
-                row.threadState = thread.threadState;
-                row.waitReason = thread.waitReason;
-                row.contextSwitches = thread.contextSwitches;
-                row.createTime = NonNegative(thread.createTime);
-                row.userTime = NonNegative(thread.userTime);
-                row.kernelTime = NonNegative(thread.kernelTime);
+                RedXeNativeThreadRow& row         = sample.threads[sample.threadCount];
+                row.processId                     = HandleToPid(thread.clientId.UniqueProcess);
+                row.threadId                      = HandleToPid(thread.clientId.UniqueThread);
+                row.priority                      = thread.priority;
+                row.basePriority                  = thread.basePriority;
+                row.threadState                   = thread.threadState;
+                row.waitReason                    = thread.waitReason;
+                row.contextSwitches               = thread.contextSwitches;
+                row.createTime                    = NonNegative(thread.createTime);
+                row.userTime                      = NonNegative(thread.userTime);
+                row.kernelTime                    = NonNegative(thread.kernelTime);
                 ++sample.threadCount;
             }
             else
@@ -733,8 +718,7 @@ bool RedXeNativeDecodeWalk(std::span<const std::byte> buffer, uint32_t readableB
             sample.valid = true;
             return true;
         }
-        if (record->nextEntryOffset < sizeof(RedXeNtProcessRecord) + threadBytes ||
-            offset + record->nextEntryOffset > returned)
+        if (record->nextEntryOffset < sizeof(RedXeNtProcessRecord) + threadBytes || offset + record->nextEntryOffset > returned)
         {
             return false;
         }
@@ -744,16 +728,16 @@ bool RedXeNativeDecodeWalk(std::span<const std::byte> buffer, uint32_t readableB
 
 bool RedXeNativeQueryCodeIntegrity(RedXeNativeCodeIntegrity& integrity) noexcept
 {
-    integrity = RedXeNativeCodeIntegrity{};
+    integrity                              = RedXeNativeCodeIntegrity{};
     const NtQuerySystemInformationFn query = ResolveNtQuerySystem();
-    if (!query)
+    if (! query)
     {
         return false;
     }
     SYSTEM_CODEINTEGRITY_INFORMATION record{};
-    record.Length = static_cast<ULONG>(sizeof(record));
+    record.Length  = static_cast<ULONG>(sizeof(record));
     ULONG returned = 0;
-    if (!QuerySystem(query, SystemCodeIntegrityInformation, &record, static_cast<ULONG>(sizeof(record)), returned))
+    if (! QuerySystem(query, SystemCodeIntegrityInformation, &record, static_cast<ULONG>(sizeof(record)), returned))
     {
         return false;
     }
@@ -761,7 +745,7 @@ bool RedXeNativeQueryCodeIntegrity(RedXeNativeCodeIntegrity& integrity) noexcept
     {
         return false;
     }
-    integrity.valid = true;
+    integrity.valid   = true;
     integrity.options = record.CodeIntegrityOptions;
     return true;
 }

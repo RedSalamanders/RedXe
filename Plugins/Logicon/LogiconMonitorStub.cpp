@@ -33,9 +33,8 @@ constexpr std::array kWidgetTypes{
 #pragma warning(disable : 4625 4626 5026 5027)
 class MonitorStubProvider final : public RedXeComObject<MonitorStubProvider, IRedXeWidgetProvider>
 {
-  public:
-    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             uint32_t* count) noexcept override
+public:
+    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -45,28 +44,27 @@ class MonitorStubProvider final : public RedXeComObject<MonitorStubProvider, IRe
         {
             *count = 0;
         }
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
         {
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<uint32_t>(kWidgetTypes.size());
+        *count       = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
-                                           IRedXeWidget** widget) noexcept override
+    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId, IRedXeWidget** widget) noexcept override
     {
-        if (!widget)
+        if (! widget)
         {
             return E_POINTER;
         }
         *widget = nullptr;
-        if (!typeId || !instanceId || instanceId[0] == '\0')
+        if (! typeId || ! instanceId || instanceId[0] == '\0')
         {
             return E_INVALIDARG;
         }
-        if (!RedXeAsciiEqualsIgnoreCase(typeId, kMonitorWidgetTypeId))
+        if (! RedXeAsciiEqualsIgnoreCase(typeId, kMonitorWidgetTypeId))
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
@@ -77,8 +75,7 @@ class MonitorStubProvider final : public RedXeComObject<MonitorStubProvider, IRe
 
 } // namespace
 
-HRESULT CreateMonitorProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
-                              void** result) noexcept
+HRESULT CreateMonitorProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*, void** result) noexcept
 {
     if (interfaceId != __uuidof(IRedXeWidgetProvider))
     {
@@ -90,7 +87,7 @@ HRESULT CreateMonitorProvider(REFIID interfaceId, const RedXeFactoryOptions* opt
         return configurationResult;
     }
     auto* provider = new (std::nothrow) MonitorStubProvider();
-    if (!provider)
+    if (! provider)
     {
         return E_OUTOFMEMORY;
     }

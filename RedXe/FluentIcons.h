@@ -15,31 +15,31 @@
 // and give every glyph a Unicode fallback.
 namespace FluentIcons
 {
-inline constexpr wchar_t kFontFamily[] = L"Segoe Fluent Icons";
+inline constexpr wchar_t kFontFamily[]       = L"Segoe Fluent Icons";
 inline constexpr wchar_t kLegacyFontFamily[] = L"Segoe MDL2 Assets";
-inline constexpr wchar_t kTextFontFamily[] = L"Segoe UI";
+inline constexpr wchar_t kTextFontFamily[]   = L"Segoe UI";
 
 // Segoe Fluent Icons private-use glyphs.
 // https://learn.microsoft.com/windows/apps/design/style/segoe-fluent-icons-font
 // Written as escapes so the private-use code points survive every editor and diff tool.
-inline constexpr wchar_t kChevronLeft = L'\xE76B';
+inline constexpr wchar_t kChevronLeft  = L'\xE76B';
 inline constexpr wchar_t kChevronRight = L'\xE76C';
-inline constexpr wchar_t kChevronUp = L'\xE70E';
-inline constexpr wchar_t kChevronDown = L'\xE70D';
-inline constexpr wchar_t kClear = L'\xE894';
-inline constexpr wchar_t kWarning = L'\xE7BA';
-inline constexpr wchar_t kError = L'\xEA39';
-inline constexpr wchar_t kInfo = L'\xE946';
+inline constexpr wchar_t kChevronUp    = L'\xE70E';
+inline constexpr wchar_t kChevronDown  = L'\xE70D';
+inline constexpr wchar_t kClear        = L'\xE894';
+inline constexpr wchar_t kWarning      = L'\xE7BA';
+inline constexpr wchar_t kError        = L'\xEA39';
+inline constexpr wchar_t kInfo         = L'\xE946';
 
 // Standard Unicode stand-ins used when no icon font is installed.
-inline constexpr wchar_t kFallbackChevronLeft = L'\x2039';  // single left-pointing angle quotation mark
+inline constexpr wchar_t kFallbackChevronLeft  = L'\x2039'; // single left-pointing angle quotation mark
 inline constexpr wchar_t kFallbackChevronRight = L'\x203A'; // single right-pointing angle quotation mark
-inline constexpr wchar_t kFallbackChevronUp = L'\x25B4';
-inline constexpr wchar_t kFallbackChevronDown = L'\x25BE';
-inline constexpr wchar_t kFallbackClear = L'\x00D7'; // multiplication sign
-inline constexpr wchar_t kFallbackWarning = L'\x26A0';
-inline constexpr wchar_t kFallbackError = L'\x2716';
-inline constexpr wchar_t kFallbackInfo = L'\x2139';
+inline constexpr wchar_t kFallbackChevronUp    = L'\x25B4';
+inline constexpr wchar_t kFallbackChevronDown  = L'\x25BE';
+inline constexpr wchar_t kFallbackClear        = L'\x00D7'; // multiplication sign
+inline constexpr wchar_t kFallbackWarning      = L'\x26A0';
+inline constexpr wchar_t kFallbackError        = L'\x2716';
+inline constexpr wchar_t kFallbackInfo         = L'\x2139';
 
 // Which glyph set a resolved font family can actually draw.
 enum class IconFont
@@ -52,12 +52,12 @@ enum class IconFont
 
 [[nodiscard]] inline bool CollectionHasFamily(IDWriteFontCollection* collection, const wchar_t* family) noexcept
 {
-    if (!collection || !family || family[0] == L'\0')
+    if (! collection || ! family || family[0] == L'\0')
     {
         return false;
     }
     UINT32 index = 0;
-    BOOL exists = FALSE;
+    BOOL exists  = FALSE;
     return SUCCEEDED(collection->FindFamilyName(family, &index, &exists)) && exists != FALSE;
 }
 

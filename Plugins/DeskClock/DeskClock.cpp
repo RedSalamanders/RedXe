@@ -31,14 +31,16 @@
 
 namespace
 {
-constexpr char kPluginId[] = "builtin.desk-clock";
+constexpr char kPluginId[]     = "builtin.desk-clock";
 constexpr char kWidgetTypeId[] = "desk-clock";
 constexpr char kSettingsSchema[] =
     R"json({"type":"object","additionalProperties":false,"properties":{"flipDurationMilliseconds":{"type":"integer","minimum":250,"maximum":800},"cardColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"digitColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"},"dateColor":{"type":"string","pattern":"^#[0-9A-Fa-f]{6}$"}}})json";
-constexpr char kSettingsDefaults[] =
-    R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
+constexpr char kSettingsDefaults[] = R"json({"flipDurationMilliseconds":420,"cardColor":"#FF3B43","digitColor":"#FFFFFF","dateColor":"#D8D8D8"})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
-    sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
+    sizeof(RedXePluginSettingsContract),
+    kSettingsSchema,
+    sizeof(kSettingsSchema) - 1,
+    kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
 };
 
@@ -73,27 +75,27 @@ struct DeskClockConfiguration final
     uint32_t flipDurationMilliseconds = 420;
     // Host-resolved dashboard background from RedXeFactoryOptions, never a settings member of this plugin.
     uint32_t backgroundColor = kRedXeDefaultBackgroundColor & 0x00FFFFFFu;
-    uint32_t cardColor = 0xFF3B43;
-    uint32_t digitColor = 0xFFFFFF;
-    uint32_t dateColor = 0xD8D8D8;
+    uint32_t cardColor       = 0xFF3B43;
+    uint32_t digitColor      = 0xFFFFFF;
+    uint32_t dateColor       = 0xD8D8D8;
 };
 
 enum ConfigurationMember : uint32_t
 {
     ConfigurationDuration = 1U << 0U,
-    ConfigurationCard = 1U << 1U,
-    ConfigurationDigit = 1U << 2U,
-    ConfigurationDate = 1U << 3U,
+    ConfigurationCard     = 1U << 1U,
+    ConfigurationDigit    = 1U << 2U,
+    ConfigurationDate     = 1U << 3U,
 };
 
 inline constexpr uint32_t kAllConfigurationMembers = (1U << 4U) - 1U;
-inline constexpr uint32_t kDateGlyphCapacity = 10;
-inline constexpr uint32_t kNoGlyph = std::numeric_limits<uint32_t>::max();
-inline constexpr uint32_t kTimeGlyphCount = 10;
-inline constexpr uint32_t kDateDigitOffset = kTimeGlyphCount;
-inline constexpr uint32_t kDateGlyphCount = 62;
-inline constexpr uint32_t kGlyphCount = kDateDigitOffset + kDateGlyphCount;
-inline constexpr uint32_t kGlyphAtlasSize = 1024;
+inline constexpr uint32_t kDateGlyphCapacity       = 10;
+inline constexpr uint32_t kNoGlyph                 = std::numeric_limits<uint32_t>::max();
+inline constexpr uint32_t kTimeGlyphCount          = 10;
+inline constexpr uint32_t kDateDigitOffset         = kTimeGlyphCount;
+inline constexpr uint32_t kDateGlyphCount          = 62;
+inline constexpr uint32_t kGlyphCount              = kDateDigitOffset + kDateGlyphCount;
+inline constexpr uint32_t kGlyphAtlasSize          = 1024;
 
 // The atlas is rasterized once at a fixed em size and then scaled to whatever the tile is, so the glyphs are almost
 // always minified: a time cell is 192x288 while the on-screen glyph is 152x254 at the design size and smaller on
@@ -127,14 +129,14 @@ inline constexpr uint32_t kGlyphAtlasMipLevels = 3;
 
 inline constexpr uint32_t kGlyphAtlasBytes = GlyphAtlasLevelOffset(kGlyphAtlasMipLevels);
 static_assert(kGlyphAtlasBytes == 1024U * 1024U + 512U * 512U + 256U * 256U);
-inline constexpr uint32_t kTimeCellWidth = 192;
-inline constexpr uint32_t kTimeCellHeight = 288;
+inline constexpr uint32_t kTimeCellWidth   = 192;
+inline constexpr uint32_t kTimeCellHeight  = 288;
 inline constexpr uint32_t kTimeCellColumns = 5;
-inline constexpr uint32_t kDateCellSize = 64;
+inline constexpr uint32_t kDateCellSize    = 64;
 inline constexpr uint32_t kDateCellColumns = 16;
-inline constexpr uint32_t kDateAtlasTop = 640;
-inline constexpr float kTimeFontEmSize = 270.0f;
-inline constexpr float kDateFontEmSize = 64.0f;
+inline constexpr uint32_t kDateAtlasTop    = 640;
+inline constexpr float kTimeFontEmSize     = 270.0f;
+inline constexpr float kDateFontEmSize     = 64.0f;
 
 // Atlas resolution tiers.
 //
@@ -184,10 +186,9 @@ static_assert(kGlyphAtlasMaximumBytes < 6U * 1024U * 1024U);
     {
         return 1;
     }
-    const float compositionScale =
-        std::min(static_cast<float>(targetWidth) / 1450.0f, static_cast<float>(targetHeight) / 600.0f);
+    const float compositionScale   = std::min(static_cast<float>(targetWidth) / 1450.0f, static_cast<float>(targetHeight) / 600.0f);
     const float requiredCellHeight = 0.82f * 310.0f * compositionScale;
-    uint32_t scale = 1;
+    uint32_t scale                 = 1;
     while (scale < kGlyphAtlasMaxScale && static_cast<float>(kTimeCellHeight * scale) < requiredCellHeight)
     {
         ++scale;
@@ -231,7 +232,7 @@ std::atomic<uint64_t> gTestTime{0};
 
 [[nodiscard]] bool ParseSettingsObject(RedXeSettingsCursor& cursor, DeskClockConfiguration& configuration) noexcept
 {
-    if (!cursor.Consume('{'))
+    if (! cursor.Consume('{'))
     {
         return false;
     }
@@ -240,7 +241,7 @@ std::atomic<uint64_t> gTestTime{0};
     for (;;)
     {
         std::string_view key;
-        if (!cursor.ReadString(key) || !cursor.Consume(':'))
+        if (! cursor.ReadString(key) || ! cursor.Consume(':'))
         {
             return false;
         }
@@ -255,40 +256,39 @@ std::atomic<uint64_t> gTestTime{0};
         std::string_view text;
         switch (member)
         {
-        case ConfigurationDuration:
-            if (!cursor.ReadUnsigned(number) || number < 250 || number > 800)
-            {
-                return false;
-            }
-            parsed.flipDurationMilliseconds = number;
-            break;
-        case ConfigurationCard:
-            if (!cursor.ReadString(text) || !RedXeParseHexColor(text, parsed.cardColor))
-            {
-                return false;
-            }
-            break;
-        case ConfigurationDigit:
-            if (!cursor.ReadString(text) || !RedXeParseHexColor(text, parsed.digitColor))
-            {
-                return false;
-            }
-            break;
-        case ConfigurationDate:
-            if (!cursor.ReadString(text) || !RedXeParseHexColor(text, parsed.dateColor))
-            {
-                return false;
-            }
-            break;
-        default:
-            return false;
+            case ConfigurationDuration:
+                if (! cursor.ReadUnsigned(number) || number < 250 || number > 800)
+                {
+                    return false;
+                }
+                parsed.flipDurationMilliseconds = number;
+                break;
+            case ConfigurationCard:
+                if (! cursor.ReadString(text) || ! RedXeParseHexColor(text, parsed.cardColor))
+                {
+                    return false;
+                }
+                break;
+            case ConfigurationDigit:
+                if (! cursor.ReadString(text) || ! RedXeParseHexColor(text, parsed.digitColor))
+                {
+                    return false;
+                }
+                break;
+            case ConfigurationDate:
+                if (! cursor.ReadString(text) || ! RedXeParseHexColor(text, parsed.dateColor))
+                {
+                    return false;
+                }
+                break;
+            default: return false;
         }
 
         if (cursor.Consume('}'))
         {
             break;
         }
-        if (!cursor.Consume(','))
+        if (! cursor.Consume(','))
         {
             return false;
         }
@@ -304,24 +304,24 @@ std::atomic<uint64_t> gTestTime{0};
 [[nodiscard]] bool ParseNormalizedConfiguration(std::string_view json, DeskClockConfiguration& configuration) noexcept
 {
     RedXeSettingsCursor cursor(json);
-    if (!cursor.Consume('{'))
+    if (! cursor.Consume('{'))
     {
         return false;
     }
-    constexpr uint32_t pluginSeen = 1U << 0U;
+    constexpr uint32_t pluginSeen   = 1U << 0U;
     constexpr uint32_t instanceSeen = 1U << 1U;
-    uint32_t seen = 0;
+    uint32_t seen                   = 0;
     DeskClockConfiguration parsed{};
     for (;;)
     {
         std::string_view key;
-        if (!cursor.ReadString(key) || !cursor.Consume(':'))
+        if (! cursor.ReadString(key) || ! cursor.Consume(':'))
         {
             return false;
         }
         if (key == "plugin")
         {
-            if ((seen & pluginSeen) != 0 || !cursor.Consume('{') || !cursor.Consume('}'))
+            if ((seen & pluginSeen) != 0 || ! cursor.Consume('{') || ! cursor.Consume('}'))
             {
                 return false;
             }
@@ -329,7 +329,7 @@ std::atomic<uint64_t> gTestTime{0};
         }
         else if (key == "instance")
         {
-            if ((seen & instanceSeen) != 0 || !ParseSettingsObject(cursor, parsed))
+            if ((seen & instanceSeen) != 0 || ! ParseSettingsObject(cursor, parsed))
             {
                 return false;
             }
@@ -343,12 +343,12 @@ std::atomic<uint64_t> gTestTime{0};
         {
             break;
         }
-        if (!cursor.Consume(','))
+        if (! cursor.Consume(','))
         {
             return false;
         }
     }
-    if (seen != (pluginSeen | instanceSeen) || !cursor.AtEnd())
+    if (seen != (pluginSeen | instanceSeen) || ! cursor.AtEnd())
     {
         return false;
     }
@@ -356,11 +356,10 @@ std::atomic<uint64_t> gTestTime{0};
     return true;
 }
 
-[[nodiscard]] HRESULT ReadFactoryConfiguration(const RedXeFactoryOptions* options,
-                                               DeskClockConfiguration& configuration) noexcept
+[[nodiscard]] HRESULT ReadFactoryConfiguration(const RedXeFactoryOptions* options, DeskClockConfiguration& configuration) noexcept
 {
     configuration = DeskClockConfiguration{};
-    if (!options)
+    if (! options)
     {
         return S_OK;
     }
@@ -369,24 +368,24 @@ std::atomic<uint64_t> gTestTime{0};
         return E_INVALIDARG;
     }
     configuration.backgroundColor = RedXeBackgroundRgb(options);
-    const char* json = options->configurationJsonUtf8;
-    const uint32_t bytes = options->configurationBytes;
-    if (!json && bytes == 0)
+    const char* json              = options->configurationJsonUtf8;
+    const uint32_t bytes          = options->configurationBytes;
+    if (! json && bytes == 0)
     {
         return S_OK;
     }
-    if (!json || bytes == 0 || bytes > kRedXeMaximumFactoryConfigurationBytes)
+    if (! json || bytes == 0 || bytes > kRedXeMaximumFactoryConfigurationBytes)
     {
         return E_INVALIDARG;
     }
     DeskClockConfiguration parsed{};
     const std::string_view text(json, bytes);
-    if (!ParseNormalizedConfiguration(text, parsed))
+    if (! ParseNormalizedConfiguration(text, parsed))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     parsed.backgroundColor = configuration.backgroundColor;
-    configuration = parsed;
+    configuration          = parsed;
     return S_OK;
 }
 
@@ -442,7 +441,7 @@ struct GlyphAtlasBuildResult final
     std::unique_ptr<std::uint8_t[]> pixels;
     std::array<float, kDateGlyphCount> dateAdvances{};
     float dateSpaceAdvance = 0.0f;
-    uint32_t scale = 1;
+    uint32_t scale         = 1;
 };
 #pragma warning(pop)
 
@@ -459,13 +458,13 @@ struct GlyphAtlasBuildResult final
     for (const wchar_t* familyName : families)
     {
         UINT32 familyIndex = 0;
-        BOOL exists = FALSE;
-        result = collection->FindFamilyName(familyName, &familyIndex, &exists);
+        BOOL exists        = FALSE;
+        result             = collection->FindFamilyName(familyName, &familyIndex, &exists);
         if (FAILED(result))
         {
             return result;
         }
-        if (!exists)
+        if (! exists)
         {
             continue;
         }
@@ -477,8 +476,7 @@ struct GlyphAtlasBuildResult final
             return result;
         }
         wil::com_ptr_nothrow<IDWriteFont> font;
-        result = family->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STRETCH_CONDENSED,
-                                              DWRITE_FONT_STYLE_NORMAL, font.put());
+        result = family->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STRETCH_CONDENSED, DWRITE_FONT_STYLE_NORMAL, font.put());
         if (FAILED(result))
         {
             return result;
@@ -492,11 +490,10 @@ struct GlyphAtlasBuildResult final
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
 
-[[nodiscard]] HRESULT ReadGlyphMetrics(IDWriteFontFace& face, wchar_t character, DWRITE_GLYPH_METRICS& metrics,
-                                       UINT16& glyphIndex) noexcept
+[[nodiscard]] HRESULT ReadGlyphMetrics(IDWriteFontFace& face, wchar_t character, DWRITE_GLYPH_METRICS& metrics, UINT16& glyphIndex) noexcept
 {
     const UINT32 codePoint = static_cast<UINT32>(character);
-    HRESULT result = face.GetGlyphIndices(&codePoint, 1, &glyphIndex);
+    HRESULT result         = face.GetGlyphIndices(&codePoint, 1, &glyphIndex);
     if (FAILED(result))
     {
         return result;
@@ -508,13 +505,21 @@ struct GlyphAtlasBuildResult final
     return face.GetDesignGlyphMetrics(&glyphIndex, 1, &metrics, FALSE);
 }
 
-[[nodiscard]] HRESULT RasterizeGlyph(IDWriteFactory& factory, IDWriteFontFace& face, wchar_t character,
-                                     float fontEmSize, uint32_t cellWidth, uint32_t cellHeight, uint32_t atlasX,
-                                     uint32_t atlasY, bool fixedDateOrigin, std::uint8_t* atlasPixels,
-                                     uint32_t atlasStride, std::uint8_t* scratch, uint32_t scratchBytes) noexcept
+[[nodiscard]] HRESULT RasterizeGlyph(IDWriteFactory& factory,
+                                     IDWriteFontFace& face,
+                                     wchar_t character,
+                                     float fontEmSize,
+                                     uint32_t cellWidth,
+                                     uint32_t cellHeight,
+                                     uint32_t atlasX,
+                                     uint32_t atlasY,
+                                     bool fixedDateOrigin,
+                                     std::uint8_t* atlasPixels,
+                                     uint32_t atlasStride,
+                                     std::uint8_t* scratch,
+                                     uint32_t scratchBytes) noexcept
 {
-    if (!atlasPixels || !scratch || atlasStride == 0 || atlasX + cellWidth > atlasStride ||
-        atlasY + cellHeight > atlasStride)
+    if (! atlasPixels || ! scratch || atlasStride == 0 || atlasX + cellWidth > atlasStride || atlasY + cellHeight > atlasStride)
     {
         return E_INVALIDARG;
     }
@@ -534,23 +539,28 @@ struct GlyphAtlasBuildResult final
     }
 
     const float designScale = fontEmSize / static_cast<float>(fontMetrics.designUnitsPerEm);
-    const float advance = static_cast<float>(glyphMetrics.advanceWidth) * designScale;
-    const float inkWidth = static_cast<float>(static_cast<std::int64_t>(glyphMetrics.advanceWidth) -
-                                              glyphMetrics.leftSideBearing - glyphMetrics.rightSideBearing) *
-                           designScale;
-    const float baselineX = fixedDateOrigin ? kDateBaselineX
-                                            : (static_cast<float>(cellWidth) - inkWidth) * 0.5f -
-                                                  static_cast<float>(glyphMetrics.leftSideBearing) * designScale;
-    const float descent = fixedDateOrigin ? static_cast<float>(fontMetrics.descent) * designScale : 0.0f;
+    const float advance     = static_cast<float>(glyphMetrics.advanceWidth) * designScale;
+    const float inkWidth =
+        static_cast<float>(static_cast<std::int64_t>(glyphMetrics.advanceWidth) - glyphMetrics.leftSideBearing - glyphMetrics.rightSideBearing) * designScale;
+    const float baselineX =
+        fixedDateOrigin ? kDateBaselineX : (static_cast<float>(cellWidth) - inkWidth) * 0.5f - static_cast<float>(glyphMetrics.leftSideBearing) * designScale;
+    const float descent   = fixedDateOrigin ? static_cast<float>(fontMetrics.descent) * designScale : 0.0f;
     const float capHeight = static_cast<float>(fontMetrics.capHeight) * designScale;
     const float baselineY = (static_cast<float>(cellHeight) - capHeight - descent) * 0.5f + capHeight;
 
     const DWRITE_GLYPH_RUN run{
-        &face, fontEmSize, 1, &glyphIndex, &advance, nullptr, FALSE, 0,
+        &face,
+        fontEmSize,
+        1,
+        &glyphIndex,
+        &advance,
+        nullptr,
+        FALSE,
+        0,
     };
     wil::com_ptr_nothrow<IDWriteGlyphRunAnalysis> analysis;
-    result = factory.CreateGlyphRunAnalysis(&run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
-                                            DWRITE_MEASURING_MODE_NATURAL, baselineX, baselineY, analysis.put());
+    result = factory.CreateGlyphRunAnalysis(
+        &run, 1.0f, nullptr, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC, DWRITE_MEASURING_MODE_NATURAL, baselineX, baselineY, analysis.put());
     if (FAILED(result))
     {
         return result;
@@ -562,20 +572,19 @@ struct GlyphAtlasBuildResult final
     {
         return result;
     }
-    if (bounds.left < 0 || bounds.top < 0 || bounds.right > static_cast<LONG>(cellWidth) ||
-        bounds.bottom > static_cast<LONG>(cellHeight) || bounds.right <= bounds.left || bounds.bottom <= bounds.top)
+    if (bounds.left < 0 || bounds.top < 0 || bounds.right > static_cast<LONG>(cellWidth) || bounds.bottom > static_cast<LONG>(cellHeight) ||
+        bounds.right <= bounds.left || bounds.bottom <= bounds.top)
     {
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
     }
-    const uint32_t width = static_cast<uint32_t>(bounds.right - bounds.left);
-    const uint32_t height = static_cast<uint32_t>(bounds.bottom - bounds.top);
+    const uint32_t width         = static_cast<uint32_t>(bounds.right - bounds.left);
+    const uint32_t height        = static_cast<uint32_t>(bounds.bottom - bounds.top);
     const uint64_t requiredBytes = static_cast<uint64_t>(width) * height * 3U;
     if (requiredBytes > scratchBytes)
     {
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
     }
-    result = analysis->CreateAlphaTexture(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds, scratch,
-                                          static_cast<UINT32>(requiredBytes));
+    result = analysis->CreateAlphaTexture(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds, scratch, static_cast<UINT32>(requiredBytes));
     if (FAILED(result))
     {
         return result;
@@ -585,12 +594,10 @@ struct GlyphAtlasBuildResult final
     {
         for (uint32_t x = 0; x < width; ++x)
         {
-            const size_t source = (static_cast<size_t>(y) * width + x) * 3U;
-            const uint32_t coverage =
-                static_cast<uint32_t>(scratch[source]) + scratch[source + 1U] + scratch[source + 2U];
+            const size_t source     = (static_cast<size_t>(y) * width + x) * 3U;
+            const uint32_t coverage = static_cast<uint32_t>(scratch[source]) + scratch[source + 1U] + scratch[source + 2U];
             const size_t destination =
-                static_cast<size_t>(atlasY + static_cast<uint32_t>(bounds.top) + y) * atlasStride + atlasX +
-                static_cast<uint32_t>(bounds.left) + x;
+                static_cast<size_t>(atlasY + static_cast<uint32_t>(bounds.top) + y) * atlasStride + atlasX + static_cast<uint32_t>(bounds.left) + x;
             atlasPixels[destination] = static_cast<std::uint8_t>((coverage + 1U) / 3U);
         }
     }
@@ -603,26 +610,26 @@ struct GlyphAtlasBuildResult final
     {
         return E_INVALIDARG;
     }
-    const uint32_t atlasStride = kGlyphAtlasSize * scale;
-    const uint32_t timeCellWidth = kTimeCellWidth * scale;
+    const uint32_t atlasStride    = kGlyphAtlasSize * scale;
+    const uint32_t timeCellWidth  = kTimeCellWidth * scale;
     const uint32_t timeCellHeight = kTimeCellHeight * scale;
-    const uint32_t dateCellSize = kDateCellSize * scale;
-    const uint32_t dateAtlasTop = kDateAtlasTop * scale;
-    const float timeEmSize = kTimeFontEmSize * static_cast<float>(scale);
-    const float dateEmSize = kDateFontEmSize * static_cast<float>(scale);
+    const uint32_t dateCellSize   = kDateCellSize * scale;
+    const uint32_t dateAtlasTop   = kDateAtlasTop * scale;
+    const float timeEmSize        = kTimeFontEmSize * static_cast<float>(scale);
+    const float dateEmSize        = kDateFontEmSize * static_cast<float>(scale);
 
     GlyphAtlasBuildResult built{};
     built.scale = scale;
     built.pixels.reset(new (std::nothrow) std::uint8_t[GlyphAtlasBytesForScale(scale)]{});
     const uint32_t scratchBytes = timeCellWidth * timeCellHeight * 3U;
     std::unique_ptr<std::uint8_t[]> scratch(new (std::nothrow) std::uint8_t[scratchBytes]);
-    if (!built.pixels || !scratch)
+    if (! built.pixels || ! scratch)
     {
         return E_OUTOFMEMORY;
     }
 
     wil::unique_hmodule directWrite{LoadLibraryExW(L"dwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)};
-    if (!directWrite)
+    if (! directWrite)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -632,13 +639,12 @@ struct GlyphAtlasBuildResult final
 // Owner: RedXe maintainers; review: 2027-01-31.
 #pragma warning(suppress : 4191)
         reinterpret_cast<DWriteCreateFactoryFn>(GetProcAddress(directWrite.get(), "DWriteCreateFactory"));
-    if (!createFactory)
+    if (! createFactory)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
     wil::com_ptr_nothrow<IDWriteFactory> factory;
-    HRESULT result = createFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory),
-                                   reinterpret_cast<IUnknown**>(factory.put()));
+    HRESULT result = createFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(factory.put()));
     if (FAILED(result))
     {
         return result;
@@ -654,9 +660,19 @@ struct GlyphAtlasBuildResult final
     {
         const uint32_t atlasX = (digit % kTimeCellColumns) * timeCellWidth;
         const uint32_t atlasY = (digit / kTimeCellColumns) * timeCellHeight;
-        result = RasterizeGlyph(*factory, *face, static_cast<wchar_t>(L'0' + digit), timeEmSize, timeCellWidth,
-                                timeCellHeight, atlasX, atlasY, false, built.pixels.get(), atlasStride, scratch.get(),
-                                scratchBytes);
+        result                = RasterizeGlyph(*factory,
+                                               *face,
+                                               static_cast<wchar_t>(L'0' + digit),
+                                               timeEmSize,
+                                               timeCellWidth,
+                                               timeCellHeight,
+                                               atlasX,
+                                               atlasY,
+                                               false,
+                                               built.pixels.get(),
+                                               atlasStride,
+                                               scratch.get(),
+                                               scratchBytes);
         if (FAILED(result))
         {
             return result;
@@ -682,10 +698,21 @@ struct GlyphAtlasBuildResult final
             return result;
         }
         built.dateAdvances[index] = static_cast<float>(metrics.advanceWidth) * inverseEm;
-        const uint32_t atlasX = (index % kDateCellColumns) * dateCellSize;
-        const uint32_t atlasY = dateAtlasTop + (index / kDateCellColumns) * dateCellSize;
-        result = RasterizeGlyph(*factory, *face, dateCharacters[index], dateEmSize, dateCellSize, dateCellSize, atlasX,
-                                atlasY, true, built.pixels.get(), atlasStride, scratch.get(), scratchBytes);
+        const uint32_t atlasX     = (index % kDateCellColumns) * dateCellSize;
+        const uint32_t atlasY     = dateAtlasTop + (index / kDateCellColumns) * dateCellSize;
+        result                    = RasterizeGlyph(*factory,
+                                                   *face,
+                                                   dateCharacters[index],
+                                                   dateEmSize,
+                                                   dateCellSize,
+                                                   dateCellSize,
+                                                   atlasX,
+                                                   atlasY,
+                                                   true,
+                                                   built.pixels.get(),
+                                                   atlasStride,
+                                                   scratch.get(),
+                                                   scratchBytes);
         if (FAILED(result))
         {
             return result;
@@ -705,20 +732,19 @@ struct GlyphAtlasBuildResult final
     // an alpha atlas, and doing it here keeps the texture immutable and needs no device context.
     for (uint32_t level = 1; level < kGlyphAtlasMipLevels; ++level)
     {
-        const uint32_t sourceSize = GlyphAtlasLevelSizeForScale(level - 1, scale);
-        const uint32_t targetSize = GlyphAtlasLevelSizeForScale(level, scale);
+        const uint32_t sourceSize  = GlyphAtlasLevelSizeForScale(level - 1, scale);
+        const uint32_t targetSize  = GlyphAtlasLevelSizeForScale(level, scale);
         const std::uint8_t* source = built.pixels.get() + GlyphAtlasLevelOffsetForScale(level - 1, scale);
-        std::uint8_t* target = built.pixels.get() + GlyphAtlasLevelOffsetForScale(level, scale);
+        std::uint8_t* target       = built.pixels.get() + GlyphAtlasLevelOffsetForScale(level, scale);
         for (uint32_t y = 0; y < targetSize; ++y)
         {
             const std::uint8_t* upper = source + static_cast<size_t>(y * 2U) * sourceSize;
             const std::uint8_t* lower = upper + sourceSize;
-            std::uint8_t* row = target + static_cast<size_t>(y) * targetSize;
+            std::uint8_t* row         = target + static_cast<size_t>(y) * targetSize;
             for (uint32_t x = 0; x < targetSize; ++x)
             {
-                const uint32_t sum =
-                    static_cast<uint32_t>(upper[x * 2U]) + upper[x * 2U + 1U] + lower[x * 2U] + lower[x * 2U + 1U];
-                row[x] = static_cast<std::uint8_t>((sum + 2U) / 4U);
+                const uint32_t sum = static_cast<uint32_t>(upper[x * 2U]) + upper[x * 2U + 1U] + lower[x * 2U] + lower[x * 2U + 1U];
+                row[x]             = static_cast<std::uint8_t>((sum + 2U) / 4U);
             }
         }
     }
@@ -730,28 +756,29 @@ struct GlyphAtlasBuildResult final
 
 // Creates the atlas texture and view for one built tier. Shared by first initialization and by a later tier change,
 // so both paths produce identical resources.
-[[nodiscard]] HRESULT CreateAtlasResources(ID3D11Device& device, const GlyphAtlasBuildResult& glyphAtlas,
+[[nodiscard]] HRESULT CreateAtlasResources(ID3D11Device& device,
+                                           const GlyphAtlasBuildResult& glyphAtlas,
                                            wil::com_ptr_nothrow<ID3D11Texture2D>& atlas,
                                            wil::com_ptr_nothrow<ID3D11ShaderResourceView>& atlasView) noexcept
 {
-    if (!glyphAtlas.pixels || glyphAtlas.scale == 0 || glyphAtlas.scale > kGlyphAtlasMaxScale)
+    if (! glyphAtlas.pixels || glyphAtlas.scale == 0 || glyphAtlas.scale > kGlyphAtlasMaxScale)
     {
         return E_INVALIDARG;
     }
     const uint32_t atlasEdge = kGlyphAtlasSize * glyphAtlas.scale;
     D3D11_TEXTURE2D_DESC atlasDescription{};
-    atlasDescription.Width = atlasEdge;
-    atlasDescription.Height = atlasEdge;
-    atlasDescription.MipLevels = kGlyphAtlasMipLevels;
-    atlasDescription.ArraySize = 1;
-    atlasDescription.Format = DXGI_FORMAT_R8_UNORM;
+    atlasDescription.Width            = atlasEdge;
+    atlasDescription.Height           = atlasEdge;
+    atlasDescription.MipLevels        = kGlyphAtlasMipLevels;
+    atlasDescription.ArraySize        = 1;
+    atlasDescription.Format           = DXGI_FORMAT_R8_UNORM;
     atlasDescription.SampleDesc.Count = 1;
-    atlasDescription.Usage = D3D11_USAGE_IMMUTABLE;
-    atlasDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    atlasDescription.Usage            = D3D11_USAGE_IMMUTABLE;
+    atlasDescription.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
     std::array<D3D11_SUBRESOURCE_DATA, kGlyphAtlasMipLevels> atlasData{};
     for (uint32_t level = 0; level < kGlyphAtlasMipLevels; ++level)
     {
-        atlasData[level].pSysMem = glyphAtlas.pixels.get() + GlyphAtlasLevelOffsetForScale(level, glyphAtlas.scale);
+        atlasData[level].pSysMem     = glyphAtlas.pixels.get() + GlyphAtlasLevelOffsetForScale(level, glyphAtlas.scale);
         atlasData[level].SysMemPitch = GlyphAtlasLevelSizeForScale(level, glyphAtlas.scale);
     }
     wil::com_ptr_nothrow<ID3D11Texture2D> created;
@@ -766,14 +793,14 @@ struct GlyphAtlasBuildResult final
     {
         return result;
     }
-    atlas = std::move(created);
+    atlas     = std::move(created);
     atlasView = std::move(createdView);
     return S_OK;
 }
 
 class DeskClockDeviceResources final
 {
-  public:
+public:
     ~DeskClockDeviceResources()
     {
         Reset();
@@ -781,7 +808,7 @@ class DeskClockDeviceResources final
 
     [[nodiscard]] HRESULT Initialize(ID3D11Device* device) noexcept
     {
-        if (!device)
+        if (! device)
         {
             return E_POINTER;
         }
@@ -799,29 +826,25 @@ class DeskClockDeviceResources final
 
         wil::com_ptr_nothrow<ID3D11VertexShader> backgroundVertexShader;
         result =
-            device->CreateVertexShader(g_DeskClockBackgroundVertexShader, sizeof(g_DeskClockBackgroundVertexShader),
-                                       nullptr, backgroundVertexShader.put());
+            device->CreateVertexShader(g_DeskClockBackgroundVertexShader, sizeof(g_DeskClockBackgroundVertexShader), nullptr, backgroundVertexShader.put());
         if (FAILED(result))
         {
             return result;
         }
         wil::com_ptr_nothrow<ID3D11PixelShader> backgroundPixelShader;
-        result = device->CreatePixelShader(g_DeskClockBackgroundPixelShader, sizeof(g_DeskClockBackgroundPixelShader),
-                                           nullptr, backgroundPixelShader.put());
+        result = device->CreatePixelShader(g_DeskClockBackgroundPixelShader, sizeof(g_DeskClockBackgroundPixelShader), nullptr, backgroundPixelShader.put());
         if (FAILED(result))
         {
             return result;
         }
         wil::com_ptr_nothrow<ID3D11VertexShader> clockVertexShader;
-        result = device->CreateVertexShader(g_DeskClockVertexShader, sizeof(g_DeskClockVertexShader), nullptr,
-                                            clockVertexShader.put());
+        result = device->CreateVertexShader(g_DeskClockVertexShader, sizeof(g_DeskClockVertexShader), nullptr, clockVertexShader.put());
         if (FAILED(result))
         {
             return result;
         }
         wil::com_ptr_nothrow<ID3D11PixelShader> clockPixelShader;
-        result = device->CreatePixelShader(g_DeskClockPixelShader, sizeof(g_DeskClockPixelShader), nullptr,
-                                           clockPixelShader.put());
+        result = device->CreatePixelShader(g_DeskClockPixelShader, sizeof(g_DeskClockPixelShader), nullptr, clockPixelShader.put());
         if (FAILED(result))
         {
             return result;
@@ -835,11 +858,11 @@ class DeskClockDeviceResources final
         }
 
         D3D11_SAMPLER_DESC samplerDescription{};
-        samplerDescription.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        samplerDescription.Filter   = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
         samplerDescription.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
         samplerDescription.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
         samplerDescription.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-        samplerDescription.MaxLOD = D3D11_FLOAT32_MAX;
+        samplerDescription.MaxLOD   = D3D11_FLOAT32_MAX;
         wil::com_ptr_nothrow<ID3D11SamplerState> sampler;
         result = device->CreateSamplerState(&samplerDescription, sampler.put());
         if (FAILED(result))
@@ -848,8 +871,8 @@ class DeskClockDeviceResources final
         }
 
         D3D11_RASTERIZER_DESC rasterizerDescription{};
-        rasterizerDescription.FillMode = D3D11_FILL_SOLID;
-        rasterizerDescription.CullMode = D3D11_CULL_NONE;
+        rasterizerDescription.FillMode        = D3D11_FILL_SOLID;
+        rasterizerDescription.CullMode        = D3D11_CULL_NONE;
         rasterizerDescription.DepthClipEnable = TRUE;
         wil::com_ptr_nothrow<ID3D11RasterizerState> rasterizer;
         result = device->CreateRasterizerState(&rasterizerDescription, rasterizer.put());
@@ -859,9 +882,9 @@ class DeskClockDeviceResources final
         }
 
         D3D11_DEPTH_STENCIL_DESC depthDescription{};
-        depthDescription.DepthEnable = FALSE;
+        depthDescription.DepthEnable    = FALSE;
         depthDescription.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-        depthDescription.DepthFunc = D3D11_COMPARISON_ALWAYS;
+        depthDescription.DepthFunc      = D3D11_COMPARISON_ALWAYS;
         wil::com_ptr_nothrow<ID3D11DepthStencilState> depthState;
         result = device->CreateDepthStencilState(&depthDescription, depthState.put());
         if (FAILED(result))
@@ -880,14 +903,14 @@ class DeskClockDeviceResources final
 
         D3D11_BLEND_DESC alphaDescription{};
         D3D11_RENDER_TARGET_BLEND_DESC& alphaTarget = alphaDescription.RenderTarget[0];
-        alphaTarget.BlendEnable = TRUE;
-        alphaTarget.SrcBlend = D3D11_BLEND_SRC_ALPHA;
-        alphaTarget.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-        alphaTarget.BlendOp = D3D11_BLEND_OP_ADD;
-        alphaTarget.SrcBlendAlpha = D3D11_BLEND_ONE;
-        alphaTarget.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
-        alphaTarget.BlendOpAlpha = D3D11_BLEND_OP_ADD;
-        alphaTarget.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        alphaTarget.BlendEnable                     = TRUE;
+        alphaTarget.SrcBlend                        = D3D11_BLEND_SRC_ALPHA;
+        alphaTarget.DestBlend                       = D3D11_BLEND_INV_SRC_ALPHA;
+        alphaTarget.BlendOp                         = D3D11_BLEND_OP_ADD;
+        alphaTarget.SrcBlendAlpha                   = D3D11_BLEND_ONE;
+        alphaTarget.DestBlendAlpha                  = D3D11_BLEND_INV_SRC_ALPHA;
+        alphaTarget.BlendOpAlpha                    = D3D11_BLEND_OP_ADD;
+        alphaTarget.RenderTargetWriteMask           = D3D11_COLOR_WRITE_ENABLE_ALL;
         wil::com_ptr_nothrow<ID3D11BlendState> alphaBlend;
         result = device->CreateBlendState(&alphaDescription, alphaBlend.put());
         if (FAILED(result))
@@ -896,9 +919,9 @@ class DeskClockDeviceResources final
         }
 
         D3D11_BUFFER_DESC constantDescription{};
-        constantDescription.ByteWidth = sizeof(DeskClockConstants);
-        constantDescription.Usage = D3D11_USAGE_DYNAMIC;
-        constantDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        constantDescription.ByteWidth      = sizeof(DeskClockConstants);
+        constantDescription.Usage          = D3D11_USAGE_DYNAMIC;
+        constantDescription.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
         constantDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         wil::com_ptr_nothrow<ID3D11Buffer> constantBuffer;
         result = device->CreateBuffer(&constantDescription, nullptr, constantBuffer.put());
@@ -908,22 +931,22 @@ class DeskClockDeviceResources final
         }
 
         Reset();
-        _deviceIdentity = device;
+        _deviceIdentity         = device;
         _backgroundVertexShader = std::move(backgroundVertexShader);
-        _backgroundPixelShader = std::move(backgroundPixelShader);
-        _clockVertexShader = std::move(clockVertexShader);
-        _clockPixelShader = std::move(clockPixelShader);
-        _atlas = std::move(atlas);
-        _atlasView = std::move(atlasView);
-        _sampler = std::move(sampler);
-        _rasterizer = std::move(rasterizer);
-        _depthState = std::move(depthState);
-        _opaqueBlend = std::move(opaqueBlend);
-        _alphaBlend = std::move(alphaBlend);
-        _constantBuffer = std::move(constantBuffer);
-        _atlasScale = glyphAtlas.scale;
-        _dateAdvances = glyphAtlas.dateAdvances;
-        _dateSpaceAdvance = glyphAtlas.dateSpaceAdvance;
+        _backgroundPixelShader  = std::move(backgroundPixelShader);
+        _clockVertexShader      = std::move(clockVertexShader);
+        _clockPixelShader       = std::move(clockPixelShader);
+        _atlas                  = std::move(atlas);
+        _atlasView              = std::move(atlasView);
+        _sampler                = std::move(sampler);
+        _rasterizer             = std::move(rasterizer);
+        _depthState             = std::move(depthState);
+        _opaqueBlend            = std::move(opaqueBlend);
+        _alphaBlend             = std::move(alphaBlend);
+        _constantBuffer         = std::move(constantBuffer);
+        _atlasScale             = glyphAtlas.scale;
+        _dateAdvances           = glyphAtlas.dateAdvances;
+        _dateSpaceAdvance       = glyphAtlas.dateSpaceAdvance;
         gLiveDeviceResourceSetCount.fetch_add(1, std::memory_order_relaxed);
         return S_OK;
     }
@@ -950,7 +973,7 @@ class DeskClockDeviceResources final
         {
             return E_INVALIDARG;
         }
-        if (!_deviceIdentity || !_atlasView)
+        if (! _deviceIdentity || ! _atlasView)
         {
             return E_UNEXPECTED;
         }
@@ -974,11 +997,11 @@ class DeskClockDeviceResources final
         }
         // Publish only after both the rasterization and the GPU resources succeeded, so a failure leaves the
         // previous tier fully intact and the widget keeps rendering.
-        _atlas = std::move(atlas);
-        _atlasView = std::move(atlasView);
-        _dateAdvances = glyphAtlas.dateAdvances;
+        _atlas            = std::move(atlas);
+        _atlasView        = std::move(atlasView);
+        _dateAdvances     = glyphAtlas.dateAdvances;
         _dateSpaceAdvance = glyphAtlas.dateSpaceAdvance;
-        _atlasScale = glyphAtlas.scale;
+        _atlasScale       = glyphAtlas.scale;
         return S_OK;
     }
 
@@ -1007,16 +1030,16 @@ class DeskClockDeviceResources final
         _backgroundVertexShader.reset();
         _dateAdvances.fill(0.0f);
         _dateSpaceAdvance = 0.0f;
-        _atlasScale = 1;
-        _deviceIdentity = nullptr;
-        _lastOwner = nullptr;
-        _lastVersion = 0;
+        _atlasScale       = 1;
+        _deviceIdentity   = nullptr;
+        _lastOwner        = nullptr;
+        _lastVersion      = 0;
     }
 
-    [[nodiscard]] HRESULT Render(ID3D11DeviceContext* context, const void* owner, uint64_t version,
-                                 const DeskClockConstants& constants, bool transitionActive) noexcept
+    [[nodiscard]] HRESULT Render(
+        ID3D11DeviceContext* context, const void* owner, uint64_t version, const DeskClockConstants& constants, bool transitionActive) noexcept
     {
-        if (!context || !_constantBuffer)
+        if (! context || ! _constantBuffer)
         {
             return E_UNEXPECTED;
         }
@@ -1030,14 +1053,14 @@ class DeskClockDeviceResources final
             }
             std::memcpy(mapped.pData, &constants, sizeof(constants));
             context->Unmap(_constantBuffer.get(), 0);
-            _lastOwner = owner;
+            _lastOwner   = owner;
             _lastVersion = version;
             gConstantUploadCount.fetch_add(1, std::memory_order_relaxed);
         }
 
-        ID3D11Buffer* constantBuffer = _constantBuffer.get();
+        ID3D11Buffer* constantBuffer        = _constantBuffer.get();
         ID3D11ShaderResourceView* atlasView = _atlasView.get();
-        ID3D11SamplerState* sampler = _sampler.get();
+        ID3D11SamplerState* sampler         = _sampler.get();
         context->IASetInputLayout(nullptr);
         context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         context->RSSetState(_rasterizer.get());
@@ -1061,10 +1084,10 @@ class DeskClockDeviceResources final
         return S_OK;
     }
 
-  private:
+private:
     ID3D11Device* _deviceIdentity = nullptr;
-    const void* _lastOwner = nullptr;
-    uint64_t _lastVersion = 0;
+    const void* _lastOwner        = nullptr;
+    uint64_t _lastVersion         = 0;
     wil::com_ptr_nothrow<ID3D11VertexShader> _backgroundVertexShader;
     wil::com_ptr_nothrow<ID3D11PixelShader> _backgroundPixelShader;
     wil::com_ptr_nothrow<ID3D11VertexShader> _clockVertexShader;
@@ -1085,9 +1108,8 @@ class DeskClockDeviceResources final
 [[nodiscard]] uint64_t PackTestTime(const DeskClockTestTime& time) noexcept
 {
     return (1ULL << 63U) | static_cast<uint64_t>(time.milliseconds) | (static_cast<uint64_t>(time.second) << 10U) |
-           (static_cast<uint64_t>(time.minute) << 16U) | (static_cast<uint64_t>(time.hour) << 22U) |
-           (static_cast<uint64_t>(time.day) << 27U) | (static_cast<uint64_t>(time.dayOfWeek) << 32U) |
-           (static_cast<uint64_t>(time.month) << 35U) | (static_cast<uint64_t>(time.year) << 39U);
+           (static_cast<uint64_t>(time.minute) << 16U) | (static_cast<uint64_t>(time.hour) << 22U) | (static_cast<uint64_t>(time.day) << 27U) |
+           (static_cast<uint64_t>(time.dayOfWeek) << 32U) | (static_cast<uint64_t>(time.month) << 35U) | (static_cast<uint64_t>(time.year) << 39U);
 }
 
 void ReadLocalClock(SYSTEMTIME& time) noexcept
@@ -1099,15 +1121,15 @@ void ReadLocalClock(SYSTEMTIME& time) noexcept
     }
     else
     {
-        time = {};
+        time               = {};
         time.wMilliseconds = static_cast<WORD>(packed & 0x3FFU);
-        time.wSecond = static_cast<WORD>((packed >> 10U) & 0x3FU);
-        time.wMinute = static_cast<WORD>((packed >> 16U) & 0x3FU);
-        time.wHour = static_cast<WORD>((packed >> 22U) & 0x1FU);
-        time.wDay = static_cast<WORD>((packed >> 27U) & 0x1FU);
-        time.wDayOfWeek = static_cast<WORD>((packed >> 32U) & 0x7U);
-        time.wMonth = static_cast<WORD>((packed >> 35U) & 0xFU);
-        time.wYear = static_cast<WORD>((packed >> 39U) & 0xFFFU);
+        time.wSecond       = static_cast<WORD>((packed >> 10U) & 0x3FU);
+        time.wMinute       = static_cast<WORD>((packed >> 16U) & 0x3FU);
+        time.wHour         = static_cast<WORD>((packed >> 22U) & 0x1FU);
+        time.wDay          = static_cast<WORD>((packed >> 27U) & 0x1FU);
+        time.wDayOfWeek    = static_cast<WORD>((packed >> 32U) & 0x7U);
+        time.wMonth        = static_cast<WORD>((packed >> 35U) & 0xFU);
+        time.wYear         = static_cast<WORD>((packed >> 39U) & 0xFFFU);
     }
     gTimeSampleCount.fetch_add(1, std::memory_order_relaxed);
 }
@@ -1146,14 +1168,13 @@ void ReadLocalClock(SYSTEMTIME& time) noexcept
 [[nodiscard]] std::array<uint32_t, 12> GlyphsForDate(const SYSTEMTIME& time) noexcept
 {
     constexpr std::array<std::string_view, 7> weekdays{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-    constexpr std::array<std::string_view, 12> months{"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    constexpr std::array<std::string_view, 12> months{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
     const std::string_view weekday = weekdays[std::min<size_t>(time.wDayOfWeek, weekdays.size() - 1)];
-    const size_t monthIndex = time.wMonth > 0 ? static_cast<size_t>(time.wMonth - 1) : 0;
-    const std::string_view month = months[std::min(monthIndex, months.size() - 1)];
+    const size_t monthIndex        = time.wMonth > 0 ? static_cast<size_t>(time.wMonth - 1) : 0;
+    const std::string_view month   = months[std::min(monthIndex, months.size() - 1)];
     std::array<uint32_t, 12> glyphs{};
     glyphs.fill(kNoGlyph);
-    uint32_t index = 0;
+    uint32_t index    = 0;
     const auto append = [&](char character) noexcept { glyphs[index++] = DateGlyphIndex(character); };
     append(weekday[0]);
     append(weekday[1]);
@@ -1182,15 +1203,18 @@ void ReadLocalClock(SYSTEMTIME& time) noexcept
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
 #pragma warning(disable : 4625 4626)
-class DeskClockWidget final
-    : public RedXeComObject<DeskClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
+class DeskClockWidget final : public RedXeComObject<DeskClockWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeScheduledWidget, IRedXeRaisedWidget>
 {
-  public:
-    DeskClockWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, DeskClockDeviceResources& resources,
+public:
+    DeskClockWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
+                    DeskClockDeviceResources& resources,
                     const DeskClockConfiguration& configuration) noexcept
-        : _providerOwner(std::move(providerOwner)), _resources(&resources), _configuration(configuration),
+        : _providerOwner(std::move(providerOwner)),
+          _resources(&resources),
+          _configuration(configuration),
           _backgroundColor(ColorToFloat(configuration.backgroundColor)),
-          _cardColor(ColorToFloat(configuration.cardColor)), _digitColor(ColorToFloat(configuration.digitColor)),
+          _cardColor(ColorToFloat(configuration.cardColor)),
+          _digitColor(ColorToFloat(configuration.digitColor)),
           _dateColor(ColorToFloat(configuration.dateColor))
     {
         _oldDate.fill(kNoGlyph);
@@ -1208,15 +1232,14 @@ class DeskClockWidget final
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
-                                                        uint32_t* writtenBytes) noexcept override
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes, uint32_t* writtenBytes) noexcept override
     {
         return RedXeCollectNoPersistentSettings(jsonUtf8, capacityBytes, writtenBytes);
     }
 
     HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
     {
-        if (!extent)
+        if (! extent)
         {
             return E_POINTER;
         }
@@ -1231,7 +1254,7 @@ class DeskClockWidget final
 
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
@@ -1239,7 +1262,7 @@ class DeskClockWidget final
         {
             return E_INVALIDARG;
         }
-        if (!context->device)
+        if (! context->device)
         {
             return E_POINTER;
         }
@@ -1260,28 +1283,27 @@ class DeskClockWidget final
     {
         gLiveAtlasScale.store(1, std::memory_order_relaxed);
         _resources->Reset();
-        _initialized = false;
-        _transitionActive = false;
-        _changedMask = 0;
+        _initialized              = false;
+        _transitionActive         = false;
+        _changedMask              = 0;
         _scheduleUsesCachedSample = false;
     }
 
     HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
     {
-        if (!context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
+        if (! context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
         {
             return E_INVALIDARG;
         }
         gTargetSizeChangeCount.fetch_add(1, std::memory_order_relaxed);
-        if (!_initialized)
+        if (! _initialized)
         {
             // No device resources yet; the tier is chosen from the first size reported after OnDeviceCreated.
             return S_OK;
         }
         // Rasterizing here rather than in Render is the whole point of this callback: the glyph atlas is only
         // correct for the size it was rasterized at, and Render is the steady path.
-        const HRESULT result =
-            _resources->EnsureAtlasScale(SelectGlyphAtlasScale(context->widthPixels, context->heightPixels));
+        const HRESULT result = _resources->EnsureAtlasScale(SelectGlyphAtlasScale(context->widthPixels, context->heightPixels));
         if (SUCCEEDED(result))
         {
             gLiveAtlasScale.store(_resources->AtlasEdgePixels() / kGlyphAtlasSize, std::memory_order_relaxed);
@@ -1291,7 +1313,7 @@ class DeskClockWidget final
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
@@ -1299,30 +1321,27 @@ class DeskClockWidget final
         {
             return E_INVALIDARG;
         }
-        if (!context->widget || !context->deviceContext)
+        if (! context->widget || ! context->deviceContext)
         {
             return E_POINTER;
         }
         const RedXeWidgetFrameContext& frame = *context->widget;
-        if (frame.sizeBytes != sizeof(RedXeWidgetFrameContext) || frame.dpi == 0 ||
-            !std::isfinite(frame.elapsedSeconds) || !std::isfinite(frame.deltaSeconds) || frame.elapsedSeconds < 0.0f ||
-            frame.deltaSeconds < 0.0f || !std::isfinite(context->viewport.TopLeftX) ||
-            !std::isfinite(context->viewport.TopLeftY) || !std::isfinite(context->viewport.Width) ||
-            !std::isfinite(context->viewport.Height) || !std::isfinite(context->viewport.MinDepth) ||
-            !std::isfinite(context->viewport.MaxDepth) || context->viewport.Width < 0.0f ||
+        if (frame.sizeBytes != sizeof(RedXeWidgetFrameContext) || frame.dpi == 0 || ! std::isfinite(frame.elapsedSeconds) ||
+            ! std::isfinite(frame.deltaSeconds) || frame.elapsedSeconds < 0.0f || frame.deltaSeconds < 0.0f || ! std::isfinite(context->viewport.TopLeftX) ||
+            ! std::isfinite(context->viewport.TopLeftY) || ! std::isfinite(context->viewport.Width) || ! std::isfinite(context->viewport.Height) ||
+            ! std::isfinite(context->viewport.MinDepth) || ! std::isfinite(context->viewport.MaxDepth) || context->viewport.Width < 0.0f ||
             context->viewport.Height < 0.0f || context->viewport.MinDepth < 0.0f || context->viewport.MaxDepth > 1.0f ||
             context->viewport.MinDepth > context->viewport.MaxDepth)
         {
             return E_INVALIDARG;
         }
-        if (frame.widthPixels == 0 || frame.heightPixels == 0 || context->viewport.Width == 0.0f ||
-            context->viewport.Height == 0.0f)
+        if (frame.widthPixels == 0 || frame.heightPixels == 0 || context->viewport.Width == 0.0f || context->viewport.Height == 0.0f)
         {
             return S_OK;
         }
 
         const double deltaMilliseconds = static_cast<double>(frame.deltaSeconds) * 1000.0;
-        if (!_initialized || deltaMilliseconds > 2'000.0)
+        if (! _initialized || deltaMilliseconds > 2'000.0)
         {
             SampleAndSnap();
         }
@@ -1348,12 +1367,12 @@ class DeskClockWidget final
         {
             *delayMilliseconds = 0;
         }
-        if (!delayMilliseconds)
+        if (! delayMilliseconds)
         {
             return E_POINTER;
         }
         gScheduleQueryCount.fetch_add(1, std::memory_order_relaxed);
-        if (!_initialized || _transitionActive)
+        if (! _initialized || _transitionActive)
         {
             *delayMilliseconds = 1;
             return S_OK;
@@ -1374,27 +1393,25 @@ class DeskClockWidget final
                 return S_OK;
             }
         }
-        if (!std::isfinite(_millisecondsUntilSample) || _millisecondsUntilSample <= 1.0)
+        if (! std::isfinite(_millisecondsUntilSample) || _millisecondsUntilSample <= 1.0)
         {
             *delayMilliseconds = 1;
             return S_OK;
         }
         const double rounded = std::ceil(_millisecondsUntilSample);
-        *delayMilliseconds = static_cast<uint32_t>(
-            std::clamp(rounded, 1.0, static_cast<double>(kRedXeMaximumScheduledFrameDelayMilliseconds)));
+        *delayMilliseconds   = static_cast<uint32_t>(std::clamp(rounded, 1.0, static_cast<double>(kRedXeMaximumScheduledFrameDelayMilliseconds)));
         return S_OK;
     }
 
-  private:
+private:
     void BuildDatePositions(const std::array<uint32_t, 12>& glyphs, std::array<float, 12>& positions) const noexcept
     {
         positions.fill(0.0f);
         const uint32_t count = std::min(glyphs[11], kDateGlyphCapacity);
-        float totalAdvance = 0.0f;
+        float totalAdvance   = 0.0f;
         for (uint32_t index = 0; index < count; ++index)
         {
-            totalAdvance +=
-                glyphs[index] == kNoGlyph ? _resources->DateSpaceAdvance() : _resources->DateAdvance(glyphs[index]);
+            totalAdvance += glyphs[index] == kNoGlyph ? _resources->DateSpaceAdvance() : _resources->DateAdvance(glyphs[index]);
         }
         float pen = totalAdvance * -0.5f;
         for (uint32_t index = 0; index < count; ++index)
@@ -1408,19 +1425,19 @@ class DeskClockWidget final
     {
         SYSTEMTIME sample{};
         ReadLocalClock(sample);
-        _oldDigits = DigitsForTime(sample);
+        _oldDigits    = DigitsForTime(sample);
         _targetDigits = _oldDigits;
-        _oldDate = GlyphsForDate(sample);
-        _targetDate = _oldDate;
+        _oldDate      = GlyphsForDate(sample);
+        _targetDate   = _oldDate;
         BuildDatePositions(_oldDate, _oldDatePositions);
-        _targetDatePositions = _oldDatePositions;
-        _changedMask = 0;
-        _dateChanged = false;
-        _transitionActive = false;
+        _targetDatePositions           = _oldDatePositions;
+        _changedMask                   = 0;
+        _dateChanged                   = false;
+        _transitionActive              = false;
         _transitionElapsedMilliseconds = 0.0;
-        _millisecondsUntilSample = std::max(1.0, 1000.0 - static_cast<double>(sample.wMilliseconds));
-        _initialized = true;
-        _scheduleUsesCachedSample = true;
+        _millisecondsUntilSample       = std::max(1.0, 1000.0 - static_cast<double>(sample.wMilliseconds));
+        _initialized                   = true;
+        _scheduleUsesCachedSample      = true;
         ++_visualVersion;
     }
 
@@ -1428,7 +1445,7 @@ class DeskClockWidget final
     {
         SYSTEMTIME sample{};
         ReadLocalClock(sample);
-        _millisecondsUntilSample = std::max(1.0, 1000.0 - static_cast<double>(sample.wMilliseconds));
+        _millisecondsUntilSample  = std::max(1.0, 1000.0 - static_cast<double>(sample.wMilliseconds));
         _scheduleUsesCachedSample = true;
         BeginTransition(sample);
     }
@@ -1436,17 +1453,17 @@ class DeskClockWidget final
     void BeginTransition(const SYSTEMTIME& sample) noexcept
     {
         const auto digits = DigitsForTime(sample);
-        const auto date = GlyphsForDate(sample);
+        const auto date   = GlyphsForDate(sample);
         if (digits == _targetDigits && date == _targetDate)
         {
             return;
         }
 
-        _oldDigits = _targetDigits;
-        _oldDate = _targetDate;
+        _oldDigits        = _targetDigits;
+        _oldDate          = _targetDate;
         _oldDatePositions = _targetDatePositions;
-        _targetDigits = digits;
-        _targetDate = date;
+        _targetDigits     = digits;
+        _targetDate       = date;
         BuildDatePositions(_targetDate, _targetDatePositions);
         _changedMask = 0;
         for (uint32_t index = 0; index < 6; ++index)
@@ -1456,15 +1473,15 @@ class DeskClockWidget final
                 _changedMask |= 1U << index;
             }
         }
-        _dateChanged = _oldDate != _targetDate;
-        _transitionActive = _changedMask != 0 || _dateChanged;
+        _dateChanged                   = _oldDate != _targetDate;
+        _transitionActive              = _changedMask != 0 || _dateChanged;
         _transitionElapsedMilliseconds = 0.0;
         ++_visualVersion;
     }
 
     void AdvanceTransition(double deltaMilliseconds) noexcept
     {
-        if (!_transitionActive)
+        if (! _transitionActive)
         {
             return;
         }
@@ -1472,13 +1489,13 @@ class DeskClockWidget final
         if (_transitionElapsedMilliseconds >= static_cast<double>(_configuration.flipDurationMilliseconds))
         {
             _transitionElapsedMilliseconds = static_cast<double>(_configuration.flipDurationMilliseconds);
-            _oldDigits = _targetDigits;
-            _oldDate = _targetDate;
-            _oldDatePositions = _targetDatePositions;
-            _changedMask = 0;
-            _dateChanged = false;
-            _transitionActive = false;
-            _scheduleUsesCachedSample = true;
+            _oldDigits                     = _targetDigits;
+            _oldDate                       = _targetDate;
+            _oldDatePositions              = _targetDatePositions;
+            _changedMask                   = 0;
+            _dateChanged                   = false;
+            _transitionActive              = false;
+            _scheduleUsesCachedSample      = true;
         }
         ++_visualVersion;
     }
@@ -1489,21 +1506,21 @@ class DeskClockWidget final
         {
             return;
         }
-        _layoutWidth = frame.widthPixels;
-        _layoutHeight = frame.heightPixels;
-        _layoutDpi = frame.dpi;
-        const float width = static_cast<float>(frame.widthPixels);
-        const float height = static_cast<float>(frame.heightPixels);
-        _scale = std::min(width / 1450.0f, height / 600.0f);
-        _cardWidth = 195.0f * _scale;
-        _cardHeight = 310.0f * _scale;
-        _pairGap = 10.0f * _scale;
-        _groupGap = 65.0f * _scale;
-        const float totalWidth = 6.0f * _cardWidth + 3.0f * _pairGap + 2.0f * _groupGap;
-        _originX = (width - totalWidth) * 0.5f;
+        _layoutWidth              = frame.widthPixels;
+        _layoutHeight             = frame.heightPixels;
+        _layoutDpi                = frame.dpi;
+        const float width         = static_cast<float>(frame.widthPixels);
+        const float height        = static_cast<float>(frame.heightPixels);
+        _scale                    = std::min(width / 1450.0f, height / 600.0f);
+        _cardWidth                = 195.0f * _scale;
+        _cardHeight               = 310.0f * _scale;
+        _pairGap                  = 10.0f * _scale;
+        _groupGap                 = 65.0f * _scale;
+        const float totalWidth    = 6.0f * _cardWidth + 3.0f * _pairGap + 2.0f * _groupGap;
+        _originX                  = (width - totalWidth) * 0.5f;
         const float contentHeight = 430.0f * _scale;
-        _originY = (height - contentHeight) * 0.5f;
-        _dateY = _originY + _cardHeight + 54.0f * _scale;
+        _originY                  = (height - contentHeight) * 0.5f;
+        _dateY                    = _originY + _cardHeight + 54.0f * _scale;
         ++_visualVersion;
     }
 
@@ -1514,14 +1531,14 @@ class DeskClockWidget final
         constants.targetSize[2] = static_cast<float>(frame.dpi);
         // Atlas coordinates are normalized, so the shader needs only the edge length of the live tier.
         constants.targetSize[3] = static_cast<float>(_resources->AtlasEdgePixels());
-        constants.layout[0] = _originX;
-        constants.layout[1] = _originY;
-        constants.layout[2] = _cardWidth;
-        constants.layout[3] = _cardHeight;
-        constants.metrics[0] = _pairGap;
-        constants.metrics[1] = _groupGap;
-        constants.metrics[2] = _dateY;
-        constants.metrics[3] = _scale;
+        constants.layout[0]     = _originX;
+        constants.layout[1]     = _originY;
+        constants.layout[2]     = _cardWidth;
+        constants.layout[3]     = _cardHeight;
+        constants.metrics[0]    = _pairGap;
+        constants.metrics[1]    = _groupGap;
+        constants.metrics[2]    = _dateY;
+        constants.metrics[3]    = _scale;
         std::copy(_backgroundColor.begin(), _backgroundColor.end(), constants.backgroundColor);
         std::copy(_cardColor.begin(), _cardColor.end(), constants.cardColor);
         std::copy(_digitColor.begin(), _digitColor.end(), constants.digitColor);
@@ -1532,27 +1549,26 @@ class DeskClockWidget final
         std::copy_n(_targetDigits.begin() + 4, 4, constants.targetDigits1);
 
         float overallProgress = 1.0f;
-        uint32_t phase = 0;
-        float phaseProgress = 1.0f;
+        uint32_t phase        = 0;
+        float phaseProgress   = 1.0f;
         if (_transitionActive)
         {
-            overallProgress = static_cast<float>(_transitionElapsedMilliseconds /
-                                                 static_cast<double>(_configuration.flipDurationMilliseconds));
+            overallProgress = static_cast<float>(_transitionElapsedMilliseconds / static_cast<double>(_configuration.flipDurationMilliseconds));
             if (overallProgress < 0.5f)
             {
-                phase = 1;
+                phase         = 1;
                 phaseProgress = SmootherStep(overallProgress * 2.0f);
             }
             else
             {
-                phase = 2;
+                phase         = 2;
                 phaseProgress = SmootherStep((overallProgress - 0.5f) * 2.0f);
             }
         }
-        constants.state[0] = _changedMask;
-        constants.state[1] = phase;
-        constants.state[2] = _dateChanged ? 1U : 0U;
-        constants.state[3] = kDateGlyphCapacity;
+        constants.state[0]     = _changedMask;
+        constants.state[1]     = phase;
+        constants.state[2]     = _dateChanged ? 1U : 0U;
+        constants.state[3]     = kDateGlyphCapacity;
         constants.animation[0] = phaseProgress;
         constants.animation[1] = SmootherStep(overallProgress);
         constants.animation[2] = _cardWidth > 0.0f ? std::min(0.08f, 12.0f * _scale / _cardWidth) : 0.02f;
@@ -1584,25 +1600,25 @@ class DeskClockWidget final
     std::array<uint32_t, 12> _targetDate{};
     std::array<float, 12> _oldDatePositions{};
     std::array<float, 12> _targetDatePositions{};
-    bool _initialized = false;
-    bool _transitionActive = false;
-    bool _dateChanged = false;
-    bool _scheduleUsesCachedSample = false;
-    uint32_t _changedMask = 0;
-    double _millisecondsUntilSample = 1.0;
+    bool _initialized                     = false;
+    bool _transitionActive                = false;
+    bool _dateChanged                     = false;
+    bool _scheduleUsesCachedSample        = false;
+    uint32_t _changedMask                 = 0;
+    double _millisecondsUntilSample       = 1.0;
     double _transitionElapsedMilliseconds = 0.0;
-    uint64_t _visualVersion = 1;
-    uint32_t _layoutWidth = 0;
-    uint32_t _layoutHeight = 0;
-    uint32_t _layoutDpi = 0;
-    float _scale = 1.0f;
-    float _cardWidth = 210.0f;
-    float _cardHeight = 360.0f;
-    float _pairGap = 14.0f;
-    float _groupGap = 70.0f;
-    float _originX = 0.0f;
-    float _originY = 0.0f;
-    float _dateY = 0.0f;
+    uint64_t _visualVersion               = 1;
+    uint32_t _layoutWidth                 = 0;
+    uint32_t _layoutHeight                = 0;
+    uint32_t _layoutDpi                   = 0;
+    float _scale                          = 1.0f;
+    float _cardWidth                      = 210.0f;
+    float _cardHeight                     = 360.0f;
+    float _pairGap                        = 14.0f;
+    float _groupGap                       = 70.0f;
+    float _originX                        = 0.0f;
+    float _originY                        = 0.0f;
+    float _dateY                          = 0.0f;
 };
 #pragma warning(pop)
 
@@ -1612,7 +1628,7 @@ class DeskClockWidget final
 #pragma warning(disable : 4625 4626)
 class DeskClockProvider final : public RedXeComObject<DeskClockProvider, IRedXeWidgetProvider>
 {
-  public:
+public:
     explicit DeskClockProvider(const DeskClockConfiguration& configuration) noexcept : _configuration(configuration)
     {
         gLiveProviderCount.fetch_add(1, std::memory_order_relaxed);
@@ -1623,8 +1639,7 @@ class DeskClockProvider final : public RedXeComObject<DeskClockProvider, IRedXeW
         gLiveProviderCount.fetch_sub(1, std::memory_order_relaxed);
     }
 
-    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             uint32_t* count) noexcept override
+    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -1634,28 +1649,27 @@ class DeskClockProvider final : public RedXeComObject<DeskClockProvider, IRedXeW
         {
             *count = 0;
         }
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
         {
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<uint32_t>(kWidgetTypes.size());
+        *count       = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
-                                           IRedXeWidget** widget) noexcept override
+    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId, IRedXeWidget** widget) noexcept override
     {
-        if (!widget)
+        if (! widget)
         {
             return E_POINTER;
         }
         *widget = nullptr;
-        if (!typeId || !RedXeIsValidMachineId(instanceId))
+        if (! typeId || ! RedXeIsValidMachineId(instanceId))
         {
             return E_INVALIDARG;
         }
-        if (!RedXeAsciiEqualsIgnoreCase(typeId, kWidgetTypeId))
+        if (! RedXeAsciiEqualsIgnoreCase(typeId, kWidgetTypeId))
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
@@ -1666,7 +1680,7 @@ class DeskClockProvider final : public RedXeComObject<DeskClockProvider, IRedXeW
             return result;
         }
         auto* created = new (std::nothrow) DeskClockWidget(std::move(providerOwner), _resources, _configuration);
-        if (!created)
+        if (! created)
         {
             return E_OUTOFMEMORY;
         }
@@ -1674,7 +1688,7 @@ class DeskClockProvider final : public RedXeComObject<DeskClockProvider, IRedXeW
         return S_OK;
     }
 
-  private:
+private:
     DeskClockConfiguration _configuration;
     DeskClockDeviceResources _resources;
 };
@@ -1687,8 +1701,7 @@ static_assert(sizeof(DeskClockDeviceResources) < 32U * 1024U);
 static_assert(sizeof(DeskClockProvider) < 32U * 1024U);
 static_assert(sizeof(DeskClockWidget) < 4U * 1024U);
 
-HRESULT CreateDeskClockProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
-                                void** result) noexcept
+HRESULT CreateDeskClockProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*, void** result) noexcept
 {
     if (interfaceId != __uuidof(IRedXeWidgetProvider))
     {
@@ -1701,7 +1714,7 @@ HRESULT CreateDeskClockProvider(REFIID interfaceId, const RedXeFactoryOptions* o
         return createResult;
     }
     auto* provider = new (std::nothrow) DeskClockProvider(configuration);
-    if (!provider)
+    if (! provider)
     {
         return E_OUTOFMEMORY;
     }
@@ -1714,11 +1727,9 @@ constexpr std::array kFactoryEntries{
 };
 } // namespace
 
-extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                                         const char* pluginId, void** result) noexcept
+extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
-                                         interfaceId, options, host, pluginId, result);
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()), interfaceId, options, host, pluginId, result);
 }
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
@@ -1726,24 +1737,24 @@ extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** m
     return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata, count);
 }
 
-extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,
-                                                            const RedXePluginSettingsContract** contract) noexcept
+extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId, const RedXePluginSettingsContract** contract) noexcept
 {
     return RedXeGetStaticPluginSettingsContract(kPluginId, pluginId, &kSettingsContract, contract);
 }
 
-extern "C" void __stdcall RedXePluginShutdown() noexcept {}
+extern "C" void __stdcall RedXePluginShutdown() noexcept
+{
+}
 
 extern "C" HRESULT __stdcall RedXeDeskClockSetTestTime(const DeskClockTestTime* time) noexcept
 {
-    if (!time)
+    if (! time)
     {
         gTestTime.store(0, std::memory_order_release);
         return S_OK;
     }
-    if (time->sizeBytes != sizeof(DeskClockTestTime) || time->year < 1601 || time->year > 4095 || time->month < 1 ||
-        time->month > 12 || time->dayOfWeek > 6 || time->day < 1 || time->day > 31 || time->hour > 23 ||
-        time->minute > 59 || time->second > 59 || time->milliseconds > 999)
+    if (time->sizeBytes != sizeof(DeskClockTestTime) || time->year < 1601 || time->year > 4095 || time->month < 1 || time->month > 12 || time->dayOfWeek > 6 ||
+        time->day < 1 || time->day > 31 || time->hour > 23 || time->minute > 59 || time->second > 59 || time->milliseconds > 999)
     {
         return E_INVALIDARG;
     }
@@ -1753,7 +1764,7 @@ extern "C" HRESULT __stdcall RedXeDeskClockSetTestTime(const DeskClockTestTime* 
 
 extern "C" HRESULT __stdcall RedXeDeskClockGetTestDiagnostics(DeskClockTestDiagnostics* diagnostics) noexcept
 {
-    if (!diagnostics)
+    if (! diagnostics)
     {
         return E_POINTER;
     }
@@ -1761,19 +1772,19 @@ extern "C" HRESULT __stdcall RedXeDeskClockGetTestDiagnostics(DeskClockTestDiagn
     {
         return E_INVALIDARG;
     }
-    diagnostics->liveProviders = gLiveProviderCount.load(std::memory_order_relaxed);
-    diagnostics->liveWidgets = gLiveWidgetCount.load(std::memory_order_relaxed);
+    diagnostics->liveProviders          = gLiveProviderCount.load(std::memory_order_relaxed);
+    diagnostics->liveWidgets            = gLiveWidgetCount.load(std::memory_order_relaxed);
     diagnostics->liveDeviceResourceSets = gLiveDeviceResourceSetCount.load(std::memory_order_relaxed);
-    diagnostics->timeSamples = gTimeSampleCount.load(std::memory_order_relaxed);
-    diagnostics->constantUploads = gConstantUploadCount.load(std::memory_order_relaxed);
-    diagnostics->drawCalls = gDrawCallCount.load(std::memory_order_relaxed);
-    diagnostics->scheduleQueries = gScheduleQueryCount.load(std::memory_order_relaxed);
-    diagnostics->typographyBuilds = gTypographyBuildCount.load(std::memory_order_relaxed);
-    const uint32_t liveScale = gLiveAtlasScale.load(std::memory_order_relaxed);
-    diagnostics->atlasBytes = GlyphAtlasBytesForScale(liveScale == 0 ? 1U : liveScale);
-    diagnostics->atlasScale = liveScale;
-    diagnostics->atlasEdgePixels = kGlyphAtlasSize * liveScale;
-    diagnostics->targetSizeChanges = gTargetSizeChangeCount.load(std::memory_order_relaxed);
-    diagnostics->constantBytes = sizeof(DeskClockConstants);
+    diagnostics->timeSamples            = gTimeSampleCount.load(std::memory_order_relaxed);
+    diagnostics->constantUploads        = gConstantUploadCount.load(std::memory_order_relaxed);
+    diagnostics->drawCalls              = gDrawCallCount.load(std::memory_order_relaxed);
+    diagnostics->scheduleQueries        = gScheduleQueryCount.load(std::memory_order_relaxed);
+    diagnostics->typographyBuilds       = gTypographyBuildCount.load(std::memory_order_relaxed);
+    const uint32_t liveScale            = gLiveAtlasScale.load(std::memory_order_relaxed);
+    diagnostics->atlasBytes             = GlyphAtlasBytesForScale(liveScale == 0 ? 1U : liveScale);
+    diagnostics->atlasScale             = liveScale;
+    diagnostics->atlasEdgePixels        = kGlyphAtlasSize * liveScale;
+    diagnostics->targetSizeChanges      = gTargetSizeChangeCount.load(std::memory_order_relaxed);
+    diagnostics->constantBytes          = sizeof(DeskClockConstants);
     return S_OK;
 }

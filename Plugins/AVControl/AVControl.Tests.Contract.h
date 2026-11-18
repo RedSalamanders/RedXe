@@ -12,7 +12,6 @@ extern "C"
     REDXE_AV_TEST_API HRESULT __stdcall RedXeAVControlUseSyntheticBackend(BOOL enabled) noexcept;
     // UI-thread, synthetic-only fault at the next provider allocation, after coordinator publication.
     REDXE_AV_TEST_API HRESULT __stdcall RedXeAVControlFailNextProviderAllocation() noexcept;
-    REDXE_AV_TEST_API HRESULT __stdcall RedXeAVControlTestSnapshot(AVControl::Inventory* inventory,
-                                                                   uint32_t bytes) noexcept;
+    REDXE_AV_TEST_API HRESULT __stdcall RedXeAVControlTestSnapshot(AVControl::Inventory* inventory, uint32_t bytes) noexcept;
 }
 #undef REDXE_AV_TEST_API

@@ -14,7 +14,7 @@ namespace
 bool NativeArchitecture() noexcept
 {
     USHORT process = 0, native = 0;
-    if (!IsWow64Process2(GetCurrentProcess(), &process, &native) || process != IMAGE_FILE_MACHINE_UNKNOWN)
+    if (! IsWow64Process2(GetCurrentProcess(), &process, &native) || process != IMAGE_FILE_MACHINE_UNKNOWN)
         return false;
 #if defined(_M_ARM64)
     return native == IMAGE_FILE_MACHINE_ARM64;
@@ -24,8 +24,7 @@ bool NativeArchitecture() noexcept
 }
 int Run(int argc, wchar_t** argv)
 {
-    if (argc != 2 || (std::wstring_view(argv[1]) != L"--check" && std::wstring_view(argv[1]) != L"--register" &&
-                      std::wstring_view(argv[1]) != L"--remove"))
+    if (argc != 2 || (std::wstring_view(argv[1]) != L"--check" && std::wstring_view(argv[1]) != L"--register" && std::wstring_view(argv[1]) != L"--remove"))
     {
         std::fputs("RedXe Camera setup\n"
                    "  --check     Check installed native source; no device is created or opened.\n"
@@ -36,7 +35,7 @@ int Run(int argc, wchar_t** argv)
                    stdout);
         return 2;
     }
-    if (!NativeArchitecture())
+    if (! NativeArchitecture())
     {
         std::fputs("Use the native x64 or ARM64 setup program.\n", stderr);
         return 3;
@@ -55,12 +54,11 @@ int Run(int argc, wchar_t** argv)
     // A UAC credential switch can target a different account. Machine installation and per-user device
     // registration are separate, explicit operations; never create a camera in an elevated administrator's profile.
     wil::unique_handle token;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, token.put()))
+    if (! OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, token.put()))
         return 3;
     TOKEN_ELEVATION elevation{};
     DWORD bytes = 0;
-    if (!GetTokenInformation(token.get(), TokenElevation, &elevation, sizeof(elevation), &bytes) ||
-        elevation.TokenIsElevated)
+    if (! GetTokenInformation(token.get(), TokenElevation, &elevation, sizeof(elevation), &bytes) || elevation.TokenIsElevated)
     {
         std::fputs("Run per-user camera registration/removal from a non-elevated terminal.\n", stderr);
         return 3;
@@ -74,12 +72,9 @@ int Run(int argc, wchar_t** argv)
     const auto mf = wil::scope_exit([] { (void)MFShutdown(); });
     AVControl::Camera::VirtualCameraRoute route;
     const HRESULT result = operation == L"--register" ? route.Open() : route.Remove();
-    std::printf("%s: 0x%08lX\n",
-                operation == L"--register" ? "Register current-user route" : "Remove current-user route",
-                static_cast<unsigned long>(result));
+    std::printf("%s: 0x%08lX\n", operation == L"--register" ? "Register current-user route" : "Remove current-user route", static_cast<unsigned long>(result));
     if (SUCCEEDED(result) && operation == L"--register")
-        std::fputs("Select RedXe Camera in each capture app. Camera Off sends neutral frames through this route.\n",
-                   stdout);
+        std::fputs("Select RedXe Camera in each capture app. Camera Off sends neutral frames through this route.\n", stdout);
     return SUCCEEDED(result) ? 0 : 1;
 #endif
 }
