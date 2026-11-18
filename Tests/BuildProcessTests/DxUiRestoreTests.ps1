@@ -629,6 +629,10 @@ try {
     Assert-That ($rootInitialize -gt 0 -and $rootInitialize -lt $restoreScript.IndexOf("Join-Path `$source 'vcpkg-install.ps1'") -and
         -not $restoreScript.Contains('Initialize-DxUiOutputRoot ')) `
         'restore-dxui.ps1 gets the output root, leased and checked under its mutex, before anything builds into it'
+    $checkoutCall = $restoreScript.IndexOf("Initialize-VcpkgToolCheckout -ToolIdentityPath (Join-Path `$source 'vcpkg-tool.json') -ToolRoot (Join-Path `$output 'vcpkg-tool')")
+    Assert-That ($checkoutCall -gt $rootInitialize -and $checkoutCall -lt $restoreScript.IndexOf("Join-Path `$source 'vcpkg-install.ps1'") -and
+        $restoreScript.Contains("Join-Path `$PSScriptRoot 'Build/VcpkgToolCheckout.psm1'")) `
+        'restore-dxui.ps1 gives the pinned DxUi installer a complete vcpkg checkout of its own pin before it runs, since that installer would make a partial clone vcpkg cannot read'
     $policyCheck = $restoreScript.IndexOf('Assert-RedXeDxUiNativePolicy -RepoRoot $PSScriptRoot -DxUiRoot $source')
     Assert-That ($policyCheck -gt 0 -and $policyCheck -lt $restoreScript.IndexOf('Get-DxUiNativePolicyFields -RepoRoot')) `
         'restore-dxui.ps1 checks the pinned source''s native build policy before it hashes RedXe''s copy into the identity'

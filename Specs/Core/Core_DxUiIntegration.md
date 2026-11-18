@@ -176,6 +176,15 @@ default 14.51, and every fresh ARM64 restore failed.
   upstream: DxUi's `vcpkg-install.ps1` taking `-MSBuildPath` and resolving its installation as
   `Get-RedXeVisualStudioInstallation` does (or `Get-DxUiVisualStudioInstallation` honoring `MSBUILD_EXE_PATH`), which
   `restore-dxui.ps1` then passes, adopted with a pin update.
+- The pinned DxUi's `vcpkg-install.ps1` clones vcpkg with `--filter=blob:none` unless the output root's `vcpkg-tool`
+  already is a clean checkout of the repository and commit its `vcpkg-tool.json` names, which it then reuses. vcpkg
+  cannot read such a partial clone: it extracts each versioned port with `git read-tree` and `git checkout-index` in
+  an environment that holds only `GIT_INDEX_FILE`, where Git resolves no host, so a blob left on the server fails the
+  restore ("Could not resolve host: github.com"). `restore-dxui.ps1` therefore calls `Initialize-VcpkgToolCheckout`
+  (`Build/VcpkgToolCheckout.psm1`) with that `vcpkg-tool.json` and `<output root>/vcpkg-tool` right before it runs the
+  installer: a complete clone at the pinned vcpkg commit, or an earlier partial clone completed in place. The module is
+  the same file in every DxUi consumer; DxUi's own installer makes complete clones from DxUi pull request 267 on, and
+  the call becomes unnecessary once the pin holds that installer.
 
 The pinned library releases the cached surface
 of a hidden or zero-extent `EmbeddedHost`, marks a view dirty only through control invalidation, and bounds its
