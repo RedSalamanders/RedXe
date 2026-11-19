@@ -81,6 +81,7 @@ The package MUST contain, with forward-slash entry names and no directory entrie
 | `Install-RedXe.ps1`, `install.cmd`, `uninstall.cmd` | `Installer/` |
 | `README.txt` | generated with the version and platform |
 | `LICENSE.txt` | repository root (required) |
+| `THIRD-PARTY-NOTICES.md` | repository root (required): the third-party notices and the files under other terms |
 | `RedMonitor-LICENSE.txt` | the MIT section of `ThirdParty/RedMonitor/LICENSE.txt`, extracted at package time (required) |
 
 - Every DLL named in `RedXe/BundledPlugins.h`, the AV Control helpers (`AVControlBroker.exe`,
@@ -186,9 +187,9 @@ the sidecar form shared with the portable ZIP. It MUST leave no registry key, sh
   with LF line endings and no unresolved `{PLACEHOLDER}`.
 - `winget validate --manifest` MUST pass. "Manifest validation succeeded with warnings" from an older client is
   accepted; the warnings are shown.
-- `License: MIT` and `LicenseUrl` in the locale manifest mirror the repository's `LICENSE.txt` (MIT, with the
-  carve-outs it lists: the CC BY-NC-SA 3.0 Shadertoy ports and the OFL Weather Icons font). The package always
-  ships `LICENSE.txt`; a license change updates the file and the template together.
+- `License: MIT` and `LicenseUrl` in the locale manifest mirror the repository's `LICENSE.txt` (MIT);
+  `THIRD-PARTY-NOTICES.md` lists the carve-outs: the CC BY-NC-SA 3.0 Shadertoy ports and the OFL Weather Icons font.
+  The package always ships both; a license change updates the files and the template together.
 
 ## Manual qualified-artifact promotion
 

@@ -119,7 +119,7 @@ Every relative path a complete package must contain for the platform (ordinal, f
 function Get-RedXePackageRequiredEntries {
     param([Parameter(Mandatory)][string] $RepoRoot)
     $entries = [Collections.Generic.List[string]]::new()
-    foreach ($name in $script:PackageRootBinaries + $script:PackageInstallerFiles + @('README.txt', 'LICENSE.txt', 'RedMonitor-LICENSE.txt')) { $entries.Add($name) }
+    foreach ($name in $script:PackageRootBinaries + $script:PackageInstallerFiles + @('README.txt', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.md', 'RedMonitor-LICENSE.txt')) { $entries.Add($name) }
     foreach ($name in $script:PackageSettingsFiles) { $entries.Add("Settings/$name") }
     foreach ($name in (Get-RedXeBundledPluginModules -RepoRoot $RepoRoot) + $script:PackagePluginHelpers) { $entries.Add("Plugins/$name") }
     foreach ($name in $script:PackageVcRuntimeRequired) { $entries.Add($name); $entries.Add("Plugins/$name") }
@@ -220,8 +220,9 @@ WHAT IS IN HERE
                            %LocalAppData%\RedXe\Settings after the first start; edit it while RedXe runs.
   msvcp140*.dll, vcruntime140*.dll
                            The Microsoft Visual C++ runtime for this CPU architecture, so no separate install is needed.
-  LICENSE.txt              MIT license, the third-party notices, and the files under other terms (CC BY-NC-SA shader
-                           ports, the OFL Weather Icons font).
+  LICENSE.txt              The MIT license of RedXe.
+  THIRD-PARTY-NOTICES.md   The third-party notices and the files under other terms (CC BY-NC-SA shader ports, the
+                           OFL Weather Icons font).
   RedMonitor-LICENSE.txt   The MIT notice of the RedMonitor diagnostics client that RedXe.exe is built with.
 
 REQUIREMENTS
@@ -298,6 +299,7 @@ function New-RedXePortablePackage {
 
         foreach ($name in $script:PackageInstallerFiles) { Copy-RedXePackageFile (Join-Path $RepoRoot "Installer\$name") (Join-Path $staging $name) }
         Copy-RedXePackageFile (Join-Path $RepoRoot 'LICENSE.txt') (Join-Path $staging 'LICENSE.txt')
+        Copy-RedXePackageFile (Join-Path $RepoRoot 'THIRD-PARTY-NOTICES.md') (Join-Path $staging 'THIRD-PARTY-NOTICES.md')
         if($null -ne $DxUiSdkInput){
             if($DxUiSdkInput.Closed){throw 'SDK notice staging requires the active verified reader.'}
             Copy-Item -LiteralPath (Join-Path $DxUiSdkInput.SdkRoot 'licenses') -Destination (Join-Path $staging 'DxUi-licenses') -Recurse
