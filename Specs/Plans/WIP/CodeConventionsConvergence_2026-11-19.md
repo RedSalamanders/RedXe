@@ -35,16 +35,25 @@ Prepared: 2026-11-19, after the 155-line reformat (#108).
 - [ ] **H-12 Host windowing spec name.** The spec is `Specs/UI/UI_XeneonDisplayWindowing.md`. Target:
   `Specs/UI/UI_Windowing.md`, keeping its XENEON EDGE sections, with every link and source comment updated.
 - [ ] **H-20 Occlusion.** The renderer registers a DXGI occlusion-status message and acts on `DXGI_STATUS_OCCLUDED`
-  from its flip-model `Present`. DxUi measured that a flip-model `Present` never returns it on Windows 11 25H2
-  (DxUi `Measurements/FlipModelOcclusion_2026-11-19/`). Target: occlusion from signals the application owns
-  (minimize, visibility, cloaking, display power), as `d3d11-win32-host` states.
-- [ ] **H-25 Replace sequence.** `CommitTemporaryFile` in `RedXe/Settings.cpp` publishes with `MoveFileExW` and
-  write-through. Target: `ReplaceFileW` over an existing file after its identity check, `MoveFileExW(MOVEFILE_WRITE_THROUGH)`
-  for a new one, with one fault-injection hook per step.
+  from its flip-model `Present`. DxUi measured that the status is not a usable signal for a flip-model swap chain on
+  Windows 11 25H2: `Present` returned `S_OK` while the window was minimized, cloaked, hidden or covered (DxUi
+  `Measurements/FlipModelOcclusion_2026-11-19/`), and RedXe itself sees it only under its own covering native child,
+  where it ignores it. Target: occlusion from signals the application owns (minimize, visibility, cloaking, display
+  power), as `d3d11-win32-host` states. The occlusion state runs through `Renderer`, `FrameScheduler`,
+  `PageEdgeAffordance`, the runtime probe bits, `HostPluginTests` and MUST statements in the windowing and performance
+  contracts, so this row changes them together.
+- [ ] **H-25 Replace sequence — owner decision needed.** The register named `CommitTemporaryFile`, which only copies
+  the schema. The settings save writes a flushed temporary and renames it over the file with POSIX semantics
+  (`FileRenameInfoEx`) while a guard handle on the target stays open, as [settings](../../Core/Core_Settings.md)
+  requires, so a save another program makes meanwhile is refused instead of lost. `ReplaceFileW` cannot keep that
+  guard. The owner decides whether this guarded rename stays or the contract changes (RedHome register H-25).
 - [ ] **H-09 `yyjson` read flags.** Settings are read with comments, trailing commas and BOM. Target:
-  `YYJSON_READ_JSON5 | YYJSON_READ_ALLOW_BOM`. JSON5 also admits `NaN` and `Infinity`, so every numeric field check
-  must reject non-finite values before the flag changes, and the strict-rejection settings tests and the diagnostic
-  locator in `RedXe/SettingsJsonText.h` are re-checked.
+  `YYJSON_READ_JSON5 | YYJSON_READ_ALLOW_BOM`. Host settings read integers and widget `number` parameters already
+  reject non-finite values, so `NaN` and `Infinity` are not the risk. `JsonTextCursor` (`RedXe/SettingsJsonText.h`)
+  is: it scans the user's document for the diagnostic locator and for the dock patches that rewrite the user's own
+  text, in the comments-and-trailing-commas dialect only. It must read JSON5 (single-quoted strings, unquoted keys,
+  hexadecimal and signed numbers, `Infinity`, `NaN`) before the flag changes, and the strict-rejection settings
+  tests are re-checked.
 - [ ] **H-15 Settings reload.** The watcher already follows RedHome decision D19. Target: field-level fallback (an
   unusable value takes its default or is clamped, and only an unparseable file is invalid) instead of whole-candidate
   rejection, and unknown members kept across a save.
