@@ -1,0 +1,6 @@
+# Commits that only change formatting. `git blame` skips them after
+# `git config blame.ignoreRevsFile .git-blame-ignore-revs`; GitHub's blame view reads this file itself.
+
+# CV-6-05: the shared 155-line .clang-format and the reformat (pull request #108), and its merge commit.
+f48bc975298bb04b1d2c02fd088731b066b9aa4f
+f8d57dc5b8b3af5cf4382038f2bebadb97c839d2
