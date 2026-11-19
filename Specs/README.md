@@ -59,8 +59,8 @@ If a behavior has no owning domain spec yet, create that spec in the first chang
 - Domain specs: `<Domain>/<Domain>_<Title>.md`, without spaces.
 - Plans, decision records, and RFCs: `<Title>_<yyyy-mm-dd>.md`, dated the day the plan was created. A plan keeps
   its name when it moves to Done.
-- Index rows: `- **STATUS**: [Title](File.md) — purpose` in the WIP index, `- [Title](File.md) — outcome` in the
-  Done index.
+- Index rows: a bullet that links the plan's title to its file and ends with an em dash and its purpose, opening
+  with the bold status and a colon (`- **ACTIVE**:`) in the WIP index and without a status in the Done index.
 
 ## Domain entry points
 
