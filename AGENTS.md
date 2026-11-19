@@ -57,11 +57,16 @@ junctions during cleanup or leave compatibility junctions at forbidden old roots
 
 | Skill | Use it for |
 | --- | --- |
-| [build-redxe](.agents/skills/build-redxe/SKILL.md) | Building, cleaning, running, and smoke-testing |
 | [plugin-development](.agents/skills/plugin-development/SKILL.md) | Native plugin ABI, factories, loading, widget instances, and bundled DLLs |
-| [settings-store](.agents/skills/settings-store/SKILL.md) | Settings paths, schema, recovery, stamps, watching, and live apply |
 
-Cross-repository `spec-workflow`, `d3d11-win32-host`, `performance-resources`, `modern-cpp-windows`, `wil-raii`, and `yyjson` skills live in the sibling `RedHome` repository.
+Cross-repository `spec-workflow`, `d3d11-win32-host`, `performance-resources`, `modern-cpp-windows`, `wil-raii`, and `yyjson` skills live in the sibling `RedHome` repository. So do the shared skills that replaced two local ones, each with RedXe's facts in its `references/repository-facts.md`:
+
+| Shared skill | Use it for |
+| --- | --- |
+| `native-build` | Building, cleaning, running, smoke-testing, and packaging (was `build-redxe`) |
+| `app-settings` | Settings paths, schema, recovery, stamps, watching, and live apply (was `settings-store`) |
+
+`test-evidence`, `crash-dumps`, and `file-io-safety` in `RedHome` cover tests and run evidence, crash capture, and safe file saves, again with RedXe's facts.
 
 Shared skill index: `../RedHome/AGENTS.md`; packages: `../RedHome/.agents/skills/`. If `../RedHome` is missing, clone https://github.com/RedSalamanders/RedHome.git to that path. This repository's guidance and domain specs own product behavior and validation.
 
