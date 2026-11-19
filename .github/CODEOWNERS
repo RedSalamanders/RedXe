@@ -1,8 +1,11 @@
 # Code owners, read by GitHub from the pull request's base branch, so a pull request cannot change who owns its own
 # changes. The last matching pattern wins. Every RedSalamanders repository has this same file.
 
-# CI: the workflows, this file, and every script that decides what CI runs, measures or passes.
+# CI: the workflows, this file, and every script that decides what CI runs, measures or passes. The workflows and
+# the Dependabot configuration are also named on their own lines, which repository policy tests look for.
 /.github/                  @eric-jesover
+/.github/workflows/        @eric-jesover
+/.github/dependabot.yml    @eric-jesover
 /.ci/                      @eric-jesover
 /Tests/                    @eric-jesover
 /Tools/                    @eric-jesover
