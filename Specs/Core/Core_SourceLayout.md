@@ -88,8 +88,8 @@ Build/
   SkillValidation.psm1, SkillPackageIntegrity.psm1, SkillText.psm1 Skill metadata grammar, package/reference checks, and their shared strict reads and Markdown fence/code-span grammar (validate-skills.ps1)
   RedMonitor.props  Pinned RedMonitor client include path and the RequirePinnedRedMonitorClient build gate
 Tools/
-  Test-Changelog.ps1, Fold-Changelog.ps1, Submit-ChangelogFold.ps1 Shared Changes workflow (Core_Changes.md): validate, fold, and fold main through a pull request
-  Test-ChangelogWorkflow.ps1 That workflow's shared behaviour suite
+  Test-Changelog.ps1, Fold-Changelog.ps1, Submit-ChangelogFold.ps1, Release-Changelog.ps1 Engine shims of the shared Changes workflow (Core_Changes.md): validate, fold, fold main through a pull request, cut a release
+  Test-ChangelogWorkflow.ps1 Engine shim of that workflow's shared behaviour suite, which also checks these shims
 .github/actions/setup-msvc/ Hosted verification and bounded provisioning of the required MSVC 14.52 tools
 Settings/
   RedXe-debug.settings.json  Shipped Debug default
