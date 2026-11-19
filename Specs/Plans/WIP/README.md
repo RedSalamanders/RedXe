@@ -39,6 +39,8 @@ and matched resource acceptance remain [release requirements](../../Plugins/Plug
 
 - **ACTIVE**: [Explicit state machines and lifetime safety across RedXe](ExplicitStateMachines_2026-11-10.md) — Next release: Owner decision required. Plan only; implementation not started. Six slices replacing 27 implicit state machines and closing 24 verified defects (`RX-SM-01`..`RX-SM-24`) across host swipe/raise/dock/settings, `PluginHost`, bundled plugins (`DeskClock`, `StudioClock`, `SystemData`, `ProcessViewer`, `AVControl`, `Logicon`, `Weather`, `5H4D3R5`, `Launcher`, `GdiOrbit`, `MatrixRain`, `RotatingTriangle`), `RedXeLauncher`, and `Build/*.psm1` without breaking ABI or settings schemas.
 
+- **ACTIVE**: [Code conventions convergence](CodeConventionsConvergence_2026-11-19.md) — Next release: Not a release gate. RedHome CV-6-08: one pull request per register row (device loss, `--self-test` WARP, windowing spec name, occlusion, replace sequence, JSON5 reading, settings fallback, resource strings, keyboard state).
+
 On completion, merge durable requirements into the owning domain spec, move the plan to `Specs/Plans/Done/`, and remove
 its row here.
 
