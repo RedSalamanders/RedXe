@@ -1,4 +1,4 @@
-# RedXe Development Guidelines
+# RedXe development guidance
 
 ## Project overview
 
@@ -22,13 +22,14 @@ yyjson, and modern C++. WIL and yyjson are pinned through the repository vcpkg m
 
 Do not create scratch, caches, evidence, copied checkouts, or other output directories directly at a drive root.
 Use repository-local generated outputs or an existing approved workspace. The only permitted new drive-root
-output name is `<Project>.Perf` (for example `RedXe.Perf`, `RedSalamander.Perf`, or `RedPrism.Perf`), and the
-user must explicitly authorize the exact path before its first creation or initialization. A matching name,
-environment variable, low disk space, or authorization for another drive/project is not authorization.
-Keep outputs beneath the approved root; do not invent sibling root folders. Preserve runner-specific ownership
-markers and authorization. Historical cleanup inventories and preserves useful evidence/recovery data, checks
-process use, repairs live junction/worktree references, and verifies preservation before removal. Never follow
-junctions during cleanup or leave compatibility junctions at forbidden old roots.
+output name is `<Project>.Perf`, named after the owning project (for example `RedSalamander.Perf` or
+`RedPrism.Perf`), and the user must explicitly authorize the exact path before its first creation or
+initialization. A matching name, environment variable, low disk space, or authorization for another drive or
+project is not authorization. Keep outputs beneath the approved root; do not invent sibling root folders. Preserve
+runner-specific ownership markers and authorization. Historical cleanup inventories and preserves useful evidence
+and recovery data, checks process use, repairs live junction and worktree references, and verifies preservation
+before removal. Never follow junctions during cleanup or leave compatibility junctions at forbidden old drive-root
+paths.
 
 ## Canonical project guidance
 
@@ -55,6 +56,8 @@ junctions during cleanup or leave compatibility junctions at forbidden old roots
 
 ## Skills
 
+Shared skill index: `../RedHome/AGENTS.md`; packages: `../RedHome/.agents/skills/`. If `../RedHome` is missing, clone https://github.com/RedSalamanders/RedHome.git to that path. This repository's guidance and domain specs own product behavior and validation.
+
 | Skill | Use it for |
 | --- | --- |
 | [plugin-development](.agents/skills/plugin-development/SKILL.md) | Native plugin ABI, factories, loading, widget instances, and bundled DLLs |
@@ -67,8 +70,6 @@ Cross-repository `spec-workflow`, `d3d11-win32-host`, `performance-resources`, `
 | `app-settings` | Settings paths, schema, recovery, stamps, watching, and live apply (was `settings-store`) |
 
 `test-evidence`, `crash-dumps`, and `file-io-safety` in `RedHome` cover tests and run evidence, crash capture, and safe file saves, again with RedXe's facts.
-
-Shared skill index: `../RedHome/AGENTS.md`; packages: `../RedHome/.agents/skills/`. If `../RedHome` is missing, clone https://github.com/RedSalamanders/RedHome.git to that path. This repository's guidance and domain specs own product behavior and validation.
 
 ## Specification workflow
 
@@ -190,12 +191,15 @@ release and winget workflows are owned by [`Specs/Build/Build_Packaging.md`](Spe
 `.build/<Platform>/<Configuration>/RedXe.exe`. It MUST identify that process and MUST NOT terminate it; same-name
 processes from other paths do not block the build.
 
-Before declaring a change complete, build the affected configuration, run `test.ps1 -Full` (or
-`Test-Changes.ps1 -Mode PrePush`, which accounts for the same coverage), and satisfy the validation contract in the
-owning domain spec. Rendering changes must keep the WARP smoke test green so CI and GPU-independent hosts can validate
+Before declaring a change complete, build the affected configuration, account for the remaining coverage with
+`Test-Changes.ps1 -Mode PrePush` (explicit `test.ps1 -Full` where qualification requires it), and satisfy the
+validation contract in the owning domain spec. Rendering changes must keep the WARP smoke test green so CI and GPU-independent hosts can validate
 device creation, embedded shader bytecode, resize, drawing, and presentation.
 `test.ps1 -Full` also validates crash capture by launching an isolated child process; it requires no desktop automation
 and must not write to the user's normal crash directory.
+
+Only a check that `main` requires can take work off the local run. An empty affected plan (`NOTHING_SELECTED`)
+evaluates nothing; explicit Full (`test.ps1 -Full`) remains the full gate.
 
 ## Host chrome iconography
 
@@ -234,9 +238,23 @@ and must not write to the user's normal crash directory.
 - Keep `Settings/`, `Specs/Settings.schema.json`, `Settings.*`, `Core_Settings.md`, and `SettingsTests` aligned. A
   settings change is incomplete if any one of these still describes the old document.
 
-## Scoped testing policy (2026-10-05)
+## Interactive desktop tests
 
-The user's accepted workflow replaces unconditional full-test iteration. Use `Test-Changes.ps1 -Explain` and the affected default while editing; use `-Mode PrePush` to account for full local/PR coverage without duplicate identical obligations. A forthcoming enabled CI gate is pending acceptance, never an already passed result, and only a check `main` requires can take work off the local run. An empty affected plan (`NOTHING_SELECTED`) evaluates nothing; explicit Full (`test.ps1 -Full`) remains the full gate. Active native test files use `Scope.Tests.Something.h/.cpp` and the native file inventory. Follow [Specs/Build/Build_Process.md](Specs/Build/Build_Process.md) and [the test guide](Tests/README.md). Focus-taking work requires agreement to the time; no scoped pass closes that gate. Build/runtime/platform qualification still applies to changed behavior, with exact prior evidence reusable only under the owning contract.
+A test that takes real foreground focus, the cursor or the clipboard runs only after the person at the desktop has
+agreed to the time; silence never authorizes one. It warns before and while it runs, targets only windows the test
+owns, and restores the foreground window, keyboard focus and pointer however it ends. Use the repository's
+interactive entry point and desktop lease where it has one. Every other test and every harness capture stays hidden
+and non-activating, and no scoped, CI or partial pass closes a focus-taking gate.
+
+## Scoped testing policy
+
+The user's accepted workflow replaces unconditional full-test iteration. While editing, run `Test-Changes.ps1 -Explain`
+and then the affected default; use `-Mode PrePush` to account for the remaining local and pull-request obligations
+without repeating identical ones, and explicit Full where qualification requires it. A pending CI check is never a
+passed result. Reuse only exact successful evidence for the same source, pin, toolchain, binary and scenario. Native
+test files use contextual `<Component>.Tests.<Subject>.h/.cpp` names, listed in the native file inventory where the
+repository keeps one. Focus-taking work requires agreement to the time, and no scoped pass closes that gate. Build,
+runtime and platform qualification still applies to changed behavior. [Specs/Build/Build_Process.md](Specs/Build/Build_Process.md) and [the test guide](Tests/README.md) own the details.
 
 ## Changes workflow
 
@@ -245,7 +263,8 @@ and [Specs/Core/Core_Changes.md](Specs/Core/Core_Changes.md). Do not hand-edit g
 Keep the fragment in the change: never fold it in a feature change and never edit `CHANGELOG.md`. Fragments are
 folded on `main` after merge by `Tools/Submit-ChangelogFold.ps1`, which opens a fold pull request of its own. Run
 `Tools/Test-Changelog.ps1` while editing; PrePush and CI run it with `-Base`, which refuses any `CHANGELOG.md` change
-that is not an exact fold of fragments already on `main`. Validation is read-only.
+that is not an exact fold of fragments already on `main` or, where the repository releases through
+`Tools/Release-Changelog.ps1`, the exact generated release transition. Validation is read-only.
 
 ## Shared native build policy (2026-10-28)
 
@@ -255,6 +274,7 @@ adding blanket suppressions. Ordinary Debug uses /ZI, ASan Debug uses /Zi.
 Release explicitly enables /OPT:ICF; Debug/ASan explicitly disable it.
 Follow Specs/Build/Build_ConsoleAndPaths.md for the common green result, safe
 terminal launch links and short dependency folders with full identity checking.
+
 ## Unified CI policy
 
-Use [Specs/Build/Build_UnifiedCI.md](Specs/Build/Build_UnifiedCI.md) for hosted CI. PRs run compiler-free checks and formatting feedback. Main native qualification starts after five continuous quiet minutes; both native Release test branches must pass before either production Release/ZIP branch starts. Scheduled dependency/security/status checks remain compiler-free. Formatting commits, extended qualification and ZIP/winget publication are explicit manual actions. PR checks do not satisfy native acceptance or waive applicable local scoped tests. Shared-engine pins in .ci/project.json and workflow callers must agree. Preserve dependency pins, native toolchain, evidence and desktop ownership contracts.
+Use [Specs/Build/Build_UnifiedCI.md](Specs/Build/Build_UnifiedCI.md) for hosted CI. PRs run compiler-free checks and formatting feedback. Main native qualification starts after five continuous quiet minutes; both native Release test branches must pass before either production Release/ZIP branch starts. Scheduled dependency/security/status checks remain compiler-free. Formatting commits, extended qualification and any ZIP or winget publication are explicit manual actions. PR checks do not satisfy native acceptance or waive applicable local scoped tests. Shared-engine pins in .ci/project.json and workflow callers must agree. Preserve dependency pins, native toolchain, evidence and desktop ownership contracts.
