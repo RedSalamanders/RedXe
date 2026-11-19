@@ -65,3 +65,10 @@ verifying the actual file and directory metadata exactly. Further controls pin t
 non-Gregorian culture, ordinal order, the refused repository forms, single-entry list fields and the OS reason of
 Windows failures; every negative control asserts its specific error and cannot create output outside its scratch
 directory.
+
+## Archive
+
+Generated evidence stays under the repository `.build/`, ignored by Git, and normal builds never sweep it.
+Reviewed evidence that a plan, contract or Done record cites is kept under `Measurements/`, one folder per topic
+and date with a `README.md` that names the source commit, profile and scenario, and says what the packet does
+and does not establish. Archived packets are history: they are never rewritten to match later code.
