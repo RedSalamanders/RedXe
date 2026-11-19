@@ -58,6 +58,6 @@ used. A mismatched/corrupt old package requires explicit repair; the installer w
 
 ## Acceptance still required
 
-The active [AV plan](../../../Specs/Plans/WIP/RFC_Plugins_AVControl.md) owns G2: installed x64/ARM64 Frame Server loading,
+The active [AV plan](../../../Specs/Plans/WIP/RFC_Plugins_AVControl_2026-09-05.md) owns G2: installed x64/ARM64 Frame Server loading,
 privacy and principal/session boundaries, real capture applications, device/driver faults, off/switch latency,
 multi-consumer behavior and measured active-camera resource budgets. Do not replace these with synthetic test counts.

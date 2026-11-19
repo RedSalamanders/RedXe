@@ -34,7 +34,7 @@ subsequent closeout changes only plan documentation. Build logs are under `.buil
 `redxe-build-20261010_101824_081-pid59228-39e1d010.log`.
 
 ARM64 was cross-built, not executed. Physical touch and presented latency remain unverified and
-stay with the existing [AV release gates](../WIP/RFC_Plugins_AVControl.md). This recovery closes
+stay with the existing [AV release gates](../WIP/RFC_Plugins_AVControl_2026-09-05.md). This recovery closes
 the RedXe port; it does not close AV production qualification or adopt a new upstream appearance.
 
 The September branch also proposed a 24 DIP gray slider surround with accent diameters

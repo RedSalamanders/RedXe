@@ -3,7 +3,7 @@
 Status: normative implementation contract; feature delivery in progress
 Last reviewed: 2026-10-10
 
-The active [AV implementation plan](../Plans/WIP/RFC_Plugins_AVControl.md) tracks unfinished integration and release
+The active [AV implementation plan](../Plans/WIP/RFC_Plugins_AVControl_2026-09-05.md) tracks unfinished integration and release
 gates. The browser mockup and synthetic tests are not evidence of working Windows audio or camera backends.
 
 ## Configuration and interaction model

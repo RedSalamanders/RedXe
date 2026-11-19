@@ -9,19 +9,19 @@ task, CI runs and `.build` receipts below are as of 2026-09-05 and stay as the r
 `Dependencies/DxUi.lock.json` owns the current DxUi pin, which has moved since
 ([`DxUiFollowUps_2026-10-01.md`](../Done/DxUiFollowUps_2026-10-01.md)); check `git status` in every directory before
 relying on a row of the working-state table. The open gates are the checklist of
-[`RFC_Plugins_AVControl.md`](RFC_Plugins_AVControl.md) (G1, G2, G3a, G3b). The proposed long-profile performance
+[`RFC_Plugins_AVControl_2026-09-05.md`](RFC_Plugins_AVControl_2026-09-05.md) (G1, G2, G3a, G3b). The proposed long-profile performance
 acceptance run under "Performance: OPEN" is recorded only here.
 
 **Do not resume from this file.** The working-state table, task id, `Z:` paths, and pin `1947a5b` are the
 5 September 2026 snapshot. They are not a checkout to use. Open gates are only the checklist in
-[`RFC_Plugins_AVControl.md`](RFC_Plugins_AVControl.md). The current DxUi pin is `Dependencies/DxUi.lock.json`.
+[`RFC_Plugins_AVControl_2026-09-05.md`](RFC_Plugins_AVControl_2026-09-05.md). The current DxUi pin is `Dependencies/DxUi.lock.json`.
 
 ## Historical resume list, 2026-09-05
 
 Do not follow these steps. They are the paused session's notes.
 
 1. Read `AGENTS.md`, `Specs/README.md`, `Specs/Plugins/Plugins_AVControl.md`, the
-   [AV plan](RFC_Plugins_AVControl.md) and
+   [AV plan](RFC_Plugins_AVControl_2026-09-05.md) and
    [DxUi integration contract](../../Core/Core_DxUiIntegration.md) plus historical
    [shared-library plan](../Done/RFC_Core_DxUiSharedProject.md).
 2. Inspect actual Git status in all working directories. Preserve unrelated changes; do not reset, clean, stage

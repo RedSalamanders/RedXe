@@ -22,7 +22,7 @@
   - [Specs/Build/Build_UnifiedCI.md](../../Build/Build_UnifiedCI.md)
 - **Related active plans**:
   - [PluginBoundaryHardening_2026-09-03.md](PluginBoundaryHardening_2026-09-03.md) (G2 gesture extraction in `Application.cpp` aligns directly with Slice 1)
-  - [RFC_Plugins_AVControl.md](RFC_Plugins_AVControl.md) (retains real hardware/IME/accessibility release gates)
+  - [RFC_Plugins_AVControl_2026-09-05.md](RFC_Plugins_AVControl_2026-09-05.md) (retains real hardware/IME/accessibility release gates)
 
 ---
 

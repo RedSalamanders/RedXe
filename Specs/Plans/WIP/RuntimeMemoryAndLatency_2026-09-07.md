@@ -58,7 +58,7 @@ Owning contracts:
 
 Coordinate, do not fork:
 
-- [`RFC_Plugins_AVControl.md`](RFC_Plugins_AVControl.md) still owns real IME/AT, G1 audio, G2 camera, and matched
+- [`RFC_Plugins_AVControl_2026-09-05.md`](RFC_Plugins_AVControl_2026-09-05.md) still owns real IME/AT, G1 audio, G2 camera, and matched
   text/UIA performance. This plan only accounts AV's retained surfaces, coordinator, and helper-process cost.
 - The network lane and forecast fetch are owned by `Specs/Plugins/Plugins_API.md` and `Specs/Plugins/Plugins_Weather.md`
   (landed via [`../Done/WeatherPlugin_2026-09-04.md`](../Done/WeatherPlugin_2026-09-04.md)).
