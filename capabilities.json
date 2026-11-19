@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "product": "RedXe",
+  "status": "in development",
+  "supported": [
+    "XENEON EDGE dashboard on a 2560x720 canvas",
+    "fullscreen on a detected XENEON monitor with titled-window fallback",
+    "screen-edge dock bar with auto-hide",
+    "per-monitor DPI with exact logical canvas",
+    "ordered swipeable pages with adaptive layout reflow",
+    "touch, mouse-edge and wheel page navigation",
+    "notification-area icon",
+    "live settings reload that keeps the previous dashboard on invalid edits",
+    "local crash minidumps with next-launch notice",
+    "Matrix Rain and 5H4D3R5 GPU widgets",
+    "studio and desk clocks",
+    "weather widget",
+    "launcher tiles bound to actions",
+    "CPU, memory, storage, GPU, power, thermal and network meters",
+    "process and GPU-process viewers",
+    "Logitech MX Creative Console keypad and dialpad service",
+    "browser-only Zoom join actions",
+    "portable x64 and ARM64 ZIP with symbols, installer and Winget manifest",
+    "optional RedMonitor diagnostics"
+  ],
+  "pending": [
+    "qualified tip: engine AND-gate, production receipts and reviewed-commit package",
+    "AV Control audio and camera backends",
+    "real IME, touch and screen-reader acceptance",
+    "native ARM64 runtime and ASan qualification",
+    "paired performance and matched resource qualification",
+    "physical input and first-pixel latency",
+    "owner live checks for autohide, Explorer restart, tray, first install and Logicon hardware",
+    "remaining action publishers: screen, window, navigate, clipboard, audio",
+    "Desk Clock five-minute memory growth investigation"
+  ]
+}
