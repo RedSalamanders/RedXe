@@ -38,15 +38,15 @@
 
 namespace
 {
-constexpr LONG kXeneonEdgeClientWidth = 2560;
+constexpr LONG kXeneonEdgeClientWidth  = 2560;
 constexpr LONG kXeneonEdgeClientHeight = 720;
 
 // Window-kind styles (UI_XeneonDisplayWindowing.md). No kind has a redirection surface: the main window never paints
 // with GDI; its chrome is drawn into the swap chain and native-widget containers are layered children with their own
 // surfaces. A live switch between the standard kinds and the dock restyles the same window between these rows.
 constexpr DWORD kStandardExtendedStyle = WS_EX_APPWINDOW | WS_EX_NOREDIRECTIONBITMAP;
-constexpr DWORD kTitledWindowStyle = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
-constexpr DWORD kPopupWindowStyle = WS_POPUP | WS_CLIPCHILDREN;
+constexpr DWORD kTitledWindowStyle     = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
+constexpr DWORD kPopupWindowStyle      = WS_POPUP | WS_CLIPCHILDREN;
 // Tool window: no taskbar button and no Alt+Tab entry, like the taskbar itself. Topmost so an autohide strip can
 // always be reached; ABN_FULLSCREENAPP lowers it beneath a full-screen application.
 constexpr DWORD kDockExtendedStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
@@ -56,52 +56,41 @@ constexpr DWORD kDockExtendedStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NO
 // what is left of it (PluginHost::TeardownStageMilliseconds): the device-lane drain and the launch stop at most their
 // own bounds and never into the last kSessionEndLogFlushMilliseconds, which the log flush keeps and then takes with
 // whatever else is left.
-constexpr uint32_t kSessionEndMaximumMilliseconds = 4500;
+constexpr uint32_t kSessionEndMaximumMilliseconds  = 4500;
 constexpr uint32_t kSessionEndLogFlushMilliseconds = 500;
-static_assert(kSessionEndMaximumMilliseconds < 5000 &&
-              kSessionEndLogFlushMilliseconds < kSessionEndMaximumMilliseconds);
+static_assert(kSessionEndMaximumMilliseconds < 5000 && kSessionEndLogFlushMilliseconds < kSessionEndMaximumMilliseconds);
 
 // The private messages the main window receives are distinct.
-static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage &&
-              TrayIcon::kCommandMessage != SettingsWatcher::kSettingsChangedMessage &&
-              TrayIcon::kCommandMessage != PluginHost::kDataSnapshotInvalidateMessage &&
-              TrayIcon::kCommandMessage != Application::kPageEdgeHoverMessage &&
-              TrayIcon::kCommandMessage != PluginHost::kHostActionMessage &&
-              TrayIcon::kCommandMessage != PluginHost::kServiceLaneMessage &&
-              TrayIcon::kCommandMessage != Application::kDockAppBarMessage &&
-              TrayIcon::kCommandMessage != Application::kScreenshotCompleteMessage);
-static_assert(TrayIcon::kAddResultMessage != TrayIcon::kCommandMessage &&
-              TrayIcon::kAddResultMessage != Renderer::kOcclusionStatusMessage &&
+static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage && TrayIcon::kCommandMessage != SettingsWatcher::kSettingsChangedMessage &&
+              TrayIcon::kCommandMessage != PluginHost::kDataSnapshotInvalidateMessage && TrayIcon::kCommandMessage != Application::kPageEdgeHoverMessage &&
+              TrayIcon::kCommandMessage != PluginHost::kHostActionMessage && TrayIcon::kCommandMessage != PluginHost::kServiceLaneMessage &&
+              TrayIcon::kCommandMessage != Application::kDockAppBarMessage && TrayIcon::kCommandMessage != Application::kScreenshotCompleteMessage);
+static_assert(TrayIcon::kAddResultMessage != TrayIcon::kCommandMessage && TrayIcon::kAddResultMessage != Renderer::kOcclusionStatusMessage &&
               TrayIcon::kAddResultMessage != SettingsWatcher::kSettingsChangedMessage &&
-              TrayIcon::kAddResultMessage != PluginHost::kDataSnapshotInvalidateMessage &&
-              TrayIcon::kAddResultMessage != Application::kPageEdgeHoverMessage &&
-              TrayIcon::kAddResultMessage != PluginHost::kHostActionMessage &&
-              TrayIcon::kAddResultMessage != PluginHost::kServiceLaneMessage &&
-              TrayIcon::kAddResultMessage != Application::kDockAppBarMessage &&
-              TrayIcon::kAddResultMessage != Application::kScreenshotCompleteMessage);
+              TrayIcon::kAddResultMessage != PluginHost::kDataSnapshotInvalidateMessage && TrayIcon::kAddResultMessage != Application::kPageEdgeHoverMessage &&
+              TrayIcon::kAddResultMessage != PluginHost::kHostActionMessage && TrayIcon::kAddResultMessage != PluginHost::kServiceLaneMessage &&
+              TrayIcon::kAddResultMessage != Application::kDockAppBarMessage && TrayIcon::kAddResultMessage != Application::kScreenshotCompleteMessage);
 
 // PlanDockAppBar's messages are the shell's ABM_* values; PlaceDockPass sends them as listed.
-static_assert(kDockAppBarNew == ABM_NEW && kDockAppBarRemove == ABM_REMOVE && kDockAppBarQueryPos == ABM_QUERYPOS &&
-              kDockAppBarSetPos == ABM_SETPOS);
+static_assert(kDockAppBarNew == ABM_NEW && kDockAppBarRemove == ABM_REMOVE && kDockAppBarQueryPos == ABM_QUERYPOS && kDockAppBarSetPos == ABM_SETPOS);
 
 // Places a notice's text control and OK button in its current client area (NoticeWindow.h NoticeControlsForClient).
 void LayoutNoticeControls(HWND notice) noexcept
 {
     RECT client{};
-    if (!GetClientRect(notice, &client))
+    if (! GetClientRect(notice, &client))
     {
         return;
     }
     const NoticeControlLayout layout = NoticeControlsForClient(client.right - client.left, client.bottom - client.top);
     if (const HWND text = GetDlgItem(notice, kNoticeTextControlId))
     {
-        (void)MoveWindow(text, layout.text.left, layout.text.top, layout.text.right - layout.text.left,
-                         layout.text.bottom - layout.text.top, TRUE);
+        (void)MoveWindow(text, layout.text.left, layout.text.top, layout.text.right - layout.text.left, layout.text.bottom - layout.text.top, TRUE);
     }
     if (const HWND button = GetDlgItem(notice, IDOK))
     {
-        (void)MoveWindow(button, layout.button.left, layout.button.top, layout.button.right - layout.button.left,
-                         layout.button.bottom - layout.button.top, TRUE);
+        (void)MoveWindow(
+            button, layout.button.left, layout.button.top, layout.button.right - layout.button.left, layout.button.bottom - layout.button.top, TRUE);
     }
 }
 
@@ -163,13 +152,12 @@ struct TouchContact final
     return RedXePointerKindTouch;
 }
 
-[[nodiscard]] uint32_t CollectInContactTouches(HWND window, UINT32 pointerId,
-                                               std::array<TouchContact, 10>& contacts) noexcept
+[[nodiscard]] uint32_t CollectInContactTouches(HWND window, UINT32 pointerId, std::array<TouchContact, 10>& contacts) noexcept
 {
     std::array<POINTER_TOUCH_INFO, 10> frame{};
     UINT32 count = static_cast<UINT32>(frame.size());
-    BOOL ok = GetPointerFrameTouchInfo(pointerId, &count, frame.data());
-    if (!ok && count > 0 && count <= frame.size())
+    BOOL ok      = GetPointerFrameTouchInfo(pointerId, &count, frame.data());
+    if (! ok && count > 0 && count <= frame.size())
     {
         ok = GetPointerFrameTouchInfo(pointerId, &count, frame.data());
     }
@@ -184,7 +172,7 @@ struct TouchContact final
                 continue;
             }
             POINT position = PointerScreenPixels(information);
-            if (!ScreenToClient(window, &position))
+            if (! ScreenToClient(window, &position))
             {
                 continue;
             }
@@ -197,13 +185,12 @@ struct TouchContact final
     }
 
     POINTER_INFO information{};
-    if (!GetPointerInfo(pointerId, &information) || information.pointerType != PT_TOUCH ||
-        (information.pointerFlags & POINTER_FLAG_INCONTACT) == 0)
+    if (! GetPointerInfo(pointerId, &information) || information.pointerType != PT_TOUCH || (information.pointerFlags & POINTER_FLAG_INCONTACT) == 0)
     {
         return 0;
     }
     POINT position = PointerScreenPixels(information);
-    if (!ScreenToClient(window, &position))
+    if (! ScreenToClient(window, &position))
     {
         return 0;
     }
@@ -226,7 +213,7 @@ struct TouchContact final
 
     HICON extractedLarge = nullptr;
     HICON extractedSmall = nullptr;
-    const UINT count = ExtractIconExW(executablePath.data(), 0, &extractedLarge, &extractedSmall, 1);
+    const UINT count     = ExtractIconExW(executablePath.data(), 0, &extractedLarge, &extractedSmall, 1);
     wil::unique_hicon largeIcon{extractedLarge};
     wil::unique_hicon smallIcon{extractedSmall};
     return count != 0 && largeIcon && smallIcon ? S_OK : HRESULT_FROM_WIN32(ERROR_RESOURCE_DATA_NOT_FOUND);
@@ -261,7 +248,7 @@ HRESULT CalculateWindowSizeForDpi(DWORD windowStyle, DWORD extendedStyle, UINT d
 
     const SIZE clientSize = ScaleXeneonClientSize(dpi);
     RECT bounds{0, 0, clientSize.cx, clientSize.cy};
-    if (!AdjustWindowRectExForDpi(&bounds, windowStyle, FALSE, extendedStyle, dpi))
+    if (! AdjustWindowRectExForDpi(&bounds, windowStyle, FALSE, extendedStyle, dpi))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -286,8 +273,8 @@ bool ContainsOrdinalIgnoreCase(std::wstring_view value, std::wstring_view expect
 
     for (size_t offset = 0; offset <= value.size() - expected.size(); ++offset)
     {
-        if (CompareStringOrdinal(value.data() + offset, static_cast<int>(expected.size()), expected.data(),
-                                 static_cast<int>(expected.size()), TRUE) == CSTR_EQUAL)
+        if (CompareStringOrdinal(value.data() + offset, static_cast<int>(expected.size()), expected.data(), static_cast<int>(expected.size()), TRUE) ==
+            CSTR_EQUAL)
         {
             return true;
         }
@@ -300,11 +287,10 @@ BOOL CALLBACK FindMonitorByDeviceName(HMONITOR monitor, HDC, LPRECT, LPARAM cont
     auto* lookup = reinterpret_cast<MonitorLookup*>(context);
     MONITORINFOEXW information{};
     information.cbSize = sizeof(information);
-    if (GetMonitorInfoW(monitor, &information) &&
-        CompareStringOrdinal(information.szDevice, -1, lookup->deviceName, -1, TRUE) == CSTR_EQUAL)
+    if (GetMonitorInfoW(monitor, &information) && CompareStringOrdinal(information.szDevice, -1, lookup->deviceName, -1, TRUE) == CSTR_EQUAL)
     {
         lookup->bounds = information.rcMonitor;
-        lookup->found = true;
+        lookup->found  = true;
         return FALSE;
     }
     return TRUE;
@@ -318,7 +304,7 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
     {
         UINT32 pathCount = 0;
         UINT32 modeCount = 0;
-        LONG status = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount);
+        LONG status      = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount);
         if (status != ERROR_SUCCESS)
         {
             return HRESULT_FROM_WIN32(static_cast<DWORD>(status));
@@ -336,27 +322,26 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
         {
             const DISPLAYCONFIG_PATH_INFO& path = paths[index];
             DISPLAYCONFIG_TARGET_DEVICE_NAME targetName{};
-            targetName.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
-            targetName.header.size = sizeof(targetName);
+            targetName.header.type      = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+            targetName.header.size      = sizeof(targetName);
             targetName.header.adapterId = path.targetInfo.adapterId;
-            targetName.header.id = path.targetInfo.id;
+            targetName.header.id        = path.targetInfo.id;
             if (DisplayConfigGetDeviceInfo(&targetName.header) != ERROR_SUCCESS)
             {
                 continue;
             }
 
             const std::wstring_view friendlyName{targetName.monitorFriendlyDeviceName};
-            if (!ContainsOrdinalIgnoreCase(friendlyName, L"XENEON") &&
-                !ContainsOrdinalIgnoreCase(friendlyName, L"CORSAIR"))
+            if (! ContainsOrdinalIgnoreCase(friendlyName, L"XENEON") && ! ContainsOrdinalIgnoreCase(friendlyName, L"CORSAIR"))
             {
                 continue;
             }
 
             DISPLAYCONFIG_SOURCE_DEVICE_NAME sourceName{};
-            sourceName.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
-            sourceName.header.size = sizeof(sourceName);
+            sourceName.header.type      = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+            sourceName.header.size      = sizeof(sourceName);
             sourceName.header.adapterId = path.sourceInfo.adapterId;
-            sourceName.header.id = path.sourceInfo.id;
+            sourceName.header.id        = path.sourceInfo.id;
             if (DisplayConfigGetDeviceInfo(&sourceName.header) != ERROR_SUCCESS)
             {
                 continue;
@@ -367,7 +352,7 @@ HRESULT FindXeneonDisplay(RECT& bounds, bool& found) noexcept
             if (lookup.found)
             {
                 bounds = lookup.bounds;
-                found = true;
+                found  = true;
                 return S_OK;
             }
         }
@@ -406,8 +391,7 @@ struct DisplayFriendlyName final
         }
         std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
         std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
-        if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount, modes.data(), nullptr) !=
-            ERROR_SUCCESS)
+        if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount, modes.data(), nullptr) != ERROR_SUCCESS)
         {
             return 0;
         }
@@ -415,24 +399,22 @@ struct DisplayFriendlyName final
         {
             const DISPLAYCONFIG_PATH_INFO& path = paths[index];
             DISPLAYCONFIG_TARGET_DEVICE_NAME targetName{};
-            targetName.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
-            targetName.header.size = sizeof(targetName);
+            targetName.header.type      = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+            targetName.header.size      = sizeof(targetName);
             targetName.header.adapterId = path.targetInfo.adapterId;
-            targetName.header.id = path.targetInfo.id;
+            targetName.header.id        = path.targetInfo.id;
             DISPLAYCONFIG_SOURCE_DEVICE_NAME sourceName{};
-            sourceName.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
-            sourceName.header.size = sizeof(sourceName);
+            sourceName.header.type      = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+            sourceName.header.size      = sizeof(sourceName);
             sourceName.header.adapterId = path.sourceInfo.adapterId;
-            sourceName.header.id = path.sourceInfo.id;
-            if (DisplayConfigGetDeviceInfo(&targetName.header) != ERROR_SUCCESS ||
-                DisplayConfigGetDeviceInfo(&sourceName.header) != ERROR_SUCCESS)
+            sourceName.header.id        = path.sourceInfo.id;
+            if (DisplayConfigGetDeviceInfo(&targetName.header) != ERROR_SUCCESS || DisplayConfigGetDeviceInfo(&sourceName.header) != ERROR_SUCCESS)
             {
                 continue;
             }
             DisplayFriendlyName& entry = names[count++];
             (void)wcsncpy_s(entry.device.data(), entry.device.size(), sourceName.viewGdiDeviceName, _TRUNCATE);
-            (void)wcsncpy_s(entry.friendly.data(), entry.friendly.size(), targetName.monitorFriendlyDeviceName,
-                            _TRUNCATE);
+            (void)wcsncpy_s(entry.friendly.data(), entry.friendly.size(), targetName.monitorFriendlyDeviceName, _TRUNCATE);
         }
     }
     catch (...)
@@ -450,8 +432,8 @@ struct DisplayFriendlyName final
 {
     APPBARDATA data{};
     data.cbSize = sizeof(data);
-    data.uEdge = appBarEdge;
-    data.rc = monitor;
+    data.uEdge  = appBarEdge;
+    data.rc     = monitor;
     return DockAutohideBarHoldsEdge(reinterpret_cast<HWND>(SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &data)));
 }
 
@@ -472,7 +454,7 @@ struct FirstRunTopology final
 // it along that display (DockFirstRunThicknessDips).
 [[nodiscard]] bool MakeFirstRunDock(DockSettings& dock, FirstRunTopology& topology) noexcept
 {
-    dock = DefaultDockSettings();
+    dock     = DefaultDockSettings();
     topology = FirstRunTopology{};
     // ResolveDockMonitor resolves the written selector over the same walk at runtime, so the display measured here is
     // the display the bar goes to.
@@ -480,7 +462,7 @@ struct FirstRunTopology final
     EnumerateDisplays(displays);
     const std::string_view monitorSelector = DockFirstRunMonitor(displays.count);
     RedXeActions::MonitorSelector selector{};
-    bool fellBack = false;
+    bool fellBack       = false;
     const size_t chosen = RedXeActions::ParseMonitorSelector(monitorSelector, false, selector)
                               ? SelectDockMonitor(selector, {}, displays.candidates.data(), displays.count, fellBack)
                               : SIZE_MAX;
@@ -489,20 +471,18 @@ struct FirstRunTopology final
         return false;
     }
     const DockMonitorCandidate& display = displays.candidates[chosen];
-    bool sharedTop = false;
-    bool sharedBottom = false;
+    bool sharedTop                      = false;
+    bool sharedBottom                   = false;
     for (size_t index = 0; index < displays.count; ++index)
     {
         if (index != chosen)
         {
-            sharedTop =
-                sharedTop || DockDisplayTouchesEdge(display.monitor, displays.candidates[index].monitor, DockEdge::Top);
-            sharedBottom = sharedBottom || DockDisplayTouchesEdge(display.monitor, displays.candidates[index].monitor,
-                                                                  DockEdge::Bottom);
+            sharedTop    = sharedTop || DockDisplayTouchesEdge(display.monitor, displays.candidates[index].monitor, DockEdge::Top);
+            sharedBottom = sharedBottom || DockDisplayTouchesEdge(display.monitor, displays.candidates[index].monitor, DockEdge::Bottom);
         }
     }
-    dock.edge = DockFirstRunEdge(display.monitor, display.work, AutohideBarOnEdge(ABE_TOP, display.monitor),
-                                 AutohideBarOnEdge(ABE_BOTTOM, display.monitor), sharedTop, sharedBottom);
+    dock.edge = DockFirstRunEdge(
+        display.monitor, display.work, AutohideBarOnEdge(ABE_TOP, display.monitor), AutohideBarOnEdge(ABE_BOTTOM, display.monitor), sharedTop, sharedBottom);
     dock.mode = DockMode::Autohide;
     // Cleared first: SettingsText compares its whole buffer, and the default's text must leave no byte behind the new
     // one.
@@ -510,10 +490,10 @@ struct FirstRunTopology final
     monitorSelector.copy(dock.monitor.utf8.data(), monitorSelector.size());
     dock.monitor.bytes = static_cast<uint32_t>(monitorSelector.size());
     dock.thicknessDips = DockFirstRunThicknessDips(display.monitor, display.work, dock.edge, display.dpi);
-    topology.displays = displays.count;
-    topology.monitor = display.monitor;
-    topology.work = display.work;
-    topology.dpi = display.dpi;
+    topology.displays  = displays.count;
+    topology.monitor   = display.monitor;
+    topology.work      = display.work;
+    topology.dpi       = display.dpi;
     return true;
 }
 
@@ -539,8 +519,7 @@ struct FirstRunTopology final
         }
     }
     int32_t parsed = 0;
-    if (RedXeActions::ParseInteger(target, 0, 15, parsed) &&
-        static_cast<uint32_t>(parsed) < settings.dashboard.pageCount)
+    if (RedXeActions::ParseInteger(target, 0, 15, parsed) && static_cast<uint32_t>(parsed) < settings.dashboard.pageCount)
     {
         return static_cast<uint32_t>(parsed);
     }
@@ -554,11 +533,10 @@ struct FirstRunTopology final
 }
 
 // Kept for the ENABLE_TESTS plugin-admission regression; Release omits that caller.
-[[maybe_unused, nodiscard]] HRESULT DisablePluginAndRemoveWidgets(AppSettings& settings,
-                                                                  std::string_view pluginId) noexcept
+[[maybe_unused, nodiscard]] HRESULT DisablePluginAndRemoveWidgets(AppSettings& settings, std::string_view pluginId) noexcept
 {
     PluginSettings* plugin = FindPluginSettings(settings, pluginId);
-    if (!plugin)
+    if (! plugin)
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
@@ -568,10 +546,10 @@ struct FirstRunTopology final
     for (uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
     {
         DashboardPageSettings page = settings.dashboard.pages[pageIndex];
-        uint32_t widgetWrite = 0;
+        uint32_t widgetWrite       = 0;
         for (uint32_t widgetIndex = 0; widgetIndex < page.widgetCount; ++widgetIndex)
         {
-            if (!SettingsIdEquals(page.widgets[widgetIndex].pluginId.View(), pluginId))
+            if (! SettingsIdEquals(page.widgets[widgetIndex].pluginId.View(), pluginId))
             {
                 page.widgets[widgetWrite++] = page.widgets[widgetIndex];
             }
@@ -596,21 +574,27 @@ struct FirstRunTopology final
 // Logged before a failed live window-kind switch is rolled back: the reload is rejected and the previous kind stays.
 void LogWindowKindSwitchFailed(HRESULT result) noexcept
 {
-    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+    (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                       RedXeLogLevelWarning,
+                       nullptr,
+                       nullptr,
                        "window-kind-switch-failed",
-                       "A settings reload could not switch the window kind; the previous kind is restored.", result);
+                       "A settings reload could not switch the window kind; the previous kind is restored.",
+                       result);
 }
 
 } // namespace
 
 class ApplicationDropTarget final : public IDropTarget
 {
-  public:
-    explicit ApplicationDropTarget(Application* owner) noexcept : _owner(owner) {}
+public:
+    explicit ApplicationDropTarget(Application* owner) noexcept : _owner(owner)
+    {
+    }
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) override
     {
-        if (!result)
+        if (! result)
         {
             return E_POINTER;
         }
@@ -642,7 +626,7 @@ class ApplicationDropTarget final : public IDropTarget
 
     HRESULT STDMETHODCALLTYPE DragOver(DWORD /*keyState*/, POINTL screen, DWORD* effect) override
     {
-        if (!_owner || !effect)
+        if (! _owner || ! effect)
         {
             return E_POINTER;
         }
@@ -665,7 +649,7 @@ class ApplicationDropTarget final : public IDropTarget
 
     HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD /*keyState*/, POINTL screen, DWORD* effect) override
     {
-        if (!_owner || !data || !effect)
+        if (! _owner || ! data || ! effect)
         {
             return E_POINTER;
         }
@@ -692,8 +676,7 @@ class ApplicationDropTarget final : public IDropTarget
                     {
                         continue;
                     }
-                    if (DragQueryFileW(drop, index, storage[count].data(), static_cast<UINT>(storage[count].size())) !=
-                        0)
+                    if (DragQueryFileW(drop, index, storage[count].data(), static_cast<UINT>(storage[count].size())) != 0)
                     {
                         targets[count] = storage[count].data();
                         ++count;
@@ -717,13 +700,13 @@ class ApplicationDropTarget final : public IDropTarget
                 }
                 if (length >= 3)
                 {
-                    bool url = (text[0] >= L'A' && text[0] <= L'Z') || (text[0] >= L'a' && text[0] <= L'z');
+                    bool url      = (text[0] >= L'A' && text[0] <= L'Z') || (text[0] >= L'a' && text[0] <= L'z');
                     size_t cursor = 1;
                     while (url && cursor < length)
                     {
                         const wchar_t value = text[cursor];
-                        if (!((value >= L'A' && value <= L'Z') || (value >= L'a' && value <= L'z') ||
-                              (value >= L'0' && value <= L'9') || value == L'+' || value == L'.' || value == L'-'))
+                        if (! ((value >= L'A' && value <= L'Z') || (value >= L'a' && value <= L'z') || (value >= L'0' && value <= L'9') || value == L'+' ||
+                               value == L'.' || value == L'-'))
                         {
                             break;
                         }
@@ -746,9 +729,9 @@ class ApplicationDropTarget final : public IDropTarget
         return _owner->HandleOleDrop(client, targets.data(), count, effect);
     }
 
-  private:
+private:
     Application* _owner = nullptr;
-    ULONG _references = 1;
+    ULONG _references   = 1;
 };
 
 Application::Application(HINSTANCE instance, bool forceWarp) noexcept : _instance(instance), _forceWarp(forceWarp)
@@ -791,7 +774,7 @@ Application::~Application()
 
 int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 {
-    if (!_pluginManager || !_dashboardHost)
+    if (! _pluginManager || ! _dashboardHost)
     {
         OutputDebugStringW(L"Dashboard host allocation failed.\n");
         return 1;
@@ -801,9 +784,9 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     // a XENEON, carries the first-run dock instead of leading to the missing-display prompt.
     RECT xeneonBounds{};
     const RECT* requestedTargetBounds = nullptr;
-    bool requestedFullscreen = false;
-    bool xeneonFound = false;
-    HRESULT result = FindXeneonDisplay(xeneonBounds, xeneonFound);
+    bool requestedFullscreen          = false;
+    bool xeneonFound                  = false;
+    HRESULT result                    = FindXeneonDisplay(xeneonBounds, xeneonFound);
     if (FAILED(result))
     {
 #if defined(_DEBUG)
@@ -813,31 +796,30 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 #endif
     }
     _xeneonBounds = xeneonBounds;
-    _xeneonFound = xeneonFound;
+    _xeneonFound  = xeneonFound;
     HostActions::SetXeneonDisplay(_xeneonBounds, _xeneonFound);
     // The store makes the first-run dock only when it installs the default file because it is missing, so a start
     // that finds the file walks no display and asks Explorer nothing for it.
     FirstRunTopology firstRunTopology{};
     const FirstRunDockProvider firstRunDock =
-        DockFirstRunOffered(SUCCEEDED(result), xeneonFound, !settingsPath.empty(),
-                            GetSystemMetrics(SM_REMOTESESSION) != 0)
+        DockFirstRunOffered(SUCCEEDED(result), xeneonFound, ! settingsPath.empty(), GetSystemMetrics(SM_REMOTESESSION) != 0)
             ? FirstRunDockProvider{[](void* topology, DockSettings& dock) noexcept
-                                   { return MakeFirstRunDock(dock, *static_cast<FirstRunTopology*>(topology)); },
+    { return MakeFirstRunDock(dock, *static_cast<FirstRunTopology*>(topology)); },
                                    &firstRunTopology}
             : FirstRunDockProvider{};
 
     result = _settingsStore.Initialize(false, settingsPath, _settings, {}, firstRunDock);
-    if (FAILED(result) || !_settings)
+    if (FAILED(result) || ! _settings)
     {
         OutputDebugStringW(L"Settings initialization or validation failed.\n");
         return 1;
     }
-    if (!_settingsStore.LogsDirectory().empty())
+    if (! _settingsStore.LogsDirectory().empty())
     {
         (void)PluginHost::Instance().SetLogDirectory(_settingsStore.LogsDirectory().c_str());
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
     }
-    if (_settingsStore.UsedInitialFallback() && !_unattended)
+    if (_settingsStore.UsedInitialFallback() && ! _unattended)
     {
         MessageBoxW(nullptr, _settingsStore.InitialNotice().c_str(), L"RedXe settings", MB_OK | MB_ICONERROR);
     }
@@ -846,9 +828,11 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         // Nobody answers a box in an unattended run: the notice is one Warning record instead.
         std::array<char, 1024> notice{};
         const bool converted =
-            WideCharToMultiByte(CP_UTF8, 0, _settingsStore.InitialNotice().c_str(), -1, notice.data(),
-                                static_cast<int>(notice.size()), nullptr, nullptr) > 1;
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+            WideCharToMultiByte(CP_UTF8, 0, _settingsStore.InitialNotice().c_str(), -1, notice.data(), static_cast<int>(notice.size()), nullptr, nullptr) > 1;
+        (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                           RedXeLogLevelWarning,
+                           nullptr,
+                           nullptr,
                            "settings-fallback-notice",
                            converted ? notice.data() : "The settings file could not be used; a default was loaded.");
     }
@@ -858,42 +842,51 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         // The topology the bar was decided from: the file keeps it after a display that was off or still enumerating
         // comes back.
         const RECT& monitor = firstRunTopology.monitor;
-        const RECT& work = firstRunTopology.work;
+        const RECT& work    = firstRunTopology.work;
         std::array<char, 384> message{};
-        (void)std::snprintf(message.data(), message.size(),
+        (void)std::snprintf(message.data(),
+                            message.size(),
                             "No XENEON display was found; the installed settings run RedXe as an auto-hiding bar on "
                             "the %s edge of the %.*s display, decided from %zu active displays: that display is "
                             "%ldx%ld at (%ld,%ld), its work area %ldx%ld at (%ld,%ld), %u DPI.",
-                            DockEdgeName(_settings->dock.edge), static_cast<int>(_settings->dock.monitor.bytes),
-                            _settings->dock.monitor.utf8.data(), firstRunTopology.displays,
-                            monitor.right - monitor.left, monitor.bottom - monitor.top, monitor.left, monitor.top,
-                            work.right - work.left, work.bottom - work.top, work.left, work.top, firstRunTopology.dpi);
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "dock-first-run",
-                           message.data());
+                            DockEdgeName(_settings->dock.edge),
+                            static_cast<int>(_settings->dock.monitor.bytes),
+                            _settings->dock.monitor.utf8.data(),
+                            firstRunTopology.displays,
+                            monitor.right - monitor.left,
+                            monitor.bottom - monitor.top,
+                            monitor.left,
+                            monitor.top,
+                            work.right - work.left,
+                            work.bottom - work.top,
+                            work.left,
+                            work.top,
+                            firstRunTopology.dpi);
+        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "dock-first-run", message.data());
     }
 
     // The dock window kind replaces the titled and fullscreen rows of the mode table for this process, in both
     // configurations and on any monitor; the XENEON is only what the `xeneon` selector resolves to.
-    _dock = EffectiveDockSettings(_settings->dock, _dockOverrides);
+    _dock       = EffectiveDockSettings(_settings->dock, _dockOverrides);
     _dockActive = _dock.edge != DockEdge::None;
 
     if (xeneonFound)
     {
         requestedTargetBounds = &xeneonBounds;
-#if !defined(_DEBUG)
+#if ! defined(_DEBUG)
         requestedFullscreen = true;
 #endif
     }
-#if !defined(_DEBUG)
-    else if (!_dockActive && !_unattended)
+#if ! defined(_DEBUG)
+    else if (! _dockActive && ! _unattended)
     {
         // Owned by UI_XeneonDisplayWindowing.md: Release prompts for a windowed fallback, Debug never does, and an
         // unattended run takes the fallback window without asking.
-        const int choice = MessageBoxW(
-            nullptr,
-            L"A CORSAIR XENEON display was not found.\n\nDo you want to display RedXe anyway in a standard "
-            L"window with a title bar?",
-            L"RedXe \u2014 XENEON display missing", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND);
+        const int choice = MessageBoxW(nullptr,
+                                       L"A CORSAIR XENEON display was not found.\n\nDo you want to display RedXe anyway in a standard "
+                                       L"window with a title bar?",
+                                       L"RedXe \u2014 XENEON display missing",
+                                       MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND);
         if (choice != IDYES)
         {
             return 0;
@@ -923,7 +916,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     }
     _oleInitialized = true;
     _dropTarget.reset(new (std::nothrow) ApplicationDropTarget(this));
-    if (!_dropTarget)
+    if (! _dropTarget)
     {
         return 2;
     }
@@ -947,13 +940,17 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     if (FAILED(result))
     {
         OutputDebugStringW(L"Dashboard or renderer initialization failed.\n");
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr,
-                           "runtime-init-failed", "Dashboard or renderer initialization failed.", result);
+        (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                           RedXeLogLevelError,
+                           nullptr,
+                           nullptr,
+                           "runtime-init-failed",
+                           "Dashboard or renderer initialization failed.",
+                           result);
         return 5;
     }
     // Services start after the first page is live: a failed service logs and never blocks startup.
-    PluginHost::Instance().SetHostActionHandler(&Application::HostActionThunk, &Application::HostActionCompletedThunk,
-                                                this);
+    PluginHost::Instance().SetHostActionHandler(&Application::HostActionThunk, &Application::HostActionCompletedThunk, this);
     (void)PluginHost::Instance().StartServices(*_settings);
     PublishHostState();
     ShowActionNotices();
@@ -963,7 +960,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     // show-without-focus and holds an autohide bar open (Core_CrashHandling.md "Previous-crash notice"). An unattended
     // run shows none and leaves the marker for the next interactive start.
     const bool noticeBeforeShow = _dockActive;
-    if (noticeBeforeShow && !_unattended)
+    if (noticeBeforeShow && ! _unattended)
     {
         CrashHandler::ShowPreviousCrashUiIfPresent(nullptr);
     }
@@ -972,11 +969,11 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     ShowWindow(_window.get(), _dockActive ? SW_SHOWNOACTIVATE : showCommand);
     UpdateWindow(_window.get());
     _windowVisible = IsWindowVisible(_window.get()) != FALSE;
-    if (!noticeBeforeShow && !_unattended)
+    if (! noticeBeforeShow && ! _unattended)
     {
         CrashHandler::ShowPreviousCrashUiIfPresent(_window.get());
     }
-    if (!_window)
+    if (! _window)
     {
         return FAILED(_runtimeFailure) ? 5 : 0;
     }
@@ -1003,13 +1000,18 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             {
                 if (FAILED(_runtimeFailure))
                 {
-                    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr,
-                                       "runtime-failed", "The frame loop stopped on a failure.", _runtimeFailure);
+                    (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                                       RedXeLogLevelError,
+                                       nullptr,
+                                       nullptr,
+                                       "runtime-failed",
+                                       "The frame loop stopped on a failure.",
+                                       _runtimeFailure);
                 }
                 return FAILED(_runtimeFailure) ? 5 : static_cast<int>(message.wParam);
             }
-            if (_textServices && (message.message == WM_KEYDOWN || message.message == WM_KEYUP ||
-                                  message.message == WM_SYSKEYDOWN || message.message == WM_SYSKEYUP))
+            if (_textServices &&
+                (message.message == WM_KEYDOWN || message.message == WM_KEYUP || message.message == WM_SYSKEYDOWN || message.message == WM_SYSKEYUP))
             {
                 RefreshTextServices();
                 bool handled = false;
@@ -1024,7 +1026,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             DispatchMessageW(&message);
         }
 
-        if (!_window)
+        if (! _window)
         {
             break;
         }
@@ -1048,7 +1050,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         // a tick above, so one evaluation per loop turn sees each change; an unchanged state costs a few compares.
         EvaluateDockHolds();
 
-        if (!_renderer.IsOccluded())
+        if (! _renderer.IsOccluded())
         {
             _occlusionStatusChanged = false;
         }
@@ -1061,7 +1063,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             _occlusionStatusChanged,
             DashboardRequiresContinuousFrames(),
             _frameInvalidated,
-            PageNavigationInProgress() && !_pageSettleWaiting,
+            PageNavigationInProgress() && ! _pageSettleWaiting,
             // A dock slide is visible motion like a raise settle: every frame presents until it ends.
             OverlayMotionInProgress() || _dockSlideActive,
             DockHidden(),
@@ -1070,7 +1072,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         if (frameAction == HostFrameAction::ProbeOcclusion)
         {
             _occlusionStatusChanged = false;
-            result = _renderer.ProbeOcclusion();
+            result                  = _renderer.ProbeOcclusion();
             if (FAILED(result))
             {
                 RecordRuntimeFailure(result, "occlusion-probe-failed");
@@ -1078,7 +1080,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                 CloseMainWindow();
                 continue;
             }
-            if (!_renderer.IsOccluded())
+            if (! _renderer.IsOccluded())
             {
                 _frameInvalidated = true;
             }
@@ -1097,7 +1099,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
                 false,
                 DashboardRequiresContinuousFrames(),
                 _frameInvalidated,
-                PageNavigationInProgress() && !_pageSettleWaiting,
+                PageNavigationInProgress() && ! _pageSettleWaiting,
                 OverlayMotionInProgress() || _dockSlideActive,
                 DockHidden(),
             };
@@ -1126,7 +1128,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
             continue;
         }
 
-        if (!WaitForFrameLatency() || !WaitForContinuousFrameDeadline(frameState))
+        if (! WaitForFrameLatency() || ! WaitForContinuousFrameDeadline(frameState))
         {
             // Input arrived while a back buffer was still in flight: dispatch it before building the frame.
             continue;
@@ -1139,13 +1141,12 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         }
 
         const std::chrono::duration<float> elapsed = std::chrono::steady_clock::now() - startTime;
-        const float elapsedSeconds = elapsed.count();
-        const float deltaSeconds = elapsedSeconds - previousElapsedSeconds;
-        previousElapsedSeconds = elapsedSeconds;
-        bool focusedViewPrepared = false;
-        uint64_t preparedWidgets = 0;
-        result = _renderer.PrepareWidgets(_keyboardWidgetIndex, &focusedViewPrepared,
-                                          _accessibility ? &preparedWidgets : nullptr);
+        const float elapsedSeconds                 = elapsed.count();
+        const float deltaSeconds                   = elapsedSeconds - previousElapsedSeconds;
+        previousElapsedSeconds                     = elapsedSeconds;
+        bool focusedViewPrepared                   = false;
+        uint64_t preparedWidgets                   = 0;
+        result = _renderer.PrepareWidgets(_keyboardWidgetIndex, &focusedViewPrepared, _accessibility ? &preparedWidgets : nullptr);
         if (focusedViewPrepared || result == S_FALSE)
             RefreshTextServices(focusedViewPrepared);
         RefreshAccessibility(preparedWidgets);
@@ -1182,8 +1183,13 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 
     if (FAILED(_runtimeFailure))
     {
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr, "runtime-failed",
-                           "The frame loop stopped on a failure.", _runtimeFailure);
+        (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                           RedXeLogLevelError,
+                           nullptr,
+                           nullptr,
+                           "runtime-failed",
+                           "The frame loop stopped on a failure.",
+                           _runtimeFailure);
     }
     return FAILED(_runtimeFailure) ? 5 : 0;
 }
@@ -1201,8 +1207,8 @@ int FailSelfTest(const wchar_t* check, HRESULT result = S_OK) noexcept
     std::array<wchar_t, 512> text{};
     if (FAILED(result))
     {
-        static_cast<void>(_snwprintf_s(text.data(), text.size(), _TRUNCATE, L"RedXe --self-test: %ls HRESULT 0x%08X.\n",
-                                       check, static_cast<unsigned int>(result)));
+        static_cast<void>(
+            _snwprintf_s(text.data(), text.size(), _TRUNCATE, L"RedXe --self-test: %ls HRESULT 0x%08X.\n", check, static_cast<unsigned int>(result)));
     }
     else
     {
@@ -1224,27 +1230,24 @@ bool Application::SelfTestWindowKindIs(bool dock) const noexcept
     const HWND window = _window.get();
     DXGI_SWAP_CHAIN_DESC1 chain{};
     const SIZE canvas = DashboardCanvasSize();
-    if (!window || IsWindowVisible(window) || _windowVisible || _dockActive != dock || !_rendererReady ||
-        FAILED(_renderer.GetSwapChainDescription(chain)) ||
-        chain.Scaling != (dock ? DXGI_SCALING_NONE : DXGI_SCALING_STRETCH) ||
-        static_cast<LONG>(chain.Width) != canvas.cx || static_cast<LONG>(chain.Height) != canvas.cy)
+    if (! window || IsWindowVisible(window) || _windowVisible || _dockActive != dock || ! _rendererReady || FAILED(_renderer.GetSwapChainDescription(chain)) ||
+        chain.Scaling != (dock ? DXGI_SCALING_NONE : DXGI_SCALING_STRETCH) || static_cast<LONG>(chain.Width) != canvas.cx ||
+        static_cast<LONG>(chain.Height) != canvas.cy)
     {
         return false;
     }
-    const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
+    const DWORD style         = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
     const DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
-    const bool popup = (style & WS_POPUP) != 0 && (style & WS_CAPTION) == 0;
+    const bool popup          = (style & WS_POPUP) != 0 && (style & WS_CAPTION) == 0;
     if (dock)
     {
         return popup && (extendedStyle & (WS_EX_APPWINDOW | WS_EX_TOOLWINDOW)) == WS_EX_TOOLWINDOW;
     }
     RECT client{};
-    const SIZE exact = ScaleXeneonClientSize(GetDpiForWindow(window));
-    const bool titled = (style & kTitledWindowStyle) == kTitledWindowStyle && (style & WS_POPUP) == 0 &&
-                        GetClientRect(window, &client) && client.right - client.left == exact.cx &&
-                        client.bottom - client.top == exact.cy;
-    return !_dockAppBar.registered &&
-           (extendedStyle & (WS_EX_APPWINDOW | WS_EX_TOOLWINDOW | WS_EX_TOPMOST)) == WS_EX_APPWINDOW &&
+    const SIZE exact  = ScaleXeneonClientSize(GetDpiForWindow(window));
+    const bool titled = (style & kTitledWindowStyle) == kTitledWindowStyle && (style & WS_POPUP) == 0 && GetClientRect(window, &client) &&
+                        client.right - client.left == exact.cx && client.bottom - client.top == exact.cy;
+    return ! _dockAppBar.registered && (extendedStyle & (WS_EX_APPWINDOW | WS_EX_TOOLWINDOW | WS_EX_TOPMOST)) == WS_EX_APPWINDOW &&
            (releaseBuild && _xeneonFound ? popup : titled);
 }
 
@@ -1261,9 +1264,9 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     // The self-test keeps its hidden titled window: pinning the edge to none, as `--dock none` does, keeps a document
     // `dock` from switching the window kind when the smoke test re-applies settings. Only the window-kind check below
     // lifts the pin, for the switches it makes itself.
-    _dockOverrides = DockOverrides{};
+    _dockOverrides         = DockOverrides{};
     _dockOverrides.hasEdge = true;
-    _dockOverrides.edge = DockEdge::None;
+    _dockOverrides.edge    = DockEdge::None;
     PluginHost::Instance().SetNetworkAccessEnabled(false);
     PluginHost::Instance().SetControlAccessEnabled(false);
     // Services start in self-test too, but with device access disabled: no HID handle, hotplug registration, or
@@ -1272,13 +1275,13 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     // No log is opened, so a failed check's log on stderr also holds the host records that explain it, such as the
     // plugin whose module could not be mapped.
     PluginHost::Instance().SetStandardErrorLog(true);
-    if (!_pluginManager || !_dashboardHost)
+    if (! _pluginManager || ! _dashboardHost)
     {
         return FailSelfTest(L"Dashboard host allocation failed.", E_OUTOFMEMORY);
     }
 
     HRESULT result = _settingsStore.Initialize(true, settingsPath, _settings);
-    if (FAILED(result) || !_settings)
+    if (FAILED(result) || ! _settings)
     {
         return FailSelfTest(L"Settings initialization or validation failed.", result);
     }
@@ -1301,19 +1304,18 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     }
     // TaskbarCreated is registered with the class and admitted in WM_CREATE, so a dock hears it from before its first
     // placement (CreateDockWindow), whose refused ABM_NEW it renews.
-    if (_taskbarCreatedMessage == 0 || !_taskbarCreatedAdmitted)
+    if (_taskbarCreatedMessage == 0 || ! _taskbarCreatedAdmitted)
     {
         return FailSelfTest(L"The window was created before it could hear TaskbarCreated.");
     }
 
     RECT clientBounds{};
-    const UINT windowDpi = GetDpiForWindow(_window.get());
-    const SIZE expectedClientSize = ScaleXeneonClientSize(windowDpi);
-    const DWORD windowStyle = static_cast<DWORD>(GetWindowLongPtrW(_window.get(), GWL_STYLE));
+    const UINT windowDpi            = GetDpiForWindow(_window.get());
+    const SIZE expectedClientSize   = ScaleXeneonClientSize(windowDpi);
+    const DWORD windowStyle         = static_cast<DWORD>(GetWindowLongPtrW(_window.get(), GWL_STYLE));
     const DWORD windowExtendedStyle = static_cast<DWORD>(GetWindowLongPtrW(_window.get(), GWL_EXSTYLE));
-    if (windowDpi == 0 || (windowStyle & WS_CLIPCHILDREN) == 0 ||
-        (windowExtendedStyle & WS_EX_NOREDIRECTIONBITMAP) == 0 || !GetClientRect(_window.get(), &clientBounds) ||
-        clientBounds.right - clientBounds.left != expectedClientSize.cx ||
+    if (windowDpi == 0 || (windowStyle & WS_CLIPCHILDREN) == 0 || (windowExtendedStyle & WS_EX_NOREDIRECTIONBITMAP) == 0 ||
+        ! GetClientRect(_window.get(), &clientBounds) || clientBounds.right - clientBounds.left != expectedClientSize.cx ||
         clientBounds.bottom - clientBounds.top != expectedClientSize.cy)
     {
         return FailSelfTest(L"The default client area does not match the current monitor DPI.");
@@ -1325,7 +1327,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         for (uint32_t index = 0; index < 1000; ++index)
         {
             const RECT cached = ReachableClientRect();
-            if (!EqualRect(&reachable, &cached) || _reachableClientDisplayWalks != walks)
+            if (! EqualRect(&reachable, &cached) || _reachableClientDisplayWalks != walks)
             {
                 return FailSelfTest(L"Unchanged page-edge geometry repeated a display enumeration.");
             }
@@ -1333,7 +1335,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         // A notification to this hidden test window exercises production invalidation without changing the desktop.
         (void)SendMessageW(_window.get(), WM_SETTINGCHANGE, SPI_SETWORKAREA, 0);
         const RECT refreshed = ReachableClientRect();
-        if (!EqualRect(&reachable, &refreshed) || _reachableClientDisplayWalks != walks + 1)
+        if (! EqualRect(&reachable, &refreshed) || _reachableClientDisplayWalks != walks + 1)
         {
             return FailSelfTest(L"A work-area notification did not refresh page-edge geometry exactly once.");
         }
@@ -1342,13 +1344,21 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     {
         // Native-widget containers are layered children. Windows honors WS_EX_LAYERED on a child only for processes
         // whose manifest declares Windows 8 or later, so prove it here rather than at the first native attach.
-        const wil::unique_hwnd layeredProbe(CreateWindowExW(WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED, L"STATIC", L"",
-                                                            WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 0, 1, 1,
-                                                            _window.get(), nullptr, nullptr, nullptr));
-        if (!layeredProbe || !SetLayeredWindowAttributes(layeredProbe.get(), 0, 255, LWA_ALPHA))
+        const wil::unique_hwnd layeredProbe(CreateWindowExW(WS_EX_NOPARENTNOTIFY | WS_EX_LAYERED,
+                                                            L"STATIC",
+                                                            L"",
+                                                            WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+                                                            0,
+                                                            0,
+                                                            1,
+                                                            1,
+                                                            _window.get(),
+                                                            nullptr,
+                                                            nullptr,
+                                                            nullptr));
+        if (! layeredProbe || ! SetLayeredWindowAttributes(layeredProbe.get(), 0, 255, LWA_ALPHA))
         {
-            return FailSelfTest(
-                L"Layered child containers are unavailable; the manifest must declare Windows 8 or later.");
+            return FailSelfTest(L"Layered child containers are unavailable; the manifest must declare Windows 8 or later.");
         }
     }
 
@@ -1360,7 +1370,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     }
     _oleInitialized = true;
     _dropTarget.reset(new (std::nothrow) ApplicationDropTarget(this));
-    if (!_dropTarget)
+    if (! _dropTarget)
     {
         return FailSelfTest(L"Drop target allocation failed.", E_OUTOFMEMORY);
     }
@@ -1375,7 +1385,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
 #if defined(_DEBUG)
     {
         std::unique_ptr<AppSettings> matrixDisabled{new (std::nothrow) AppSettings{*_settings}};
-        if (!matrixDisabled)
+        if (! matrixDisabled)
         {
             return FailSelfTest(L"The conditional-load test could not copy the settings.", E_OUTOFMEMORY);
         }
@@ -1403,8 +1413,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     {
         return FailSelfTest(L"Dashboard or renderer initialization failed.", result);
     }
-    PluginHost::Instance().SetHostActionHandler(&Application::HostActionThunk, &Application::HostActionCompletedThunk,
-                                                this);
+    PluginHost::Instance().SetHostActionHandler(&Application::HostActionThunk, &Application::HostActionCompletedThunk, this);
     result = PluginHost::Instance().StartServices(*_settings);
     if (FAILED(result))
     {
@@ -1413,45 +1422,41 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     PublishHostState();
 
     const size_t expectedGpuWidgetCount = CountGpuWidgets(*_pluginManager);
-    result = _renderer.PrepareWidgets();
+    result                              = _renderer.PrepareWidgets();
     if (SUCCEEDED(result))
         result = _renderer.Render(0.0f, 0.0f);
-    if (FAILED(result) || _renderer.LastFrameWidgetCount() != expectedGpuWidgetCount ||
-        _renderer.LastFrameSuccessfulWidgetCount() != expectedGpuWidgetCount ||
-        (!PluginEnabled(*_settings, "builtin.rotating-triangle") && GetModuleHandleW(L"RotatingTriangle.dll")) ||
-        (!PluginEnabled(*_settings, "builtin.gdi-orbit") && GetModuleHandleW(L"GdiOrbit.dll")) ||
-        (!PluginEnabled(*_settings, "builtin.matrix-rain") && GetModuleHandleW(L"MatrixRain.dll")))
+    if (FAILED(result) || _renderer.LastFrameWidgetCount() != expectedGpuWidgetCount || _renderer.LastFrameSuccessfulWidgetCount() != expectedGpuWidgetCount ||
+        (! PluginEnabled(*_settings, "builtin.rotating-triangle") && GetModuleHandleW(L"RotatingTriangle.dll")) ||
+        (! PluginEnabled(*_settings, "builtin.gdi-orbit") && GetModuleHandleW(L"GdiOrbit.dll")) ||
+        (! PluginEnabled(*_settings, "builtin.matrix-rain") && GetModuleHandleW(L"MatrixRain.dll")))
     {
         return FailSelfTest(L"The plugin smoke frame did not render every GPU-widget instance.", result);
     }
 
     // A pacing-only reload preserves the live widgets and swap chain, removes the old deadline, and invalidates once.
     {
-        const ContinuousFrameRate original = _settings->continuousFrameRate;
-        const IRedXeWidget* first = _pluginManager->WidgetAt(0);
-        const HANDLE latency = _renderer.FrameLatencyWaitableObject();
-        const ContinuousFrameRate changedRate =
-            original == ContinuousFrameRate::Display ? ContinuousFrameRate::Thirty : ContinuousFrameRate::Display;
+        const ContinuousFrameRate original    = _settings->continuousFrameRate;
+        const IRedXeWidget* first             = _pluginManager->WidgetAt(0);
+        const HANDLE latency                  = _renderer.FrameLatencyWaitableObject();
+        const ContinuousFrameRate changedRate = original == ContinuousFrameRate::Display ? ContinuousFrameRate::Thirty : ContinuousFrameRate::Display;
         for (const ContinuousFrameRate rate : {changedRate, original})
         {
             std::unique_ptr<AppSettings> changed{new (std::nothrow) AppSettings{*_settings}};
-            if (!changed)
+            if (! changed)
                 return FailSelfTest(L"The pacing reload test could not copy settings.", E_OUTOFMEMORY);
             changed->continuousFrameRate = rate;
-            _frameInvalidated = false;
+            _frameInvalidated            = false;
             _continuousFramePacer.Presented(ContinuousFramePacer::Clock::now());
             _continuousFramePacer.AcceptFrameLatency(_renderer.FrameLatencyGeneration());
             bool timerReady = false;
-            result = _continuousFrameWait.Wait(std::chrono::seconds{1}, 0, timerReady);
-            if (result != S_OK || timerReady || !_continuousFrameWait.Handle())
+            result          = _continuousFrameWait.Wait(std::chrono::seconds{1}, 0, timerReady);
+            if (result != S_OK || timerReady || ! _continuousFrameWait.Handle())
                 return FailSelfTest(L"The pacing reload test could not arm its stale timer.", result);
             result = ApplySettings(std::move(changed));
-            if (result != S_OK || _settings->continuousFrameRate != rate || !_frameInvalidated ||
-                _continuousFramePacer.Remaining(ContinuousFramePacer::Clock::now()) !=
-                    std::chrono::nanoseconds::zero() ||
-                !_continuousFramePacer.HasFrameLatency(_renderer.FrameLatencyGeneration()) ||
-                _pluginManager->WidgetAt(0) != first || _renderer.FrameLatencyWaitableObject() != latency ||
-                (rate == ContinuousFrameRate::Display && _continuousFrameWait.Handle()))
+            if (result != S_OK || _settings->continuousFrameRate != rate || ! _frameInvalidated ||
+                _continuousFramePacer.Remaining(ContinuousFramePacer::Clock::now()) != std::chrono::nanoseconds::zero() ||
+                ! _continuousFramePacer.HasFrameLatency(_renderer.FrameLatencyGeneration()) || _pluginManager->WidgetAt(0) != first ||
+                _renderer.FrameLatencyWaitableObject() != latency || (rate == ContinuousFrameRate::Display && _continuousFrameWait.Handle()))
                 return FailSelfTest(L"A live pacing-only reload rebuilt widgets or retained its deadline.", result);
         }
         // The self-test seeded a model permit rather than consuming the actual DXGI signal.
@@ -1461,7 +1466,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     for (uint32_t page = 1; page < pageCount; ++page)
     {
         std::unique_ptr<AppSettings> changed{new (std::nothrow) AppSettings{*_settings}};
-        if (!changed)
+        if (! changed)
         {
             return FailSelfTest(L"The page reconfiguration test could not copy the settings.", E_OUTOFMEMORY);
         }
@@ -1473,8 +1478,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         if (SUCCEEDED(result))
             result = _renderer.Render(0.0f, 0.0f);
         const size_t changedGpuWidgetCount = CountGpuWidgets(*_pluginManager);
-        if (FAILED(result) || _renderer.LastFrameWidgetCount() != changedGpuWidgetCount ||
-            _renderer.LastFrameSuccessfulWidgetCount() != changedGpuWidgetCount)
+        if (FAILED(result) || _renderer.LastFrameWidgetCount() != changedGpuWidgetCount || _renderer.LastFrameSuccessfulWidgetCount() != changedGpuWidgetCount)
         {
             return FailSelfTest(L"The dashboard page/private settings reconfiguration smoke test failed.", result);
         }
@@ -1487,7 +1491,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
                 return FailSelfTest(L"The hidden raised-state probe setup failed.", result);
             const auto dismiss = wil::scope_exit([this]() noexcept { CompleteDismissImmediate(); });
             CompleteRaiseSettle();
-            if (!(RuntimeProbeState() & kRuntimeProbeRaisedState))
+            if (! (RuntimeProbeState() & kRuntimeProbeRaisedState))
                 return FailSelfTest(L"A settled real widget raise is absent from the runtime probe state.");
             result = _renderer.PrepareWidgets();
             if (SUCCEEDED(result))
@@ -1525,15 +1529,14 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
             result = ApplySettings(std::move(annotated));
         if (SUCCEEDED(result))
             result = (result == S_FALSE && _transitionPageIndex) ? PromoteTransitionPage() : E_UNEXPECTED;
-        if (FAILED(result) || _transitionPageIndex || _settings->dashboard.activePageIndex != firstPage ||
-            _settings->sourceDocument != expectedSource)
+        if (FAILED(result) || _transitionPageIndex || _settings->dashboard.activePageIndex != firstPage || _settings->sourceDocument != expectedSource)
         {
             return FailSelfTest(L"A source-only reload during a staged swipe did not survive the page commit.", result);
         }
     }
 
     std::unique_ptr<AppSettings> rejected{new (std::nothrow) AppSettings{*_settings}};
-    if (!rejected || SUCCEEDED(ParseAppSettingsJson("{}", *rejected)) || *rejected != *_settings)
+    if (! rejected || SUCCEEDED(ParseAppSettingsJson("{}", *rejected)) || *rejected != *_settings)
     {
         return FailSelfTest(L"Invalid settings changed the active typed configuration.");
     }
@@ -1545,16 +1548,16 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     // overlay on the primary display: it reserves nothing in the work area. Each switch runs XENEON discovery again.
     {
         const DockOverrides pinned = _dockOverrides;
-        _dockOverrides = DockOverrides{};
+        _dockOverrides             = DockOverrides{};
         std::unique_ptr<AppSettings> toBar{new (std::nothrow) AppSettings{*_settings}};
         if (toBar)
         {
-            toBar->dock = DefaultDockSettings();
-            toBar->dock.edge = DockEdge::Bottom;
+            toBar->dock                 = DefaultDockSettings();
+            toBar->dock.edge            = DockEdge::Bottom;
             toBar->dock.reserveWorkArea = false;
         }
         result = toBar ? ApplySettings(std::move(toBar)) : E_OUTOFMEMORY;
-        if (FAILED(result) || !SelfTestWindowKindIs(true))
+        if (FAILED(result) || ! SelfTestWindowKindIs(true))
         {
             return FailSelfTest(L"A live reload did not switch the hidden window into a bar.", result);
         }
@@ -1564,7 +1567,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
             toStandard->dock.edge = DockEdge::None;
         }
         result = toStandard ? ApplySettings(std::move(toStandard)) : E_OUTOFMEMORY;
-        if (FAILED(result) || !SelfTestWindowKindIs(false))
+        if (FAILED(result) || ! SelfTestWindowKindIs(false))
         {
             return FailSelfTest(L"A live reload did not switch the hidden bar back to the standard window.", result);
         }
@@ -1572,18 +1575,16 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
         std::unique_ptr<AppSettings> unbuildable{new (std::nothrow) AppSettings{*_settings}};
         if (unbuildable)
         {
-            unbuildable->dock.edge = DockEdge::Bottom;
+            unbuildable->dock.edge             = DockEdge::Bottom;
             unbuildable->dashboard.gridColumns = 0;
         }
         const HRESULT rolledBack = unbuildable ? ApplySettings(std::move(unbuildable)) : E_OUTOFMEMORY;
-        result = _rendererReady ? _renderer.PrepareWidgets() : E_UNEXPECTED;
+        result                   = _rendererReady ? _renderer.PrepareWidgets() : E_UNEXPECTED;
         if (SUCCEEDED(result))
             result = _renderer.Render(0.0f, 0.0f);
         const size_t gpuWidgetCount = CountGpuWidgets(*_pluginManager);
-        if (rolledBack != E_INVALIDARG || FAILED(result) || _settings.get() != applied ||
-            _settings->dock.edge != DockEdge::None || !SelfTestWindowKindIs(false) ||
-            _renderer.LastFrameWidgetCount() != gpuWidgetCount ||
-            _renderer.LastFrameSuccessfulWidgetCount() != gpuWidgetCount)
+        if (rolledBack != E_INVALIDARG || FAILED(result) || _settings.get() != applied || _settings->dock.edge != DockEdge::None ||
+            ! SelfTestWindowKindIs(false) || _renderer.LastFrameWidgetCount() != gpuWidgetCount || _renderer.LastFrameSuccessfulWidgetCount() != gpuWidgetCount)
         {
             return FailSelfTest(L"A reload that switched the window kind and failed to build its page was not rolled "
                                 L"back to the standard window.",
@@ -1597,21 +1598,19 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     // SaveWindowScreenshot refuses this hidden window before any file I/O, so the path is never written.
     {
         constexpr std::string_view capturePath = "C:\\RedXe-self-test\\capture.png";
-        bool keptRunning = HandleHostAction("redxe.screenshot", "C:\\RedXe-self-test\\capture.png@0/511") ==
-                               HRESULT_FROM_WIN32(ERROR_NOT_FOUND) &&
-                           !_screenshot.pending && HandleHostAction("redxe.screenshot", capturePath) == S_OK &&
+        bool keptRunning = HandleHostAction("redxe.screenshot", "C:\\RedXe-self-test\\capture.png@0/511") == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) &&
+                           ! _screenshot.pending && HandleHostAction("redxe.screenshot", capturePath) == S_OK &&
                            HandleHostAction("redxe.screenshot", capturePath) == HRESULT_FROM_WIN32(ERROR_BUSY);
         // The first tick jumps and arms the zero delay; the second starts the capture worker.
-        keptRunning = keptRunning && !TickScreenshot() && !TickScreenshot() && _screenshotWorker.joinable() &&
+        keptRunning = keptRunning && ! TickScreenshot() && ! TickScreenshot() && _screenshotWorker.joinable() &&
                       WaitForSingleObject(_screenshotWorker.native_handle(), 10'000) == WAIT_OBJECT_0;
         MSG completion{};
-        keptRunning = keptRunning && PeekMessageW(&completion, _window.get(), kScreenshotCompleteMessage,
-                                                  kScreenshotCompleteMessage, PM_REMOVE);
+        keptRunning = keptRunning && PeekMessageW(&completion, _window.get(), kScreenshotCompleteMessage, kScreenshotCompleteMessage, PM_REMOVE);
         if (keptRunning)
         {
             (void)DispatchMessageW(&completion);
         }
-        if (!keptRunning || TickScreenshot() || _screenshot.pending || !_window || SUCCEEDED(_screenshot.result))
+        if (! keptRunning || TickScreenshot() || _screenshot.pending || ! _window || SUCCEEDED(_screenshot.result))
         {
             return FailSelfTest(L"The redxe.screenshot action did not keep RedXe running after its capture.");
         }
@@ -1620,17 +1619,15 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     // A Launcher tile runs redxe.settings.reload and redxe.quit inside its own OnPointer, so neither may release a
     // widget there: each only posts its message (removed here unprocessed) and returns S_FALSE.
     {
-        const size_t widgetCount = _pluginManager->WidgetCount();
+        const size_t widgetCount        = _pluginManager->WidgetCount();
         IRedXeWidget* const firstWidget = widgetCount != 0 ? _pluginManager->WidgetAt(0) : nullptr;
         MSG posted{};
-        const bool deferred = HandleHostAction("redxe.settings.reload", "") == S_FALSE &&
-                              HandleHostAction("redxe.quit", "now") == S_FALSE && _window && _rendererReady &&
-                              _pluginManager->WidgetCount() == widgetCount &&
-                              (widgetCount == 0 || _pluginManager->WidgetAt(0) == firstWidget) &&
-                              PeekMessageW(&posted, _window.get(), SettingsWatcher::kSettingsChangedMessage,
-                                           SettingsWatcher::kSettingsChangedMessage, PM_REMOVE) &&
-                              PeekMessageW(&posted, _window.get(), WM_CLOSE, WM_CLOSE, PM_REMOVE);
-        if (!deferred)
+        const bool deferred =
+            HandleHostAction("redxe.settings.reload", "") == S_FALSE && HandleHostAction("redxe.quit", "now") == S_FALSE && _window && _rendererReady &&
+            _pluginManager->WidgetCount() == widgetCount && (widgetCount == 0 || _pluginManager->WidgetAt(0) == firstWidget) &&
+            PeekMessageW(&posted, _window.get(), SettingsWatcher::kSettingsChangedMessage, SettingsWatcher::kSettingsChangedMessage, PM_REMOVE) &&
+            PeekMessageW(&posted, _window.get(), WM_CLOSE, WM_CLOSE, PM_REMOVE);
+        if (! deferred)
         {
             return FailSelfTest(L"redxe.settings.reload or redxe.quit ran inside the caller instead of being posted.");
         }
@@ -1642,17 +1639,14 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     // and device lane stopped, no launch worker left, and the window gone.
     {
         const uint32_t startedServices = PluginHost::Instance().StartedServiceCount();
-        const bool cancelKeepsRunning = SendMessageW(_window.get(), WM_QUERYENDSESSION, 0, ENDSESSION_LOGOFF) == TRUE &&
-                                        SendMessageW(_window.get(), WM_ENDSESSION, FALSE, ENDSESSION_LOGOFF) == 0 &&
-                                        _window && _rendererReady &&
-                                        _dashboardHost->WidgetCount() == _pluginManager->WidgetCount() &&
-                                        PluginHost::Instance().StartedServiceCount() == startedServices;
-        const auto endStart = std::chrono::steady_clock::now();
+        const bool cancelKeepsRunning  = SendMessageW(_window.get(), WM_QUERYENDSESSION, 0, ENDSESSION_LOGOFF) == TRUE &&
+                                         SendMessageW(_window.get(), WM_ENDSESSION, FALSE, ENDSESSION_LOGOFF) == 0 && _window && _rendererReady &&
+                                         _dashboardHost->WidgetCount() == _pluginManager->WidgetCount() &&
+                                         PluginHost::Instance().StartedServiceCount() == startedServices;
+        const auto endStart            = std::chrono::steady_clock::now();
         (void)SendMessageW(_window.get(), WM_ENDSESSION, TRUE, ENDSESSION_LOGOFF);
-        const auto endMilliseconds =
-            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - endStart).count();
-        if (!cancelKeepsRunning || _window || _rendererReady || _dashboardHost->WidgetCount() != 0 ||
-            PluginHost::Instance().StartedServiceCount() != 0 ||
+        const auto endMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - endStart).count();
+        if (! cancelKeepsRunning || _window || _rendererReady || _dashboardHost->WidgetCount() != 0 || PluginHost::Instance().StartedServiceCount() != 0 ||
             PluginHost::Instance().RunningDeviceWorkerCount() != 0 || PluginHost::Instance().LaunchWorkerRunning() ||
             endMilliseconds > kSessionEndMaximumMilliseconds)
         {
@@ -1664,44 +1658,42 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
 
 HRESULT Application::RegisterWindowClass() noexcept
 {
-    const auto largeIcon =
-        static_cast<HICON>(LoadImageW(_instance, MAKEINTRESOURCEW(IDI_REDXE), IMAGE_ICON, GetSystemMetrics(SM_CXICON),
-                                      GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR | LR_SHARED));
-    if (!largeIcon)
+    const auto largeIcon = static_cast<HICON>(
+        LoadImageW(_instance, MAKEINTRESOURCEW(IDI_REDXE), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR | LR_SHARED));
+    if (! largeIcon)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
 
-    const auto smallIcon =
-        static_cast<HICON>(LoadImageW(_instance, MAKEINTRESOURCEW(IDI_REDXE), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
-                                      GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR | LR_SHARED));
-    if (!smallIcon)
+    const auto smallIcon = static_cast<HICON>(LoadImageW(
+        _instance, MAKEINTRESOURCEW(IDI_REDXE), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR | LR_SHARED));
+    if (! smallIcon)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
 
     WNDCLASSEXW windowClass{};
-    windowClass.cbSize = sizeof(windowClass);
-    windowClass.style = 0;
-    windowClass.lpfnWndProc = WindowProcedure;
-    windowClass.hInstance = _instance;
-    windowClass.hIcon = largeIcon;
-    windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    windowClass.cbSize        = sizeof(windowClass);
+    windowClass.style         = 0;
+    windowClass.lpfnWndProc   = WindowProcedure;
+    windowClass.hInstance     = _instance;
+    windowClass.hIcon         = largeIcon;
+    windowClass.hCursor       = LoadCursorW(nullptr, IDC_ARROW);
     windowClass.lpszClassName = kWindowClassName;
-    windowClass.hIconSm = smallIcon;
+    windowClass.hIconSm       = smallIcon;
 
-    if (!RegisterClassExW(&windowClass))
+    if (! RegisterClassExW(&windowClass))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
     WNDCLASSEXW dialogClass{};
-    dialogClass.cbSize = sizeof(dialogClass);
-    dialogClass.lpfnWndProc = SettingsDialogProcedure;
-    dialogClass.hInstance = _instance;
-    dialogClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    dialogClass.cbSize        = sizeof(dialogClass);
+    dialogClass.lpfnWndProc   = SettingsDialogProcedure;
+    dialogClass.hInstance     = _instance;
+    dialogClass.hCursor       = LoadCursorW(nullptr, IDC_ARROW);
     dialogClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     dialogClass.lpszClassName = kSettingsDialogClassName;
-    if (!RegisterClassExW(&dialogClass))
+    if (! RegisterClassExW(&dialogClass))
     {
         UnregisterClassW(kWindowClassName, _instance);
         return HRESULT_FROM_WIN32(GetLastError());
@@ -1718,23 +1710,22 @@ HRESULT Application::RegisterWindowClass() noexcept
 HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bool fullscreen) noexcept
 {
     constexpr DWORD extendedStyle = kStandardExtendedStyle;
-    const DWORD windowStyle = fullscreen ? kPopupWindowStyle : kTitledWindowStyle;
+    const DWORD windowStyle       = fullscreen ? kPopupWindowStyle : kTitledWindowStyle;
 
-    if ((fullscreen && !targetBounds) ||
-        (targetBounds && (targetBounds->right <= targetBounds->left || targetBounds->bottom <= targetBounds->top)))
+    if ((fullscreen && ! targetBounds) || (targetBounds && (targetBounds->right <= targetBounds->left || targetBounds->bottom <= targetBounds->top)))
     {
         return E_INVALIDARG;
     }
 
-    int x = CW_USEDEFAULT;
-    int y = CW_USEDEFAULT;
-    int width = 0;
+    int x      = CW_USEDEFAULT;
+    int y      = CW_USEDEFAULT;
+    int width  = 0;
     int height = 0;
     if (fullscreen)
     {
-        x = targetBounds->left;
-        y = targetBounds->top;
-        width = targetBounds->right - targetBounds->left;
+        x      = targetBounds->left;
+        y      = targetBounds->top;
+        width  = targetBounds->right - targetBounds->left;
         height = targetBounds->bottom - targetBounds->top;
     }
     else
@@ -1752,18 +1743,18 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
         {
             return result;
         }
-        width = windowSize.cx;
+        width  = windowSize.cx;
         height = windowSize.cy;
     }
 
-    const HWND window = CreateWindowExW(extendedStyle, kWindowClassName, L"RedXe — CORSAIR XENEON", windowStyle, x, y,
-                                        width, height, nullptr, nullptr, _instance, this);
-    if (!window)
+    const HWND window =
+        CreateWindowExW(extendedStyle, kWindowClassName, L"RedXe — CORSAIR XENEON", windowStyle, x, y, width, height, nullptr, nullptr, _instance, this);
+    if (! window)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
 
-    if (!fullscreen)
+    if (! fullscreen)
     {
         const UINT windowDpi = GetDpiForWindow(window);
         SIZE windowSize{};
@@ -1774,10 +1765,10 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
         }
 
         const bool placeOnTarget = targetBounds != nullptr;
-        const UINT flags = SWP_NOACTIVATE | SWP_NOZORDER | (placeOnTarget ? 0U : SWP_NOMOVE);
-        const int targetX = placeOnTarget ? targetBounds->left : 0;
-        const int targetY = placeOnTarget ? targetBounds->top : 0;
-        if (!SetWindowPos(window, nullptr, targetX, targetY, windowSize.cx, windowSize.cy, flags))
+        const UINT flags         = SWP_NOACTIVATE | SWP_NOZORDER | (placeOnTarget ? 0U : SWP_NOMOVE);
+        const int targetX        = placeOnTarget ? targetBounds->left : 0;
+        const int targetY        = placeOnTarget ? targetBounds->top : 0;
+        if (! SetWindowPos(window, nullptr, targetX, targetY, windowSize.cx, windowSize.cy, flags))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -1789,7 +1780,7 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
         return powerResult;
     }
 
-    if (!visible)
+    if (! visible)
     {
         ShowWindow(window, SW_HIDE);
     }
@@ -1799,15 +1790,14 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
 void Application::RecordRuntimeFailure(HRESULT result, const char* eventId) noexcept
 {
     _runtimeFailure = result;
-    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr, eventId,
-                       "A runtime step failed; the frame loop stops.", result);
+    (void)RedXeHostLog(
+        PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr, eventId, "A runtime step failed; the frame loop stops.", result);
 }
 
 HRESULT Application::RegisterDisplayPowerNotification(HWND window) noexcept
 {
-    _displayPowerNotification.reset(
-        RegisterPowerSettingNotification(window, &GUID_SESSION_DISPLAY_STATUS, DEVICE_NOTIFY_WINDOW_HANDLE));
-    if (!_displayPowerNotification)
+    _displayPowerNotification.reset(RegisterPowerSettingNotification(window, &GUID_SESSION_DISPLAY_STATUS, DEVICE_NOTIFY_WINDOW_HANDLE));
+    if (! _displayPowerNotification)
     {
         const DWORD error = GetLastError();
         return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
@@ -1819,27 +1809,35 @@ HRESULT Application::RegisterDisplayPowerNotification(HWND window) noexcept
 // then applies the exact placement (the app-bar reservation of a reserving bar or an autohide strip, monitor DPI).
 HRESULT Application::CreateDockWindow(bool visible) noexcept
 {
-    if (!_dockActive || _window)
+    if (! _dockActive || _window)
     {
         return E_UNEXPECTED;
     }
     DockMonitorPlacement placement{};
-    if (!ResolveDockMonitor(placement))
+    if (! ResolveDockMonitor(placement))
     {
         OutputDebugStringW(L"No display is available for the dock.\n");
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
-    bool clamped = false;
-    const LONG thicknessPx = DockClampThickness(DockThicknessPixels(_dock.thicknessDips, placement.dpi),
-                                                placement.monitor, _dock.edge, clamped);
-    const RECT initial = DockOverlayRect(placement.work, _dock.edge, thicknessPx);
+    bool clamped           = false;
+    const LONG thicknessPx = DockClampThickness(DockThicknessPixels(_dock.thicknessDips, placement.dpi), placement.monitor, _dock.edge, clamped);
+    const RECT initial     = DockOverlayRect(placement.work, _dock.edge, thicknessPx);
 
     constexpr DWORD extendedStyle = kDockExtendedStyle;
-    constexpr DWORD windowStyle = kPopupWindowStyle;
-    const HWND window = CreateWindowExW(extendedStyle, kWindowClassName, L"RedXe — CORSAIR XENEON", windowStyle,
-                                        initial.left, initial.top, initial.right - initial.left,
-                                        initial.bottom - initial.top, nullptr, nullptr, _instance, this);
-    if (!window)
+    constexpr DWORD windowStyle   = kPopupWindowStyle;
+    const HWND window             = CreateWindowExW(extendedStyle,
+                                                    kWindowClassName,
+                                                    L"RedXe — CORSAIR XENEON",
+                                                    windowStyle,
+                                                    initial.left,
+                                                    initial.top,
+                                                    initial.right - initial.left,
+                                                    initial.bottom - initial.top,
+                                                    nullptr,
+                                                    nullptr,
+                                                    _instance,
+                                                    this);
+    if (! window)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -1853,7 +1851,7 @@ HRESULT Application::CreateDockWindow(bool visible) noexcept
     {
         return placeResult;
     }
-    if (!visible)
+    if (! visible)
     {
         ShowWindow(window, SW_HIDE);
     }
@@ -1876,9 +1874,9 @@ bool Application::ResolveDockMonitor(DockMonitorPlacement& placement) noexcept
     const size_t nameCount = QueryDisplayFriendlyNames(names);
     for (size_t index = 0; index < displays.count; ++index)
     {
-        const MONITORINFOEXW& info = displays.info[index];
+        const MONITORINFOEXW& info      = displays.info[index];
         DockMonitorCandidate& candidate = displays.candidates[index];
-        candidate.xeneon = _xeneonFound && EqualRect(&info.rcMonitor, &_xeneonBounds);
+        candidate.xeneon                = _xeneonFound && EqualRect(&info.rcMonitor, &_xeneonBounds);
         for (size_t nameIndex = 0; nameIndex < nameCount; ++nameIndex)
         {
             if (CompareStringOrdinal(names[nameIndex].device.data(), -1, info.szDevice, -1, TRUE) == CSTR_EQUAL)
@@ -1890,51 +1888,53 @@ bool Application::ResolveDockMonitor(DockMonitorPlacement& placement) noexcept
     }
 
     RedXeActions::MonitorSelector selector{};
-    if (!RedXeActions::ParseMonitorSelector(_dock.monitor.View(), false, selector))
+    if (! RedXeActions::ParseMonitorSelector(_dock.monitor.View(), false, selector))
     {
         selector = RedXeActions::MonitorSelector{};
     }
     std::array<wchar_t, 129> needle{};
     if (selector.kind == RedXeActions::MonitorSelector::Kind::Name)
     {
-        const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, selector.name.data(),
-                                               static_cast<int>(selector.name.size()), needle.data(),
-                                               static_cast<int>(needle.size() - 1));
+        const int length = MultiByteToWideChar(
+            CP_UTF8, MB_ERR_INVALID_CHARS, selector.name.data(), static_cast<int>(selector.name.size()), needle.data(), static_cast<int>(needle.size() - 1));
         if (length <= 0)
         {
             needle[0] = L'\0';
         }
     }
-    bool fellBack = false;
-    const size_t chosen = SelectDockMonitor(selector, std::wstring_view{needle.data()}, displays.candidates.data(),
-                                            displays.count, fellBack);
+    bool fellBack       = false;
+    const size_t chosen = SelectDockMonitor(selector, std::wstring_view{needle.data()}, displays.candidates.data(), displays.count, fellBack);
     if (chosen == SIZE_MAX)
     {
         return false;
     }
-    placement.monitor = displays.candidates[chosen].monitor;
-    placement.work = displays.candidates[chosen].work;
-    placement.dpi = displays.candidates[chosen].dpi;
+    placement.monitor  = displays.candidates[chosen].monitor;
+    placement.work     = displays.candidates[chosen].work;
+    placement.dpi      = displays.candidates[chosen].dpi;
     placement.fellBack = fellBack;
     return true;
 }
 
 void Application::RegisterDockAppBar() noexcept
 {
-    if (_dockAppBar.registered || !_window)
+    if (_dockAppBar.registered || ! _window)
     {
         return;
     }
     APPBARDATA data{};
-    data.cbSize = sizeof(data);
-    data.hWnd = _window.get();
-    data.uCallbackMessage = kDockAppBarMessage;
-    _dockAppBar = DockAppBarState{};
+    data.cbSize            = sizeof(data);
+    data.hWnd              = _window.get();
+    data.uCallbackMessage  = kDockAppBarMessage;
+    _dockAppBar            = DockAppBarState{};
     _dockAppBar.registered = SHAppBarMessage(ABM_NEW, &data) != 0;
-    if (!_dockAppBar.registered)
+    if (! _dockAppBar.registered)
     {
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
-                           "dock-appbar-refused", "The shell refused the app-bar registration; the dock overlays.");
+        (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                           RedXeLogLevelWarning,
+                           nullptr,
+                           nullptr,
+                           "dock-appbar-refused",
+                           "The shell refused the app-bar registration; the dock overlays.");
     }
 }
 
@@ -1944,17 +1944,17 @@ void Application::UnregisterDockAppBar() noexcept
     {
         APPBARDATA data{};
         data.cbSize = sizeof(data);
-        data.hWnd = _window.get();
+        data.hWnd   = _window.get();
         (void)SHAppBarMessage(ABM_REMOVE, &data);
     }
     // A registration made after this one starts with no reservation, so its first placement reserves again.
-    _dockAppBar = DockAppBarState{};
+    _dockAppBar      = DockAppBarState{};
     _dockAppBarStale = false;
 }
 
 void Application::OnTaskbarCreated() noexcept
 {
-    if (!_dockActive || !_window)
+    if (! _dockActive || ! _window)
     {
         return;
     }
@@ -1970,7 +1970,11 @@ void Application::OnTaskbarCreated() noexcept
     // of a bar it does not know. The placement then registers the bar and reserves what its mode reserves.
     UnregisterDockAppBar();
     _dockFullscreenAppActive = false;
-    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "dock-appbar-renewed",
+    (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                       RedXeLogLevelInfo,
+                       nullptr,
+                       nullptr,
+                       "dock-appbar-renewed",
                        "The taskbar was created; the dock registers its app bar again.");
     (void)PlaceDock(true);
     ApplyDockZOrder();
@@ -1978,12 +1982,11 @@ void Application::OnTaskbarCreated() noexcept
 
 void Application::ApplyDockZOrder() noexcept
 {
-    if (!_window || !_dockActive)
+    if (! _window || ! _dockActive)
     {
         return;
     }
-    (void)SetWindowPos(_window.get(), DockYieldsToFullscreen() ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0,
-                       SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    (void)SetWindowPos(_window.get(), DockYieldsToFullscreen() ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
 bool Application::DockYieldsToFullscreen() const noexcept
@@ -1993,27 +1996,26 @@ bool Application::DockYieldsToFullscreen() const noexcept
     // own monitor, and a maximized window with a caption never counts, whatever its resize borders overhang.
     const HWND foreground = GetForegroundWindow();
     RECT bounds{};
-    if (!_dockFullscreenAppActive || !foreground || foreground == _window.get() || !GetWindowRect(foreground, &bounds))
+    if (! _dockFullscreenAppActive || ! foreground || foreground == _window.get() || ! GetWindowRect(foreground, &bounds))
     {
         return false;
     }
-    const bool maximizedWithCaption =
-        IsZoomed(foreground) && (GetWindowLongPtrW(foreground, GWL_STYLE) & WS_CAPTION) == WS_CAPTION;
+    const bool maximizedWithCaption = IsZoomed(foreground) && (GetWindowLongPtrW(foreground, GWL_STYLE) & WS_CAPTION) == WS_CAPTION;
     return DockForegroundCoversMonitor(bounds, _dockMonitorRect, maximizedWithCaption);
 }
 
 HRESULT Application::PlaceDock(bool resizeDashboard) noexcept
 {
-    if (!_dockActive || !_window)
+    if (! _dockActive || ! _window)
     {
         return S_OK;
     }
-    if (!BeginDockPlacement(_dockPlacement, resizeDashboard))
+    if (! BeginDockPlacement(_dockPlacement, resizeDashboard))
     {
         // Heard inside the running placement's shell or window calls: it places once more when its pass ends.
         return S_OK;
     }
-    HRESULT result = PlaceDockPass(resizeDashboard);
+    HRESULT result   = PlaceDockPass(resizeDashboard);
     bool resizeAgain = false;
     while (NextDockPlacementPass(_dockPlacement, resizeAgain))
     {
@@ -2027,7 +2029,7 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
     // A placement starts from the size the reveal state asks for, not from a frame of a slide.
     SettleDockSlide();
     DockMonitorPlacement placement{};
-    if (!ResolveDockMonitor(placement))
+    if (! ResolveDockMonitor(placement))
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
@@ -2036,21 +2038,27 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
         _dockMonitorFellBack = placement.fellBack;
         if (placement.fellBack)
         {
-            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+            (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                               RedXeLogLevelWarning,
+                               nullptr,
+                               nullptr,
                                "dock-monitor-fallback",
                                "The dock monitor was not found; the bar is on the primary display.");
         }
     }
-    bool clamped = false;
-    const LONG thicknessPx = DockClampThickness(DockThicknessPixels(_dock.thicknessDips, placement.dpi),
-                                                placement.monitor, _dock.edge, clamped);
+    bool clamped           = false;
+    const LONG thicknessPx = DockClampThickness(DockThicknessPixels(_dock.thicknessDips, placement.dpi), placement.monitor, _dock.edge, clamped);
     if (clamped != _dockThicknessClamped)
     {
         _dockThicknessClamped = clamped;
         if (clamped)
         {
-            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
-                               "dock-thickness-clamped", "The dock thickness was clamped to half of the monitor.");
+            (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                               RedXeLogLevelWarning,
+                               nullptr,
+                               nullptr,
+                               "dock-thickness-clamped",
+                               "The dock thickness was clamped to half of the monitor.");
         }
     }
 
@@ -2059,52 +2067,47 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
     // reservation the shell already holds is kept as it is, so the work area changes only when the reserved rectangle
     // does or the shell may have moved it.
     const DockReservation reservation = DockReservationFor(_dock.mode, _dock.reserveWorkArea);
-    const LONG peekPx = DockClampPeek(_dock.peekPixels, thicknessPx);
-    const RECT proposal = DockReservationProposal(reservation, placement.monitor, _dock.edge, thicknessPx, peekPx);
-    const DockAppBarPlan plan = PlanDockAppBar(_dockAppBar, reservation, _dock.edge, proposal, placement.dpi,
-                                               std::exchange(_dockAppBarStale, false));
+    const LONG peekPx                 = DockClampPeek(_dock.peekPixels, thicknessPx);
+    const RECT proposal               = DockReservationProposal(reservation, placement.monitor, _dock.edge, thicknessPx, peekPx);
+    const DockAppBarPlan plan         = PlanDockAppBar(_dockAppBar, reservation, _dock.edge, proposal, placement.dpi, std::exchange(_dockAppBarStale, false));
     APPBARDATA reserve{};
-    reserve.cbSize = sizeof(reserve);
-    reserve.hWnd = _window.get();
-    reserve.uEdge = DockAppBarEdge(_dock.edge);
+    reserve.cbSize          = sizeof(reserve);
+    reserve.hWnd            = _window.get();
+    reserve.uEdge           = DockAppBarEdge(_dock.edge);
     bool reservationDropped = false;
     for (size_t index = 0; index < plan.count; ++index)
     {
         switch (plan.messages[index])
         {
-        case ABM_REMOVE:
-            UnregisterDockAppBar();
-            reservationDropped = true;
-            break;
-        case ABM_NEW:
-            RegisterDockAppBar();
-            break;
-        case ABM_QUERYPOS:
-            // A refused ABM_NEW leaves nothing to reserve: the bar overlays the work area below.
-            if (_dockAppBar.registered)
-            {
-                reserve.rc = proposal;
-                (void)SHAppBarMessage(ABM_QUERYPOS, &reserve);
-            }
-            break;
-        case ABM_SETPOS:
-            if (_dockAppBar.registered)
-            {
-                // The shell may move the edge side (beside a taskbar on that edge); the reservation keeps its depth.
-                reserve.rc =
-                    DockTrimToThickness(reserve.rc, _dock.edge, DockReservedPixels(reservation, thicknessPx, peekPx));
-                (void)SHAppBarMessage(ABM_SETPOS, &reserve);
-                DockAppBarCommitted(_dockAppBar, reservation, _dock.edge, proposal, placement.dpi, reserve.rc);
-            }
-            break;
-        default:
-            break;
+            case ABM_REMOVE:
+                UnregisterDockAppBar();
+                reservationDropped = true;
+                break;
+            case ABM_NEW: RegisterDockAppBar(); break;
+            case ABM_QUERYPOS:
+                // A refused ABM_NEW leaves nothing to reserve: the bar overlays the work area below.
+                if (_dockAppBar.registered)
+                {
+                    reserve.rc = proposal;
+                    (void)SHAppBarMessage(ABM_QUERYPOS, &reserve);
+                }
+                break;
+            case ABM_SETPOS:
+                if (_dockAppBar.registered)
+                {
+                    // The shell may move the edge side (beside a taskbar on that edge); the reservation keeps its depth.
+                    reserve.rc = DockTrimToThickness(reserve.rc, _dock.edge, DockReservedPixels(reservation, thicknessPx, peekPx));
+                    (void)SHAppBarMessage(ABM_SETPOS, &reserve);
+                    DockAppBarCommitted(_dockAppBar, reservation, _dock.edge, proposal, placement.dpi, reserve.rc);
+                }
+                break;
+            default: break;
         }
     }
 
     // The work area read above still excluded the reservation this pass just returned with ABM_REMOVE; an overlay is
     // placed against the work area without it.
-    if (reservationDropped && !DockReservesWorkArea())
+    if (reservationDropped && ! DockReservesWorkArea())
     {
         DockMonitorPlacement refreshed{};
         if (ResolveDockMonitor(refreshed))
@@ -2120,17 +2123,22 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
         return E_UNEXPECTED;
     }
 
-    const bool fullChanged = !EqualRect(&full, &_dockFullRect) || placement.dpi != _dockDpi;
-    _dockFullRect = full;
-    _dockMonitorRect = placement.monitor;
-    _dockDpi = placement.dpi;
+    const bool fullChanged = ! EqualRect(&full, &_dockFullRect) || placement.dpi != _dockDpi;
+    _dockFullRect          = full;
+    _dockMonitorRect       = placement.monitor;
+    _dockDpi               = placement.dpi;
     // The strip is clamped to the bar just placed (_dockFullRect), as every reveal and hide clamps it.
     const RECT target = DockHidden() ? DockHiddenRect(full, _dock.edge, DockPeekPixels()) : full;
-    _dockResizing = true;
-    const BOOL moved = SetWindowPos(_window.get(), DockYieldsToFullscreen() ? HWND_BOTTOM : HWND_TOPMOST, target.left,
-                                    target.top, target.right - target.left, target.bottom - target.top, SWP_NOACTIVATE);
-    _dockResizing = false;
-    if (!moved)
+    _dockResizing     = true;
+    const BOOL moved  = SetWindowPos(_window.get(),
+                                     DockYieldsToFullscreen() ? HWND_BOTTOM : HWND_TOPMOST,
+                                     target.left,
+                                     target.top,
+                                     target.right - target.left,
+                                     target.bottom - target.top,
+                                     SWP_NOACTIVATE);
+    _dockResizing     = false;
+    if (! moved)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -2138,7 +2146,7 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
     {
         APPBARDATA data{};
         data.cbSize = sizeof(data);
-        data.hWnd = _window.get();
+        data.hWnd   = _window.get();
         (void)SHAppBarMessage(ABM_WINDOWPOSCHANGED, &data);
     }
     if (resizeDashboard && fullChanged)
@@ -2158,11 +2166,11 @@ HRESULT Application::PlaceDockPass(bool resizeDashboard) noexcept
 // The dashboard and swap chain always follow the full bar rectangle; the peek strip is a window-size change only.
 HRESULT Application::ResizeDockDashboard() noexcept
 {
-    if (!_rendererReady || !_dashboardHost)
+    if (! _rendererReady || ! _dashboardHost)
     {
         return S_OK;
     }
-    const UINT width = static_cast<UINT>(_dockFullRect.right - _dockFullRect.left);
+    const UINT width  = static_cast<UINT>(_dockFullRect.right - _dockFullRect.left);
     const UINT height = static_cast<UINT>(_dockFullRect.bottom - _dockFullRect.top);
     ClearKeyboardFocus();
     CancelInteractivePointer();
@@ -2208,15 +2216,15 @@ HRESULT Application::ApplyDockSettings(const DockSettings& documentDock) noexcep
         return FAILED(restored) ? restored : result;
     }
     const DockMode previousMode = _dock.mode;
-    _dock = next;
-    if (!_dockActive)
+    _dock                       = next;
+    if (! _dockActive)
     {
         return S_OK;
     }
     if (previousMode != _dock.mode && _dock.mode == DockMode::Fixed)
     {
         KillDockTimer();
-        _dockReveal = DockRevealState::Revealed;
+        _dockReveal         = DockRevealState::Revealed;
         _dockPinnedByAction = false;
     }
     (void)PlaceDock(true);
@@ -2248,23 +2256,23 @@ void Application::StopDockInteraction() noexcept
     _dockSlideActive = false;
     ApplyDockSlideOffset(POINT{});
     // A press record belongs to the bar it pressed.
-    _dockMousePress = DockPress{};
+    _dockMousePress   = DockPress{};
     _dockPointerPress = DockPress{};
 }
 
 void Application::ResetDockPlacementState() noexcept
 {
-    _dockReveal = DockRevealState::Revealed;
-    _dockSlideActive = false;
-    _dockVisiblePx = 0;
-    _dockFullRect = RECT{};
-    _dockMonitorRect = RECT{};
-    _dockDpi = USER_DEFAULT_SCREEN_DPI;
-    _dockMonitorFellBack = false;
-    _dockThicknessClamped = false;
+    _dockReveal              = DockRevealState::Revealed;
+    _dockSlideActive         = false;
+    _dockVisiblePx           = 0;
+    _dockFullRect            = RECT{};
+    _dockMonitorRect         = RECT{};
+    _dockDpi                 = USER_DEFAULT_SCREEN_DPI;
+    _dockMonitorFellBack     = false;
+    _dockThicknessClamped    = false;
     _dockFullscreenAppActive = false;
-    _dockPointerInside = false;
-    _dockPinnedByAction = false;
+    _dockPointerInside       = false;
+    _dockPinnedByAction      = false;
 }
 
 HRESULT Application::SwitchWindowKind(const DockSettings& next, bool rollback, StandardPlacement& placement) noexcept
@@ -2283,7 +2291,7 @@ HRESULT Application::SwitchWindowKind(const DockSettings& next, bool rollback, S
 
 HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback, StandardPlacement& placement) noexcept
 {
-    if (!_window || !_dashboardHost)
+    if (! _window || ! _dashboardHost)
     {
         return E_UNEXPECTED;
     }
@@ -2292,10 +2300,10 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback, 
     // Without a XENEON the standard window lands on the monitor the dock was on, where the person is looking. A
     // rollback keeps the monitor the forward switch recorded: the window has been moved to the other kind's place, and
     // the forward switch has hidden it.
-    if (!rollback)
+    if (! rollback)
     {
         placement.fallbackMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY);
-        placement.visible = IsWindowVisible(window) != FALSE;
+        placement.visible         = IsWindowVisible(window) != FALSE;
     }
 
     // Every interaction bound to the old geometry ends, then the presentation goes: its swap-chain scaling belongs
@@ -2313,9 +2321,9 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback, 
     // hold on an autohide bar can always clear.
     _pageEdgeMouseTracking = false;
     _renderer.Shutdown();
-    _rendererReady = false;
+    _rendererReady     = false;
     const bool wasDock = _dockActive;
-    _dockActive = false;
+    _dockActive        = false;
     if (wasDock)
     {
         // ABM_REMOVE: the shell gives a reserved work area back before the standard window is placed.
@@ -2330,8 +2338,8 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback, 
 #else
     constexpr bool releaseBuild = true;
 #endif
-    const bool fullscreen = !toDock && releaseBuild && _xeneonFound;
-    placement.fullscreen = fullscreen;
+    const bool fullscreen = ! toDock && releaseBuild && _xeneonFound;
+    placement.fullscreen  = fullscreen;
 
     // The taskbar adds or drops the button (WS_EX_APPWINDOW, WS_EX_TOOLWINDOW) only for a window shown after the
     // change, so the window leaves minimized or maximized, hides, takes the other kind's styles, and shows again at
@@ -2341,17 +2349,12 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback, 
         (void)ShowWindow(window, SW_SHOWNOACTIVATE);
     }
     (void)ShowWindow(window, SW_HIDE);
-    const LONG_PTR keptStyle = GetWindowLongPtrW(window, GWL_STYLE) & WS_DISABLED;
+    const LONG_PTR keptStyle         = GetWindowLongPtrW(window, GWL_STYLE) & WS_DISABLED;
     const LONG_PTR keptExtendedStyle = GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST;
-    (void)SetWindowLongPtrW(window, GWL_STYLE,
-                            keptStyle |
-                                static_cast<LONG_PTR>(toDock || fullscreen ? kPopupWindowStyle : kTitledWindowStyle));
+    (void)SetWindowLongPtrW(window, GWL_STYLE, keptStyle | static_cast<LONG_PTR>(toDock || fullscreen ? kPopupWindowStyle : kTitledWindowStyle));
     (void)SetWindowLongPtrW(
-        window, GWL_EXSTYLE,
-        keptExtendedStyle |
-            static_cast<LONG_PTR>((toDock ? kDockExtendedStyle : kStandardExtendedStyle) & ~DWORD{WS_EX_TOPMOST}));
-    if (!SetWindowPos(window, toDock ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
-                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED))
+        window, GWL_EXSTYLE, keptExtendedStyle | static_cast<LONG_PTR>((toDock ? kDockExtendedStyle : kStandardExtendedStyle) & ~DWORD{WS_EX_TOPMOST}));
+    if (! SetWindowPos(window, toDock ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -2362,7 +2365,7 @@ HRESULT Application::RestyleWindowKind(const DockSettings& next, bool rollback, 
 
 HRESULT Application::FinishWindowKindSwitch(bool rollback, const StandardPlacement& placement) noexcept
 {
-    if (!_window || !_rendererReady)
+    if (! _window || ! _rendererReady)
     {
         return E_UNEXPECTED;
     }
@@ -2373,7 +2376,7 @@ HRESULT Application::FinishWindowKindSwitch(bool rollback, const StandardPlaceme
         (void)ShowWindow(window, SW_SHOWNOACTIVATE);
     }
     _windowVisible = IsWindowVisible(window) != FALSE;
-    if (!_dockActive)
+    if (! _dockActive)
     {
         // A DPI change that arrives with the show answers at the suggested position; the standard kind keeps its
         // exact origin and canvas. The dock re-places itself from WM_DPICHANGED.
@@ -2387,12 +2390,14 @@ HRESULT Application::FinishWindowKindSwitch(bool rollback, const StandardPlaceme
     PushHostChrome();
     PublishHostState();
     _frameInvalidated = true;
-    if (!rollback)
+    if (! rollback)
     {
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr,
+        (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                           RedXeLogLevelInfo,
+                           nullptr,
+                           nullptr,
                            "window-kind-changed",
-                           _dockActive ? "A settings reload turned the window into the dock."
-                                       : "A settings reload turned the dock into the standard window.");
+                           _dockActive ? "A settings reload turned the window into the dock." : "A settings reload turned the dock into the standard window.");
     }
     return S_OK;
 }
@@ -2400,21 +2405,21 @@ HRESULT Application::FinishWindowKindSwitch(bool rollback, const StandardPlaceme
 HRESULT Application::PlaceStandardWindow(bool fullscreen, HMONITOR fallbackMonitor) noexcept
 {
     const HWND window = _window.get();
-    if (!window)
+    if (! window)
     {
         return E_UNEXPECTED;
     }
-    RECT target = _xeneonBounds;
+    RECT target    = _xeneonBounds;
     UINT targetDpi = USER_DEFAULT_SCREEN_DPI;
-    if (!fullscreen)
+    if (! fullscreen)
     {
         HMONITOR monitor = _xeneonFound ? MonitorFromRect(&_xeneonBounds, MONITOR_DEFAULTTONEAREST) : fallbackMonitor;
         MONITORINFO information{};
         information.cbSize = sizeof(information);
-        if (!monitor || !GetMonitorInfoW(monitor, &information))
+        if (! monitor || ! GetMonitorInfoW(monitor, &information))
         {
             monitor = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
-            if (!GetMonitorInfoW(monitor, &information))
+            if (! GetMonitorInfoW(monitor, &information))
             {
                 return HRESULT_FROM_WIN32(GetLastError());
             }
@@ -2426,23 +2431,21 @@ HRESULT Application::PlaceStandardWindow(bool fullscreen, HMONITOR fallbackMonit
         {
             return sized;
         }
-        const POINT origin = _xeneonFound ? POINT{_xeneonBounds.left, _xeneonBounds.top}
-                                          : POINT{information.rcWork.left, information.rcWork.top};
-        target = RECT{origin.x, origin.y, origin.x + size.cx, origin.y + size.cy};
+        const POINT origin = _xeneonFound ? POINT{_xeneonBounds.left, _xeneonBounds.top} : POINT{information.rcWork.left, information.rcWork.top};
+        target             = RECT{origin.x, origin.y, origin.x + size.cx, origin.y + size.cy};
     }
     if (target.right <= target.left || target.bottom <= target.top)
     {
         return E_UNEXPECTED;
     }
-    if (!SetWindowPos(window, nullptr, target.left, target.top, target.right - target.left, target.bottom - target.top,
-                      SWP_NOACTIVATE | SWP_NOZORDER))
+    if (! SetWindowPos(window, nullptr, target.left, target.top, target.right - target.left, target.bottom - target.top, SWP_NOACTIVATE | SWP_NOZORDER))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
     // The move may have changed the window's DPI, and WM_DPICHANGED answers at the suggested rectangle. The titled
     // window settles on the exact canvas for the DPI it now has; both kinds keep the intended origin.
     const UINT windowDpi = GetDpiForWindow(window);
-    if (!fullscreen && windowDpi != 0 && windowDpi != targetDpi)
+    if (! fullscreen && windowDpi != 0 && windowDpi != targetDpi)
     {
         SIZE size{};
         const HRESULT sized = CalculateWindowSizeForDpi(kTitledWindowStyle, kStandardExtendedStyle, windowDpi, size);
@@ -2450,7 +2453,7 @@ HRESULT Application::PlaceStandardWindow(bool fullscreen, HMONITOR fallbackMonit
         {
             return sized;
         }
-        target.right = target.left + size.cx;
+        target.right  = target.left + size.cx;
         target.bottom = target.top + size.cy;
     }
     RECT bounds{};
@@ -2458,30 +2461,28 @@ HRESULT Application::PlaceStandardWindow(bool fullscreen, HMONITOR fallbackMonit
     {
         return S_OK;
     }
-    return SetWindowPos(window, nullptr, target.left, target.top, target.right - target.left,
-                        target.bottom - target.top, SWP_NOACTIVATE | SWP_NOZORDER)
+    return SetWindowPos(window, nullptr, target.left, target.top, target.right - target.left, target.bottom - target.top, SWP_NOACTIVATE | SWP_NOZORDER)
                ? S_OK
                : HRESULT_FROM_WIN32(GetLastError());
 }
 
 HRESULT Application::PresentationCanvas(UINT& width, UINT& height, UINT& dpi) const noexcept
 {
-    width = 0;
+    width  = 0;
     height = 0;
     RECT client{};
     dpi = _window ? GetDpiForWindow(_window.get()) : 0;
-    if (dpi == 0 || !GetClientRect(_window.get(), &client))
+    if (dpi == 0 || ! GetClientRect(_window.get(), &client))
     {
         const DWORD error = GetLastError();
         return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_UNEXPECTED;
     }
     // An autohide dock may be its strip, or part of the bar, now; the dashboard and the swap chain are always the full
     // bar, at the bar's monitor DPI.
-    const SIZE canvas =
-        DockDashboardCanvas(_dockActive, _dockFullRect, SIZE{client.right - client.left, client.bottom - client.top});
-    width = static_cast<UINT>(std::max(0L, canvas.cx));
-    height = static_cast<UINT>(std::max(0L, canvas.cy));
-    if (_dockActive && !IsRectEmpty(&_dockFullRect))
+    const SIZE canvas = DockDashboardCanvas(_dockActive, _dockFullRect, SIZE{client.right - client.left, client.bottom - client.top});
+    width             = static_cast<UINT>(std::max(0L, canvas.cx));
+    height            = static_cast<UINT>(std::max(0L, canvas.cy));
+    if (_dockActive && ! IsRectEmpty(&_dockFullRect))
     {
         dpi = _dockDpi;
     }
@@ -2490,22 +2491,21 @@ HRESULT Application::PresentationCanvas(UINT& width, UINT& height, UINT& dpi) co
 
 SIZE Application::DashboardCanvasSize() const noexcept
 {
-    UINT width = 0;
+    UINT width  = 0;
     UINT height = 0;
-    UINT dpi = 0;
-    return SUCCEEDED(PresentationCanvas(width, height, dpi)) ? SIZE{static_cast<LONG>(width), static_cast<LONG>(height)}
-                                                             : SIZE{};
+    UINT dpi    = 0;
+    return SUCCEEDED(PresentationCanvas(width, height, dpi)) ? SIZE{static_cast<LONG>(width), static_cast<LONG>(height)} : SIZE{};
 }
 
 HRESULT Application::RebuildPresentation() noexcept
 {
-    if (!_window || !_dashboardHost || _rendererReady)
+    if (! _window || ! _dashboardHost || _rendererReady)
     {
         return E_UNEXPECTED;
     }
-    UINT width = 0;
-    UINT height = 0;
-    UINT dpi = 0;
+    UINT width     = 0;
+    UINT height    = 0;
+    UINT dpi       = 0;
     HRESULT result = PresentationCanvas(width, height, dpi);
     if (SUCCEEDED(result))
     {
@@ -2539,7 +2539,7 @@ HRESULT Application::StartPresentation(UINT width, UINT height) noexcept
 
 void Application::ArmDockTimer(uint32_t delayMilliseconds) noexcept
 {
-    if (!_window)
+    if (! _window)
     {
         return;
     }
@@ -2558,12 +2558,12 @@ void Application::KillDockTimer() noexcept
 
 RECT Application::DockResizeBand() const noexcept
 {
-    if (!_dockActive || DockHidden() || _dockFullRect.right <= _dockFullRect.left)
+    if (! _dockActive || DockHidden() || _dockFullRect.right <= _dockFullRect.left)
     {
         return RECT{};
     }
-    return DockResizeBandRect(_dockFullRect.right - _dockFullRect.left, _dockFullRect.bottom - _dockFullRect.top,
-                              _dock.edge, PageEdgeDipPixels(kDockResizeBandDips, _dockDpi));
+    return DockResizeBandRect(
+        _dockFullRect.right - _dockFullRect.left, _dockFullRect.bottom - _dockFullRect.top, _dock.edge, PageEdgeDipPixels(kDockResizeBandDips, _dockDpi));
 }
 
 bool Application::PointInDockResizeBand(POINT client) const noexcept
@@ -2574,35 +2574,26 @@ bool Application::PointInDockResizeBand(POINT client) const noexcept
 
 void Application::BeginDockResize(HWND window) noexcept
 {
-    if (_dockResizeDrag || !_dockActive)
+    if (_dockResizeDrag || ! _dockActive)
     {
         return;
     }
     SettleDockSlide();
     CancelInteractivePointer();
     ClearPageEdgeHover();
-    _dockResizeDrag = true;
+    _dockResizeDrag   = true;
     _dockResizeGrabPx = 0;
     POINT cursor{};
     if (GetCursorPos(&cursor))
     {
         switch (_dock.edge)
         {
-        case DockEdge::Top:
-            _dockResizeGrabPx = _dockFullRect.bottom - cursor.y;
-            break;
-        case DockEdge::Bottom:
-            _dockResizeGrabPx = cursor.y - _dockFullRect.top;
-            break;
-        case DockEdge::Left:
-            _dockResizeGrabPx = _dockFullRect.right - cursor.x;
-            break;
-        case DockEdge::Right:
-            _dockResizeGrabPx = cursor.x - _dockFullRect.left;
-            break;
-        case ::DockEdge::None:
-        default:
-            break;
+            case DockEdge::Top: _dockResizeGrabPx = _dockFullRect.bottom - cursor.y; break;
+            case DockEdge::Bottom: _dockResizeGrabPx = cursor.y - _dockFullRect.top; break;
+            case DockEdge::Left: _dockResizeGrabPx = _dockFullRect.right - cursor.x; break;
+            case DockEdge::Right: _dockResizeGrabPx = cursor.x - _dockFullRect.left; break;
+            case ::DockEdge::None:
+            default: break;
         }
     }
     (void)SetCapture(window);
@@ -2612,28 +2603,19 @@ void Application::BeginDockResize(HWND window) noexcept
 void Application::UpdateDockResize() noexcept
 {
     POINT cursor{};
-    if (!_dockResizeDrag || !_window || !GetCursorPos(&cursor))
+    if (! _dockResizeDrag || ! _window || ! GetCursorPos(&cursor))
     {
         return;
     }
     // The inner edge stays where it was under the pointer at the press.
     switch (_dock.edge)
     {
-    case DockEdge::Top:
-        cursor.y += _dockResizeGrabPx;
-        break;
-    case DockEdge::Bottom:
-        cursor.y -= _dockResizeGrabPx;
-        break;
-    case DockEdge::Left:
-        cursor.x += _dockResizeGrabPx;
-        break;
-    case DockEdge::Right:
-        cursor.x -= _dockResizeGrabPx;
-        break;
-    case ::DockEdge::None:
-    default:
-        break;
+        case DockEdge::Top: cursor.y += _dockResizeGrabPx; break;
+        case DockEdge::Bottom: cursor.y -= _dockResizeGrabPx; break;
+        case DockEdge::Left: cursor.x += _dockResizeGrabPx; break;
+        case DockEdge::Right: cursor.x -= _dockResizeGrabPx; break;
+        case ::DockEdge::None:
+        default: break;
     }
     const uint32_t thickness = DockThicknessFromDrag(_dockFullRect, _dockMonitorRect, _dock.edge, cursor, _dockDpi);
     if (thickness == _dock.thicknessDips)
@@ -2642,20 +2624,23 @@ void Application::UpdateDockResize() noexcept
     }
     // Live preview: the window and dashboard follow the pointer with the outer edge fixed. The shell reservation
     // waits for the release so the desktop is not re-laid out on every mouse move.
-    _dock.thicknessDips = thickness;
-    bool clamped = false;
-    const LONG thicknessPx =
-        DockClampThickness(DockThicknessPixels(thickness, _dockDpi), _dockMonitorRect, _dock.edge, clamped);
-    _dockFullRect = DockTrimToThickness(_dockFullRect, _dock.edge, thicknessPx);
-    _dockResizing = true;
-    (void)SetWindowPos(_window.get(), nullptr, _dockFullRect.left, _dockFullRect.top,
-                       _dockFullRect.right - _dockFullRect.left, _dockFullRect.bottom - _dockFullRect.top,
+    _dock.thicknessDips    = thickness;
+    bool clamped           = false;
+    const LONG thicknessPx = DockClampThickness(DockThicknessPixels(thickness, _dockDpi), _dockMonitorRect, _dock.edge, clamped);
+    _dockFullRect          = DockTrimToThickness(_dockFullRect, _dock.edge, thicknessPx);
+    _dockResizing          = true;
+    (void)SetWindowPos(_window.get(),
+                       nullptr,
+                       _dockFullRect.left,
+                       _dockFullRect.top,
+                       _dockFullRect.right - _dockFullRect.left,
+                       _dockFullRect.bottom - _dockFullRect.top,
                        SWP_NOACTIVATE | SWP_NOZORDER);
     _dockResizing = false;
-    if (!_dockDashboardResizePending)
+    if (! _dockDashboardResizePending)
     {
         _dockDashboardResizePending = true;
-        if (!SetTimer(_window.get(), kDockDashboardResizeTimerId, 16, nullptr))
+        if (! SetTimer(_window.get(), kDockDashboardResizeTimerId, 16, nullptr))
         {
             FlushDockDashboardResize();
         }
@@ -2664,7 +2649,7 @@ void Application::UpdateDockResize() noexcept
 
 void Application::FlushDockDashboardResize() noexcept
 {
-    if (!_dockDashboardResizePending || !_window)
+    if (! _dockDashboardResizePending || ! _window)
     {
         return;
     }
@@ -2681,7 +2666,7 @@ void Application::FlushDockDashboardResize() noexcept
 
 void Application::EndDockResize() noexcept
 {
-    if (!_dockResizeDrag)
+    if (! _dockResizeDrag)
     {
         return;
     }
@@ -2704,9 +2689,13 @@ void Application::EndDockResize() noexcept
         const HRESULT persisted = _settingsStore.PersistDockThickness(*_settings, _dock.thicknessDips);
         if (FAILED(persisted))
         {
-            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+            (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                               RedXeLogLevelWarning,
+                               nullptr,
+                               nullptr,
                                "dock-thickness-persist-failed",
-                               "The dragged dock thickness could not be written to the settings file.", persisted);
+                               "The dragged dock thickness could not be written to the settings file.",
+                               persisted);
         }
         LogDeferredSettingsPersist();
     }
@@ -2716,43 +2705,40 @@ void Application::EndDockResize() noexcept
 DockHolds Application::CurrentDockHolds() const noexcept
 {
     DockHolds holds{};
-    holds.pointerInside = _dockPointerInside;
-    holds.windowActive = _windowActive;
-    holds.captureActive = _pagePointerActive || _pagePanStarted || _pageSettleActive || _pageTransitionDirection != 0 ||
-                          _pageStagePendingDirection != 0 || _interactiveOwnsPointer || _raiseSettleActive ||
-                          _dockResizeDrag;
-    holds.widgetRaised = _raisedActive;
-    holds.dialogShown = _settingsErrorDialog != nullptr;
-    holds.pinned = _screenshot.pending;
+    holds.pointerInside  = _dockPointerInside;
+    holds.windowActive   = _windowActive;
+    holds.captureActive  = _pagePointerActive || _pagePanStarted || _pageSettleActive || _pageTransitionDirection != 0 || _pageStagePendingDirection != 0 ||
+                           _interactiveOwnsPointer || _raiseSettleActive || _dockResizeDrag;
+    holds.widgetRaised   = _raisedActive;
+    holds.dialogShown    = _settingsErrorDialog != nullptr;
+    holds.pinned         = _screenshot.pending;
     holds.pinnedByAction = _dockPinnedByAction;
-    holds.revealSliding = _dockSlideActive && !DockHiddenOrHiding();
+    holds.revealSliding  = _dockSlideActive && ! DockHiddenOrHiding();
     return holds;
 }
 
 void Application::OnDockEvent(DockRevealEvent event) noexcept
 {
-    if (!_dockActive || _dock.mode != DockMode::Autohide)
+    if (! _dockActive || _dock.mode != DockMode::Autohide)
     {
         return;
     }
-    if (event == DockRevealEvent::ActionShow ||
-        (event == DockRevealEvent::ActionToggle && DockStateShowsStrip(_dockReveal)))
+    if (event == DockRevealEvent::ActionShow || (event == DockRevealEvent::ActionToggle && DockStateShowsStrip(_dockReveal)))
     {
         // An action-revealed bar stays until another hold appears and clears; the flag drops as soon as one does.
-        _dockPinnedByAction = !CurrentDockHolds().AnyOther();
+        _dockPinnedByAction = ! CurrentDockHolds().AnyOther();
     }
     else if (event == DockRevealEvent::ActionHide || event == DockRevealEvent::ActionToggle)
     {
         _dockPinnedByAction = false;
     }
-    const DockRevealState next = NextDockRevealState(_dockReveal, event, CurrentDockHolds(),
-                                                     _dock.revealDelayMilliseconds, _dock.hideDelayMilliseconds);
+    const DockRevealState next = NextDockRevealState(_dockReveal, event, CurrentDockHolds(), _dock.revealDelayMilliseconds, _dock.hideDelayMilliseconds);
     ApplyDockRevealState(next);
 }
 
 void Application::EvaluateDockHolds() noexcept
 {
-    if (!_dockActive || _dock.mode != DockMode::Autohide)
+    if (! _dockActive || _dock.mode != DockMode::Autohide)
     {
         return;
     }
@@ -2760,11 +2746,11 @@ void Application::EvaluateDockHolds() noexcept
     if (_dockPinnedByAction && holds.AnyOther())
     {
         // Another hold appeared: the action's pin gives way to it (the reveal's own slide does not count).
-        _dockPinnedByAction = false;
+        _dockPinnedByAction  = false;
         holds.pinnedByAction = false;
     }
-    const DockRevealState next = NextDockRevealState(_dockReveal, DockRevealEvent::HoldsChanged, holds,
-                                                     _dock.revealDelayMilliseconds, _dock.hideDelayMilliseconds);
+    const DockRevealState next =
+        NextDockRevealState(_dockReveal, DockRevealEvent::HoldsChanged, holds, _dock.revealDelayMilliseconds, _dock.hideDelayMilliseconds);
     ApplyDockRevealState(next);
 }
 
@@ -2795,23 +2781,22 @@ void Application::ApplyDockRevealState(DockRevealState state) noexcept
     // recompute, and no OnTargetSizeChanged happen here. With dock.animationMilliseconds the move is a slide over the
     // presented frames that follow (TickDockSlide), starting where a running slide left the bar; otherwise it is one
     // SetWindowPos and one frame.
-    const LONG fullPx = DockFullPixels();
-    const LONG peekPx = DockPeekPixels();
-    const LONG targetPx = toStrip ? peekPx : fullPx;
-    const LONG fromPx = _dockSlideActive ? _dockVisiblePx : (wasStrip ? peekPx : fullPx);
-    const uint32_t durationMilliseconds =
-        DockSlideDurationMilliseconds(_dock.animationMilliseconds, fromPx, targetPx, peekPx, fullPx);
+    const LONG fullPx                   = DockFullPixels();
+    const LONG peekPx                   = DockPeekPixels();
+    const LONG targetPx                 = toStrip ? peekPx : fullPx;
+    const LONG fromPx                   = _dockSlideActive ? _dockVisiblePx : (wasStrip ? peekPx : fullPx);
+    const uint32_t durationMilliseconds = DockSlideDurationMilliseconds(_dock.animationMilliseconds, fromPx, targetPx, peekPx, fullPx);
     LARGE_INTEGER now{};
-    if (durationMilliseconds == 0 || _qpcFrequency == 0 || !_rendererReady || !QueryPerformanceCounter(&now))
+    if (durationMilliseconds == 0 || _qpcFrequency == 0 || ! _rendererReady || ! QueryPerformanceCounter(&now))
     {
         _dockSlideActive = false;
         SetDockVisiblePixels(targetPx);
         FinishDockRevealChange();
         return;
     }
-    _dockSlideActive = true;
-    _dockSlideFromPx = fromPx;
-    _dockSlideStartQpc = static_cast<UINT64>(now.QuadPart);
+    _dockSlideActive      = true;
+    _dockSlideFromPx      = fromPx;
+    _dockSlideStartQpc    = static_cast<UINT64>(now.QuadPart);
     _dockSlideDurationQpc = std::max<UINT64>(1, _qpcFrequency * durationMilliseconds / 1000);
     // The first frame already shows the bar at its starting size: a reveal makes the dashboard visible now, a hide
     // keeps it visible until the strip is reached.
@@ -2821,9 +2806,7 @@ void Application::ApplyDockRevealState(DockRevealState state) noexcept
 
 LONG Application::DockFullPixels() const noexcept
 {
-    return _dockFullRect.right > _dockFullRect.left && _dockFullRect.bottom > _dockFullRect.top
-               ? DockCrossPixels(_dockFullRect, _dock.edge)
-               : 0;
+    return _dockFullRect.right > _dockFullRect.left && _dockFullRect.bottom > _dockFullRect.top ? DockCrossPixels(_dockFullRect, _dock.edge) : 0;
 }
 
 LONG Application::DockPeekPixels() const noexcept
@@ -2834,18 +2817,18 @@ LONG Application::DockPeekPixels() const noexcept
 void Application::SetDockVisiblePixels(LONG visiblePx) noexcept
 {
     const LONG fullPx = DockFullPixels();
-    if (!_window || fullPx <= 0)
+    if (! _window || fullPx <= 0)
     {
         return;
     }
     visiblePx = std::clamp(visiblePx, 1L, fullPx);
     // A slide repeats sizes near its ends; the one-step change and the end of a slide always place the window.
-    if (!_dockSlideActive || visiblePx != _dockVisiblePx)
+    if (! _dockSlideActive || visiblePx != _dockVisiblePx)
     {
         const RECT target = DockHiddenRect(_dockFullRect, _dock.edge, visiblePx);
-        _dockResizing = true;
-        (void)SetWindowPos(_window.get(), nullptr, target.left, target.top, target.right - target.left,
-                           target.bottom - target.top, SWP_NOACTIVATE | SWP_NOZORDER);
+        _dockResizing     = true;
+        (void)SetWindowPos(
+            _window.get(), nullptr, target.left, target.top, target.right - target.left, target.bottom - target.top, SWP_NOACTIVATE | SWP_NOZORDER);
         _dockResizing = false;
     }
     _dockVisiblePx = visiblePx;
@@ -2857,12 +2840,12 @@ void Application::ApplyDockSlideOffset(POINT offset) noexcept
     bool changed = false;
     for (DashboardHost* host : {_dashboardHost.get(), _transitionDashboardHost.get()})
     {
-        if (!host)
+        if (! host)
         {
             continue;
         }
         const POINT current = host->SlideOffset();
-        changed = changed || current.x != offset.x || current.y != offset.y;
+        changed             = changed || current.x != offset.x || current.y != offset.y;
         // A native container that cannot move keeps its place; the host moves it again on its next call, even one with
         // the same offset, such as the zero offset that ends the slide (DashboardHost::SetSlideOffset).
         (void)host->SetSlideOffset(offset);
@@ -2879,7 +2862,7 @@ void Application::ApplyDockSlideOffset(POINT offset) noexcept
 
 void Application::TickDockSlide() noexcept
 {
-    if (!_dockSlideActive)
+    if (! _dockSlideActive)
     {
         return;
     }
@@ -2888,16 +2871,14 @@ void Application::TickDockSlide() noexcept
     if (QueryPerformanceCounter(&now))
     {
         const UINT64 elapsed = static_cast<UINT64>(now.QuadPart) - _dockSlideStartQpc;
-        t = elapsed >= _dockSlideDurationQpc ? 1.0f
-                                             : static_cast<float>(elapsed) / static_cast<float>(_dockSlideDurationQpc);
+        t                    = elapsed >= _dockSlideDurationQpc ? 1.0f : static_cast<float>(elapsed) / static_cast<float>(_dockSlideDurationQpc);
     }
     if (t < 1.0f)
     {
         // The reveal state gives the direction and the end size, as for SettleDockSlide; a flip of it restarted the
         // slide from where the bar was (ApplyDockRevealState).
-        const bool revealing = !DockHiddenOrHiding();
-        SetDockVisiblePixels(
-            DockSlideVisiblePixels(_dockSlideFromPx, revealing ? DockFullPixels() : DockPeekPixels(), t, revealing));
+        const bool revealing = ! DockHiddenOrHiding();
+        SetDockVisiblePixels(DockSlideVisiblePixels(_dockSlideFromPx, revealing ? DockFullPixels() : DockPeekPixels(), t, revealing));
         _frameInvalidated = true;
         return;
     }
@@ -2908,7 +2889,7 @@ void Application::TickDockSlide() noexcept
 
 void Application::SettleDockSlide() noexcept
 {
-    if (!_dockSlideActive)
+    if (! _dockSlideActive)
     {
         return;
     }
@@ -2974,14 +2955,14 @@ void Application::FinishDockRevealChange() noexcept
 
 HRESULT Application::InitializeDashboardRuntime() noexcept
 {
-    if (!_window || _rendererReady || !_pluginManager || !_dashboardHost)
+    if (! _window || _rendererReady || ! _pluginManager || ! _dashboardHost)
     {
         return E_UNEXPECTED;
     }
 
-    UINT width = 0;
-    UINT height = 0;
-    UINT dpi = 0;
+    UINT width     = 0;
+    UINT height    = 0;
+    UINT dpi       = 0;
     HRESULT result = PresentationCanvas(width, height, dpi);
     if (FAILED(result))
     {
@@ -2995,7 +2976,7 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
     }
 
     result = StartPresentation(width, height);
-    if (!_rendererReady)
+    if (! _rendererReady)
     {
         _dashboardHost->Shutdown();
         return result;
@@ -3009,7 +2990,7 @@ HRESULT Application::InitializeDashboardRuntime() noexcept
 
 HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexcept
 {
-    if (!settings || !_settings || !_pluginManager || !_dashboardHost)
+    if (! settings || ! _settings || ! _pluginManager || ! _dashboardHost)
     {
         return E_POINTER;
     }
@@ -3035,7 +3016,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
             return result;
         }
         const ContinuousFrameRate previousRate = _settings->continuousFrameRate;
-        _settings = std::move(settings);
+        _settings                              = std::move(settings);
         ApplyContinuousFrameRate(previousRate);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
@@ -3052,8 +3033,8 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     // A reload that also switches the window kind restyles the hidden window first, so the runtime below creates its
     // renderer once, for the new kind; a rollback restyles it back the same way.
     const DockSettings previousDock = _dock;
-    const DockSettings nextDock = EffectiveDockSettings(settings->dock, _dockOverrides);
-    const bool switchKind = (nextDock.edge != DockEdge::None) != _dockActive;
+    const DockSettings nextDock     = EffectiveDockSettings(settings->dock, _dockOverrides);
+    const bool switchKind           = (nextDock.edge != DockEdge::None) != _dockActive;
     StandardPlacement placement{};
     HRESULT applyResult = switchKind ? RestyleWindowKind(nextDock, false, placement) : S_OK;
     if (SUCCEEDED(applyResult))
@@ -3071,7 +3052,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
     if (SUCCEEDED(applyResult))
     {
         const ContinuousFrameRate previousRate = _settings->continuousFrameRate;
-        _settings = std::move(settings);
+        _settings                              = std::move(settings);
         ApplyContinuousFrameRate(previousRate);
         (void)PluginHost::Instance().SetLogRetentionDays(_settings->logRetentionDays);
         (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
@@ -3112,7 +3093,7 @@ HRESULT Application::ApplySettings(std::unique_ptr<AppSettings> settings) noexce
 
 void Application::ApplyTrayIconSettings() noexcept
 {
-    if (!_trayIconAllowed || !_settings || !_settings->trayIcon || !_window)
+    if (! _trayIconAllowed || ! _settings || ! _settings->trayIcon || ! _window)
     {
         _trayIcon.Hide();
         _trayIconResult = S_OK;
@@ -3130,7 +3111,10 @@ void Application::RecordTrayIconResult(HRESULT result) noexcept
     // an apply or a retry that meets the same failure again logs nothing.
     if (TrayIconFailureIsNew(result, _trayIconResult))
     {
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+        (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                           RedXeLogLevelWarning,
+                           nullptr,
+                           nullptr,
                            "tray-icon-failed",
                            FAILED(result) ? "The notification-area icon could not be created."
                                           : "The notification-area icon was not added yet; it is tried again for about "
@@ -3144,14 +3128,9 @@ void Application::OnTrayCommand(TrayCommand command) noexcept
 {
     switch (command)
     {
-    case TrayCommand::EditSettings:
-        EditSettingsFile();
-        break;
-    case TrayCommand::Exit:
-        CloseMainWindow();
-        break;
-    default:
-        break;
+        case TrayCommand::EditSettings: EditSettingsFile(); break;
+        case TrayCommand::Exit: CloseMainWindow(); break;
+        default: break;
     }
 }
 
@@ -3163,14 +3142,14 @@ void Application::OnTrayCommand(TrayCommand command) noexcept
 // which is when the file most needs editing.
 void Application::EditSettingsFile() noexcept
 {
-    const std::wstring& path = _settingsStore.SettingsPath();
+    const std::wstring& path      = _settingsStore.SettingsPath();
     const std::wstring& directory = _settingsStore.SettingsDirectory();
     if (path.empty())
     {
         return;
     }
     LaunchWorker::Request request{};
-    request.shellMask = 0;
+    request.shellMask    = 0;
     request.failureEvent = "tray-edit-settings-failed";
     (void)strcpy_s(request.subject.data(), request.subject.size(), "tray Edit settings");
     // A path longer than a slot (512 characters, well past MAX_PATH) is reported, never truncated.
@@ -3185,43 +3164,46 @@ void Application::EditSettingsFile() noexcept
     }
     if (FAILED(result))
     {
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
-                           "tray-edit-settings-failed", "The settings file could not be opened in its editor.", result);
+        (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                           RedXeLogLevelWarning,
+                           nullptr,
+                           nullptr,
+                           "tray-edit-settings-failed",
+                           "The settings file could not be opened in its editor.",
+                           result);
     }
 }
 
-HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPageIndex,
-                                         bool allowConstruction) noexcept
+HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPageIndex, bool allowConstruction) noexcept
 {
-    if (!_settings || !_rendererReady || !_window || (direction != -1 && direction != 1))
+    if (! _settings || ! _rendererReady || ! _window || (direction != -1 && direction != 1))
     {
         return E_INVALIDARG;
     }
     if (_settings->dashboard.pages.size() != _settings->dashboard.pageCount ||
-        (targetPageIndex && (*targetPageIndex >= _settings->dashboard.pageCount ||
-                             *targetPageIndex == _settings->dashboard.activePageIndex)))
+        (targetPageIndex && (*targetPageIndex >= _settings->dashboard.pageCount || *targetPageIndex == _settings->dashboard.activePageIndex)))
     {
         return E_INVALIDARG;
     }
     if (_pageTransitionDirection == direction && _transitionDashboardHost && _transitionPageIndex &&
-        (!targetPageIndex || *_transitionPageIndex == *targetPageIndex))
+        (! targetPageIndex || *_transitionPageIndex == *targetPageIndex))
     {
         return S_OK;
     }
     RuntimePageStageProbe stageProbe(_probe.Enabled(), _settings->dashboard.activePageIndex, direction);
     HRESULT stageResult = S_OK;
-    const auto stage = [&]() -> HRESULT
+    const auto stage    = [&]() -> HRESULT
     {
         ClearTransitionPage();
         stageProbe.Mark(RuntimePageStagePhase::Retirement);
         uint32_t selected = targetPageIndex ? *targetPageIndex : 0;
-        HRESULT result = targetPageIndex ? S_OK : ResolveAdjacentDashboardPage(*_settings, direction, selected);
+        HRESULT result    = targetPageIndex ? S_OK : ResolveAdjacentDashboardPage(*_settings, direction, selected);
         if (FAILED(result))
             return result;
         stageProbe.Select(selected);
         stageProbe.Mark(RuntimePageStagePhase::SettingsCopy);
         auto plugins = std::unique_ptr<PluginManager>(new (std::nothrow) PluginManager());
-        if (!plugins)
+        if (! plugins)
         {
             return E_OUTOFMEMORY;
         }
@@ -3232,30 +3214,29 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
         }
         stageProbe.Mark(RuntimePageStagePhase::Providers);
         // The neighbour is laid out on the same canvas as the page it replaces: a dock's full bar, never its strip.
-        UINT width = 0;
+        UINT width  = 0;
         UINT height = 0;
-        UINT dpi = 0;
-        result = PresentationCanvas(width, height, dpi);
+        UINT dpi    = 0;
+        result      = PresentationCanvas(width, height, dpi);
         if (FAILED(result))
         {
             return result;
         }
         auto dashboard = std::unique_ptr<DashboardHost>(new (std::nothrow) DashboardHost());
-        if (!dashboard)
+        if (! dashboard)
         {
             return E_OUTOFMEMORY;
         }
-        const auto rollback = wil::scope_exit(
-            [&]() noexcept
+        const auto rollback = wil::scope_exit([&]() noexcept
+        {
+            if (dashboard)
             {
-                if (dashboard)
-                {
-                    (void)_renderer.SetTransitionDashboard(nullptr);
-                    dashboard->Shutdown();
-                }
-            });
-        const bool visible = _windowVisible && _displayPoweredOn && !_renderer.IsSuspended() && !_renderer.IsOccluded();
-        result = dashboard->Initialize(*plugins, _window.get(), width, height, dpi, false);
+                (void)_renderer.SetTransitionDashboard(nullptr);
+                dashboard->Shutdown();
+            }
+        });
+        const bool visible  = _windowVisible && _displayPoweredOn && ! _renderer.IsSuspended() && ! _renderer.IsOccluded();
+        result              = dashboard->Initialize(*plugins, _window.get(), width, height, dpi, false);
         if (SUCCEEDED(result))
             result = dashboard->SetHorizontalOffset(_pageCurrentOffset + direction * static_cast<LONG>(width));
         // Both pages share a dock slide's translation (zero once settled, as it is when navigation starts).
@@ -3266,21 +3247,20 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
         if (SUCCEEDED(result))
         {
             HRESULT preparationTrace = S_FALSE;
-            result = _renderer.SetTransitionDashboard(dashboard.get(), stageProbe.Callbacks(), &preparationTrace);
+            result                   = _renderer.SetTransitionDashboard(dashboard.get(), stageProbe.Callbacks(), &preparationTrace);
             stageProbe.PreparationTraceResult(preparationTrace);
         }
         if (SUCCEEDED(result))
             stageProbe.Mark(RuntimePageStagePhase::GpuSetup);
         if (SUCCEEDED(result))
         {
-            auto& host = PluginHost::Instance();
+            auto& host          = PluginHost::Instance();
             const bool previous = host.ConstructionAccessEnabled();
             // A touch pan has already exposed its neighbour. Only a discrete navigation at rest may keep it
             // offscreen while CPU icons are constructed. Hidden/self-test activation retains synchronous setup.
-            host.SetConstructionAccessEnabled(allowConstruction && visible && !_pagePointerActive && !_pagePanStarted &&
-                                              _pageCurrentOffset == 0);
+            host.SetConstructionAccessEnabled(allowConstruction && visible && ! _pagePointerActive && ! _pagePanStarted && _pageCurrentOffset == 0);
             const auto restore = wil::scope_exit([&]() noexcept { host.SetConstructionAccessEnabled(previous); });
-            result = dashboard->SetWidgetsVisible(visible, stageProbe.Callbacks());
+            result             = dashboard->SetWidgetsVisible(visible, stageProbe.Callbacks());
         }
         if (SUCCEEDED(result))
             stageProbe.Mark(RuntimePageStagePhase::Visibility);
@@ -3288,7 +3268,7 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
         {
             return result;
         }
-        _transitionPageIndex = selected;
+        _transitionPageIndex     = selected;
         _transitionPluginManager = std::move(plugins);
         _transitionDashboardHost = std::move(dashboard);
         _pageTransitionDirection = direction;
@@ -3313,7 +3293,7 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
 
 void Application::ClearTransitionPage() noexcept
 {
-    _pageSettleWaiting = false;
+    _pageSettleWaiting            = false;
     _pageConstructionDeadlineTick = 0;
     (void)_renderer.SetTransitionDashboard(nullptr);
     if (_transitionDashboardHost)
@@ -3323,17 +3303,17 @@ void Application::ClearTransitionPage() noexcept
     _transitionDashboardHost.reset();
     _transitionPluginManager.reset();
     _transitionPageIndex.reset();
-    _pageTransitionDirection = 0;
+    _pageTransitionDirection   = 0;
     _pageStagePendingDirection = 0;
 }
 
 void Application::ApplyPageOffset(LONG offset, LONG clientWidth) noexcept
 {
-    if (!_dashboardHost)
+    if (! _dashboardHost)
     {
         return;
     }
-    _pageCurrentOffset = offset;
+    _pageCurrentOffset   = offset;
     HRESULT layoutResult = _dashboardHost->SetHorizontalOffset(offset);
     if (SUCCEEDED(layoutResult) && _transitionDashboardHost && _pageTransitionDirection != 0)
     {
@@ -3367,32 +3347,31 @@ void Application::FlushPendingTransitionStage() noexcept
 
 HRESULT Application::PromoteTransitionPage() noexcept
 {
-    if (!_transitionDashboardHost || !_transitionPluginManager || !_transitionPageIndex || !_settings ||
-        !_pluginManager || !_dashboardHost)
+    if (! _transitionDashboardHost || ! _transitionPluginManager || ! _transitionPageIndex || ! _settings || ! _pluginManager || ! _dashboardHost)
     {
         return E_UNEXPECTED;
     }
 
     DashboardHost& incoming = *_transitionDashboardHost;
-    HRESULT result = _renderer.AdoptPrimaryDashboard(incoming);
+    HRESULT result          = _renderer.AdoptPrimaryDashboard(incoming);
     if (FAILED(result))
     {
         return result;
     }
 
     std::unique_ptr<DashboardHost> retiringDashboard = std::move(_dashboardHost);
-    std::unique_ptr<PluginManager> retiringPlugins = std::move(_pluginManager);
-    _dashboardHost = std::move(_transitionDashboardHost);
-    _pluginManager = std::move(_transitionPluginManager);
+    std::unique_ptr<PluginManager> retiringPlugins   = std::move(_pluginManager);
+    _dashboardHost                                   = std::move(_transitionDashboardHost);
+    _pluginManager                                   = std::move(_transitionPluginManager);
     // Staging borrows this document with a narrow selector, and every change to
     // the page list cancels navigation first. Take only the page, so a source-only reload, a dock drag, or a widget
     // persist made during the swipe stays in the document.
     _settings->dashboard.activePageIndex = *_transitionPageIndex;
-    _settings->dashboard.activePageId = _settings->dashboard.pages[*_transitionPageIndex].id;
+    _settings->dashboard.activePageId    = _settings->dashboard.pages[*_transitionPageIndex].id;
     _transitionPageIndex.reset();
-    _pageTransitionDirection = 0;
+    _pageTransitionDirection   = 0;
     _pageStagePendingDirection = 0;
-    _pageCurrentOffset = 0;
+    _pageCurrentOffset         = 0;
     // Widget slots now belong to the new page; a wheel sequence latched to a slot on the old page must not reach it.
     _wheel.ReleaseWidget();
     if (_dashboardHost)
@@ -3419,29 +3398,28 @@ HRESULT Application::PromoteTransitionPage() noexcept
 void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
 {
     const SIZE canvas = DashboardCanvasSize();
-    if (!_window || canvas.cx <= 0)
+    if (! _window || canvas.cx <= 0)
     {
         CancelPageNavigation();
         return;
     }
-    if (commit && !_transitionDashboardHost)
+    if (commit && ! _transitionDashboardHost)
     {
-        commit = false;
+        commit       = false;
         targetOffset = 0;
     }
 
     _pageSettleActive = true;
     if (_accessibility)
         _accessibility->ClearViews();
-    _pageSettleCommit = commit;
-    _pageSettleStart = _pageCurrentOffset;
-    _pageSettleTarget = targetOffset;
-    _pageSettleWaiting =
-        commit && _pageCurrentOffset == 0 && _transitionDashboardHost && !_transitionDashboardHost->ConstructionReady();
+    _pageSettleCommit             = commit;
+    _pageSettleStart              = _pageCurrentOffset;
+    _pageSettleTarget             = targetOffset;
+    _pageSettleWaiting            = commit && _pageCurrentOffset == 0 && _transitionDashboardHost && ! _transitionDashboardHost->ConstructionReady();
     _pageConstructionDeadlineTick = _pageSettleWaiting ? GetTickCount64() + ConstructionWorkQueue::WorkMilliseconds : 0;
-    _pagePanStarted = false;
+    _pagePanStarted               = false;
     LARGE_INTEGER now{};
-    if (!QueryPerformanceCounter(&now) || _qpcFrequency == 0)
+    if (! QueryPerformanceCounter(&now) || _qpcFrequency == 0)
     {
         if (_pageSettleWaiting)
         {
@@ -3465,8 +3443,8 @@ void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
         }
         return;
     }
-    _pageSettleStartQpc = static_cast<UINT64>(now.QuadPart);
-    const UINT durationMs = PageSettleDurationMilliseconds(targetOffset - _pageCurrentOffset, _pageVelocityPxPerSec);
+    _pageSettleStartQpc    = static_cast<UINT64>(now.QuadPart);
+    const UINT durationMs  = PageSettleDurationMilliseconds(targetOffset - _pageCurrentOffset, _pageVelocityPxPerSec);
     _pageSettleDurationQpc = static_cast<UINT64>(durationMs) * _qpcFrequency / 1000ULL;
     if (_pageSettleDurationQpc == 0)
     {
@@ -3475,31 +3453,29 @@ void Application::BeginPageSettle(LONG targetOffset, bool commit) noexcept
     _frameInvalidated = true;
 }
 
-HRESULT Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds,
-                                       uint32_t widgetOrdinal, bool closeWhenDone) noexcept
+HRESULT Application::RequestScreenshot(
+    std::wstring_view pngPath, std::wstring_view pageId, uint32_t delayMilliseconds, uint32_t widgetOrdinal, bool closeWhenDone) noexcept
 {
     if (_screenshot.pending)
     {
         // A capture worker may still own the previous request and its HWND. Keep it alive until completion.
         return HRESULT_FROM_WIN32(ERROR_BUSY);
     }
-    _screenshot = ScreenshotRequest{};
+    _screenshot               = ScreenshotRequest{};
     _screenshot.closeWhenDone = closeWhenDone;
     _screenshot.widgetOrdinal = widgetOrdinal;
     _screenshot.path.assign(pngPath);
-    if (!pageId.empty())
+    if (! pageId.empty())
     {
-        const int bytes = WideCharToMultiByte(CP_UTF8, 0, pageId.data(), static_cast<int>(pageId.size()), nullptr, 0,
-                                              nullptr, nullptr);
+        const int bytes = WideCharToMultiByte(CP_UTF8, 0, pageId.data(), static_cast<int>(pageId.size()), nullptr, 0, nullptr, nullptr);
         if (bytes > 0)
         {
             _screenshot.pageIdUtf8.resize(static_cast<size_t>(bytes));
-            (void)WideCharToMultiByte(CP_UTF8, 0, pageId.data(), static_cast<int>(pageId.size()),
-                                      _screenshot.pageIdUtf8.data(), bytes, nullptr, nullptr);
+            (void)WideCharToMultiByte(CP_UTF8, 0, pageId.data(), static_cast<int>(pageId.size()), _screenshot.pageIdUtf8.data(), bytes, nullptr, nullptr);
         }
     }
     _screenshot.delayMilliseconds = delayMilliseconds;
-    _screenshot.pending = true;
+    _screenshot.pending           = true;
     // An autohide dock is held revealed for the capture (the pending request is a hold) so the PNG shows the bar.
     OnDockEvent(DockRevealEvent::Pin);
     return S_OK;
@@ -3507,13 +3483,13 @@ HRESULT Application::RequestScreenshot(std::wstring_view pngPath, std::wstring_v
 
 bool Application::EndScreenshot(HRESULT result) noexcept
 {
-    _screenshot.result = result;
+    _screenshot.result  = result;
     _screenshot.pending = false;
     if (FAILED(result))
     {
         OutputDebugStringW(L"Screenshot capture failed.\n");
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
-                           "screenshot-failed", "The screenshot was not written.", result);
+        (void)RedXeHostLog(
+            PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr, "screenshot-failed", "The screenshot was not written.", result);
     }
     // Clearing `pending` drops the capture's dock hold at the loop's next EvaluateDockHolds.
     return _screenshot.closeWhenDone;
@@ -3536,7 +3512,7 @@ HRESULT Application::FinishScreenshot() noexcept
 
 bool Application::TickScreenshot() noexcept
 {
-    if (!_screenshot.pending || !_window)
+    if (! _screenshot.pending || ! _window)
     {
         return false;
     }
@@ -3549,20 +3525,20 @@ bool Application::TickScreenshot() noexcept
         return false;
     }
     const ULONGLONG now = GetTickCount64();
-    if (!_screenshot.navigated)
+    if (! _screenshot.navigated)
     {
         // Jump only once the first page is live and no swipe or raise is settling; the wait starts after the jump
         // so the target page (and the services reacting to it) has the whole delay to settle.
-        if (!_rendererReady || _pageSettleActive || _raiseSettleActive || _dockSlideActive)
+        if (! _rendererReady || _pageSettleActive || _raiseSettleActive || _dockSlideActive)
         {
             return false;
         }
-        if (!_screenshot.pageIdUtf8.empty())
+        if (! _screenshot.pageIdUtf8.empty())
         {
             (void)HandleHostAction("page.goto", _screenshot.pageIdUtf8);
         }
         _screenshot.navigated = true;
-        _screenshot.dueTick = now + _screenshot.delayMilliseconds;
+        _screenshot.dueTick   = now + _screenshot.delayMilliseconds;
         // A timer wakes the idle frame loop when the delay elapses; its message needs no handler.
         (void)SetTimer(_window.get(), kScreenshotTimerId, std::max<UINT>(_screenshot.delayMilliseconds, 1U), nullptr);
         return false;
@@ -3575,7 +3551,7 @@ bool Application::TickScreenshot() noexcept
     // A widget ordinal crops to that tile's pixel bounds on the page now shown, the way the docs show one tile.
     RECT crop{};
     const RECT* cropPointer = nullptr;
-    const SIZE canvas = DashboardCanvasSize();
+    const SIZE canvas       = DashboardCanvasSize();
     if (_screenshot.widgetOrdinal != UINT32_MAX && _dashboardHost && canvas.cx > 0 && canvas.cy > 0)
     {
         if (_screenshot.widgetOrdinal >= _dashboardHost->WidgetCount())
@@ -3583,29 +3559,25 @@ bool Application::TickScreenshot() noexcept
             OutputDebugStringW(L"Screenshot widget ordinal is out of range for the captured page.\n");
             return EndScreenshot(HRESULT_FROM_WIN32(ERROR_NOT_FOUND));
         }
-        crop = _dashboardHost->PixelBoundsAt(_screenshot.widgetOrdinal, static_cast<UINT>(canvas.cx),
-                                             static_cast<UINT>(canvas.cy));
+        crop        = _dashboardHost->PixelBoundsAt(_screenshot.widgetOrdinal, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
         cropPointer = &crop;
     }
     try
     {
-        const HWND window = _window.get();
+        const HWND window       = _window.get();
         const std::wstring path = _screenshot.path;
-        const bool cropping = cropPointer != nullptr;
-        _screenshotWorker = std::jthread(
-            [this, window, path, crop, cropping]() noexcept
+        const bool cropping     = cropPointer != nullptr;
+        _screenshotWorker       = std::jthread([this, window, path, crop, cropping]() noexcept
+        {
+            const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            const HRESULT result      = FAILED(initialized) ? initialized : RedXe::SaveWindowScreenshot(window, path.c_str(), cropping ? &crop : nullptr);
+            if (SUCCEEDED(initialized))
             {
-                const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-                const HRESULT result =
-                    FAILED(initialized) ? initialized
-                                        : RedXe::SaveWindowScreenshot(window, path.c_str(), cropping ? &crop : nullptr);
-                if (SUCCEEDED(initialized))
-                {
-                    CoUninitialize();
-                }
-                _screenshotWorkerResult = result;
-                (void)PostMessageW(window, kScreenshotCompleteMessage, 0, 0);
-            });
+                CoUninitialize();
+            }
+            _screenshotWorkerResult = result;
+            (void)PostMessageW(window, kScreenshotCompleteMessage, 0, 0);
+        });
     }
     catch (...)
     {
@@ -3617,7 +3589,7 @@ bool Application::TickScreenshot() noexcept
 
 void Application::TickPageSettle() noexcept
 {
-    if (!_pageSettleActive || !_window)
+    if (! _pageSettleActive || ! _window)
     {
         return;
     }
@@ -3632,15 +3604,19 @@ void Application::TickPageSettle() noexcept
     {
         if (GetTickCount64() >= _pageConstructionDeadlineTick)
         {
-            (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
-                               "page-construction-timeout", "The incoming page was not ready; navigation was canceled.",
+            (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                               RedXeLogLevelWarning,
+                               nullptr,
+                               nullptr,
+                               "page-construction-timeout",
+                               "The incoming page was not ready; navigation was canceled.",
                                HRESULT_FROM_WIN32(ERROR_TIMEOUT));
             CancelPageNavigation();
             return;
         }
-        if (!_transitionDashboardHost || !_transitionDashboardHost->ConstructionReady())
+        if (! _transitionDashboardHost || ! _transitionDashboardHost->ConstructionReady())
             return;
-        _pageSettleWaiting = false;
+        _pageSettleWaiting            = false;
         _pageConstructionDeadlineTick = 0;
         LARGE_INTEGER start{};
         if (QueryPerformanceCounter(&start))
@@ -3653,9 +3629,7 @@ void Application::TickPageSettle() noexcept
     if (_pageSettleDurationQpc != 0 && QueryPerformanceCounter(&now))
     {
         const UINT64 elapsed = static_cast<UINT64>(now.QuadPart) - _pageSettleStartQpc;
-        t = elapsed >= _pageSettleDurationQpc
-                ? 1.0f
-                : static_cast<float>(elapsed) / static_cast<float>(_pageSettleDurationQpc);
+        t                    = elapsed >= _pageSettleDurationQpc ? 1.0f : static_cast<float>(elapsed) / static_cast<float>(_pageSettleDurationQpc);
     }
     const LONG offset = InterpolatePageOffset(_pageSettleStart, _pageSettleTarget, t);
     ApplyPageOffset(offset, canvas.cx);
@@ -3681,23 +3655,23 @@ void Application::TickPageSettle() noexcept
 PageEdgeState Application::CurrentPageEdgeState() const noexcept
 {
     PageEdgeState state{};
-    if (!_settings)
+    if (! _settings)
     {
         return state;
     }
-    state.rendererReady = _rendererReady;
-    state.windowVisible = _windowVisible && !DockHidden();
-    state.displayPoweredOn = _displayPoweredOn;
-    state.rendererSuspended = _renderer.IsSuspended();
-    state.rendererOccluded = _renderer.IsOccluded();
-    state.widgetRaised = _raisedActive;
+    state.rendererReady           = _rendererReady;
+    state.windowVisible           = _windowVisible && ! DockHidden();
+    state.displayPoweredOn        = _displayPoweredOn;
+    state.rendererSuspended       = _renderer.IsSuspended();
+    state.rendererOccluded        = _renderer.IsOccluded();
+    state.widgetRaised            = _raisedActive;
     state.pointerNavigationActive = _pagePointerActive || _pagePanStarted;
-    state.settleActive = _pageSettleActive;
-    state.transitionStaged = _pageTransitionDirection != 0 || _pageStagePendingDirection != 0;
-    state.wrapPages = _settings->dashboard.wrapPages;
-    state.pageCount = _settings->dashboard.pageCount;
-    state.atFirstPage = _settings->dashboard.activePageIndex == 0;
-    state.atLastPage = state.pageCount == 0 || _settings->dashboard.activePageIndex + 1 >= state.pageCount;
+    state.settleActive            = _pageSettleActive;
+    state.transitionStaged        = _pageTransitionDirection != 0 || _pageStagePendingDirection != 0;
+    state.wrapPages               = _settings->dashboard.wrapPages;
+    state.pageCount               = _settings->dashboard.pageCount;
+    state.atFirstPage             = _settings->dashboard.activePageIndex == 0;
+    state.atLastPage              = state.pageCount == 0 || _settings->dashboard.activePageIndex + 1 >= state.pageCount;
     return state;
 }
 
@@ -3706,7 +3680,7 @@ void Application::DestroyPageEdgeAffordances() noexcept
     for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
     {
         _pageEdgeRevealed[index] = false;
-        _pageEdgeBands[index] = RECT{};
+        _pageEdgeBands[index]    = RECT{};
     }
     _pageEdgeApplyValid = false;
     PushHostChrome();
@@ -3718,24 +3692,23 @@ void Application::PushHostChrome() noexcept
     state.raised = _raisedActive;
     if (_raisedActive)
     {
-        state.content = _raisedLayout.content;
-        state.close = _raisedLayout.close;
-        state.shadow = _raisedLayout.shadow;
-        state.dimAlpha = _raiseDimAlpha;
+        state.content      = _raisedLayout.content;
+        state.close        = _raisedLayout.close;
+        state.shadow       = _raisedLayout.shadow;
+        state.dimAlpha     = _raiseDimAlpha;
         state.closeHovered = _raiseCloseHovered;
     }
     for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
     {
         HostChromeEdgeBand& band = state.bands[index];
-        band.rect = _pageEdgeBands[index];
-        band.direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
-        band.revealed = _pageEdgeRevealed[index] && band.rect.right > band.rect.left;
+        band.rect                = _pageEdgeBands[index];
+        band.direction           = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
+        band.revealed            = _pageEdgeRevealed[index] && band.rect.right > band.rect.left;
     }
     if (DockHidden())
     {
-        state.dockHidden = true;
-        state.dockGrip = DockGripRect(_dockFullRect.right - _dockFullRect.left,
-                                      _dockFullRect.bottom - _dockFullRect.top, _dock.edge, DockPeekPixels());
+        state.dockHidden     = true;
+        state.dockGrip       = DockGripRect(_dockFullRect.right - _dockFullRect.left, _dockFullRect.bottom - _dockFullRect.top, _dock.edge, DockPeekPixels());
         state.dockGripAccent = DockGripAccentRect(state.dockGrip, _dock.edge, PageEdgeDipPixels(1, _dockDpi));
     }
     if (_renderer.SetHostChrome(state))
@@ -3746,41 +3719,40 @@ void Application::PushHostChrome() noexcept
 
 void Application::RefreshPageEdgeAffordances() noexcept
 {
-    if (!_window)
+    if (! _window)
     {
         DestroyPageEdgeAffordances();
         return;
     }
     RECT client{};
-    if (!GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
+    if (! GetClientRect(_window.get(), &client) || client.right <= 0 || client.bottom <= 0)
     {
         DestroyPageEdgeAffordances();
         return;
     }
 
     const PageEdgeState state = CurrentPageEdgeState();
-    const UINT dpi = GetDpiForWindow(_window.get());
+    const UINT dpi            = GetDpiForWindow(_window.get());
     const SIZE clientSize{client.right, client.bottom};
     const RECT reachable = ReachableClientRect();
-    if (_pageEdgeApplyValid && _pageEdgeApplied == state && _pageEdgeAppliedDpi == dpi &&
-        _pageEdgeAppliedClient.cx == clientSize.cx && _pageEdgeAppliedClient.cy == clientSize.cy &&
-        EqualRect(&_pageEdgeAppliedReachable, &reachable))
+    if (_pageEdgeApplyValid && _pageEdgeApplied == state && _pageEdgeAppliedDpi == dpi && _pageEdgeAppliedClient.cx == clientSize.cx &&
+        _pageEdgeAppliedClient.cy == clientSize.cy && EqualRect(&_pageEdgeAppliedReachable, &reachable))
     {
         return;
     }
-    _pageEdgeApplied = state;
-    _pageEdgeAppliedDpi = dpi;
-    _pageEdgeAppliedClient = clientSize;
+    _pageEdgeApplied          = state;
+    _pageEdgeAppliedDpi       = dpi;
+    _pageEdgeAppliedClient    = clientSize;
     _pageEdgeAppliedReachable = reachable;
-    _pageEdgeApplyValid = true;
+    _pageEdgeApplyValid       = true;
 
     for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
     {
-        const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
-        const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
-        const bool allowed = ShouldShowEdgeAffordance(state, direction) && band.right > band.left;
+        const int direction   = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
+        const RECT band       = PageEdgeBandRectIn(reachable, direction, dpi);
+        const bool allowed    = ShouldShowEdgeAffordance(state, direction) && band.right > band.left;
         _pageEdgeBands[index] = allowed ? band : RECT{};
-        if (!allowed)
+        if (! allowed)
         {
             _pageEdgeRevealed[index] = false;
         }
@@ -3796,12 +3768,12 @@ void Application::RefreshPageEdgeAffordances() noexcept
 
 RECT Application::ReachableClientRect() const noexcept
 {
-    if (_window && !_dockActive && _reachableClientCacheValid)
+    if (_window && ! _dockActive && _reachableClientCacheValid)
     {
         return _reachableClientCache;
     }
     RECT client{};
-    if (!_window || !GetClientRect(_window.get(), &client))
+    if (! _window || ! GetClientRect(_window.get(), &client))
     {
         return RECT{};
     }
@@ -3812,9 +3784,9 @@ RECT Application::ReachableClientRect() const noexcept
         return client;
     }
     RECT windowBounds{};
-    if (!GetWindowRect(_window.get(), &windowBounds))
+    if (! GetWindowRect(_window.get(), &windowBounds))
     {
-        _reachableClientCache = client;
+        _reachableClientCache      = client;
         _reachableClientCacheValid = true;
         return client;
     }
@@ -3838,13 +3810,13 @@ RECT Application::ReachableClientRect() const noexcept
         }
         MONITORINFO monitorInfo{};
         monitorInfo.cbSize = sizeof(monitorInfo);
-        if (!GetMonitorInfoW(monitor, &monitorInfo))
+        if (! GetMonitorInfoW(monitor, &monitorInfo))
         {
             return TRUE;
         }
         POINT topLeft{monitorInfo.rcWork.left, monitorInfo.rcWork.top};
         POINT bottomRight{monitorInfo.rcWork.right, monitorInfo.rcWork.bottom};
-        if (!ScreenToClient(target->window, &topLeft) || !ScreenToClient(target->window, &bottomRight))
+        if (! ScreenToClient(target->window, &topLeft) || ! ScreenToClient(target->window, &bottomRight))
         {
             return TRUE;
         }
@@ -3854,26 +3826,26 @@ RECT Application::ReachableClientRect() const noexcept
     };
     ++_reachableClientDisplayWalks;
     (void)EnumDisplayMonitors(nullptr, &windowBounds, collect, reinterpret_cast<LPARAM>(&collector));
-    _reachableClientCache = PageEdgeReachableClient(client, collector.areas.data(), collector.count);
+    _reachableClientCache      = PageEdgeReachableClient(client, collector.areas.data(), collector.count);
     _reachableClientCacheValid = true;
     return _reachableClientCache;
 }
 
 void Application::UpdatePageEdgeHover() noexcept
 {
-    if (!_window)
+    if (! _window)
     {
         return;
     }
     POINT cursor{};
-    if (!GetCursorPos(&cursor) || !ScreenToClient(_window.get(), &cursor))
+    if (! GetCursorPos(&cursor) || ! ScreenToClient(_window.get(), &cursor))
     {
         ClearPageEdgeHover();
         return;
     }
 
     const PageEdgeState state = CurrentPageEdgeState();
-    const RECT reachable = ReachableClientRect();
+    const RECT reachable      = ReachableClientRect();
     if (reachable.right <= reachable.left || reachable.bottom <= reachable.top)
     {
         ClearPageEdgeHover();
@@ -3885,12 +3857,12 @@ void Application::UpdatePageEdgeHover() noexcept
     for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
     {
         const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
-        const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
-        const bool reveal = ShouldShowEdgeAffordance(state, direction) && PageEdgeBandContains(band, cursor);
+        const RECT band     = PageEdgeBandRectIn(reachable, direction, dpi);
+        const bool reveal   = ShouldShowEdgeAffordance(state, direction) && PageEdgeBandContains(band, cursor);
         if (_pageEdgeRevealed[index] != reveal)
         {
             _pageEdgeRevealed[index] = reveal;
-            changed = true;
+            changed                  = true;
         }
     }
     if (changed)
@@ -3906,7 +3878,7 @@ void Application::ClearPageEdgeHover() noexcept
     bool changed = false;
     for (bool& revealed : _pageEdgeRevealed)
     {
-        changed = changed || revealed;
+        changed  = changed || revealed;
         revealed = false;
     }
     if (changed)
@@ -3920,7 +3892,7 @@ HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
 {
     // A page change on a collapsed or sliding dock (a page.* action, a wheel detent) is seen on the full, settled bar.
     RevealDockForChange();
-    if (!_window || !_rendererReady || _raisedActive || _pageSettleActive || _pagePointerActive)
+    if (! _window || ! _rendererReady || _raisedActive || _pageSettleActive || _pagePointerActive)
     {
         return E_UNEXPECTED;
     }
@@ -3929,7 +3901,7 @@ HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
     {
         return E_UNEXPECTED;
     }
-    if (!ShouldShowEdgeAffordance(CurrentPageEdgeState(), direction))
+    if (! ShouldShowEdgeAffordance(CurrentPageEdgeState(), direction))
     {
         return S_FALSE;
     }
@@ -3944,7 +3916,7 @@ HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
     // PageSettleDurationMilliseconds at its clamped upper bound, giving one ease-out slide.
     _pageVelocityPxPerSec = 0.0f;
     // A navigation click must never count as half of a double-activate raise gesture.
-    _activateTick = 0;
+    _activateTick        = 0;
     _activateWidgetIndex = SIZE_MAX;
     BeginPageSettle(PageEdgeSettleTarget(direction, canvas.cx), true);
     RefreshPageEdgeAffordances();
@@ -3954,7 +3926,7 @@ HRESULT Application::NavigateToAdjacentPage(int direction) noexcept
 HRESULT Application::NavigateToPage(uint32_t pageIndex) noexcept
 {
     RevealDockForChange();
-    if (!_window || !_rendererReady || !_settings || _raisedActive || _pageSettleActive || _pagePointerActive)
+    if (! _window || ! _rendererReady || ! _settings || _raisedActive || _pageSettleActive || _pagePointerActive)
     {
         return E_UNEXPECTED;
     }
@@ -3971,8 +3943,7 @@ HRESULT Application::NavigateToPage(uint32_t pageIndex) noexcept
     {
         return E_UNEXPECTED;
     }
-    const int direction =
-        pageIndex > _settings->dashboard.activePageIndex ? kPageEdgeDirectionNext : kPageEdgeDirectionPrevious;
+    const int direction  = pageIndex > _settings->dashboard.activePageIndex ? kPageEdgeDirectionNext : kPageEdgeDirectionPrevious;
     const HRESULT staged = StageTransitionPage(direction, &pageIndex, true);
     if (FAILED(staged))
     {
@@ -3980,8 +3951,8 @@ HRESULT Application::NavigateToPage(uint32_t pageIndex) noexcept
     }
     ApplyPageOffset(0, canvas.cx);
     _pageVelocityPxPerSec = 0.0f;
-    _activateTick = 0;
-    _activateWidgetIndex = SIZE_MAX;
+    _activateTick         = 0;
+    _activateWidgetIndex  = SIZE_MAX;
     BeginPageSettle(PageEdgeSettleTarget(direction, canvas.cx), true);
     RefreshPageEdgeAffordances();
     return S_OK;
@@ -3989,12 +3960,11 @@ HRESULT Application::NavigateToPage(uint32_t pageIndex) noexcept
 
 HRESULT Application::HostActionThunk(void* context, const char* actionUtf8, const char* targetUtf8) noexcept
 {
-    if (!context || !actionUtf8)
+    if (! context || ! actionUtf8)
     {
         return E_POINTER;
     }
-    return static_cast<Application*>(context)->HandleHostAction(std::string_view{actionUtf8},
-                                                                std::string_view{targetUtf8 ? targetUtf8 : ""});
+    return static_cast<Application*>(context)->HandleHostAction(std::string_view{actionUtf8}, std::string_view{targetUtf8 ? targetUtf8 : ""});
 }
 
 void Application::HostActionCompletedThunk(void* context) noexcept
@@ -4009,9 +3979,9 @@ void Application::HostActionCompletedThunk(void* context) noexcept
 
 void Application::ShowActionNotices() noexcept
 {
-    PluginHost& host = PluginHost::Instance();
+    PluginHost& host          = PluginHost::Instance();
     const uint32_t generation = host.ActionNoticeGeneration();
-    if (generation == _shownActionNoticeGeneration || !host.DeviceAccessEnabled() || !_window)
+    if (generation == _shownActionNoticeGeneration || ! host.DeviceAccessEnabled() || ! _window)
     {
         return;
     }
@@ -4022,7 +3992,7 @@ void Application::ShowActionNotices() noexcept
         // A changed settings apply cleared every notice (ResetActionPublishers): an open window now shows stale ones.
         if (_actionNoticeDialog && IsWindow(_actionNoticeDialog))
         {
-            const HWND dialog = _actionNoticeDialog;
+            const HWND dialog   = _actionNoticeDialog;
             _actionNoticeDialog = nullptr;
             (void)DestroyWindow(dialog);
         }
@@ -4038,13 +4008,13 @@ void Application::ShowActionNotices() noexcept
 
 HRESULT Application::HandleHostAction(std::string_view action, std::string_view target) noexcept
 {
-    if (!_window || !_rendererReady || !_settings || _settingsErrorDialog)
+    if (! _window || ! _rendererReady || ! _settings || _settingsErrorDialog)
     {
         return E_NOT_VALID_STATE;
     }
-    const bool busy = _pageSettleActive || _pagePointerActive || OverlayMotionInProgress();
+    const bool busy              = _pageSettleActive || _pagePointerActive || OverlayMotionInProgress();
     const std::string_view space = HostActionCatalog::NamespaceOf(action);
-    const std::string_view verb = space.empty() ? action : action.substr(space.size() + 1);
+    const std::string_view verb  = space.empty() ? action : action.substr(space.size() + 1);
     if (space == "page")
     {
         if (busy || _raisedActive)
@@ -4078,13 +4048,13 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
     {
         if (verb == "dismiss")
         {
-            if (_raisedActive && !busy)
+            if (_raisedActive && ! busy)
             {
                 DismissWidgetRaise(true);
             }
             return S_OK;
         }
-        if (busy || !_dashboardHost)
+        if (busy || ! _dashboardHost)
         {
             return HRESULT_FROM_WIN32(ERROR_BUSY);
         }
@@ -4098,8 +4068,7 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
             size_t ordinal = verb == "next" ? 0 : widgetCount - 1;
             if (_raisedActive && _raisedWidgetIndex != SIZE_MAX)
             {
-                ordinal = verb == "next" ? (_raisedWidgetIndex + 1) % widgetCount
-                                         : (_raisedWidgetIndex + widgetCount - 1) % widgetCount;
+                ordinal = verb == "next" ? (_raisedWidgetIndex + 1) % widgetCount : (_raisedWidgetIndex + widgetCount - 1) % widgetCount;
                 // A cut, not a cross-fade: the raised widget is dismissed at once so the next one can rise.
                 DismissWidgetRaise(false);
             }
@@ -4111,14 +4080,14 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
         }
         std::string_view pageId;
         uint32_t ordinal = 0;
-        if (!RedXeActions::ParseWidgetRef(target, pageId, ordinal))
+        if (! RedXeActions::ParseWidgetRef(target, pageId, ordinal))
         {
             return E_INVALIDARG;
         }
-        if (!pageId.empty())
+        if (! pageId.empty())
         {
             const DashboardPageSettings* page = FindActiveDashboardPage(*_settings);
-            if (!page || !SettingsIdEquals(page->id.View(), pageId))
+            if (! page || ! SettingsIdEquals(page->id.View(), pageId))
             {
                 return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
             }
@@ -4145,23 +4114,19 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
         if (verb == "settings.reload")
         {
             _settingsStore.ForgetStamps();
-            return PostMessageW(_window.get(), SettingsWatcher::kSettingsChangedMessage, 0, 0)
-                       ? S_FALSE
-                       : HRESULT_FROM_WIN32(GetLastError());
+            return PostMessageW(_window.get(), SettingsWatcher::kSettingsChangedMessage, 0, 0) ? S_FALSE : HRESULT_FROM_WIN32(GetLastError());
         }
         if (verb == "settings.edit" || verb == "logs.open")
         {
-            const std::wstring& path =
-                verb == "settings.edit" ? _settingsStore.SettingsPath() : _settingsStore.LogsDirectory();
+            const std::wstring& path = verb == "settings.edit" ? _settingsStore.SettingsPath() : _settingsStore.LogsDirectory();
             std::array<char, kRedXeMaximumActionTargetBytes + 1> utf8{};
-            const int bytes = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, utf8.data(),
-                                                  static_cast<int>(utf8.size()), nullptr, nullptr);
+            const int bytes = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, utf8.data(), static_cast<int>(utf8.size()), nullptr, nullptr);
             if (bytes <= 0)
             {
                 return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
             }
             RedXeActionRequest launch{};
-            launch.sizeBytes = sizeof(launch);
+            launch.sizeBytes  = sizeof(launch);
             launch.actionUtf8 = "system.launch";
             launch.targetUtf8 = utf8.data();
             return PluginHost::Instance().ExecuteAction(&launch);
@@ -4170,26 +4135,25 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
         {
             std::string_view pageAndWidget;
             const std::string_view pngPath = RedXeActions::SplitSuffix(target, pageAndWidget);
-            if (!RedXeActions::IsAbsolutePath(pngPath))
+            if (! RedXeActions::IsAbsolutePath(pngPath))
             {
                 return E_INVALIDARG;
             }
             std::string_view pageId = pageAndWidget;
-            uint32_t widgetOrdinal = UINT32_MAX;
-            const size_t slash = pageAndWidget.rfind('/');
+            uint32_t widgetOrdinal  = UINT32_MAX;
+            const size_t slash      = pageAndWidget.rfind('/');
             if (slash != std::string_view::npos)
             {
                 int32_t parsed = 0;
-                if (!RedXeActions::ParseInteger(pageAndWidget.substr(slash + 1), 0, 511, parsed))
+                if (! RedXeActions::ParseInteger(pageAndWidget.substr(slash + 1), 0, 511, parsed))
                 {
                     return E_INVALIDARG;
                 }
                 widgetOrdinal = static_cast<uint32_t>(parsed);
-                pageId = pageAndWidget.substr(0, slash);
+                pageId        = pageAndWidget.substr(0, slash);
             }
             // A page that does not exist, or an ordinal past its widgets, fails the action before anything is captured.
-            const uint32_t pageIndex =
-                pageId.empty() ? _settings->dashboard.activePageIndex : ResolveDashboardPageIndex(*_settings, pageId);
+            const uint32_t pageIndex = pageId.empty() ? _settings->dashboard.activePageIndex : ResolveDashboardPageIndex(*_settings, pageId);
             if (pageIndex >= _settings->dashboard.pageCount ||
                 (widgetOrdinal != UINT32_MAX && widgetOrdinal >= _settings->dashboard.pages[pageIndex].widgetCount))
             {
@@ -4197,22 +4161,25 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
             }
             std::array<wchar_t, kRedXeMaximumActionTargetBytes + 1> widePath{};
             std::array<wchar_t, 129> widePage{};
-            const int pathLength =
-                MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, pngPath.data(), static_cast<int>(pngPath.size()),
-                                    widePath.data(), static_cast<int>(widePath.size() - 1));
-            const int pageLength =
-                pageId.empty()
-                    ? 0
-                    : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, pageId.data(), static_cast<int>(pageId.size()),
-                                          widePage.data(), static_cast<int>(widePage.size() - 1));
+            const int pathLength = MultiByteToWideChar(
+                CP_UTF8, MB_ERR_INVALID_CHARS, pngPath.data(), static_cast<int>(pngPath.size()), widePath.data(), static_cast<int>(widePath.size() - 1));
+            const int pageLength = pageId.empty() ? 0
+                                                  : MultiByteToWideChar(CP_UTF8,
+                                                                        MB_ERR_INVALID_CHARS,
+                                                                        pageId.data(),
+                                                                        static_cast<int>(pageId.size()),
+                                                                        widePage.data(),
+                                                                        static_cast<int>(widePage.size() - 1));
             if (pathLength <= 0 || pageLength < 0)
             {
                 return E_INVALIDARG;
             }
             // RedXe keeps running after an action's capture; a press while a capture is pending is ERROR_BUSY.
             return RequestScreenshot(std::wstring_view{widePath.data(), static_cast<size_t>(pathLength)},
-                                     std::wstring_view{widePage.data(), static_cast<size_t>(pageLength)}, 0,
-                                     widgetOrdinal, false);
+                                     std::wstring_view{widePage.data(), static_cast<size_t>(pageLength)},
+                                     0,
+                                     widgetOrdinal,
+                                     false);
         }
         if (verb == "quit")
         {
@@ -4226,13 +4193,11 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
         if (verb == "dock.show" || verb == "dock.hide" || verb == "dock.toggle")
         {
             // Counted and inert without an autohide dock; an automated host never has one.
-            if (!_dockActive || _dock.mode != DockMode::Autohide)
+            if (! _dockActive || _dock.mode != DockMode::Autohide)
             {
                 return S_FALSE;
             }
-            OnDockEvent(verb == "dock.show"   ? DockRevealEvent::ActionShow
-                        : verb == "dock.hide" ? DockRevealEvent::ActionHide
-                                              : DockRevealEvent::ActionToggle);
+            OnDockEvent(verb == "dock.show" ? DockRevealEvent::ActionShow : verb == "dock.hide" ? DockRevealEvent::ActionHide : DockRevealEvent::ActionToggle);
             return S_OK;
         }
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
@@ -4242,7 +4207,7 @@ HRESULT Application::HandleHostAction(std::string_view action, std::string_view 
 
 void Application::PublishHostState() noexcept
 {
-    if (!_settings || PluginHost::Instance().StartedServiceCount() == 0)
+    if (! _settings || PluginHost::Instance().StartedServiceCount() == 0)
     {
         return;
     }
@@ -4251,16 +4216,16 @@ void Application::PublishHostState() noexcept
     state.sizeBytes = sizeof(state);
     state.pageIndex = _settings->dashboard.activePageIndex;
     state.pageCount = _settings->dashboard.pageCount;
-    state.pageId = page ? page->id.utf8.data() : "";
+    state.pageId    = page ? page->id.utf8.data() : "";
     std::array<wchar_t, kMaximumSettingsTextBytes + 1> pageName{};
     if (page)
     {
-        (void)MultiByteToWideChar(CP_UTF8, 0, page->name.utf8.data(), static_cast<int>(page->name.bytes),
-                                  pageName.data(), static_cast<int>(pageName.size() - 1));
+        (void)MultiByteToWideChar(
+            CP_UTF8, 0, page->name.utf8.data(), static_cast<int>(page->name.bytes), pageName.data(), static_cast<int>(pageName.size() - 1));
     }
-    state.pageName = pageName.data();
+    state.pageName    = pageName.data();
     state.widgetCount = _dashboardHost ? static_cast<uint32_t>(_dashboardHost->WidgetCount()) : 0;
-    state.flags = RedXeHostStateNone;
+    state.flags       = RedXeHostStateNone;
     if (_raisedActive)
     {
         state.flags |= RedXeHostStateRaised;
@@ -4284,18 +4249,18 @@ void Application::CancelPageNavigation() noexcept
     {
         ReleasePagePointerCaptures(_window.get());
     }
-    _pagePointerCaptured = false;
-    _pagePointerActive = false;
-    _pagePanStarted = false;
-    _pageGestureIgnored = false;
-    _pageSettleActive = false;
-    _pageSettleCommit = false;
-    _pageTouchCount = 0;
-    _pageTouches = {};
-    _pageCentroidX = 0;
-    _pagePointerQpc = 0;
-    _pageVelocityPxPerSec = 0.0f;
-    _pageCurrentOffset = 0;
+    _pagePointerCaptured       = false;
+    _pagePointerActive         = false;
+    _pagePanStarted            = false;
+    _pageGestureIgnored        = false;
+    _pageSettleActive          = false;
+    _pageSettleCommit          = false;
+    _pageTouchCount            = 0;
+    _pageTouches               = {};
+    _pageCentroidX             = 0;
+    _pagePointerQpc            = 0;
+    _pageVelocityPxPerSec      = 0.0f;
+    _pageCurrentOffset         = 0;
     _pageStagePendingDirection = 0;
     ClearTransitionPage();
     if (_dashboardHost)
@@ -4312,7 +4277,7 @@ void Application::CancelPageNavigation() noexcept
 
 void Application::ReleasePagePointerCaptures(HWND window) noexcept
 {
-    if (!window)
+    if (! window)
     {
         return;
     }
@@ -4326,37 +4291,36 @@ void Application::ReleasePagePointerCaptures(HWND window) noexcept
     }
 }
 
-void Application::AdoptPageTouches(const UINT32* ids, const POINT* positions, uint32_t count,
-                                   bool grabbingSettle) noexcept
+void Application::AdoptPageTouches(const UINT32* ids, const POINT* positions, uint32_t count, bool grabbingSettle) noexcept
 {
     count = std::min(count, kPageSwipeMaxTouches);
     std::array<PageSwipeTouch, kPageSwipeMaxTouches> next{};
     for (uint32_t index = 0; index < count; ++index)
     {
         next[index].id = ids[index];
-        next[index].x = positions[index].x;
-        next[index].y = positions[index].y;
-        bool found = false;
+        next[index].x  = positions[index].x;
+        next[index].y  = positions[index].y;
+        bool found     = false;
         for (uint32_t existing = 0; existing < _pageTouchCount; ++existing)
         {
             if (_pageTouches[existing].id == ids[index])
             {
-                next[index].startX = _pageTouches[existing].startX;
-                next[index].startY = _pageTouches[existing].startY;
+                next[index].startX   = _pageTouches[existing].startX;
+                next[index].startY   = _pageTouches[existing].startY;
                 next[index].captured = _pageTouches[existing].captured;
-                found = true;
+                found                = true;
                 break;
             }
         }
-        if (!found)
+        if (! found)
         {
             next[index].startX = grabbingSettle ? positions[index].x - _pageCurrentOffset : positions[index].x;
             next[index].startY = positions[index].y;
         }
     }
-    _pageTouches = next;
-    _pageTouchCount = count;
-    _pagePointerActive = count > 0;
+    _pageTouches         = next;
+    _pageTouchCount      = count;
+    _pagePointerActive   = count > 0;
     const POINT centroid = [&]() noexcept -> POINT
     {
         if (count == 0)
@@ -4415,22 +4379,20 @@ bool Application::PageTouchesContain(UINT32 pointerId) const noexcept
     return false;
 }
 
-bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc,
-                                           LPARAM lParam) const noexcept
+bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT& position, UINT64& qpc, LPARAM lParam) const noexcept
 {
     // A contact that pressed a bar sliding in keeps the shift of that settle (DockPressPoint), so its moves and its
     // release stay on the tile its press reached.
     POINTER_INFO information{};
     if (GetPointerInfo(pointerId, &information))
     {
-        if ((information.pointerType != PT_TOUCH && information.pointerType != PT_PEN) ||
-            (information.pointerFlags & POINTER_FLAG_CANCELED) != 0)
+        if ((information.pointerType != PT_TOUCH && information.pointerType != PT_PEN) || (information.pointerFlags & POINTER_FLAG_CANCELED) != 0)
             return false;
         position = PointerScreenPixels(information);
         if (ScreenToClient(window, &position))
         {
             position = DockPressPoint(_dockPointerPress, pointerId, position);
-            qpc = information.PerformanceCount;
+            qpc      = information.PerformanceCount;
             return true;
         }
         return false;
@@ -4438,8 +4400,8 @@ bool Application::TryPointerClientPosition(HWND window, UINT32 pointerId, POINT&
 
     // WM_POINTER* lParam is physical screen coordinates of the contact.
     position = POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    qpc = 0;
-    if (!ScreenToClient(window, &position))
+    qpc      = 0;
+    if (! ScreenToClient(window, &position))
     {
         return false;
     }
@@ -4452,7 +4414,7 @@ void Application::OnPointerDown(HWND window, WPARAM wParam, LPARAM lParam) noexc
     const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
     POINT position{};
     UINT64 qpc = 0;
-    if (!TryPointerClientPosition(window, pointerId, position, qpc, lParam))
+    if (! TryPointerClientPosition(window, pointerId, position, qpc, lParam))
     {
         return;
     }
@@ -4462,14 +4424,14 @@ void Application::OnPointerDown(HWND window, WPARAM wParam, LPARAM lParam) noexc
     std::array<TouchContact, 10> contacts{};
     const uint32_t touchCount = isTouch ? CollectInContactTouches(window, pointerId, contacts) : 0;
 
-    if (!_raisedActive && PageSwipeAcceptsFingerCount(touchCount))
+    if (! _raisedActive && PageSwipeAcceptsFingerCount(touchCount))
     {
         std::array<UINT32, kPageSwipeMaxTouches> ids{};
         std::array<POINT, kPageSwipeMaxTouches> points{};
         const uint32_t use = std::min(touchCount, kPageSwipeMaxTouches);
         for (uint32_t index = 0; index < use; ++index)
         {
-            ids[index] = contacts[index].id;
+            ids[index]    = contacts[index].id;
             points[index] = contacts[index].client;
         }
         // A full-quality discrete neighbour has not been exposed while waiting. Retire it before a live touch
@@ -4479,24 +4441,24 @@ void Application::OnPointerDown(HWND window, WPARAM wParam, LPARAM lParam) noexc
         const bool grabbingSettle = _pageSettleActive || _pageCurrentOffset != 0;
         if (_pageSettleActive)
         {
-            _pageSettleActive = false;
-            _pagePanStarted = _pageCurrentOffset != 0;
+            _pageSettleActive   = false;
+            _pagePanStarted     = _pageCurrentOffset != 0;
             _pageGestureIgnored = false;
         }
-        else if (!_pagePointerActive)
+        else if (! _pagePointerActive)
         {
-            _pagePanStarted = false;
+            _pagePanStarted     = false;
             _pageGestureIgnored = false;
-            if (!grabbingSettle)
+            if (! grabbingSettle)
             {
                 _pageCurrentOffset = 0;
             }
         }
         AdoptPageTouches(ids.data(), points.data(), use, grabbingSettle);
-        _pagePointerQpc = contacts[0].qpc;
+        _pagePointerQpc       = contacts[0].qpc;
         _pageVelocityPxPerSec = 0.0f;
-        _pagePointerCaptured = false;
-        _frameInvalidated = true;
+        _pagePointerCaptured  = false;
+        _frameInvalidated     = true;
         return;
     }
     if (_pagePointerActive)
@@ -4508,8 +4470,8 @@ void Application::OnPointerDown(HWND window, WPARAM wParam, LPARAM lParam) noexc
         return;
     }
 
-    const uint32_t kind = (!isTouch && information.pointerType == PT_PEN) ? RedXePointerKindPen : RedXePointerKindTouch;
-    bool consumed = false;
+    const uint32_t kind = (! isTouch && information.pointerType == PT_PEN) ? RedXePointerKindPen : RedXePointerKindTouch;
+    bool consumed       = false;
     (void)ForwardInteractivePointer(position, pointerId, kind, RedXePointerPhaseDown, &consumed);
     (void)consumed;
 }
@@ -4519,17 +4481,16 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
     const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
     if (_pagePointerActive)
     {
-        if (_pageGestureIgnored || !PageTouchesContain(pointerId))
+        if (_pageGestureIgnored || ! PageTouchesContain(pointerId))
         {
-            if (_interactiveOwnsPointer && !_pagePanStarted && pointerId == _interactivePointerId)
+            if (_interactiveOwnsPointer && ! _pagePanStarted && pointerId == _interactivePointerId)
             {
                 POINT position{};
                 UINT64 qpc = 0;
-                if (!TryPointerClientPosition(window, pointerId, position, qpc, lParam))
+                if (! TryPointerClientPosition(window, pointerId, position, qpc, lParam))
                     CancelInteractivePointer();
                 else
-                    (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove,
-                                                    nullptr);
+                    (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove, nullptr);
             }
             return;
         }
@@ -4549,7 +4510,7 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
         }
         POINT position{};
         UINT64 qpc = 0;
-        if (!TryPointerClientPosition(window, pointerId, position, qpc, lParam))
+        if (! TryPointerClientPosition(window, pointerId, position, qpc, lParam))
         {
             CancelInteractivePointer();
             CancelPageNavigation();
@@ -4561,32 +4522,30 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
             return;
         }
 
-        const LONG deltaX = PageTouchDeltaX();
-        const LONG deltaY = PageTouchDeltaY();
-        const UINT dpi = GetDpiForWindow(window);
+        const LONG deltaX    = PageTouchDeltaX();
+        const LONG deltaY    = PageTouchDeltaY();
+        const UINT dpi       = GetDpiForWindow(window);
         const LONG threshold = PageSwipeThresholdPixels(dpi);
-        if (!_pagePanStarted)
+        if (! _pagePanStarted)
         {
             if (PageSwipeRejectsAsVertical(deltaX, deltaY, threshold))
             {
                 _pageGestureIgnored = true;
                 ReleasePagePointerCaptures(window);
                 _pagePointerActive = false;
-                _pageTouchCount = 0;
+                _pageTouchCount    = 0;
                 ResumePageSettleIfNeeded();
                 if (_interactivePointerWidget != SIZE_MAX && pointerId == _interactivePointerId)
                 {
-                    (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove,
-                                                    nullptr);
+                    (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove, nullptr);
                 }
                 return;
             }
-            if (!PageSwipeLocksHorizontal(deltaX, deltaY, threshold))
+            if (! PageSwipeLocksHorizontal(deltaX, deltaY, threshold))
             {
                 if (_interactivePointerWidget != SIZE_MAX && pointerId == _interactivePointerId)
                 {
-                    (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove,
-                                                    nullptr);
+                    (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove, nullptr);
                 }
                 return;
             }
@@ -4595,13 +4554,13 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
             if (_accessibility)
                 _accessibility->ClearViews();
             _pageSettleActive = false;
-            bool capturedAny = false;
+            bool capturedAny  = false;
             for (uint32_t index = 0; index < _pageTouchCount; ++index)
             {
                 if (HostSetPointerCapture(window, _pageTouches[index].id))
                 {
                     _pageTouches[index].captured = true;
-                    capturedAny = true;
+                    capturedAny                  = true;
                 }
                 POINTER_INFO target{};
                 if (GetPointerInfo(_pageTouches[index].id, &target) && target.hwndTarget && target.hwndTarget != window)
@@ -4623,19 +4582,19 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
             const double dt = static_cast<double>(qpc - _pagePointerQpc) / static_cast<double>(_qpcFrequency);
             if (dt > 0.0005 && dt < 0.08)
             {
-                const float instant = static_cast<float>(static_cast<double>(centroidX - _pageCentroidX) / dt);
+                const float instant   = static_cast<float>(static_cast<double>(centroidX - _pageCentroidX) / dt);
                 _pageVelocityPxPerSec = _pageVelocityPxPerSec * 0.55f + instant * 0.45f;
             }
         }
-        _pageCentroidX = centroidX;
+        _pageCentroidX  = centroidX;
         _pagePointerQpc = qpc;
 
-        const bool atFirst = _settings && _settings->dashboard.activePageIndex == 0;
-        const bool atLast = _settings && _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
+        const bool atFirst   = _settings && _settings->dashboard.activePageIndex == 0;
+        const bool atLast    = _settings && _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
         const bool wrapPages = _settings && _settings->dashboard.wrapPages;
-        const bool blocked = PageSwipeBlocksDirection(deltaX, wrapPages, atFirst, atLast);
-        const LONG offset = ApplyPageEdgeResistance(deltaX, canvas.cx, blocked);
-        const int direction = blocked ? 0 : PageSwipeDirection(offset);
+        const bool blocked   = PageSwipeBlocksDirection(deltaX, wrapPages, atFirst, atLast);
+        const LONG offset    = ApplyPageEdgeResistance(deltaX, canvas.cx, blocked);
+        const int direction  = blocked ? 0 : PageSwipeDirection(offset);
         if (direction != 0 && direction != _pageTransitionDirection && direction != _pageStagePendingDirection)
         {
             if (_pageTransitionDirection != 0)
@@ -4653,11 +4612,10 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
             return;
         POINT position{};
         UINT64 qpc = 0;
-        if (!TryPointerClientPosition(window, pointerId, position, qpc, lParam))
+        if (! TryPointerClientPosition(window, pointerId, position, qpc, lParam))
             CancelInteractivePointer();
         else
-            (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove,
-                                            nullptr);
+            (void)ForwardInteractivePointer(position, pointerId, _interactivePointerKind, RedXePointerPhaseMove, nullptr);
         return;
     }
     if (_raisedActive)
@@ -4666,8 +4624,7 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
         UINT64 qpc = 0;
         if (TryPointerClientPosition(window, pointerId, position, qpc, lParam))
         {
-            (void)ForwardInteractivePointer(position, pointerId, PointerKindFromId(pointerId), RedXePointerPhaseMove,
-                                            nullptr);
+            (void)ForwardInteractivePointer(position, pointerId, PointerKindFromId(pointerId), RedXePointerPhaseMove, nullptr);
         }
         return;
     }
@@ -4676,8 +4633,7 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
     UINT64 qpc = 0;
     if (TryPointerClientPosition(window, pointerId, position, qpc, lParam))
     {
-        const uint32_t kind =
-            _interactivePointerWidget != SIZE_MAX ? _interactivePointerKind : PointerKindFromId(pointerId);
+        const uint32_t kind = _interactivePointerWidget != SIZE_MAX ? _interactivePointerKind : PointerKindFromId(pointerId);
         (void)ForwardInteractivePointer(position, pointerId, kind, RedXePointerPhaseMove, nullptr);
     }
 }
@@ -4685,15 +4641,15 @@ void Application::OnPointerUpdate(HWND window, WPARAM wParam, LPARAM lParam) noe
 void Application::OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcept
 {
     POINT position{};
-    UINT64 qpc = 0;
-    const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-    const bool havePosition = TryPointerClientPosition(window, pointerId, position, qpc, lParam);
+    UINT64 qpc                    = 0;
+    const UINT32 pointerId        = GET_POINTERID_WPARAM(wParam);
+    const bool havePosition       = TryPointerClientPosition(window, pointerId, position, qpc, lParam);
     const bool liftingInteractive = _interactivePointerWidget != SIZE_MAX && pointerId == _interactivePointerId;
     if (_pagePointerActive && PageTouchesContain(pointerId))
     {
         std::array<TouchContact, 10> contacts{};
         uint32_t remaining = CollectInContactTouches(window, pointerId, contacts);
-        if (!PageSwipeAcceptsFingerCount(remaining))
+        if (! PageSwipeAcceptsFingerCount(remaining))
         {
             remaining = 0;
             for (uint32_t index = 0; index < _pageTouchCount && remaining < contacts.size(); ++index)
@@ -4703,13 +4659,13 @@ void Application::OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcep
                     continue;
                 }
                 POINTER_INFO information{};
-                if (!GetPointerInfo(_pageTouches[index].id, &information) || information.pointerType != PT_TOUCH ||
+                if (! GetPointerInfo(_pageTouches[index].id, &information) || information.pointerType != PT_TOUCH ||
                     (information.pointerFlags & POINTER_FLAG_INCONTACT) == 0)
                 {
                     continue;
                 }
                 POINT tracked = PointerScreenPixels(information);
-                if (!ScreenToClient(window, &tracked))
+                if (! ScreenToClient(window, &tracked))
                 {
                     continue;
                 }
@@ -4723,23 +4679,23 @@ void Application::OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcep
             const uint32_t use = std::min(remaining, kPageSwipeMaxTouches);
             for (uint32_t index = 0; index < use; ++index)
             {
-                ids[index] = contacts[index].id;
+                ids[index]    = contacts[index].id;
                 points[index] = contacts[index].client;
             }
             AdoptPageTouches(ids.data(), points.data(), use, false);
-            if (liftingInteractive && !_pagePanStarted)
+            if (liftingInteractive && ! _pagePanStarted)
             {
                 CompleteInteractivePointerUp(window, position, havePosition);
             }
             return;
         }
         ReleasePagePointerCaptures(window);
-        _pagePointerCaptured = false;
-        _pagePointerActive = false;
+        _pagePointerCaptured  = false;
+        _pagePointerActive    = false;
         const bool panStarted = _pagePanStarted;
-        _pagePanStarted = false;
-        _pageTouchCount = 0;
-        if (!panStarted)
+        _pagePanStarted       = false;
+        _pageTouchCount       = 0;
+        if (! panStarted)
         {
             _pageGestureIgnored = false;
             if (_pageCurrentOffset != 0 || _pageTransitionDirection != 0)
@@ -4756,16 +4712,15 @@ void Application::OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcep
         CancelInteractivePointer();
         FlushPendingTransitionStage();
         const SIZE canvas = DashboardCanvasSize();
-        if (!_settings || canvas.cx <= 0)
+        if (! _settings || canvas.cx <= 0)
         {
             CancelPageNavigation();
             return;
         }
         const bool atFirst = _settings->dashboard.activePageIndex == 0;
-        const bool atLast = _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
-        const UINT dpi = GetDpiForWindow(window);
-        const bool commit = ShouldCommitPageSwipe(_pageCurrentOffset, canvas.cx, _pageVelocityPxPerSec, dpi,
-                                                  _settings->dashboard.wrapPages, atFirst, atLast) &&
+        const bool atLast  = _settings->dashboard.activePageIndex + 1U >= _settings->dashboard.pageCount;
+        const UINT dpi     = GetDpiForWindow(window);
+        const bool commit = ShouldCommitPageSwipe(_pageCurrentOffset, canvas.cx, _pageVelocityPxPerSec, dpi, _settings->dashboard.wrapPages, atFirst, atLast) &&
                             _transitionDashboardHost;
         const LONG target = commit ? -_pageTransitionDirection * canvas.cx : 0;
         BeginPageSettle(target, commit);
@@ -4789,8 +4744,7 @@ void Application::OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcep
         bool consumed = false;
         if (havePosition)
         {
-            (void)ForwardInteractivePointer(position, pointerId, PointerKindFromId(pointerId), RedXePointerPhaseUp,
-                                            &consumed);
+            (void)ForwardInteractivePointer(position, pointerId, PointerKindFromId(pointerId), RedXePointerPhaseUp, &consumed);
         }
         if (consumed)
         {
@@ -4806,8 +4760,7 @@ void Application::OnPointerUp(HWND window, WPARAM wParam, LPARAM lParam) noexcep
     bool consumed = false;
     if (havePosition)
     {
-        const uint32_t kind =
-            _interactivePointerWidget != SIZE_MAX ? _interactivePointerKind : PointerKindFromId(pointerId);
+        const uint32_t kind = _interactivePointerWidget != SIZE_MAX ? _interactivePointerKind : PointerKindFromId(pointerId);
         (void)ForwardInteractivePointer(position, pointerId, kind, RedXePointerPhaseUp, &consumed);
     }
     if (consumed)
@@ -4841,13 +4794,13 @@ void Application::OnMouseButtonUp(HWND window, POINT position) noexcept
     {
         return;
     }
-    if (_raisedActive && !_interactiveOwnsPointer && PointInRectInclusive(_raisedLayout.close, position))
+    if (_raisedActive && ! _interactiveOwnsPointer && PointInRectInclusive(_raisedLayout.close, position))
     {
         // The close control is host chrome in the swap chain; the top-level window owns its click.
         DismissWidgetRaise(true);
         return;
     }
-    if (!_interactiveOwnsPointer && TryNavigateFromPageEdge(window, position))
+    if (! _interactiveOwnsPointer && TryNavigateFromPageEdge(window, position))
     {
         CancelInteractivePointer();
         return;
@@ -4869,16 +4822,16 @@ void Application::OnMouseButtonUp(HWND window, POINT position) noexcept
 
 bool Application::PointInPageEdgeBand(HWND window, POINT position) const noexcept
 {
-    if (!_window || window != _window.get() || _raisedActive)
+    if (! _window || window != _window.get() || _raisedActive)
     {
         return false;
     }
     const RECT reachable = ReachableClientRect();
-    const UINT dpi = GetDpiForWindow(window);
+    const UINT dpi       = GetDpiForWindow(window);
     for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
     {
         const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
-        const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
+        const RECT band     = PageEdgeBandRectIn(reachable, direction, dpi);
         if (PageEdgeBandContains(band, position))
         {
             return true;
@@ -4887,21 +4840,19 @@ bool Application::PointInPageEdgeBand(HWND window, POINT position) const noexcep
     return false;
 }
 
-HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId, uint32_t kind, uint32_t phase,
-                                               bool* consumed, uint32_t modifiers, float wheelDelta,
-                                               size_t targetWidget) noexcept
+HRESULT Application::ForwardInteractivePointer(
+    POINT client, uint32_t pointerId, uint32_t kind, uint32_t phase, bool* consumed, uint32_t modifiers, float wheelDelta, size_t targetWidget) noexcept
 {
-    const auto refreshText = wil::scope_exit(
-        [this, phase]() noexcept
-        {
-            if (_textClient || phase == RedXePointerPhaseDown || phase == RedXePointerPhaseUp)
-                RefreshTextServices();
-        });
+    const auto refreshText = wil::scope_exit([this, phase]() noexcept
+    {
+        if (_textClient || phase == RedXePointerPhaseDown || phase == RedXePointerPhaseUp)
+            RefreshTextServices();
+    });
     if (consumed)
     {
         *consumed = false;
     }
-    if (!_dashboardHost)
+    if (! _dashboardHost)
     {
         return S_FALSE;
     }
@@ -4909,7 +4860,7 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     const auto send = [&](size_t index, float localX, float localY) noexcept -> HRESULT
     {
         IRedXeInteractiveWidget* widget = _dashboardHost->InteractiveWidgetAt(index);
-        if (!widget)
+        if (! widget)
         {
             return S_FALSE;
         }
@@ -4920,8 +4871,7 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
         else if (_window)
         {
             const SIZE canvas = DashboardCanvasSize();
-            bounds = _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(std::max(0L, canvas.cx)),
-                                                   static_cast<UINT>(std::max(0L, canvas.cy)));
+            bounds            = _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(std::max(0L, canvas.cx)), static_cast<UINT>(std::max(0L, canvas.cy)));
         }
         const RedXePointerEvent event{sizeof(RedXePointerEvent),
                                       pointerId,
@@ -4940,7 +4890,7 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
 
     const auto releaseCapture = [&]() noexcept
     {
-        if (!_interactiveOwnsPointer)
+        if (! _interactiveOwnsPointer)
             return;
         _interactiveOwnsPointer = false;
         if (_interactivePointerKind == RedXePointerKindMouse)
@@ -4954,9 +4904,9 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
 
     if (phase == RedXePointerPhaseCancel)
     {
-        const size_t index = _interactivePointerWidget;
-        const bool wasConsumed = _interactivePointerConsumed;
-        _interactivePointerWidget = SIZE_MAX;
+        const size_t index          = _interactivePointerWidget;
+        const bool wasConsumed      = _interactivePointerConsumed;
+        _interactivePointerWidget   = SIZE_MAX;
         _interactivePointerConsumed = false;
         releaseCapture();
         if (index == SIZE_MAX)
@@ -4972,11 +4922,10 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     }
 
     size_t index = SIZE_MAX;
-    if ((phase == RedXePointerPhaseMove || phase == RedXePointerPhaseUp) && _interactivePointerWidget != SIZE_MAX &&
-        pointerId != _interactivePointerId)
+    if ((phase == RedXePointerPhaseMove || phase == RedXePointerPhaseUp) && _interactivePointerWidget != SIZE_MAX && pointerId != _interactivePointerId)
         return S_FALSE;
-    float localX = 0.0f;
-    float localY = 0.0f;
+    float localX   = 0.0f;
+    float localY   = 0.0f;
     bool haveLocal = false;
     if ((phase == RedXePointerPhaseMove || phase == RedXePointerPhaseUp) && _interactivePointerWidget != SIZE_MAX)
     {
@@ -4987,7 +4936,7 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     else if (targetWidget != SIZE_MAX && (phase == RedXePointerPhaseWheel || phase == RedXePointerPhaseHorizontalWheel))
     {
         // A latched wheel sequence stays with its widget even when the pointer has drifted off the tile.
-        index = targetWidget;
+        index     = targetWidget;
         haveLocal = index < _dashboardHost->WidgetCount();
         if (haveLocal)
         {
@@ -4998,7 +4947,7 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     {
         haveLocal = HitInteractiveLocal(client, index, localX, localY);
     }
-    if (!haveLocal)
+    if (! haveLocal)
     {
         if (phase == RedXePointerPhaseDown)
             ClearKeyboardFocus();
@@ -5008,9 +4957,9 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     const HRESULT result = send(index, localX, localY);
     if (phase == RedXePointerPhaseDown)
     {
-        _interactivePointerWidget = index;
-        _interactivePointerId = pointerId;
-        _interactivePointerKind = kind;
+        _interactivePointerWidget   = index;
+        _interactivePointerId       = pointerId;
+        _interactivePointerKind     = kind;
         _interactivePointerConsumed = result == S_OK || result == RedXePointerCapture;
         if (_interactivePointerConsumed)
         {
@@ -5040,12 +4989,12 @@ HRESULT Application::ForwardInteractivePointer(POINT client, uint32_t pointerId,
     }
     if (phase == RedXePointerPhaseUp)
     {
-        const bool gestureConsumed = _interactivePointerConsumed || result == S_OK || result == RedXePointerCapture ||
-                                     result == RedXePointerRaise || result == RedXePointerDismiss;
-        _interactivePointerWidget = SIZE_MAX;
+        const bool gestureConsumed =
+            _interactivePointerConsumed || result == S_OK || result == RedXePointerCapture || result == RedXePointerRaise || result == RedXePointerDismiss;
+        _interactivePointerWidget   = SIZE_MAX;
         _interactivePointerConsumed = false;
         releaseCapture();
-        if (result == RedXePointerRaise && !_raisedActive && _window)
+        if (result == RedXePointerRaise && ! _raisedActive && _window)
             (void)TryRaiseWidgetAt(_window.get(), index);
         else if (result == RedXePointerDismiss && _raisedActive && index == _raisedWidgetIndex)
             DismissWidgetRaise(true);
@@ -5074,8 +5023,7 @@ void Application::WidgetLocalPoint(size_t widgetIndex, POINT client, float& loca
         const SIZE canvas = DashboardCanvasSize();
         if (canvas.cx > 0 && canvas.cy > 0)
         {
-            bounds =
-                _dashboardHost->PixelBoundsAt(widgetIndex, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
+            bounds = _dashboardHost->PixelBoundsAt(widgetIndex, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
         }
     }
     localX = static_cast<float>(client.x - bounds.left);
@@ -5084,34 +5032,33 @@ void Application::WidgetLocalPoint(size_t widgetIndex, POINT client, float& loca
 
 void Application::OnMouseWheel(HWND window, WPARAM wParam, LPARAM lParam, WheelAxis axis) noexcept
 {
-    if (!_windowVisible || !_displayPoweredOn || _interactiveOwnsPointer || _pagePanStarted)
+    if (! _windowVisible || ! _displayPoweredOn || _interactiveOwnsPointer || _pagePanStarted)
     {
         _wheel.ClearAccumulation();
         return;
     }
     // Wheel messages carry screen coordinates, whichever window had focus when they were generated.
     POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    if (!ScreenToClient(window, &point))
+    if (! ScreenToClient(window, &point))
     {
         return;
     }
-    const float delta = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam));
+    const float delta        = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam));
     const uint32_t modifiers = GET_KEYSTATE_WPARAM(wParam);
-    const uint32_t phase = axis == WheelAxis::Vertical ? RedXePointerPhaseWheel : RedXePointerPhaseHorizontalWheel;
+    const uint32_t phase     = axis == WheelAxis::Vertical ? RedXePointerPhaseWheel : RedXePointerPhaseHorizontalWheel;
 
     const WheelOwner owner = _wheel.Begin(GetTickCount64());
     if (owner == WheelOwner::Widget)
     {
-        (void)ForwardInteractivePointer(point, 1, RedXePointerKindMouse, phase, nullptr, modifiers, delta,
-                                        _wheel.widgetIndex);
+        (void)ForwardInteractivePointer(point, 1, RedXePointerKindMouse, phase, nullptr, modifiers, delta, _wheel.widgetIndex);
         return;
     }
     if (owner == WheelOwner::None)
     {
         // First sample of a sequence: the topmost interactive widget under the pointer decides who owns the rest.
-        size_t index = SIZE_MAX;
-        float localX = 0.0f;
-        float localY = 0.0f;
+        size_t index  = SIZE_MAX;
+        float localX  = 0.0f;
+        float localY  = 0.0f;
         bool consumed = false;
         if (HitInteractiveLocal(point, index, localX, localY))
         {
@@ -5143,28 +5090,28 @@ void Application::OnMouseWheel(HWND window, WPARAM wParam, LPARAM lParam, WheelA
 bool Application::HitInteractiveLocal(POINT client, size_t& widgetIndex, float& localX, float& localY) const noexcept
 {
     widgetIndex = SIZE_MAX;
-    localX = 0.0f;
-    localY = 0.0f;
+    localX      = 0.0f;
+    localY      = 0.0f;
     // A collapsed autohide bar shows no tile under its strip (an OLE drop there goes nowhere).
-    if (!_dashboardHost || !_window || DockHidden())
+    if (! _dashboardHost || ! _window || DockHidden())
     {
         return false;
     }
 
     const auto accept = [&](size_t index, const RECT& bounds) noexcept -> bool
     {
-        if (!_dashboardHost->GpuWidgetAt(index) || !_dashboardHost->InteractiveWidgetAt(index) ||
-            _dashboardHost->WindowWidgetAt(index) || _dashboardHost->RequiresPlaceholderAt(index))
+        if (! _dashboardHost->GpuWidgetAt(index) || ! _dashboardHost->InteractiveWidgetAt(index) || _dashboardHost->WindowWidgetAt(index) ||
+            _dashboardHost->RequiresPlaceholderAt(index))
         {
             return false;
         }
-        if (!PointInRectInclusive(bounds, client))
+        if (! PointInRectInclusive(bounds, client))
         {
             return false;
         }
         widgetIndex = index;
-        localX = static_cast<float>(client.x - bounds.left);
-        localY = static_cast<float>(client.y - bounds.top);
+        localX      = static_cast<float>(client.x - bounds.left);
+        localY      = static_cast<float>(client.y - bounds.top);
         return true;
     };
 
@@ -5184,8 +5131,7 @@ bool Application::HitInteractiveLocal(POINT client, size_t& widgetIndex, float& 
     const size_t count = _dashboardHost->WidgetCount();
     for (size_t index = 0; index < count; ++index)
     {
-        bounds[index] =
-            _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
+        bounds[index] = _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
     }
     const size_t hit = HitTestTopmostWidget(client, bounds.data(), count);
     return hit != SIZE_MAX && accept(hit, bounds[hit]);
@@ -5203,13 +5149,13 @@ void Application::CancelInteractivePointer() noexcept
         (void)consumed;
         return;
     }
-    _interactivePointerWidget = SIZE_MAX;
+    _interactivePointerWidget   = SIZE_MAX;
     _interactivePointerConsumed = false;
 }
 
 void Application::ClearDoubleActivateCandidate() noexcept
 {
-    _activateTick = 0;
+    _activateTick        = 0;
     _activateWidgetIndex = SIZE_MAX;
 }
 
@@ -5222,8 +5168,7 @@ void Application::CompleteInteractivePointerUp(HWND window, POINT position, bool
     bool consumed = false;
     if (havePosition)
     {
-        (void)ForwardInteractivePointer(position, _interactivePointerId, _interactivePointerKind, RedXePointerPhaseUp,
-                                        &consumed);
+        (void)ForwardInteractivePointer(position, _interactivePointerId, _interactivePointerKind, RedXePointerPhaseUp, &consumed);
     }
     else
     {
@@ -5234,7 +5179,7 @@ void Application::CompleteInteractivePointerUp(HWND window, POINT position, bool
         ClearDoubleActivateCandidate();
         return;
     }
-    if (!havePosition)
+    if (! havePosition)
     {
         return;
     }
@@ -5250,27 +5195,30 @@ void Application::RefreshAppearance() noexcept
 {
     RedXeAppearance appearance;
     DWORD light = 0, bytes = sizeof(light);
-    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-                     L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &bytes) == ERROR_SUCCESS &&
+    if (RegGetValueW(HKEY_CURRENT_USER,
+                     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                     L"AppsUseLightTheme",
+                     RRF_RT_REG_DWORD,
+                     nullptr,
+                     &light,
+                     &bytes) == ERROR_SUCCESS &&
         light)
         appearance.flags &= ~RedXeAppearanceDark;
     HIGHCONTRASTW contrast{sizeof(HIGHCONTRASTW)};
-    if (SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
-        (contrast.dwFlags & HCF_HIGHCONTRASTON))
+    if (SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) && (contrast.dwFlags & HCF_HIGHCONTRASTON))
         appearance.flags |= RedXeAppearanceHighContrast;
     const auto color = [](int index) noexcept -> uint32_t
     {
         const COLORREF value = GetSysColor(index);
-        return 0xff000000U | uint32_t(GetRValue(value)) << 16 | uint32_t(GetGValue(value)) << 8 |
-               uint32_t(GetBValue(value));
+        return 0xff000000U | uint32_t(GetRValue(value)) << 16 | uint32_t(GetGValue(value)) << 8 | uint32_t(GetBValue(value));
     };
-    appearance.window = color(COLOR_WINDOW);
-    appearance.windowText = color(COLOR_WINDOWTEXT);
-    appearance.highlight = color(COLOR_HIGHLIGHT);
+    appearance.window        = color(COLOR_WINDOW);
+    appearance.windowText    = color(COLOR_WINDOWTEXT);
+    appearance.highlight     = color(COLOR_HIGHLIGHT);
     appearance.highlightText = color(COLOR_HIGHLIGHTTEXT);
-    appearance.button = color(COLOR_BTNFACE);
-    appearance.buttonText = color(COLOR_BTNTEXT);
-    appearance.disabledText = color(COLOR_GRAYTEXT);
+    appearance.button        = color(COLOR_BTNFACE);
+    appearance.buttonText    = color(COLOR_BTNTEXT);
+    appearance.disabledText  = color(COLOR_GRAYTEXT);
     _renderer.SetAppearance(appearance);
     _frameInvalidated = true;
 }
@@ -5284,12 +5232,11 @@ void Application::ClearTextServices() noexcept
 }
 void Application::RefreshAccessibility(uint64_t preparedWidgets) noexcept
 {
-    if (!_accessibility)
+    if (! _accessibility)
         return;
     // A collapsed autohide bar shows no widget, and a sliding one moves them on every frame, like a page settle.
-    if (!_dashboardHost || !_window || !_windowVisible || !_displayPoweredOn || _renderer.IsSuspended() ||
-        _renderer.IsOccluded() || PageNavigationInProgress() || OverlayMotionInProgress() || _settingsErrorDialog ||
-        DockHidden() || _dockSlideActive)
+    if (! _dashboardHost || ! _window || ! _windowVisible || ! _displayPoweredOn || _renderer.IsSuspended() || _renderer.IsOccluded() ||
+        PageNavigationInProgress() || OverlayMotionInProgress() || _settingsErrorDialog || DockHidden() || _dockSlideActive)
     {
         _accessibility->ClearViews();
         return;
@@ -5307,13 +5254,12 @@ void Application::RefreshAccessibility(uint64_t preparedWidgets) noexcept
         if (_raisedActive && index != _raisedWidgetIndex)
             continue;
         auto* widget = _dashboardHost->AccessibilityWidgetAt(index);
-        if (!widget || _dashboardHost->RequiresPlaceholderAt(index))
+        if (! widget || _dashboardHost->RequiresPlaceholderAt(index))
             continue;
-        const RECT bounds = _raisedActive ? _raisedLayout.content
-                                          : _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(canvas.cx),
-                                                                          static_cast<UINT>(canvas.cy));
+        const RECT bounds =
+            _raisedActive ? _raisedLayout.content : _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
         POINT top{bounds.left, bounds.top}, bottom{bounds.right, bounds.bottom};
-        if (!ClientToScreen(_window.get(), &top) || !ClientToScreen(_window.get(), &bottom))
+        if (! ClientToScreen(_window.get(), &top) || ! ClientToScreen(_window.get(), &bottom))
             continue;
         views[count++] = {index,
                           widget,
@@ -5326,14 +5272,13 @@ void Application::RefreshAccessibility(uint64_t preparedWidgets) noexcept
 }
 void Application::HandleAccessibilityRequests() noexcept
 {
-    if (!_accessibility)
+    if (! _accessibility)
         return;
     RefreshAccessibility();
     AccessibilityRequest request;
     while (_accessibility->TakeRequest(request))
     {
-        if (!_dashboardHost || (_raisedActive && request.index != _raisedWidgetIndex) ||
-            request.viewId != (_raisedActive ? 1U : 0U))
+        if (! _dashboardHost || (_raisedActive && request.index != _raisedWidgetIndex) || request.viewId != (_raisedActive ? 1U : 0U))
             continue;
         if (request.focus)
         {
@@ -5351,16 +5296,16 @@ void Application::HandleAccessibilityRequests() noexcept
 }
 void Application::RefreshTextServices(bool layoutPrepared) noexcept
 {
-    if (!_keyboardWidget || !_dashboardHost || !_window || GetFocus() != _window.get() || !_windowVisible ||
-        !_displayPoweredOn || _renderer.IsSuspended() || _renderer.IsOccluded() || PageNavigationInProgress() ||
-        OverlayMotionInProgress() || (_raisedActive && _keyboardWidgetIndex != _raisedWidgetIndex))
+    if (! _keyboardWidget || ! _dashboardHost || ! _window || GetFocus() != _window.get() || ! _windowVisible || ! _displayPoweredOn ||
+        _renderer.IsSuspended() || _renderer.IsOccluded() || PageNavigationInProgress() || OverlayMotionInProgress() ||
+        (_raisedActive && _keyboardWidgetIndex != _raisedWidgetIndex))
     {
         ClearTextServices();
         return;
     }
     auto* widget = _dashboardHost->TextInputWidgetAt(_keyboardWidgetIndex);
     RedXeTextState state;
-    if (!widget || widget->ReadTextState(_keyboardView, &state) != S_OK || !IsValidRedXeTextState(state))
+    if (! widget || widget->ReadTextState(_keyboardView, &state) != S_OK || ! IsValidRedXeTextState(state))
     {
         ClearTextServices();
         return;
@@ -5371,32 +5316,30 @@ void Application::RefreshTextServices(bool layoutPrepared) noexcept
         ClearTextServices();
         return;
     }
-    const RECT bounds = _keyboardView
-                            ? _raisedLayout.content
-                            : _dashboardHost->PixelBoundsAt(_keyboardWidgetIndex, static_cast<UINT>(canvas.cx),
-                                                            static_cast<UINT>(canvas.cy));
+    const RECT bounds =
+        _keyboardView ? _raisedLayout.content : _dashboardHost->PixelBoundsAt(_keyboardWidgetIndex, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
     POINT origin{bounds.left, bounds.top};
-    if (!ClientToScreen(_window.get(), &origin))
+    if (! ClientToScreen(_window.get(), &origin))
     {
         ClearTextServices();
         return;
     }
     try
     {
-        if (!_textServices)
+        if (! _textServices)
         {
             auto service = std::make_unique<DxUi::TextInputServices>();
             if (FAILED(service->Attach(_window.get())))
                 return;
             _textServices = std::move(service);
         }
-        if (!_textClient || !_textClient->Matches(widget, _keyboardView, state.focusId))
+        if (! _textClient || ! _textClient->Matches(widget, _keyboardView, state.focusId))
         {
             ClearTextServices();
             _textClient = std::make_shared<WidgetTextClient>(widget, _keyboardView, state.focusId, origin);
         }
         _textClient->SetScreenOrigin(origin);
-        if (!_textServices->HasClient() && _textServices->SetClient(_textClient) != S_OK)
+        if (! _textServices->HasClient() && _textServices->SetClient(_textClient) != S_OK)
         {
             ClearTextServices();
             return;
@@ -5413,25 +5356,25 @@ void Application::RefreshTextServices(bool layoutPrepared) noexcept
 void Application::ClearKeyboardFocus() noexcept
 {
     ClearTextServices();
-    auto previous = std::move(_keyboardWidget);
-    const uint32_t view = _keyboardView;
+    auto previous        = std::move(_keyboardWidget);
+    const uint32_t view  = _keyboardView;
     _keyboardWidgetIndex = SIZE_MAX;
-    _keyboardView = 0;
+    _keyboardView        = 0;
     if (previous)
         (void)previous->SetKeyboardFocus(FALSE, view);
 }
 bool Application::FocusKeyboardWidget(size_t index) noexcept
 {
-    auto* target = _dashboardHost ? _dashboardHost->KeyboardWidgetAt(index) : nullptr;
+    auto* target        = _dashboardHost ? _dashboardHost->KeyboardWidgetAt(index) : nullptr;
     const uint32_t view = _raisedActive && index == _raisedWidgetIndex ? 1U : 0U;
     if (_keyboardWidget.get() == target && _keyboardWidgetIndex == index && _keyboardView == view)
         return target != nullptr;
     ClearKeyboardFocus();
-    if (!target || _dashboardHost->RequiresPlaceholderAt(index))
+    if (! target || _dashboardHost->RequiresPlaceholderAt(index))
         return false;
-    _keyboardWidget = target;
+    _keyboardWidget      = target;
     _keyboardWidgetIndex = index;
-    _keyboardView = view;
+    _keyboardView        = view;
     if (FAILED(target->SetKeyboardFocus(TRUE, view)))
     {
         ClearKeyboardFocus();
@@ -5442,9 +5385,9 @@ bool Application::FocusKeyboardWidget(size_t index) noexcept
 bool Application::AdvanceKeyboardWidget(bool reverse) noexcept
 {
     const auto refreshText = wil::scope_exit([this]() noexcept { RefreshTextServices(); });
-    if (!_dashboardHost || !_dashboardHost->WidgetCount())
+    if (! _dashboardHost || ! _dashboardHost->WidgetCount())
         return false;
-    const size_t count = _dashboardHost->WidgetCount();
+    const size_t count    = _dashboardHost->WidgetCount();
     const size_t previous = _keyboardWidgetIndex;
     ClearKeyboardFocus();
     for (size_t offset = 1; offset <= count; ++offset)
@@ -5454,7 +5397,7 @@ bool Application::AdvanceKeyboardWidget(bool reverse) noexcept
                                                    : (previous + offset) % count;
         if (_raisedActive && candidate != _raisedWidgetIndex)
             continue;
-        if (!FocusKeyboardWidget(candidate))
+        if (! FocusKeyboardWidget(candidate))
             continue;
         const RedXeKeyEvent event{sizeof(RedXeKeyEvent), VK_TAB, reverse ? MK_SHIFT : 0U, _keyboardView, TRUE};
         (void)_keyboardWidget->OnKey(&event);
@@ -5467,7 +5410,7 @@ bool Application::HandleKeyboardResult(HRESULT result) noexcept
     if (result == RedXePointerRaise)
     {
         const size_t index = _keyboardWidgetIndex;
-        if (!_raisedActive && _window)
+        if (! _raisedActive && _window)
             (void)TryRaiseWidgetAt(_window.get(), index);
         return true;
     }
@@ -5482,14 +5425,13 @@ bool Application::HandleKeyboardResult(HRESULT result) noexcept
 bool Application::ForwardWidgetKey(uint32_t key, bool down) noexcept
 {
     const auto refreshText = wil::scope_exit([this]() noexcept { RefreshTextServices(); });
-    if (!_windowVisible || !_displayPoweredOn || !_dashboardHost)
+    if (! _windowVisible || ! _displayPoweredOn || ! _dashboardHost)
         return false;
-    const uint32_t modifiers = ((GetKeyState(VK_SHIFT) & 0x8000) ? MK_SHIFT : 0U) |
-                               ((GetKeyState(VK_CONTROL) & 0x8000) ? MK_CONTROL : 0U) |
+    const uint32_t modifiers = ((GetKeyState(VK_SHIFT) & 0x8000) ? MK_SHIFT : 0U) | ((GetKeyState(VK_CONTROL) & 0x8000) ? MK_CONTROL : 0U) |
                                ((GetKeyState(VK_MENU) & 0x8000) ? 0x20U : 0U);
     if (_keyboardWidget && _dashboardHost->KeyboardWidgetAt(_keyboardWidgetIndex) != _keyboardWidget.get())
         ClearKeyboardFocus();
-    if (!_keyboardWidget)
+    if (! _keyboardWidget)
         return down && key == VK_TAB && AdvanceKeyboardWidget((modifiers & MK_SHIFT) != 0);
     const RedXeKeyEvent event{sizeof(RedXeKeyEvent), key, modifiers, _keyboardView, down ? TRUE : FALSE};
     const HRESULT result = _keyboardWidget->OnKey(&event);
@@ -5500,31 +5442,30 @@ bool Application::ForwardWidgetKey(uint32_t key, bool down) noexcept
 bool Application::ForwardWidgetCharacter(uint32_t character) noexcept
 {
     const auto refreshText = wil::scope_exit([this]() noexcept { RefreshTextServices(); });
-    if (!_windowVisible || !_displayPoweredOn || !_dashboardHost || !_keyboardWidget)
+    if (! _windowVisible || ! _displayPoweredOn || ! _dashboardHost || ! _keyboardWidget)
         return false;
     if (_dashboardHost->KeyboardWidgetAt(_keyboardWidgetIndex) != _keyboardWidget.get())
     {
         ClearKeyboardFocus();
         return false;
     }
-    const uint32_t modifiers =
-        ((GetKeyState(VK_SHIFT) & 0x8000) ? MK_SHIFT : 0U) | ((GetKeyState(VK_CONTROL) & 0x8000) ? MK_CONTROL : 0U);
+    const uint32_t modifiers = ((GetKeyState(VK_SHIFT) & 0x8000) ? MK_SHIFT : 0U) | ((GetKeyState(VK_CONTROL) & 0x8000) ? MK_CONTROL : 0U);
     return HandleKeyboardResult(_keyboardWidget->OnCharacter(character, modifiers, _keyboardView));
 }
 
 bool Application::TryNavigateFromPageEdge(HWND window, POINT position) noexcept
 {
-    if (_raisedActive || OverlayMotionInProgress() || !_window || window != _window.get())
+    if (_raisedActive || OverlayMotionInProgress() || ! _window || window != _window.get())
     {
         return false;
     }
     const PageEdgeState state = CurrentPageEdgeState();
-    const RECT reachable = ReachableClientRect();
-    const UINT dpi = GetDpiForWindow(window);
+    const RECT reachable      = ReachableClientRect();
+    const UINT dpi            = GetDpiForWindow(window);
     for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
     {
         const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
-        const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
+        const RECT band     = PageEdgeBandRectIn(reachable, direction, dpi);
         if (PageEdgeClickNavigates(state, direction, band, position))
         {
             return SUCCEEDED(NavigateToAdjacentPage(direction));
@@ -5535,7 +5476,7 @@ bool Application::TryNavigateFromPageEdge(HWND window, POINT position) noexcept
 
 void Application::OnRaisedContentActivateAttempt(HWND window, POINT position, ULONGLONG tick) noexcept
 {
-    if (!_raisedActive)
+    if (! _raisedActive)
     {
         return;
     }
@@ -5543,27 +5484,26 @@ void Application::OnRaisedContentActivateAttempt(HWND window, POINT position, UL
     {
         return;
     }
-    if (!PointInRectInclusive(_raisedLayout.content, position))
+    if (! PointInRectInclusive(_raisedLayout.content, position))
     {
         return;
     }
-    const UINT dpi = GetDpiForWindow(window);
+    const UINT dpi      = GetDpiForWindow(window);
     const UINT interval = GetDoubleClickTime();
-    if (_activateWidgetIndex == _raisedWidgetIndex &&
-        IsDoubleActivate(_activateTick, _activatePoint, tick, position, interval, DoubleActivateSlopPixels(dpi)))
+    if (_activateWidgetIndex == _raisedWidgetIndex && IsDoubleActivate(_activateTick, _activatePoint, tick, position, interval, DoubleActivateSlopPixels(dpi)))
     {
         _activateWidgetIndex = SIZE_MAX;
         DismissWidgetRaise(true);
         return;
     }
-    _activateTick = tick;
-    _activatePoint = position;
+    _activateTick        = tick;
+    _activatePoint       = position;
     _activateWidgetIndex = _raisedWidgetIndex;
 }
 
 void Application::OnClientActivateAttempt(HWND window, POINT position, ULONGLONG tick) noexcept
 {
-    if (_raisedActive || !_dashboardHost || !_rendererReady)
+    if (_raisedActive || ! _dashboardHost || ! _rendererReady)
     {
         return;
     }
@@ -5577,8 +5517,7 @@ void Application::OnClientActivateAttempt(HWND window, POINT position, ULONGLONG
     const size_t widgetCount = _dashboardHost->WidgetCount();
     for (size_t index = 0; index < widgetCount; ++index)
     {
-        bounds[index] =
-            _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
+        bounds[index] = _dashboardHost->PixelBoundsAt(index, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy));
     }
     const size_t hit = HitTestTopmostWidget(position, bounds.data(), widgetCount);
     if (hit == SIZE_MAX)
@@ -5587,17 +5526,16 @@ void Application::OnClientActivateAttempt(HWND window, POINT position, ULONGLONG
         return;
     }
 
-    const UINT dpi = GetDpiForWindow(window);
+    const UINT dpi      = GetDpiForWindow(window);
     const UINT interval = GetDoubleClickTime();
-    if (_activateWidgetIndex == hit &&
-        IsDoubleActivate(_activateTick, _activatePoint, tick, position, interval, DoubleActivateSlopPixels(dpi)))
+    if (_activateWidgetIndex == hit && IsDoubleActivate(_activateTick, _activatePoint, tick, position, interval, DoubleActivateSlopPixels(dpi)))
     {
         _activateWidgetIndex = SIZE_MAX;
         (void)TryRaiseWidgetAt(window, hit);
         return;
     }
-    _activateTick = tick;
-    _activatePoint = position;
+    _activateTick        = tick;
+    _activatePoint       = position;
     _activateWidgetIndex = hit;
 }
 
@@ -5606,7 +5544,7 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
     // A raise on a collapsed or sliding dock (a widget.* action, an accessibility request) lays out on the full,
     // settled bar, where the overlay is seen.
     RevealDockForChange();
-    if (_raisedActive || !_dashboardHost || !_rendererReady || widgetIndex >= _dashboardHost->WidgetCount())
+    if (_raisedActive || ! _dashboardHost || ! _rendererReady || widgetIndex >= _dashboardHost->WidgetCount())
     {
         return E_UNEXPECTED;
     }
@@ -5615,26 +5553,26 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
     {
         return E_UNEXPECTED;
     }
-    const UINT clientWidth = static_cast<UINT>(canvas.cx);
-    const UINT clientHeight = static_cast<UINT>(canvas.cy);
-    const RECT tile = _dashboardHost->PixelBoundsAt(widgetIndex, clientWidth, clientHeight);
+    const UINT clientWidth           = static_cast<UINT>(canvas.cx);
+    const UINT clientHeight          = static_cast<UINT>(canvas.cy);
+    const RECT tile                  = _dashboardHost->PixelBoundsAt(widgetIndex, clientWidth, clientHeight);
     IRedXeRaisedWidget* raisedWidget = _dashboardHost->RaisedWidgetAt(widgetIndex);
-    if (!raisedWidget)
+    if (! raisedWidget)
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
     }
     RedXeRaisedExtent extent{};
     const HRESULT extentResult = raisedWidget->GetRaisedExtent(&extent);
-    if (FAILED(extentResult) || !CanRaiseWidget(tile, clientWidth, clientHeight, extent))
+    if (FAILED(extentResult) || ! CanRaiseWidget(tile, clientWidth, clientHeight, extent))
     {
         return FAILED(extentResult) ? extentResult : HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
     }
 
-    const UINT dpi = GetDpiForWindow(window);
+    const UINT dpi            = GetDpiForWindow(window);
     const RaisedLayout target = MakeRaisedLayout(clientWidth, clientHeight, extent, dpi, &tile);
-    const RaisedLayout start = RaisedLayoutFromTile(tile, clientWidth, clientHeight, dpi);
-    if (target.content.right <= target.content.left || target.content.bottom <= target.content.top ||
-        start.content.right <= start.content.left || start.content.bottom <= start.content.top)
+    const RaisedLayout start  = RaisedLayoutFromTile(tile, clientWidth, clientHeight, dpi);
+    if (target.content.right <= target.content.left || target.content.bottom <= target.content.top || start.content.right <= start.content.left ||
+        start.content.bottom <= start.content.top)
     {
         return E_UNEXPECTED;
     }
@@ -5646,13 +5584,13 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
         return result;
     }
 
-    _raiseTile = tile;
+    _raiseTile         = tile;
     _raiseTargetPixels = SIZE{target.content.right - target.content.left, target.content.bottom - target.content.top};
     _raisedWidgetIndex = widgetIndex;
-    _raisedActive = true;
+    _raisedActive      = true;
     if (_accessibility)
         _accessibility->ClearViews();
-    _activateTick = 0;
+    _activateTick        = 0;
     _activateWidgetIndex = SIZE_MAX;
     _wheel.Reset();
     _raisedLayout = target;
@@ -5674,7 +5612,7 @@ HRESULT Application::TryRaiseWidgetAt(HWND window, size_t widgetIndex) noexcept
 void Application::DismissWidgetRaise(bool animate) noexcept
 {
     const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });
-    if (!_raisedActive)
+    if (! _raisedActive)
     {
         return;
     }
@@ -5683,7 +5621,7 @@ void Application::DismissWidgetRaise(bool animate) noexcept
         return;
     }
     _wheel.Reset();
-    if (!animate || !_window || !_qpcFrequency)
+    if (! animate || ! _window || ! _qpcFrequency)
     {
         CompleteDismissImmediate();
         return;
@@ -5695,9 +5633,8 @@ void Application::DismissWidgetRaise(bool animate) noexcept
         CompleteDismissImmediate();
         return;
     }
-    const UINT dpi = GetDpiForWindow(_window.get());
-    const RaisedLayout tileLayout =
-        RaisedLayoutFromTile(_raiseTile, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy), dpi);
+    const UINT dpi                = GetDpiForWindow(_window.get());
+    const RaisedLayout tileLayout = RaisedLayoutFromTile(_raiseTile, static_cast<UINT>(canvas.cx), static_cast<UINT>(canvas.cy), dpi);
     if (tileLayout.content.right <= tileLayout.content.left)
     {
         CompleteDismissImmediate();
@@ -5708,9 +5645,9 @@ void Application::DismissWidgetRaise(bool animate) noexcept
 
 HRESULT Application::ApplyRaiseVisual(const RaisedLayout& layout, BYTE dimAlpha) noexcept
 {
-    _raisedLayout = layout;
+    _raisedLayout  = layout;
     _raiseDimAlpha = dimAlpha;
-    if (!_window || !_dashboardHost || _raisedWidgetIndex == SIZE_MAX)
+    if (! _window || ! _dashboardHost || _raisedWidgetIndex == SIZE_MAX)
     {
         return E_UNEXPECTED;
     }
@@ -5739,43 +5676,42 @@ HRESULT Application::ApplyRaiseVisual(const RaisedLayout& layout, BYTE dimAlpha)
     return S_OK;
 }
 
-void Application::BeginRaiseSettle(const RaisedLayout& from, const RaisedLayout& to, BYTE dimFrom, BYTE dimTo,
-                                   bool dismissing) noexcept
+void Application::BeginRaiseSettle(const RaisedLayout& from, const RaisedLayout& to, BYTE dimFrom, BYTE dimTo, bool dismissing) noexcept
 {
     if (_accessibility)
         _accessibility->ClearViews();
     _raiseSettleFrom = from;
-    _raiseSettleTo = to;
-    _raiseDimFrom = dimFrom;
-    _raiseDimTo = dimTo;
+    _raiseSettleTo   = to;
+    _raiseDimFrom    = dimFrom;
+    _raiseDimTo      = dimTo;
     _raiseDismissing = dismissing;
-    if (!_qpcFrequency)
+    if (! _qpcFrequency)
     {
         (void)ApplyRaiseVisual(to, dimTo);
         CompleteRaiseSettle();
         return;
     }
     LARGE_INTEGER now{};
-    if (!QueryPerformanceCounter(&now))
+    if (! QueryPerformanceCounter(&now))
     {
         (void)ApplyRaiseVisual(to, dimTo);
         CompleteRaiseSettle();
         return;
     }
-    _raiseSettleStartQpc = static_cast<UINT64>(now.QuadPart);
-    const UINT durationMs = RaiseSettleDurationMilliseconds(from.content, to.content);
+    _raiseSettleStartQpc    = static_cast<UINT64>(now.QuadPart);
+    const UINT durationMs   = RaiseSettleDurationMilliseconds(from.content, to.content);
     _raiseSettleDurationQpc = static_cast<UINT64>(durationMs) * _qpcFrequency / 1000ULL;
     if (_raiseSettleDurationQpc == 0)
     {
         _raiseSettleDurationQpc = _qpcFrequency / 10ULL;
     }
     _raiseSettleActive = true;
-    _frameInvalidated = true;
+    _frameInvalidated  = true;
 }
 
 void Application::TickRaiseSettle() noexcept
 {
-    if (!_raiseSettleActive || !_window)
+    if (! _raiseSettleActive || ! _window)
     {
         return;
     }
@@ -5785,12 +5721,10 @@ void Application::TickRaiseSettle() noexcept
     if (_raiseSettleDurationQpc != 0 && QueryPerformanceCounter(&now))
     {
         const UINT64 elapsed = static_cast<UINT64>(now.QuadPart) - _raiseSettleStartQpc;
-        t = elapsed >= _raiseSettleDurationQpc
-                ? 1.0f
-                : static_cast<float>(elapsed) / static_cast<float>(_raiseSettleDurationQpc);
+        t                    = elapsed >= _raiseSettleDurationQpc ? 1.0f : static_cast<float>(elapsed) / static_cast<float>(_raiseSettleDurationQpc);
     }
     const RaisedLayout layout = InterpolateRaisedLayout(_raiseSettleFrom, _raiseSettleTo, t);
-    const BYTE dim = InterpolateRaisedAlpha(_raiseDimFrom, _raiseDimTo, t);
+    const BYTE dim            = InterpolateRaisedAlpha(_raiseDimFrom, _raiseDimTo, t);
     if (FAILED(ApplyRaiseVisual(layout, dim)) || t >= 1.0f)
     {
         CompleteRaiseSettle();
@@ -5815,8 +5749,7 @@ void Application::CompleteDismissImmediate() noexcept
         _accessibility->ClearViews();
     const size_t previousKeyboardWidget = _keyboardWidgetIndex;
     ClearKeyboardFocus();
-    IRedXeRaisedWidget* raisedWidget =
-        _dashboardHost && _raisedWidgetIndex != SIZE_MAX ? _dashboardHost->RaisedWidgetAt(_raisedWidgetIndex) : nullptr;
+    IRedXeRaisedWidget* raisedWidget = _dashboardHost && _raisedWidgetIndex != SIZE_MAX ? _dashboardHost->RaisedWidgetAt(_raisedWidgetIndex) : nullptr;
     if (raisedWidget)
     {
         (void)raisedWidget->SetRaised(FALSE);
@@ -5830,18 +5763,18 @@ void Application::CompleteDismissImmediate() noexcept
             (void)_dashboardHost->ClearRaisedNativeLayout(dpi);
         }
     }
-    _raisedActive = false;
+    _raisedActive      = false;
     _raisedWidgetIndex = SIZE_MAX;
-    _raisedLayout = {};
-    _raiseTile = {};
+    _raisedLayout      = {};
+    _raiseTile         = {};
     _raiseTargetPixels = {};
-    _raiseDimAlpha = 0;
+    _raiseDimAlpha     = 0;
     _raiseSettleActive = false;
-    _raiseDismissing = false;
-    _raiseSettleFrom = {};
-    _raiseSettleTo = {};
+    _raiseDismissing   = false;
+    _raiseSettleFrom   = {};
+    _raiseSettleTo     = {};
     _raiseCloseHovered = false;
-    _frameInvalidated = true;
+    _frameInvalidated  = true;
     PushHostChrome();
     if (_window && GetFocus() == _window.get() && previousKeyboardWidget != SIZE_MAX)
         (void)FocusKeyboardWidget(previousKeyboardWidget);
@@ -5874,7 +5807,7 @@ void Application::OnSettingsChanged() noexcept
     std::unique_ptr<AppSettings> candidate;
     SettingsFileStamp stamp{};
     SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
-    const HRESULT loadResult = _settingsStore.TryLoadChanged(candidate, stamp, status);
+    const HRESULT loadResult    = _settingsStore.TryLoadChanged(candidate, stamp, status);
     if (FAILED(loadResult))
     {
         ShowSettingsError(L"The settings file could not be read. The current dashboard remains active.");
@@ -5883,21 +5816,16 @@ void Application::OnSettingsChanged() noexcept
 
     switch (status)
     {
-    case SettingsReloadStatus::Unchanged:
-        return;
-    case SettingsReloadStatus::Missing:
-        ShowSettingsError(L"The settings file is missing. The current dashboard remains active.");
-        return;
-    case SettingsReloadStatus::Invalid:
-        ShowSettingsError(_settingsStore.LastDiagnosticText().empty()
-                              ? L"The settings file is invalid. The current dashboard remains active."
-                              : _settingsStore.LastDiagnosticText());
-        return;
-    case SettingsReloadStatus::Loaded:
-        break;
+        case SettingsReloadStatus::Unchanged: return;
+        case SettingsReloadStatus::Missing: ShowSettingsError(L"The settings file is missing. The current dashboard remains active."); return;
+        case SettingsReloadStatus::Invalid:
+            ShowSettingsError(_settingsStore.LastDiagnosticText().empty() ? L"The settings file is invalid. The current dashboard remains active."
+                                                                          : _settingsStore.LastDiagnosticText());
+            return;
+        case SettingsReloadStatus::Loaded: break;
     }
 
-    if (!candidate || !_settings)
+    if (! candidate || ! _settings)
     {
         OutputDebugStringW(L"Settings reload returned no candidate; the current settings remain active.\n");
         return;
@@ -5912,7 +5840,7 @@ void Application::OnSettingsChanged() noexcept
     // A minimized standard window has a 0x0 client, which cannot size a rebuilt page. A candidate that rebuilds it
     // without switching the window kind (a switch restores the window first) is neither applied nor rejected; the
     // restore reads the file again.
-    if (!_dockActive && _window && IsIconic(_window.get()) && !ActiveDashboardRuntimeEquals(*candidate, *_settings) &&
+    if (! _dockActive && _window && IsIconic(_window.get()) && ! ActiveDashboardRuntimeEquals(*candidate, *_settings) &&
         EffectiveDockSettings(candidate->dock, _dockOverrides).edge == DockEdge::None)
     {
         _settingsReloadDeferred = true;
@@ -5920,7 +5848,7 @@ void Application::OnSettingsChanged() noexcept
     }
 
     _settingsStore.SuppressDocumentWrites(true);
-    const auto resumeWrites = wil::scope_exit([&]() noexcept { _settingsStore.SuppressDocumentWrites(false); });
+    const auto resumeWrites   = wil::scope_exit([&]() noexcept { _settingsStore.SuppressDocumentWrites(false); });
     const HRESULT applyResult = ApplySettings(std::move(candidate));
     if (SUCCEEDED(applyResult))
     {
@@ -5933,7 +5861,7 @@ void Application::OnSettingsChanged() noexcept
 
     _settingsStore.MarkRejected(stamp);
     ShowSettingsError(L"The changed settings could not be applied. The previous dashboard was restored.");
-    if (!_rendererReady)
+    if (! _rendererReady)
     {
         RecordRuntimeFailure(applyResult, "settings-apply-failed");
         CloseMainWindow();
@@ -5942,7 +5870,7 @@ void Application::OnSettingsChanged() noexcept
 
 void Application::ReplayDeferredSettingsReload() noexcept
 {
-    if (!_settingsReloadDeferred || _inSizeMove || !_window || IsIconic(_window.get()))
+    if (! _settingsReloadDeferred || _inSizeMove || ! _window || IsIconic(_window.get()))
     {
         return;
     }
@@ -5960,9 +5888,9 @@ HWND Application::CreateNoticeWindow(DWORD extendedStyle, const wchar_t* title, 
     // anchors on its full bar, which the dialog hold reveals. A minimized window has no rectangle on its monitor.
     RECT anchor{};
     HMONITOR monitor = nullptr;
-    if (_dockActive && !IsRectEmpty(&_dockFullRect))
+    if (_dockActive && ! IsRectEmpty(&_dockFullRect))
     {
-        anchor = _dockFullRect;
+        anchor  = _dockFullRect;
         monitor = MonitorFromRect(&_dockFullRect, MONITOR_DEFAULTTONEAREST);
     }
     else
@@ -5972,7 +5900,7 @@ HWND Application::CreateNoticeWindow(DWORD extendedStyle, const wchar_t* title, 
     }
     MONITORINFO information{};
     information.cbSize = sizeof(information);
-    if (!monitor || !GetMonitorInfoW(monitor, &information))
+    if (! monitor || ! GetMonitorInfoW(monitor, &information))
     {
         (void)SystemParametersInfoW(SPI_GETWORKAREA, 0, &information.rcWork, 0);
     }
@@ -5981,21 +5909,39 @@ HWND Application::CreateNoticeWindow(DWORD extendedStyle, const wchar_t* title, 
         anchor = information.rcWork;
     }
     const RECT bounds = NoticeWindowRect(anchor, information.rcWork, kNoticeWindowWidth, kNoticeWindowHeight);
-    const int width = bounds.right - bounds.left;
-    const int height = bounds.bottom - bounds.top;
-    const HWND notice =
-        CreateWindowExW(extendedStyle, kSettingsDialogClassName, title, WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-                        bounds.left, bounds.top, width, height, _window.get(), nullptr, _instance, this);
-    if (!notice)
+    const int width   = bounds.right - bounds.left;
+    const int height  = bounds.bottom - bounds.top;
+    const HWND notice = CreateWindowExW(extendedStyle,
+                                        kSettingsDialogClassName,
+                                        title,
+                                        WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                                        bounds.left,
+                                        bounds.top,
+                                        width,
+                                        height,
+                                        _window.get(),
+                                        nullptr,
+                                        _instance,
+                                        this);
+    if (! notice)
     {
         return nullptr;
     }
     // The controls follow the client area, which the caption, the frame, and a work area that cut the window shrink.
-    const HWND label = CreateWindowExW(
-        0, L"STATIC", text, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL, 0, 0, 0, 0, notice,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNoticeTextControlId)), _instance, nullptr);
-    const HWND button = CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0,
-                                        notice, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
+    const HWND label = CreateWindowExW(0,
+                                       L"STATIC",
+                                       text,
+                                       WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL,
+                                       0,
+                                       0,
+                                       0,
+                                       0,
+                                       notice,
+                                       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNoticeTextControlId)),
+                                       _instance,
+                                       nullptr);
+    const HWND button =
+        CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, notice, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
     LayoutNoticeControls(notice);
     const HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
     if (label)
@@ -6020,9 +5966,8 @@ void Application::ShowSettingsError(std::wstring_view message) noexcept
                 SetWindowTextW(text, std::wstring(message).c_str());
             return;
         }
-        _settingsErrorDialog =
-            CreateNoticeWindow(WS_EX_DLGMODALFRAME, L"RedXe settings error", std::wstring(message).c_str());
-        if (!_settingsErrorDialog)
+        _settingsErrorDialog = CreateNoticeWindow(WS_EX_DLGMODALFRAME, L"RedXe settings error", std::wstring(message).c_str());
+        if (! _settingsErrorDialog)
         {
             return;
         }
@@ -6040,7 +5985,7 @@ void Application::ShowSettingsError(std::wstring_view message) noexcept
 
 void Application::CloseSettingsError() noexcept
 {
-    const HWND dialog = _settingsErrorDialog;
+    const HWND dialog    = _settingsErrorDialog;
     _settingsErrorDialog = nullptr;
     if (dialog && IsWindow(dialog))
     {
@@ -6054,7 +5999,7 @@ void Application::CloseSettingsError() noexcept
 
 bool Application::WaitUntilMessage() noexcept
 {
-    if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
+    if (! _windowVisible || ! _displayPoweredOn || ! _rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
         DashboardRequiresContinuousFrames() || DockHidden())
     {
         ClearScheduledFrameDeadline();
@@ -6067,17 +6012,16 @@ bool Application::WaitUntilMessage() noexcept
         if (now >= _scheduledFrameDeadlineTick)
         {
             _scheduledFrameDeadlineTick = 0;
-            _frameInvalidated = true;
+            _frameInvalidated           = true;
             return true;
         }
         const ULONGLONG remaining = _scheduledFrameDeadlineTick - now;
-        timeoutMilliseconds = static_cast<DWORD>(remaining);
+        timeoutMilliseconds       = static_cast<DWORD>(remaining);
     }
 
     if (_probe.Enabled())
         timeoutMilliseconds = RuntimeProbeWaitTimeout(GetTickCount64(), _scheduledFrameDeadlineTick, _probe.Deadline());
-    const DWORD waitResult =
-        MsgWaitForMultipleObjectsEx(0, nullptr, timeoutMilliseconds, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    const DWORD waitResult = MsgWaitForMultipleObjectsEx(0, nullptr, timeoutMilliseconds, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     if (waitResult == WAIT_OBJECT_0)
     {
         return true;
@@ -6088,13 +6032,13 @@ bool Application::WaitUntilMessage() noexcept
         if (_scheduledFrameDeadlineTick != 0 && GetTickCount64() >= _scheduledFrameDeadlineTick)
         {
             _scheduledFrameDeadlineTick = 0;
-            _frameInvalidated = true;
+            _frameInvalidated           = true;
         }
         return true;
     }
 
     const DWORD error = waitResult == WAIT_FAILED ? GetLastError() : ERROR_INVALID_DATA;
-    _runtimeFailure = error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    _runtimeFailure   = error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
     CloseMainWindow();
     return false;
 }
@@ -6102,7 +6046,7 @@ bool Application::WaitUntilMessage() noexcept
 bool Application::WaitForFrameLatency() noexcept
 {
     const HANDLE waitable = _renderer.FrameLatencyWaitableObject();
-    if (!waitable)
+    if (! waitable)
     {
         return true;
     }
@@ -6111,7 +6055,7 @@ bool Application::WaitForFrameLatency() noexcept
         return true;
     // Handles are checked before the message queue, so a free buffer always wins over pending input; pending input
     // only defers the frame while the previous one is still being consumed.
-    const DWORD timeout = _probe.Enabled() ? RuntimeProbeWaitTimeout(GetTickCount64(), 0, _probe.Deadline()) : INFINITE;
+    const DWORD timeout    = _probe.Enabled() ? RuntimeProbeWaitTimeout(GetTickCount64(), 0, _probe.Deadline()) : INFINITE;
     const DWORD waitResult = MsgWaitForMultipleObjectsEx(1, &waitable, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     if (waitResult == WAIT_OBJECT_0)
     {
@@ -6123,18 +6067,18 @@ bool Application::WaitForFrameLatency() noexcept
         return false;
     }
     const DWORD error = waitResult == WAIT_FAILED ? GetLastError() : ERROR_INVALID_DATA;
-    _runtimeFailure = error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    _runtimeFailure   = error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
     CloseMainWindow();
     return false;
 }
 
 bool Application::WaitForContinuousFrameDeadline(const HostFrameState& state) noexcept
 {
-    if (!LimitContinuousFrames(_settings->continuousFrameRate, state))
+    if (! LimitContinuousFrames(_settings->continuousFrameRate, state))
         return true;
-    const auto delay = _continuousFramePacer.Remaining(ContinuousFramePacer::Clock::now());
-    const DWORD timeout = _probe.Enabled() ? RuntimeProbeWaitTimeout(GetTickCount64(), 0, _probe.Deadline()) : INFINITE;
-    bool ready = false;
+    const auto delay     = _continuousFramePacer.Remaining(ContinuousFramePacer::Clock::now());
+    const DWORD timeout  = _probe.Enabled() ? RuntimeProbeWaitTimeout(GetTickCount64(), 0, _probe.Deadline()) : INFINITE;
+    bool ready           = false;
     const HRESULT result = _continuousFrameWait.Wait(delay, timeout, ready);
     if (FAILED(result))
     {
@@ -6157,38 +6101,35 @@ void Application::ApplyContinuousFrameRate(ContinuousFrameRate previous) noexcep
 
 uint32_t Application::RuntimeProbeState() const noexcept
 {
-    return (DashboardRequiresContinuousFrames() ? 1u : 0u) | (_windowVisible ? 2u : 0u) |
-           (_displayPoweredOn ? 4u : 0u) | (_renderer.IsSuspended() ? 8u : 0u) | (_renderer.IsOccluded() ? 16u : 0u) |
-           (DockHidden() ? 32u : 0u) | (PageNavigationInProgress() ? 64u : 0u) |
-           (OverlayMotionInProgress() || _dockSlideActive ? 128u : 0u) |
-           (_raisedActive ? kRuntimeProbeRaisedState : 0u);
+    return (DashboardRequiresContinuousFrames() ? 1u : 0u) | (_windowVisible ? 2u : 0u) | (_displayPoweredOn ? 4u : 0u) | (_renderer.IsSuspended() ? 8u : 0u) |
+           (_renderer.IsOccluded() ? 16u : 0u) | (DockHidden() ? 32u : 0u) | (PageNavigationInProgress() ? 64u : 0u) |
+           (OverlayMotionInProgress() || _dockSlideActive ? 128u : 0u) | (_raisedActive ? kRuntimeProbeRaisedState : 0u);
 }
 
 void Application::TickRuntimeProbe() noexcept
 {
-    if (!_probe.Enabled() || !_probe.Due(GetTickCount64()))
+    if (! _probe.Enabled() || ! _probe.Due(GetTickCount64()))
         return;
     const auto started = std::chrono::steady_clock::now();
     RuntimeProbeSample sample;
-    sample.page = _settings->dashboard.activePageIndex;
-    sample.state = RuntimeProbeState();
+    sample.page              = _settings->dashboard.activePageIndex;
+    sample.state             = RuntimeProbeState();
     sample.scheduledDeadline = _scheduledFrameDeadlineTick;
-    sample.process = QueryProcessResources();
-    sample.graphics = _renderer.QueryProbeGraphics();
-    auto& host = PluginHost::Instance();
-    sample.avResult = host.QueryAvProbeStatistics(sample.av);
+    sample.process           = QueryProcessResources();
+    sample.graphics          = _renderer.QueryProbeGraphics();
+    auto& host               = PluginHost::Instance();
+    sample.avResult          = host.QueryAvProbeStatistics(sample.av);
     _probe.Complete(sample, GetTickCount64());
-    sample.sampleMicroseconds = static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count());
+    sample.sampleMicroseconds =
+        static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count());
     const HRESULT result = host.LogRuntimeProbe(sample);
     if (FAILED(result))
-        (void)RedXeHostLog(host.Interface(), RedXeLogLevelWarning, nullptr, nullptr, "probe-failed",
-                           "The diagnostic record could not be queued.", result);
+        (void)RedXeHostLog(host.Interface(), RedXeLogLevelWarning, nullptr, nullptr, "probe-failed", "The diagnostic record could not be queued.", result);
 }
 
 void Application::CheckDeviceAdapter() noexcept
 {
-    if (!_rendererReady || !_window)
+    if (! _rendererReady || ! _window)
     {
         return;
     }
@@ -6210,13 +6151,12 @@ void Application::CheckDeviceAdapter() noexcept
 bool Application::DashboardRequiresContinuousFrames() const noexcept
 {
     return (_dashboardHost && _dashboardHost->RequiresContinuousFrames()) ||
-           (!_pageSettleWaiting && _transitionDashboardHost && _transitionDashboardHost->RequiresContinuousFrames());
+           (! _pageSettleWaiting && _transitionDashboardHost && _transitionDashboardHost->RequiresContinuousFrames());
 }
 
 bool Application::PageNavigationInProgress() const noexcept
 {
-    return _pagePointerActive || _pagePanStarted || _pageSettleActive || _pageTransitionDirection != 0 ||
-           _pageStagePendingDirection != 0;
+    return _pagePointerActive || _pagePanStarted || _pageSettleActive || _pageTransitionDirection != 0 || _pageStagePendingDirection != 0;
 }
 
 bool Application::OverlayMotionInProgress() const noexcept
@@ -6235,7 +6175,7 @@ void Application::ResumePageSettleIfNeeded() noexcept
         return;
     }
     const SIZE canvas = DashboardCanvasSize();
-    if (!_window || canvas.cx <= 0)
+    if (! _window || canvas.cx <= 0)
     {
         CancelPageNavigation();
         return;
@@ -6249,21 +6189,20 @@ void Application::RefreshScheduledFrameDeadline() noexcept
 {
     // The current frame consumed its continuous deadline; avoid canceling an already-completed one-shot every frame.
     _scheduledFrameDeadlineTick = 0;
-    if (!_windowVisible || !_displayPoweredOn || !_rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
-        DashboardRequiresContinuousFrames() || (PageNavigationInProgress() && !_pageSettleWaiting) ||
-        OverlayMotionInProgress() || _dockSlideActive || DockHidden())
+    if (! _windowVisible || ! _displayPoweredOn || ! _rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
+        DashboardRequiresContinuousFrames() || (PageNavigationInProgress() && ! _pageSettleWaiting) || OverlayMotionInProgress() || _dockSlideActive ||
+        DockHidden())
     {
         return;
     }
 
-    uint32_t earliest = 0;
+    uint32_t earliest  = 0;
     uint32_t candidate = 0;
     if (_dashboardHost && _dashboardHost->GetNextFrameDelayMilliseconds(&candidate) == S_OK)
     {
         earliest = candidate;
     }
-    if (!_pageSettleWaiting && _transitionDashboardHost &&
-        _transitionDashboardHost->GetNextFrameDelayMilliseconds(&candidate) == S_OK &&
+    if (! _pageSettleWaiting && _transitionDashboardHost && _transitionDashboardHost->GetNextFrameDelayMilliseconds(&candidate) == S_OK &&
         (earliest == 0 || candidate < earliest))
     {
         earliest = candidate;
@@ -6272,8 +6211,7 @@ void Application::RefreshScheduledFrameDeadline() noexcept
     {
         _scheduledFrameDeadlineTick = GetTickCount64() + earliest;
     }
-    if (_pageSettleWaiting &&
-        (_scheduledFrameDeadlineTick == 0 || _pageConstructionDeadlineTick < _scheduledFrameDeadlineTick))
+    if (_pageSettleWaiting && (_scheduledFrameDeadlineTick == 0 || _pageConstructionDeadlineTick < _scheduledFrameDeadlineTick))
         _scheduledFrameDeadlineTick = _pageConstructionDeadlineTick;
 }
 
@@ -6289,18 +6227,17 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
     RefreshPageEdgeAffordances();
     // Before the dashboard runtime exists there is nothing to show or hide. A dock reaches here early: the app-bar
     // registration blocks in a cross-thread SendMessage, during which the display-power notification is delivered.
-    if (!_dashboardHost || !_rendererReady)
+    if (! _dashboardHost || ! _rendererReady)
     {
         return S_OK;
     }
 
-    const bool visible =
-        _windowVisible && _displayPoweredOn && !_renderer.IsSuspended() && !_renderer.IsOccluded() && !DockHidden();
-    if (!visible && _accessibility)
+    const bool visible = _windowVisible && _displayPoweredOn && ! _renderer.IsSuspended() && ! _renderer.IsOccluded() && ! DockHidden();
+    if (! visible && _accessibility)
         _accessibility->ClearViews();
-    if (!visible)
+    if (! visible)
         ClearKeyboardFocus();
-    if (!visible)
+    if (! visible)
         CancelInteractivePointer();
     HRESULT result = _dashboardHost->SetWidgetsVisible(visible);
     if (SUCCEEDED(result) && _transitionDashboardHost)
@@ -6350,11 +6287,10 @@ void Application::CloseMainWindow(ULONGLONG deadlineTick) noexcept
     }
     // Widgets are gone; services stop now so their device lanes drain before the process runtime tears down. A session
     // end's lanes share what is left of its deadline, less the log flush's reserve.
-    PluginHost::Instance().StopServices(deadlineTick == 0
-                                            ? INFINITE
-                                            : PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadlineTick,
-                                                                                    kSessionEndLogFlushMilliseconds,
-                                                                                    kSessionEndMaximumMilliseconds));
+    PluginHost::Instance().StopServices(
+        deadlineTick == 0
+            ? INFINITE
+            : PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadlineTick, kSessionEndLogFlushMilliseconds, kSessionEndMaximumMilliseconds));
     PluginHost::Instance().SetHostActionHandler(nullptr, nullptr, nullptr);
     PluginHost::Instance().SetSettingsPersistHandler(nullptr, nullptr);
     _window.reset();
@@ -6371,19 +6307,16 @@ void Application::CloseMainWindow(ULONGLONG deadlineTick) noexcept
 void Application::OnEndSession(LPARAM reason) noexcept
 {
     const ULONGLONG deadline = GetTickCount64() + kSessionEndMaximumMilliseconds;
-    const char* message = (reason & ENDSESSION_CLOSEAPP) != 0 ? "Windows asked RedXe to close; RedXe closes now."
-                          : (reason & ENDSESSION_LOGOFF) != 0
-                              ? "The user is signing out; RedXe closes now."
-                              : "Windows is shutting down or restarting; RedXe closes now.";
-    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "session-ending",
-                       message);
+    const char* message      = (reason & ENDSESSION_CLOSEAPP) != 0 ? "Windows asked RedXe to close; RedXe closes now."
+                               : (reason & ENDSESSION_LOGOFF) != 0 ? "The user is signing out; RedXe closes now."
+                                                                   : "Windows is shutting down or restarting; RedXe closes now.";
+    (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelInfo, nullptr, nullptr, "session-ending", message);
     CloseMainWindow(deadline);
-    PluginHost::Instance().StopLaunches(PluginHost::TeardownStageMilliseconds(
-        GetTickCount64(), deadline, kSessionEndLogFlushMilliseconds, LaunchWorker::kStopMilliseconds));
-    PluginHost::Instance().StopConstruction(PluginHost::TeardownStageMilliseconds(
-        GetTickCount64(), deadline, kSessionEndLogFlushMilliseconds, ConstructionWorkQueue::StopMilliseconds));
-    if (FAILED(PluginHost::Instance().FlushLog(
-            PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadline, 0, kSessionEndMaximumMilliseconds))))
+    PluginHost::Instance().StopLaunches(
+        PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadline, kSessionEndLogFlushMilliseconds, LaunchWorker::kStopMilliseconds));
+    PluginHost::Instance().StopConstruction(
+        PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadline, kSessionEndLogFlushMilliseconds, ConstructionWorkQueue::StopMilliseconds));
+    if (FAILED(PluginHost::Instance().FlushLog(PluginHost::TeardownStageMilliseconds(GetTickCount64(), deadline, 0, kSessionEndMaximumMilliseconds))))
     {
         OutputDebugStringW(L"RedXe: the log writer did not drain at session end; its last lines may be lost.\n");
     }
@@ -6395,7 +6328,7 @@ LRESULT CALLBACK Application::WindowProcedure(HWND window, UINT message, WPARAM 
     if (message == WM_NCCREATE)
     {
         const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
-        application = static_cast<Application*>(create->lpCreateParams);
+        application        = static_cast<Application*>(create->lpCreateParams);
         application->_window.reset(window);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(application));
     }
@@ -6413,7 +6346,7 @@ LRESULT CALLBACK Application::SettingsDialogProcedure(HWND window, UINT message,
     if (message == WM_NCCREATE)
     {
         const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
-        application = static_cast<Application*>(create->lpCreateParams);
+        application        = static_cast<Application*>(create->lpCreateParams);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(application));
     }
     if (application && (message == WM_CLOSE || (message == WM_COMMAND && LOWORD(wParam) == IDOK)))
@@ -6460,13 +6393,12 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             _dockPointerPress = DockPress{};
         return 0;
     }
-    const auto refreshAccessibility = wil::scope_exit(
-        [&]() noexcept
-        {
-            if (message == WM_SIZE || message == WM_DPICHANGED || message == WM_SHOWWINDOW ||
-                message == WM_POWERBROADCAST || message == WM_MOVE || message == WM_SETFOCUS || message == WM_KILLFOCUS)
-                RefreshAccessibility();
-        });
+    const auto refreshAccessibility = wil::scope_exit([&]() noexcept
+    {
+        if (message == WM_SIZE || message == WM_DPICHANGED || message == WM_SHOWWINDOW || message == WM_POWERBROADCAST || message == WM_MOVE ||
+            message == WM_SETFOCUS || message == WM_KILLFOCUS)
+            RefreshAccessibility();
+    });
     if (_accessibility && _accessibility->IsMessage(message, wParam))
     {
         HandleAccessibilityRequests();
@@ -6489,519 +6421,493 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
     }
     switch (message)
     {
-    case WM_GETOBJECT:
-        if (static_cast<LONG>(lParam) == UiaRootObjectId)
-        {
-            if (!_accessibility && FAILED(AccessibilityHost::Create(window, _accessibility)))
-                break;
-            RefreshAccessibility();
-            return UiaReturnRawElementProvider(window, wParam, lParam, _accessibility->Provider());
-        }
-        break;
-    case WM_SIZE:
-    {
-        const LRESULT sizeResult = OnSize(window, LOWORD(lParam), HIWORD(lParam));
-        if (wParam != SIZE_MINIMIZED)
-        {
-            ReplayDeferredSettingsReload();
-        }
-        return sizeResult;
-    }
-    case WM_DPICHANGED:
-    {
-        const LRESULT dpiResult = OnDpiChanged(window, LOWORD(wParam), reinterpret_cast<const RECT*>(lParam));
-        CheckDeviceAdapter();
-        return dpiResult;
-    }
-    case WM_ENTERSIZEMOVE:
-        _inSizeMove = true;
-        break;
-    case WM_EXITSIZEMOVE:
-        _inSizeMove = false;
-        CheckDeviceAdapter();
-        ReplayDeferredSettingsReload();
-        break;
-    case WM_DISPLAYCHANGE:
-        // Topology change: a XENEON may have come or gone, which the `secondary` selector of the dock and of the
-        // actions skips, and a dock's selected monitor may have too; re-resolve the selector and re-place.
-        (void)FindXeneonDisplay(_xeneonBounds, _xeneonFound);
-        HostActions::SetXeneonDisplay(_xeneonBounds, _xeneonFound);
-        if (_dockActive)
-        {
-            // A topology change can move what the shell reserved for the bar: reserve again even where nothing on
-            // RedXe's side moved.
-            _dockAppBarStale = true;
-            (void)PlaceDock(true);
-        }
-        CheckDeviceAdapter();
-        break;
-    case WM_SETTINGCHANGE:
-        if (_dockActive && wParam == SPI_SETWORKAREA && !DockReservesWorkArea())
-        {
-            // Another bar or the taskbar changed the work area an overlay dock hugs. A reserving bar or autohide strip
-            // hears about it through ABN_POSCHANGED instead; its own reservation changes the work area too.
-            (void)PlaceDock(true);
-        }
-        break;
-    case TrayIcon::kCommandMessage:
-        OnTrayCommand(static_cast<TrayCommand>(wParam));
-        return 0;
-    case TrayIcon::kAddResultMessage:
-        // Posted by the owner when an add outside Show ended. The icon's state now counts, not the posted outcome: a
-        // settings apply that ran in between may have added the icon, and an icon hidden since then (trayIcon turned
-        // off, or the window closing) has nothing left to record.
-        if (const std::optional<HRESULT> outcome = TrayIconOutcomeOnArrival(_trayIcon.Shown(), _trayIcon.Added()))
-        {
-            RecordTrayIconResult(*outcome);
-        }
-        return 0;
-    case kDockAppBarMessage:
-        if (_dockActive)
-        {
-            if (wParam == ABN_POSCHANGED || wParam == ABN_STATECHANGE)
+        case WM_GETOBJECT:
+            if (static_cast<LONG>(lParam) == UiaRootObjectId)
             {
-                // Another bar or the taskbar moved: query and set the reservation again, as the shell asks.
+                if (! _accessibility && FAILED(AccessibilityHost::Create(window, _accessibility)))
+                    break;
+                RefreshAccessibility();
+                return UiaReturnRawElementProvider(window, wParam, lParam, _accessibility->Provider());
+            }
+            break;
+        case WM_SIZE:
+        {
+            const LRESULT sizeResult = OnSize(window, LOWORD(lParam), HIWORD(lParam));
+            if (wParam != SIZE_MINIMIZED)
+            {
+                ReplayDeferredSettingsReload();
+            }
+            return sizeResult;
+        }
+        case WM_DPICHANGED:
+        {
+            const LRESULT dpiResult = OnDpiChanged(window, LOWORD(wParam), reinterpret_cast<const RECT*>(lParam));
+            CheckDeviceAdapter();
+            return dpiResult;
+        }
+        case WM_ENTERSIZEMOVE: _inSizeMove = true; break;
+        case WM_EXITSIZEMOVE:
+            _inSizeMove = false;
+            CheckDeviceAdapter();
+            ReplayDeferredSettingsReload();
+            break;
+        case WM_DISPLAYCHANGE:
+            // Topology change: a XENEON may have come or gone, which the `secondary` selector of the dock and of the
+            // actions skips, and a dock's selected monitor may have too; re-resolve the selector and re-place.
+            (void)FindXeneonDisplay(_xeneonBounds, _xeneonFound);
+            HostActions::SetXeneonDisplay(_xeneonBounds, _xeneonFound);
+            if (_dockActive)
+            {
+                // A topology change can move what the shell reserved for the bar: reserve again even where nothing on
+                // RedXe's side moved.
                 _dockAppBarStale = true;
                 (void)PlaceDock(true);
             }
-            else if (wParam == ABN_FULLSCREENAPP)
+            CheckDeviceAdapter();
+            break;
+        case WM_SETTINGCHANGE:
+            if (_dockActive && wParam == SPI_SETWORKAREA && ! DockReservesWorkArea())
             {
-                _dockFullscreenAppActive = lParam != 0;
-                ApplyDockZOrder();
+                // Another bar or the taskbar changed the work area an overlay dock hugs. A reserving bar or autohide strip
+                // hears about it through ABN_POSCHANGED instead; its own reservation changes the work area too.
+                (void)PlaceDock(true);
             }
-        }
-        return 0;
-    case WM_ACTIVATE:
-        _windowActive = LOWORD(wParam) != WA_INACTIVE;
-        if (_dockAppBar.registered)
-        {
-            APPBARDATA data{};
-            data.cbSize = sizeof(data);
-            data.hWnd = window;
-            (void)SHAppBarMessage(ABM_ACTIVATE, &data);
-        }
-        EvaluateDockHolds();
-        break;
-    case WM_WINDOWPOSCHANGED:
-        // A placement, a reveal, a hide, a slide step, and a drag preview move the window under _dockResizing: the
-        // placement reports its move itself, and the others send nothing to the shell.
-        if (_dockAppBar.registered && !_dockResizing)
-        {
-            APPBARDATA data{};
-            data.cbSize = sizeof(data);
-            data.hWnd = window;
-            (void)SHAppBarMessage(ABM_WINDOWPOSCHANGED, &data);
-        }
-        break;
-    case WM_TIMER:
-        if (wParam == HostActions::kHeldInputTimerId)
-        {
-            HostActions::OnHeldTimer();
+            break;
+        case TrayIcon::kCommandMessage: OnTrayCommand(static_cast<TrayCommand>(wParam)); return 0;
+        case TrayIcon::kAddResultMessage:
+            // Posted by the owner when an add outside Show ended. The icon's state now counts, not the posted outcome: a
+            // settings apply that ran in between may have added the icon, and an icon hidden since then (trayIcon turned
+            // off, or the window closing) has nothing left to record.
+            if (const std::optional<HRESULT> outcome = TrayIconOutcomeOnArrival(_trayIcon.Shown(), _trayIcon.Added()))
+            {
+                RecordTrayIconResult(*outcome);
+            }
             return 0;
-        }
-        if (wParam == kDockDashboardResizeTimerId)
-        {
-            (void)KillTimer(window, kDockDashboardResizeTimerId);
-            FlushDockDashboardResize();
+        case kDockAppBarMessage:
+            if (_dockActive)
+            {
+                if (wParam == ABN_POSCHANGED || wParam == ABN_STATECHANGE)
+                {
+                    // Another bar or the taskbar moved: query and set the reservation again, as the shell asks.
+                    _dockAppBarStale = true;
+                    (void)PlaceDock(true);
+                }
+                else if (wParam == ABN_FULLSCREENAPP)
+                {
+                    _dockFullscreenAppActive = lParam != 0;
+                    ApplyDockZOrder();
+                }
+            }
             return 0;
-        }
-        if (wParam == kDockTimerId)
-        {
-            KillDockTimer();
-            OnDockEvent(_dockReveal == DockRevealState::RevealPending ? DockRevealEvent::DwellElapsed
-                                                                      : DockRevealEvent::HideElapsed);
+        case WM_ACTIVATE:
+            _windowActive = LOWORD(wParam) != WA_INACTIVE;
+            if (_dockAppBar.registered)
+            {
+                APPBARDATA data{};
+                data.cbSize = sizeof(data);
+                data.hWnd   = window;
+                (void)SHAppBarMessage(ABM_ACTIVATE, &data);
+            }
+            EvaluateDockHolds();
+            break;
+        case WM_WINDOWPOSCHANGED:
+            // A placement, a reveal, a hide, a slide step, and a drag preview move the window under _dockResizing: the
+            // placement reports its move itself, and the others send nothing to the shell.
+            if (_dockAppBar.registered && ! _dockResizing)
+            {
+                APPBARDATA data{};
+                data.cbSize = sizeof(data);
+                data.hWnd   = window;
+                (void)SHAppBarMessage(ABM_WINDOWPOSCHANGED, &data);
+            }
+            break;
+        case WM_TIMER:
+            if (wParam == HostActions::kHeldInputTimerId)
+            {
+                HostActions::OnHeldTimer();
+                return 0;
+            }
+            if (wParam == kDockDashboardResizeTimerId)
+            {
+                (void)KillTimer(window, kDockDashboardResizeTimerId);
+                FlushDockDashboardResize();
+                return 0;
+            }
+            if (wParam == kDockTimerId)
+            {
+                KillDockTimer();
+                OnDockEvent(_dockReveal == DockRevealState::RevealPending ? DockRevealEvent::DwellElapsed : DockRevealEvent::HideElapsed);
+                return 0;
+            }
+            break;
+        case WM_SHOWWINDOW:
+            _windowVisible = wParam != FALSE;
+            ClearScheduledFrameDeadline();
+            if (_windowVisible)
+            {
+                _frameInvalidated = true;
+            }
+            if (const HRESULT result = UpdateDashboardVisibility(); FAILED(result))
+            {
+                RecordRuntimeFailure(result, "visibility-failed");
+                PostMessageW(window, WM_CLOSE, 0, 0);
+            }
             return 0;
-        }
-        break;
-    case WM_SHOWWINDOW:
-        _windowVisible = wParam != FALSE;
-        ClearScheduledFrameDeadline();
-        if (_windowVisible)
-        {
+        case WM_POWERBROADCAST:
+            if (wParam == PBT_POWERSETTINGCHANGE && lParam != 0)
+            {
+                const auto* setting = reinterpret_cast<const POWERBROADCAST_SETTING*>(lParam);
+                if (IsEqualGUID(setting->PowerSetting, GUID_SESSION_DISPLAY_STATUS) && setting->DataLength >= sizeof(DWORD))
+                {
+                    const bool wasDisplayPoweredOn = _displayPoweredOn;
+                    DWORD displayState             = PowerMonitorOn;
+                    std::memcpy(&displayState, setting->Data, sizeof(displayState));
+                    _displayPoweredOn = displayState != PowerMonitorOff;
+                    ClearScheduledFrameDeadline();
+                    if (! wasDisplayPoweredOn && _displayPoweredOn)
+                    {
+                        _frameInvalidated = true;
+                    }
+                    if (const HRESULT result = UpdateDashboardVisibility(); FAILED(result))
+                    {
+                        RecordRuntimeFailure(result, "visibility-failed");
+                        PostMessageW(window, WM_CLOSE, 0, 0);
+                    }
+                }
+            }
+            return TRUE;
+        case WM_TIMECHANGE:
+            ClearScheduledFrameDeadline();
             _frameInvalidated = true;
-        }
-        if (const HRESULT result = UpdateDashboardVisibility(); FAILED(result))
-        {
-            RecordRuntimeFailure(result, "visibility-failed");
-            PostMessageW(window, WM_CLOSE, 0, 0);
-        }
-        return 0;
-    case WM_POWERBROADCAST:
-        if (wParam == PBT_POWERSETTINGCHANGE && lParam != 0)
-        {
-            const auto* setting = reinterpret_cast<const POWERBROADCAST_SETTING*>(lParam);
-            if (IsEqualGUID(setting->PowerSetting, GUID_SESSION_DISPLAY_STATUS) && setting->DataLength >= sizeof(DWORD))
+            return 0;
+        case Renderer::kOcclusionStatusMessage: _occlusionStatusChanged = true; return 0;
+        case kScreenshotCompleteMessage:
+            if (_screenshotWorker.joinable())
             {
-                const bool wasDisplayPoweredOn = _displayPoweredOn;
-                DWORD displayState = PowerMonitorOn;
-                std::memcpy(&displayState, setting->Data, sizeof(displayState));
-                _displayPoweredOn = displayState != PowerMonitorOff;
-                ClearScheduledFrameDeadline();
-                if (!wasDisplayPoweredOn && _displayPoweredOn)
-                {
-                    _frameInvalidated = true;
-                }
-                if (const HRESULT result = UpdateDashboardVisibility(); FAILED(result))
-                {
-                    RecordRuntimeFailure(result, "visibility-failed");
-                    PostMessageW(window, WM_CLOSE, 0, 0);
-                }
+                _screenshotWorker.join();
+                _screenshot.result   = _screenshotWorkerResult;
+                _screenshot.complete = true;
             }
-        }
-        return TRUE;
-    case WM_TIMECHANGE:
-        ClearScheduledFrameDeadline();
-        _frameInvalidated = true;
-        return 0;
-    case Renderer::kOcclusionStatusMessage:
-        _occlusionStatusChanged = true;
-        return 0;
-    case kScreenshotCompleteMessage:
-        if (_screenshotWorker.joinable())
-        {
-            _screenshotWorker.join();
-            _screenshot.result = _screenshotWorkerResult;
-            _screenshot.complete = true;
-        }
-        return 0;
-    case PluginHost::kDataSnapshotInvalidateMessage:
-        PluginHost::Instance().AcknowledgeUiInvalidate();
-        _frameInvalidated = true;
-        return 0;
-    case PluginHost::kHostActionMessage:
-        PluginHost::Instance().DrainHostActions();
-        return 0;
-    case PluginHost::kServiceLaneMessage:
-        // A device lane that overran its stop has returned: the apply reaps its slot and starts the service again
-        // when the document still configures it.
-        if (_settings)
-        {
-            (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
-            PublishHostState();
-        }
-        return 0;
-    case SettingsWatcher::kSettingsChangedMessage:
-        OnSettingsChanged();
-        return 0;
-    case WM_MOUSEACTIVATE:
-        return MA_ACTIVATE;
-    case WM_POINTERACTIVATE:
-        return MA_ACTIVATE;
-    case WM_POINTERDOWN:
-    {
-        const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-        const DockInputRoute route = DockRouteInput(DockInput::Press, DockHiddenOrHiding(), _dockSlideActive);
-        // A contact on a bar still sliding in completes the slide first, so the tiles are where they will stay, and
-        // keeps the settle's shift so it reaches the tile that was under it on screen (TryPointerClientPosition).
-        BeginDockPress(_dockPointerPress, pointerId, route);
-        if (route == DockInputRoute::RevealOnly)
-        {
-            // A touch or pen contact on the peek strip, or on a bar sliding out, reveals at once; the contact itself,
-            // up to its release, goes nowhere because no tile was on screen under it.
-            OnDockEvent(DockRevealEvent::TouchOnStrip);
             return 0;
-        }
-        OnPointerDown(window, wParam, lParam);
-        return 0;
-    }
-    case WM_POINTERUPDATE:
-        if (_dockPointerPress.active && _dockPointerPress.revealOnly &&
-            _dockPointerPress.pointerId == GET_POINTERID_WPARAM(wParam))
-        {
+        case PluginHost::kDataSnapshotInvalidateMessage:
+            PluginHost::Instance().AcknowledgeUiInvalidate();
+            _frameInvalidated = true;
             return 0;
-        }
-        OnPointerUpdate(window, wParam, lParam);
-        return _pagePanStarted ? 1 : 0;
-    case WM_POINTERUP:
-    {
-        const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-        const bool recorded = _dockPointerPress.active && _dockPointerPress.pointerId == pointerId;
-        if (!recorded || !_dockPointerPress.revealOnly)
-        {
-            OnPointerUp(window, wParam, lParam);
-        }
-        if (recorded)
-        {
-            _dockPointerPress = DockPress{};
-        }
-        return 0;
-    }
-    case WM_LBUTTONDOWN:
-    {
-        const DockInputRoute route = DockRouteInput(DockInput::Press, DockHiddenOrHiding(), _dockSlideActive);
-        POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-        // A click on a bar still sliding in completes the slide first and is routed with the settle's shift to what
-        // was under it on screen. lParam is client space before the settle, which moves a bottom or right bar's
-        // client origin, so the point crosses the settle in screen space.
-        const bool throughScreen = route == DockInputRoute::SettleShifted && ClientToScreen(window, &position) != FALSE;
-        BeginDockPress(_dockMousePress, 0, route);
-        if (route == DockInputRoute::RevealOnly)
-        {
-            // A click on the strip, or on a bar sliding out, is as deliberate as a touch: reveal without waiting for
-            // the dwell. The click itself, up to its release, goes nowhere.
-            OnDockEvent(DockRevealEvent::TouchOnStrip);
-            return 0;
-        }
-        if (throughScreen)
-        {
-            (void)ScreenToClient(window, &position);
-        }
-        position = DockPressPoint(_dockMousePress, 0, position);
-        if (!IsPointerSynthesizedMouseMessage() && PointInDockResizeBand(position))
-        {
-            BeginDockResize(window);
-            return 0;
-        }
-        OnMouseButtonDown(window, position);
-        return 0;
-    }
-    case WM_LBUTTONUP:
-    {
-        const DockPress press = std::exchange(_dockMousePress, DockPress{});
-        if (_dockResizeDrag)
-        {
-            UpdateDockResize();
-            EndDockResize();
-            return 0;
-        }
-        if (DockHiddenOrHiding() || (press.active && press.revealOnly))
-        {
-            return 0;
-        }
-        OnMouseButtonUp(window, DockPressPoint(press, 0, POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}));
-        return 0;
-    }
-    case WM_MOUSEWHEEL:
-    case WM_MOUSEHWHEEL:
-        if (DockRouteInput(DockInput::Wheel, DockHiddenOrHiding(), _dockSlideActive) == DockInputRoute::Drop)
-        {
-            // The strip and a bar sliding out show no dashboard: a wheel there neither snaps the bar shut nor scrolls
-            // or pages a widget nobody can see, and no partial detent or widget latch survives it.
-            _wheel.Reset();
-            return 0;
-        }
-        // On a bar sliding in the wheel reaches the tile under it as this frame shows it, without settling; a page
-        // detent settles the slide itself (NavigateToAdjacentPage).
-        OnMouseWheel(window, wParam, lParam, message == WM_MOUSEWHEEL ? WheelAxis::Vertical : WheelAxis::Horizontal);
-        return 0;
-    case WM_MOUSEMOVE:
-        // The top-level window owns edge-band hover: a band is created only while the pointer is inside its zone.
-        if (!IsPointerSynthesizedMouseMessage())
-        {
-            if ((wParam & MK_LBUTTON) == 0)
+        case PluginHost::kHostActionMessage: PluginHost::Instance().DrainHostActions(); return 0;
+        case PluginHost::kServiceLaneMessage:
+            // A device lane that overran its stop has returned: the apply reaps its slot and starts the service again
+            // when the document still configures it.
+            if (_settings)
             {
-                // The button is up, so a recorded press has ended even when its release went to another window.
-                _dockMousePress = DockPress{};
+                (void)PluginHost::Instance().ApplyServiceSettings(*_settings);
+                PublishHostState();
             }
+            return 0;
+        case SettingsWatcher::kSettingsChangedMessage: OnSettingsChanged(); return 0;
+        case WM_MOUSEACTIVATE: return MA_ACTIVATE;
+        case WM_POINTERACTIVATE: return MA_ACTIVATE;
+        case WM_POINTERDOWN:
+        {
+            const UINT32 pointerId     = GET_POINTERID_WPARAM(wParam);
+            const DockInputRoute route = DockRouteInput(DockInput::Press, DockHiddenOrHiding(), _dockSlideActive);
+            // A contact on a bar still sliding in completes the slide first, so the tiles are where they will stay, and
+            // keeps the settle's shift so it reaches the tile that was under it on screen (TryPointerClientPosition).
+            BeginDockPress(_dockPointerPress, pointerId, route);
+            if (route == DockInputRoute::RevealOnly)
+            {
+                // A touch or pen contact on the peek strip, or on a bar sliding out, reveals at once; the contact itself,
+                // up to its release, goes nowhere because no tile was on screen under it.
+                OnDockEvent(DockRevealEvent::TouchOnStrip);
+                return 0;
+            }
+            OnPointerDown(window, wParam, lParam);
+            return 0;
+        }
+        case WM_POINTERUPDATE:
+            if (_dockPointerPress.active && _dockPointerPress.revealOnly && _dockPointerPress.pointerId == GET_POINTERID_WPARAM(wParam))
+            {
+                return 0;
+            }
+            OnPointerUpdate(window, wParam, lParam);
+            return _pagePanStarted ? 1 : 0;
+        case WM_POINTERUP:
+        {
+            const UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+            const bool recorded    = _dockPointerPress.active && _dockPointerPress.pointerId == pointerId;
+            if (! recorded || ! _dockPointerPress.revealOnly)
+            {
+                OnPointerUp(window, wParam, lParam);
+            }
+            if (recorded)
+            {
+                _dockPointerPress = DockPress{};
+            }
+            return 0;
+        }
+        case WM_LBUTTONDOWN:
+        {
+            const DockInputRoute route = DockRouteInput(DockInput::Press, DockHiddenOrHiding(), _dockSlideActive);
+            POINT position{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            // A click on a bar still sliding in completes the slide first and is routed with the settle's shift to what
+            // was under it on screen. lParam is client space before the settle, which moves a bottom or right bar's
+            // client origin, so the point crosses the settle in screen space.
+            const bool throughScreen = route == DockInputRoute::SettleShifted && ClientToScreen(window, &position) != FALSE;
+            BeginDockPress(_dockMousePress, 0, route);
+            if (route == DockInputRoute::RevealOnly)
+            {
+                // A click on the strip, or on a bar sliding out, is as deliberate as a touch: reveal without waiting for
+                // the dwell. The click itself, up to its release, goes nowhere.
+                OnDockEvent(DockRevealEvent::TouchOnStrip);
+                return 0;
+            }
+            if (throughScreen)
+            {
+                (void)ScreenToClient(window, &position);
+            }
+            position = DockPressPoint(_dockMousePress, 0, position);
+            if (! IsPointerSynthesizedMouseMessage() && PointInDockResizeBand(position))
+            {
+                BeginDockResize(window);
+                return 0;
+            }
+            OnMouseButtonDown(window, position);
+            return 0;
+        }
+        case WM_LBUTTONUP:
+        {
+            const DockPress press = std::exchange(_dockMousePress, DockPress{});
             if (_dockResizeDrag)
             {
                 UpdateDockResize();
+                EndDockResize();
                 return 0;
             }
-            if (!_pageEdgeMouseTracking)
+            if (DockHiddenOrHiding() || (press.active && press.revealOnly))
             {
-                TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, window, 0};
-                _pageEdgeMouseTracking = TrackMouseEvent(&track) != FALSE;
+                return 0;
             }
-            if (!_dockPointerInside)
+            OnMouseButtonUp(window, DockPressPoint(press, 0, POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}));
+            return 0;
+        }
+        case WM_MOUSEWHEEL:
+        case WM_MOUSEHWHEEL:
+            if (DockRouteInput(DockInput::Wheel, DockHiddenOrHiding(), _dockSlideActive) == DockInputRoute::Drop)
             {
-                _dockPointerInside = true;
-                if (DockHiddenOrHiding())
+                // The strip and a bar sliding out show no dashboard: a wheel there neither snaps the bar shut nor scrolls
+                // or pages a widget nobody can see, and no partial detent or widget latch survives it.
+                _wheel.Reset();
+                return 0;
+            }
+            // On a bar sliding in the wheel reaches the tile under it as this frame shows it, without settling; a page
+            // detent settles the slide itself (NavigateToAdjacentPage).
+            OnMouseWheel(window, wParam, lParam, message == WM_MOUSEWHEEL ? WheelAxis::Vertical : WheelAxis::Horizontal);
+            return 0;
+        case WM_MOUSEMOVE:
+            // The top-level window owns edge-band hover: a band is created only while the pointer is inside its zone.
+            if (! IsPointerSynthesizedMouseMessage())
+            {
+                if ((wParam & MK_LBUTTON) == 0)
                 {
-                    // The strip is the window itself, and so is a bar sliding out: a real mouse move over it starts
-                    // the reveal dwell.
-                    OnDockEvent(DockRevealEvent::PointerEnteredStrip);
+                    // The button is up, so a recorded press has ended even when its release went to another window.
+                    _dockMousePress = DockPress{};
+                }
+                if (_dockResizeDrag)
+                {
+                    UpdateDockResize();
                     return 0;
                 }
-                EvaluateDockHolds();
+                if (! _pageEdgeMouseTracking)
+                {
+                    TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, window, 0};
+                    _pageEdgeMouseTracking = TrackMouseEvent(&track) != FALSE;
+                }
+                if (! _dockPointerInside)
+                {
+                    _dockPointerInside = true;
+                    if (DockHiddenOrHiding())
+                    {
+                        // The strip is the window itself, and so is a bar sliding out: a real mouse move over it starts
+                        // the reveal dwell.
+                        OnDockEvent(DockRevealEvent::PointerEnteredStrip);
+                        return 0;
+                    }
+                    EvaluateDockHolds();
+                }
+                if (DockHiddenOrHiding())
+                    return 0;
+                (void)ForwardInteractivePointer(DockPressPoint(_dockMousePress, 0, POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}),
+                                                1,
+                                                RedXePointerKindMouse,
+                                                RedXePointerPhaseMove,
+                                                nullptr);
+                if (_interactiveOwnsPointer)
+                    return 0;
+                UpdatePageEdgeHover();
+                SetRaiseCloseHovered(_raisedActive && PointInRectInclusive(_raisedLayout.close, POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}));
             }
-            if (DockHiddenOrHiding())
-                return 0;
-            (void)ForwardInteractivePointer(
-                DockPressPoint(_dockMousePress, 0, POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}), 1,
-                RedXePointerKindMouse, RedXePointerPhaseMove, nullptr);
-            if (_interactiveOwnsPointer)
-                return 0;
-            UpdatePageEdgeHover();
-            SetRaiseCloseHovered(
-                _raisedActive &&
-                PointInRectInclusive(_raisedLayout.close, POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}));
-        }
-        return 0;
-    case kPageEdgeHoverMessage:
-        UpdatePageEdgeHover();
-        return 0;
-    case WM_SETCURSOR:
-        if (LOWORD(lParam) == HTCLIENT)
-        {
-            POINT cursor{};
-            if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor))
+            return 0;
+        case kPageEdgeHoverMessage: UpdatePageEdgeHover(); return 0;
+        case WM_SETCURSOR:
+            if (LOWORD(lParam) == HTCLIENT)
             {
-                if (_dockResizeDrag || PointInDockResizeBand(cursor))
+                POINT cursor{};
+                if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor))
                 {
-                    SetCursor(LoadCursorW(nullptr, DockEdgeIsHorizontal(_dock.edge) ? IDC_SIZENS : IDC_SIZEWE));
-                    return TRUE;
-                }
-                if (_raisedActive && PointInRectInclusive(_raisedLayout.close, cursor))
-                {
-                    SetCursor(LoadCursorW(nullptr, IDC_HAND));
-                    return TRUE;
-                }
-                const PageEdgeState state = CurrentPageEdgeState();
-                const RECT reachable = ReachableClientRect();
-                const UINT dpi = GetDpiForWindow(window);
-                for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
-                {
-                    const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
-                    const RECT band = PageEdgeBandRectIn(reachable, direction, dpi);
-                    if (PageEdgeClickNavigates(state, direction, band, cursor))
+                    if (_dockResizeDrag || PointInDockResizeBand(cursor))
+                    {
+                        SetCursor(LoadCursorW(nullptr, DockEdgeIsHorizontal(_dock.edge) ? IDC_SIZENS : IDC_SIZEWE));
+                        return TRUE;
+                    }
+                    if (_raisedActive && PointInRectInclusive(_raisedLayout.close, cursor))
                     {
                         SetCursor(LoadCursorW(nullptr, IDC_HAND));
                         return TRUE;
                     }
+                    const PageEdgeState state = CurrentPageEdgeState();
+                    const RECT reachable      = ReachableClientRect();
+                    const UINT dpi            = GetDpiForWindow(window);
+                    for (size_t index = 0; index < _pageEdgeBands.size(); ++index)
+                    {
+                        const int direction = index == 0 ? kPageEdgeDirectionPrevious : kPageEdgeDirectionNext;
+                        const RECT band     = PageEdgeBandRectIn(reachable, direction, dpi);
+                        if (PageEdgeClickNavigates(state, direction, band, cursor))
+                        {
+                            SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                            return TRUE;
+                        }
+                    }
                 }
             }
-        }
-        break;
-    case WM_MOUSELEAVE:
-        _pageEdgeMouseTracking = false;
-        // Entering a native container is also a leave for the parent, so re-test the cursor instead of hiding
-        // unconditionally.
-        UpdatePageEdgeHover();
-        SetRaiseCloseHovered(false);
-        if (_dockActive)
-        {
-            POINT cursor{};
-            RECT bounds{};
-            const bool stillInside = GetCursorPos(&cursor) && GetWindowRect(window, &bounds) &&
-                                     PtInRect(&bounds, cursor) && WindowFromPoint(cursor) != nullptr &&
-                                     (WindowFromPoint(cursor) == window || IsChild(window, WindowFromPoint(cursor)));
-            if (!stillInside && _dockPointerInside)
+            break;
+        case WM_MOUSELEAVE:
+            _pageEdgeMouseTracking = false;
+            // Entering a native container is also a leave for the parent, so re-test the cursor instead of hiding
+            // unconditionally.
+            UpdatePageEdgeHover();
+            SetRaiseCloseHovered(false);
+            if (_dockActive)
             {
-                _dockPointerInside = false;
-                if (_dockReveal == DockRevealState::RevealPending)
-                    OnDockEvent(DockRevealEvent::PointerLeft);
-                else
-                    EvaluateDockHolds();
-            }
-        }
-        else
-        {
-            _dockPointerInside = false;
-        }
-        return 0;
-    case WM_CANCELMODE:
-        CancelPageNavigation();
-        [[fallthrough]];
-    case WM_KILLFOCUS:
-        CancelInteractivePointer();
-        ClearKeyboardFocus();
-        break;
-    case WM_CAPTURECHANGED:
-        if (_dockResizeDrag && reinterpret_cast<HWND>(lParam) != window)
-        {
-            // Capture taken away mid-drag (Alt+Tab, a modal): keep the size reached so far and commit it.
-            EndDockResize();
-        }
-        if (_interactiveOwnsPointer && _interactivePointerKind == RedXePointerKindMouse &&
-            reinterpret_cast<HWND>(lParam) != window)
-            CancelInteractivePointer();
-        break;
-    case WM_GETMINMAXINFO:
-    {
-        auto* minimums = reinterpret_cast<MINMAXINFO*>(lParam);
-        if (_dockActive)
-        {
-            if (_dockFullRect.right > _dockFullRect.left && _dockMonitorRect.right > _dockMonitorRect.left)
-            {
-                DockMinMaxInfo(_dockMonitorRect, _dock.edge, DockPeekPixels(), _dock.mode == DockMode::Autohide,
-                               _dockFullRect, *minimums);
+                POINT cursor{};
+                RECT bounds{};
+                const bool stillInside = GetCursorPos(&cursor) && GetWindowRect(window, &bounds) && PtInRect(&bounds, cursor) &&
+                                         WindowFromPoint(cursor) != nullptr && (WindowFromPoint(cursor) == window || IsChild(window, WindowFromPoint(cursor)));
+                if (! stillInside && _dockPointerInside)
+                {
+                    _dockPointerInside = false;
+                    if (_dockReveal == DockRevealState::RevealPending)
+                        OnDockEvent(DockRevealEvent::PointerLeft);
+                    else
+                        EvaluateDockHolds();
+                }
             }
             else
             {
-                // Before the first placement: no minimum, so the creation and placement rectangles are honoured.
-                minimums->ptMinTrackSize = POINT{1, 1};
+                _dockPointerInside = false;
             }
             return 0;
-        }
-        minimums->ptMinTrackSize = POINT{480, 320};
-        const UINT dpi = GetDpiForWindow(window);
-        SIZE defaultWindowSize{};
-        const DWORD windowStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
-        const DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
-        if (SUCCEEDED(CalculateWindowSizeForDpi(windowStyle, extendedStyle, dpi, defaultWindowSize)))
-        {
-            minimums->ptMaxTrackSize.x = std::max(minimums->ptMaxTrackSize.x, defaultWindowSize.cx);
-            minimums->ptMaxTrackSize.y = std::max(minimums->ptMaxTrackSize.y, defaultWindowSize.cy);
-        }
-        return 0;
-    }
-    case WM_MOVE:
-        if (_textClient)
-            RefreshTextServices(true);
-        CheckDeviceAdapter();
-        break;
-    case WM_KEYDOWN:
-        if (ForwardWidgetKey(static_cast<uint32_t>(wParam), true))
-            return 0;
-        if (wParam == VK_ESCAPE)
-        {
-            if (_raisedActive)
+        case WM_CANCELMODE: CancelPageNavigation(); [[fallthrough]];
+        case WM_KILLFOCUS:
+            CancelInteractivePointer();
+            ClearKeyboardFocus();
+            break;
+        case WM_CAPTURECHANGED:
+            if (_dockResizeDrag && reinterpret_cast<HWND>(lParam) != window)
             {
-                DismissWidgetRaise(true);
+                // Capture taken away mid-drag (Alt+Tab, a modal): keep the size reached so far and commit it.
+                EndDockResize();
+            }
+            if (_interactiveOwnsPointer && _interactivePointerKind == RedXePointerKindMouse && reinterpret_cast<HWND>(lParam) != window)
+                CancelInteractivePointer();
+            break;
+        case WM_GETMINMAXINFO:
+        {
+            auto* minimums = reinterpret_cast<MINMAXINFO*>(lParam);
+            if (_dockActive)
+            {
+                if (_dockFullRect.right > _dockFullRect.left && _dockMonitorRect.right > _dockMonitorRect.left)
+                {
+                    DockMinMaxInfo(_dockMonitorRect, _dock.edge, DockPeekPixels(), _dock.mode == DockMode::Autohide, _dockFullRect, *minimums);
+                }
+                else
+                {
+                    // Before the first placement: no minimum, so the creation and placement rectangles are honoured.
+                    minimums->ptMinTrackSize = POINT{1, 1};
+                }
                 return 0;
             }
-            CloseMainWindow();
+            minimums->ptMinTrackSize = POINT{480, 320};
+            const UINT dpi           = GetDpiForWindow(window);
+            SIZE defaultWindowSize{};
+            const DWORD windowStyle   = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
+            const DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
+            if (SUCCEEDED(CalculateWindowSizeForDpi(windowStyle, extendedStyle, dpi, defaultWindowSize)))
+            {
+                minimums->ptMaxTrackSize.x = std::max(minimums->ptMaxTrackSize.x, defaultWindowSize.cx);
+                minimums->ptMaxTrackSize.y = std::max(minimums->ptMaxTrackSize.y, defaultWindowSize.cy);
+            }
             return 0;
         }
-        break;
-    case WM_KEYUP:
-        if (ForwardWidgetKey(static_cast<uint32_t>(wParam), false))
+        case WM_MOVE:
+            if (_textClient)
+                RefreshTextServices(true);
+            CheckDeviceAdapter();
+            break;
+        case WM_KEYDOWN:
+            if (ForwardWidgetKey(static_cast<uint32_t>(wParam), true))
+                return 0;
+            if (wParam == VK_ESCAPE)
+            {
+                if (_raisedActive)
+                {
+                    DismissWidgetRaise(true);
+                    return 0;
+                }
+                CloseMainWindow();
+                return 0;
+            }
+            break;
+        case WM_KEYUP:
+            if (ForwardWidgetKey(static_cast<uint32_t>(wParam), false))
+                return 0;
+            break;
+        case WM_CHAR:
+            if (ForwardWidgetCharacter(static_cast<uint32_t>(wParam)))
+                return 0;
+            break;
+        case WM_ERASEBKGND: return 1;
+        case WM_PAINT:
+            _frameInvalidated = true;
+            ValidateRect(window, nullptr);
             return 0;
-        break;
-    case WM_CHAR:
-        if (ForwardWidgetCharacter(static_cast<uint32_t>(wParam)))
+        case WM_CREATE:
+            // Before CreateDockWindow's first placement and its ABM_NEW (RegisterWindowClass registered the message).
+            _taskbarCreatedAdmitted =
+                _taskbarCreatedMessage != 0 && ChangeWindowMessageFilterEx(window, _taskbarCreatedMessage, MSGFLT_ALLOW, nullptr) != FALSE;
+            break;
+        case WM_CLOSE: CloseMainWindow(); return 0;
+        case WM_QUERYENDSESSION:
+            // RedXe never vetoes sign-out, restart, or shutdown; it closes on WM_ENDSESSION.
+            return TRUE;
+        case WM_ENDSESSION:
+            if (wParam != FALSE)
+            {
+                OnEndSession(lParam);
+            }
             return 0;
-        break;
-    case WM_ERASEBKGND:
-        return 1;
-    case WM_PAINT:
-        _frameInvalidated = true;
-        ValidateRect(window, nullptr);
-        return 0;
-    case WM_CREATE:
-        // Before CreateDockWindow's first placement and its ABM_NEW (RegisterWindowClass registered the message).
-        _taskbarCreatedAdmitted =
-            _taskbarCreatedMessage != 0 &&
-            ChangeWindowMessageFilterEx(window, _taskbarCreatedMessage, MSGFLT_ALLOW, nullptr) != FALSE;
-        break;
-    case WM_CLOSE:
-        CloseMainWindow();
-        return 0;
-    case WM_QUERYENDSESSION:
-        // RedXe never vetoes sign-out, restart, or shutdown; it closes on WM_ENDSESSION.
-        return TRUE;
-    case WM_ENDSESSION:
-        if (wParam != FALSE)
+        case WM_DESTROY:
+            _displayPowerNotification.reset();
+            PostQuitMessage(0);
+            return 0;
+        case WM_NCDESTROY:
         {
-            OnEndSession(lParam);
+            if (_window.get() == window)
+            {
+                (void)_window.release();
+            }
+            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+            return DefWindowProcW(window, message, wParam, lParam);
         }
-        return 0;
-    case WM_DESTROY:
-        _displayPowerNotification.reset();
-        PostQuitMessage(0);
-        return 0;
-    case WM_NCDESTROY:
-    {
-        if (_window.get() == window)
-        {
-            (void)_window.release();
-        }
-        SetWindowLongPtrW(window, GWLP_USERDATA, 0);
-        return DefWindowProcW(window, message, wParam, lParam);
-    }
-    default:
-        break;
+        default: break;
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }
@@ -7019,7 +6925,7 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
     ClearKeyboardFocus();
     CancelInteractivePointer();
     const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });
-    if (!_rendererReady)
+    if (! _rendererReady)
     {
         return 0;
     }
@@ -7032,8 +6938,7 @@ LRESULT Application::OnSize(HWND window, UINT width, UINT height) noexcept
     ClearScheduledFrameDeadline();
 
     const UINT dpi = GetDpiForWindow(window);
-    HRESULT result =
-        dpi != 0 && _dashboardHost ? _dashboardHost->Resize(width, height, dpi) : HRESULT_FROM_WIN32(GetLastError());
+    HRESULT result = dpi != 0 && _dashboardHost ? _dashboardHost->Resize(width, height, dpi) : HRESULT_FROM_WIN32(GetLastError());
     if (SUCCEEDED(result))
     {
         result = _renderer.Resize(width, height);
@@ -7060,7 +6965,7 @@ LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBo
     ClearKeyboardFocus();
     CancelInteractivePointer();
     const auto refreshEdges = wil::scope_exit([this]() noexcept { RefreshPageEdgeAffordances(); });
-    if (!suggestedBounds)
+    if (! suggestedBounds)
     {
         return 0;
     }
@@ -7084,8 +6989,8 @@ LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBo
         return 0;
     }
 
-    int width = suggestedBounds->right - suggestedBounds->left;
-    int height = suggestedBounds->bottom - suggestedBounds->top;
+    int width               = suggestedBounds->right - suggestedBounds->left;
+    int height              = suggestedBounds->bottom - suggestedBounds->top;
     const DWORD windowStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
     if ((windowStyle & WS_CAPTION) != 0)
     {
@@ -7093,33 +6998,32 @@ LRESULT Application::OnDpiChanged(HWND window, UINT dpi, const RECT* suggestedBo
         SIZE windowSize{};
         if (SUCCEEDED(CalculateWindowSizeForDpi(windowStyle, extendedStyle, dpi, windowSize)))
         {
-            width = windowSize.cx;
+            width  = windowSize.cx;
             height = windowSize.cy;
         }
     }
 
-    SetWindowPos(window, nullptr, suggestedBounds->left, suggestedBounds->top, width, height,
-                 SWP_NOACTIVATE | SWP_NOZORDER);
+    SetWindowPos(window, nullptr, suggestedBounds->left, suggestedBounds->top, width, height, SWP_NOACTIVATE | SWP_NOZORDER);
     return 0;
 }
 
 HRESULT Application::HandleOleDragOver(POINT client, DWORD* effect) noexcept
 {
-    if (!effect)
+    if (! effect)
     {
         return E_POINTER;
     }
-    *effect = DROPEFFECT_NONE;
+    *effect      = DROPEFFECT_NONE;
     size_t index = SIZE_MAX;
     float localX = 0.0f;
     float localY = 0.0f;
-    if (!HitInteractiveLocal(client, index, localX, localY))
+    if (! HitInteractiveLocal(client, index, localX, localY))
     {
         HandleOleDragLeave();
         return S_OK;
     }
     IRedXeInteractiveWidget* widget = _dashboardHost->InteractiveWidgetAt(index);
-    if (!widget)
+    if (! widget)
     {
         HandleOleDragLeave();
         return S_OK;
@@ -7142,13 +7046,13 @@ HRESULT Application::HandleOleDragOver(POINT client, DWORD* effect) noexcept
 
 void Application::HandleOleDragLeave() noexcept
 {
-    if (_dragWidgetIndex == SIZE_MAX || !_dashboardHost)
+    if (_dragWidgetIndex == SIZE_MAX || ! _dashboardHost)
     {
         _dragWidgetIndex = SIZE_MAX;
         return;
     }
     IRedXeInteractiveWidget* widget = _dashboardHost->InteractiveWidgetAt(_dragWidgetIndex);
-    _dragWidgetIndex = SIZE_MAX;
+    _dragWidgetIndex                = SIZE_MAX;
     if (widget)
     {
         (void)widget->OnDragLeave();
@@ -7157,21 +7061,21 @@ void Application::HandleOleDragLeave() noexcept
 
 HRESULT Application::HandleOleDrop(POINT client, const wchar_t* const* targets, uint32_t count, DWORD* effect) noexcept
 {
-    if (!effect)
+    if (! effect)
     {
         return E_POINTER;
     }
-    *effect = DROPEFFECT_NONE;
-    size_t index = SIZE_MAX;
-    float localX = 0.0f;
-    float localY = 0.0f;
+    *effect                         = DROPEFFECT_NONE;
+    size_t index                    = SIZE_MAX;
+    float localX                    = 0.0f;
+    float localY                    = 0.0f;
     IRedXeInteractiveWidget* widget = nullptr;
     if (HitInteractiveLocal(client, index, localX, localY) && _dashboardHost)
     {
         widget = _dashboardHost->InteractiveWidgetAt(index);
     }
     HandleOleDragLeave();
-    if (!widget || !targets || count == 0)
+    if (! widget || ! targets || count == 0)
     {
         return S_OK;
     }
@@ -7180,7 +7084,7 @@ HRESULT Application::HandleOleDrop(POINT client, const wchar_t* const* targets, 
     for (uint32_t itemIndex = 0; itemIndex < itemCount; ++itemIndex)
     {
         items[itemIndex].sizeBytes = sizeof(RedXeDropItem);
-        items[itemIndex].target = targets[itemIndex];
+        items[itemIndex].target    = targets[itemIndex];
     }
     const RedXeDropEvent event{sizeof(RedXeDropEvent), localX, localY, itemCount, items.data()};
     if (widget->OnDrop(&event) == S_OK)
@@ -7190,16 +7094,14 @@ HRESULT Application::HandleOleDrop(POINT client, const wchar_t* const* targets, 
     return S_OK;
 }
 
-HRESULT Application::ApplyWidgetSettingsPersist(const char* instanceId, const char* settingsJsonUtf8,
-                                                uint32_t settingsBytes) noexcept
+HRESULT Application::ApplyWidgetSettingsPersist(const char* instanceId, const char* settingsJsonUtf8, uint32_t settingsBytes) noexcept
 {
-    if (!_settings || !instanceId || !settingsJsonUtf8 || settingsBytes == 0)
+    if (! _settings || ! instanceId || ! settingsJsonUtf8 || settingsBytes == 0)
     {
         return E_INVALIDARG;
     }
     // The self-test store keeps the merge in memory and writes nothing.
-    const HRESULT result =
-        _settingsStore.PersistWidgetSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
+    const HRESULT result = _settingsStore.PersistWidgetSettings(*_settings, instanceId, std::string_view(settingsJsonUtf8, settingsBytes));
     LogDeferredSettingsPersist();
     return result;
 }
@@ -7208,7 +7110,10 @@ void Application::LogDeferredSettingsPersist() noexcept
 {
     if (_settingsStore.TakeDeferredPersistNotice())
     {
-        (void)RedXeHostLog(PluginHost::Instance().Interface(), RedXeLogLevelWarning, nullptr, nullptr,
+        (void)RedXeHostLog(PluginHost::Instance().Interface(),
+                           RedXeLogLevelWarning,
+                           nullptr,
+                           nullptr,
                            "settings-persist-deferred",
                            "A settings change was kept in memory and not written, because another program holds the "
                            "settings file open or the file on disk is not the document RedXe last loaded; a later "
@@ -7218,10 +7123,8 @@ void Application::LogDeferredSettingsPersist() noexcept
     }
 }
 
-HRESULT Application::SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8,
-                                          uint32_t settingsBytes) noexcept
+HRESULT Application::SettingsPersistThunk(void* context, const char* instanceId, const char* settingsJsonUtf8, uint32_t settingsBytes) noexcept
 {
     auto* application = static_cast<Application*>(context);
-    return application ? application->ApplyWidgetSettingsPersist(instanceId, settingsJsonUtf8, settingsBytes)
-                       : E_POINTER;
+    return application ? application->ApplyWidgetSettingsPersist(instanceId, settingsJsonUtf8, settingsBytes) : E_POINTER;
 }

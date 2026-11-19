@@ -16,7 +16,7 @@ namespace
 {
 constexpr size_t ImageBytes = static_cast<size_t>(FrameWidth) * FrameHeight * 3 / 2;
 constexpr DWORD VideoStream = static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
-constexpr DWORD AllStreams = static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS);
+constexpr DWORD AllStreams  = static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS);
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
@@ -26,8 +26,8 @@ struct Mailbox final
     SRWLOCK lock = SRWLOCK_INIT;
     wil::com_ptr_nothrow<IMFSample> sample;
     wil::unique_handle wake;
-    HRESULT status = S_OK;
-    DWORD flags = 0;
+    HRESULT status      = S_OK;
+    DWORD flags         = 0;
     LONGLONG receivedAt = 0;
     bool ready = false, active = true;
 };
@@ -39,19 +39,20 @@ struct Mailbox final
 #pragma warning(disable : 4625 4626 5026 5027)
 class Callback final : public RedXeComObject<Callback, IMFSourceReaderCallback>
 {
-  public:
-    explicit Callback(std::shared_ptr<Mailbox> box) noexcept : _box(std::move(box)) {}
-    HRESULT STDMETHODCALLTYPE OnReadSample(HRESULT status, DWORD, DWORD flags, LONGLONG,
-                                           IMFSample* sample) noexcept override
+public:
+    explicit Callback(std::shared_ptr<Mailbox> box) noexcept : _box(std::move(box))
+    {
+    }
+    HRESULT STDMETHODCALLTYPE OnReadSample(HRESULT status, DWORD, DWORD flags, LONGLONG, IMFSample* sample) noexcept override
     {
         const auto lock = wil::AcquireSRWLockExclusive(&_box->lock);
-        if (!_box->active)
+        if (! _box->active)
             return S_OK;
-        _box->sample = sample;
-        _box->status = status;
-        _box->flags = flags;
+        _box->sample     = sample;
+        _box->status     = status;
+        _box->flags      = flags;
         _box->receivedAt = MFGetSystemTime();
-        _box->ready = true;
+        _box->ready      = true;
         SetEvent(_box->wake.get());
         return S_OK;
     }
@@ -67,19 +68,18 @@ class Callback final : public RedXeComObject<Callback, IMFSourceReaderCallback>
         return S_OK;
     }
 
-  private:
+private:
     std::shared_ptr<Mailbox> _box;
 };
 #pragma warning(pop)
 
 HRESULT CopyRows(BYTE* scan, BYTE* start, DWORD capacity, LONG pitch, std::span<BYTE> output) noexcept
 {
-    if (!scan || !start || scan < start || pitch < static_cast<LONG>(FrameWidth) || output.size() != ImageBytes ||
+    if (! scan || ! start || scan < start || pitch < static_cast<LONG>(FrameWidth) || output.size() != ImageBytes ||
         static_cast<uint64_t>(scan - start) + static_cast<uint64_t>(pitch) * FrameHeight * 3 / 2 > capacity)
         return MF_E_BUFFERTOOSMALL;
     for (UINT row = 0; row < FrameHeight * 3 / 2; ++row)
-        std::memcpy(output.data() + static_cast<size_t>(row) * FrameWidth, scan + static_cast<size_t>(row) * pitch,
-                    FrameWidth);
+        std::memcpy(output.data() + static_cast<size_t>(row) * FrameWidth, scan + static_cast<size_t>(row) * pitch, FrameWidth);
     return S_OK;
 }
 } // namespace
@@ -119,10 +119,10 @@ struct CaptureReader::State final
         wil::com_ptr_nothrow<IMFMediaBuffer> buffer;
         RETURN_IF_FAILED(sample->GetBufferByIndex(0, buffer.put()));
         wil::com_ptr_nothrow<IMF2DBuffer2> plane;
-        BYTE* scan = nullptr;
-        BYTE* start = nullptr;
+        BYTE* scan       = nullptr;
+        BYTE* start      = nullptr;
         LONG actualPitch = pitch;
-        DWORD capacity = 0;
+        DWORD capacity   = 0;
         if (SUCCEEDED(buffer.query_to(plane.put())))
         {
             RETURN_IF_FAILED(plane->Lock2DSize(MF2DBuffer_LockFlags_Read, &scan, &actualPitch, &start, &capacity));
@@ -137,7 +137,9 @@ struct CaptureReader::State final
         return CopyRows(start, start, capacity, pitch, output);
     }
 };
-CaptureReader::CaptureReader() : _state(std::make_unique<State>()) {}
+CaptureReader::CaptureReader() : _state(std::make_unique<State>())
+{
+}
 CaptureReader::~CaptureReader()
 {
     Close();
@@ -148,35 +150,33 @@ void CaptureReader::Close() noexcept
 }
 bool CaptureReader::IsOpen() const noexcept
 {
-    return !!_state->reader;
+    return ! ! _state->reader;
 }
 HRESULT CaptureReader::OpenDevice(PCWSTR symbolicLink, HANDLE wake) noexcept
 {
-    if (!symbolicLink || !symbolicLink[0] || wcsnlen_s(symbolicLink, 1025) >= 1025)
+    if (! symbolicLink || ! symbolicLink[0] || wcsnlen_s(symbolicLink, 1025) >= 1025)
         return E_INVALIDARG;
     Close();
     wil::com_ptr_nothrow<IMFAttributes> attributes;
     RETURN_IF_FAILED(MFCreateAttributes(attributes.put(), 2));
-    RETURN_IF_FAILED(
-        attributes->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID));
+    RETURN_IF_FAILED(attributes->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID));
     RETURN_IF_FAILED(attributes->SetString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, symbolicLink));
     wil::com_ptr_nothrow<IMFMediaSource> source;
     RETURN_IF_FAILED(MFCreateDeviceSource(attributes.get(), source.put()));
-    const auto cleanup = wil::scope_exit(
-        [&]
-        {
-            if (!_state->source && source)
-                (void)source->Shutdown();
-        });
+    const auto cleanup = wil::scope_exit([&]
+    {
+        if (! _state->source && source)
+            (void)source->Shutdown();
+    });
     return OpenSource(source.get(), wake);
 }
 HRESULT CaptureReader::OpenSource(IMFMediaSource* source, HANDLE wake) noexcept
 {
-    if (!source || !wake || wake == INVALID_HANDLE_VALUE)
+    if (! source || ! wake || wake == INVALID_HANDLE_VALUE)
         return E_INVALIDARG;
     Close();
     _state->source = source;
-    auto failed = wil::scope_exit([&] { Close(); });
+    auto failed    = wil::scope_exit([&] { Close(); });
     try
     {
         _state->mailbox = std::make_shared<Mailbox>();
@@ -185,11 +185,10 @@ HRESULT CaptureReader::OpenSource(IMFMediaSource* source, HANDLE wake) noexcept
     {
         return E_OUTOFMEMORY;
     }
-    RETURN_IF_WIN32_BOOL_FALSE(DuplicateHandle(GetCurrentProcess(), wake, GetCurrentProcess(),
-                                               _state->mailbox->wake.put(), EVENT_MODIFY_STATE, FALSE, 0));
+    RETURN_IF_WIN32_BOOL_FALSE(DuplicateHandle(GetCurrentProcess(), wake, GetCurrentProcess(), _state->mailbox->wake.put(), EVENT_MODIFY_STATE, FALSE, 0));
     wil::com_ptr_nothrow<Callback> callback;
     callback.attach(new (std::nothrow) Callback(_state->mailbox));
-    if (!callback)
+    if (! callback)
         return E_OUTOFMEMORY;
     wil::com_ptr_nothrow<IMFAttributes> attributes;
     RETURN_IF_FAILED(MFCreateAttributes(attributes.put(), 3));
@@ -215,7 +214,7 @@ HRESULT CaptureReader::OpenSource(IMFMediaSource* source, HANDLE wake) noexcept
     RETURN_IF_FAILED(type->GetGUID(MF_MT_SUBTYPE, &subtype));
     RETURN_IF_FAILED(MFGetAttributeSize(type.get(), MF_MT_FRAME_SIZE, &width, &height));
     RETURN_IF_FAILED(MFGetAttributeRatio(type.get(), MF_MT_FRAME_RATE, &numerator, &denominator));
-    if (subtype != MFVideoFormat_NV12 || width != FrameWidth || height != FrameHeight || !denominator ||
+    if (subtype != MFVideoFormat_NV12 || width != FrameWidth || height != FrameHeight || ! denominator ||
         static_cast<uint64_t>(numerator) != static_cast<uint64_t>(FrameRate) * denominator)
         return MF_E_INVALIDMEDIATYPE;
     (void)type->GetUINT32(MF_MT_DEFAULT_STRIDE, &stride);
@@ -231,19 +230,19 @@ HRESULT CaptureReader::ReadFrame(std::span<BYTE> output, LONGLONG& timestamp) no
     timestamp = 0;
     if (output.size() != ImageBytes)
         return E_INVALIDARG;
-    if (!_state->reader || !_state->mailbox)
+    if (! _state->reader || ! _state->mailbox)
         return MF_E_SHUTDOWN;
     wil::com_ptr_nothrow<IMFSample> sample;
     HRESULT status = S_OK;
-    DWORD flags = 0;
+    DWORD flags    = 0;
     {
         const auto lock = wil::AcquireSRWLockExclusive(&_state->mailbox->lock);
-        if (!_state->mailbox->ready)
+        if (! _state->mailbox->ready)
             return S_FALSE;
-        sample = std::move(_state->mailbox->sample);
-        status = _state->mailbox->status;
-        flags = _state->mailbox->flags;
-        timestamp = _state->mailbox->receivedAt;
+        sample                 = std::move(_state->mailbox->sample);
+        status                 = _state->mailbox->status;
+        flags                  = _state->mailbox->flags;
+        timestamp              = _state->mailbox->receivedAt;
         _state->mailbox->ready = false;
     }
     RETURN_IF_FAILED(status);

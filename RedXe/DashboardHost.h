@@ -19,17 +19,16 @@ struct WidgetPlacement final
 
 class DashboardHost final
 {
-  public:
+public:
     DashboardHost() = default;
     ~DashboardHost();
 
-    DashboardHost(const DashboardHost&) = delete;
+    DashboardHost(const DashboardHost&)            = delete;
     DashboardHost& operator=(const DashboardHost&) = delete;
-    DashboardHost(DashboardHost&&) = delete;
-    DashboardHost& operator=(DashboardHost&&) = delete;
+    DashboardHost(DashboardHost&&)                 = delete;
+    DashboardHost& operator=(DashboardHost&&)      = delete;
 
-    [[nodiscard]] HRESULT Initialize(PluginManager& pluginManager, HWND parent, UINT width, UINT height, UINT dpi,
-                                     bool visible) noexcept;
+    [[nodiscard]] HRESULT Initialize(PluginManager& pluginManager, HWND parent, UINT width, UINT height, UINT dpi, bool visible) noexcept;
     [[nodiscard]] HRESULT Resize(UINT width, UINT height, UINT dpi) noexcept;
     [[nodiscard]] HRESULT SetWidgetsVisible(bool visible, RuntimePageCallbackContext* callbacks = nullptr) noexcept;
     [[nodiscard]] bool WidgetsVisible() const noexcept
@@ -79,7 +78,7 @@ class DashboardHost final
     [[nodiscard]] uint32_t WidgetBackgroundRgbAt(size_t index) const noexcept;
     [[nodiscard]] HRESULT GetNextFrameDelayMilliseconds(uint32_t* delayMilliseconds) const noexcept;
 
-  private:
+private:
     PluginManager* _pluginManager = nullptr;
     std::array<WidgetPlacement, PluginManager::kMaximumWidgetInstances> _placements{};
     std::array<WidgetGridPlacement, PluginManager::kMaximumWidgetInstances> _gridPlacements{};
@@ -89,16 +88,16 @@ class DashboardHost final
     // Moves every native container to its current PixelBoundsAt origin after an offset change.
     [[nodiscard]] HRESULT MoveNativeContainers() noexcept;
 
-    size_t _widgetCount = 0;
-    uint32_t _gridColumns = 0;
-    uint32_t _gridRows = 0;
+    size_t _widgetCount            = 0;
+    uint32_t _gridColumns          = 0;
+    uint32_t _gridRows             = 0;
     bool _requiresContinuousFrames = false;
-    bool _widgetsVisible = false;
-    LONG _horizontalOffset = 0;
+    bool _widgetsVisible           = false;
+    LONG _horizontalOffset         = 0;
     POINT _slideOffset{};
     // A native container did not reach its PixelBoundsAt origin on the last offset change.
     bool _nativeContainersStale = false;
-    UINT _clientWidth = 0;
-    UINT _clientHeight = 0;
-    size_t _raisedNativeIndex = SIZE_MAX;
+    UINT _clientWidth           = 0;
+    UINT _clientHeight          = 0;
+    size_t _raisedNativeIndex   = SIZE_MAX;
 };

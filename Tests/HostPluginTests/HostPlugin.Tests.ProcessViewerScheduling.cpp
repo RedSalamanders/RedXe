@@ -27,7 +27,7 @@ namespace
 std::ofstream g_pixelReference;
 void Require(bool condition, const char* message)
 {
-    if (!condition)
+    if (! condition)
         throw std::runtime_error(message);
 }
 
@@ -37,8 +37,10 @@ void Require(bool condition, const char* message)
 #pragma warning(disable : 4625 4626 5026 5027)
 class ObservationSubscription final : public RedXeComObject<ObservationSubscription, IRedXeDataSubscription>
 {
-  public:
-    explicit ObservationSubscription(IRedXeDataSink* value) noexcept : sink(value) {}
+public:
+    explicit ObservationSubscription(IRedXeDataSink* value) noexcept : sink(value)
+    {
+    }
     HRESULT STDMETHODCALLTYPE SetActive(BOOL value) noexcept override
     {
         active = value != FALSE;
@@ -55,27 +57,26 @@ class ObservationSubscription final : public RedXeComObject<ObservationSubscript
 #pragma warning(disable : 4625 4626 5026 5027)
 class ObservationProvider final : public RedXeComObject<ObservationProvider, IRedXeDataProvider>
 {
-  public:
+public:
     HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors, uint32_t* count) noexcept override
     {
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
             return E_POINTER;
         *descriptors = nullptr;
-        *count = 0;
+        *count       = 0;
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE Subscribe(const RedXeDataSubscriptionOptions* options, IRedXeDataSink* sink,
-                                        IRedXeDataSubscription** output) noexcept override
+    HRESULT STDMETHODCALLTYPE Subscribe(const RedXeDataSubscriptionOptions* options, IRedXeDataSink* sink, IRedXeDataSubscription** output) noexcept override
     {
-        if (!output)
+        if (! output)
             return E_POINTER;
         *output = nullptr;
-        if (!options || !sink || slotCount == slots.size())
+        if (! options || ! sink || slotCount == slots.size())
             return E_INVALIDARG;
         auto& slot = slots[slotCount++];
-        slot.id = options->dataSetId;
+        slot.id    = options->dataSetId;
         slot.subscription.attach(new (std::nothrow) ObservationSubscription(sink));
-        if (!slot.subscription)
+        if (! slot.subscription)
             return E_OUTOFMEMORY;
         return slot.subscription->QueryInterface(__uuidof(IRedXeDataSubscription), reinterpret_cast<void**>(output));
     }
@@ -83,18 +84,17 @@ class ObservationProvider final : public RedXeComObject<ObservationProvider, IRe
     {
         HRESULT result = S_FALSE;
         // Exercise the real DLL's worker/UI boundary. Each call joins before changing borrowed fixture storage.
-        std::jthread worker(
-            [&]
-            {
-                for (auto& slot : slots)
-                    if (slot.subscription && slot.subscription->active && std::strcmp(slot.id, snapshot.dataSetId) == 0)
-                        result = slot.subscription->sink->OnDataSnapshot(&snapshot);
-            });
+        std::jthread worker([&]
+        {
+            for (auto& slot : slots)
+                if (slot.subscription && slot.subscription->active && std::strcmp(slot.id, snapshot.dataSetId) == 0)
+                    result = slot.subscription->sink->OnDataSnapshot(&snapshot);
+        });
         worker.join();
         return result;
     }
 
-  private:
+private:
     struct Slot final
     {
         const char* id = nullptr;
@@ -111,7 +111,7 @@ class ObservationProvider final : public RedXeComObject<ObservationProvider, IRe
 #pragma warning(disable : 4625 4626 5026 5027)
 class ObservationHost final : public RedXeComObject<ObservationHost, IRedXeHost>
 {
-  public:
+public:
     ObservationHost()
     {
         data.attach(new ObservationProvider());
@@ -167,7 +167,7 @@ struct Observation final
     std::array<std::array<RedXeDataValue, 22>, 2> values{};
     std::array<RedXeDataRow, 2> rows{};
     RedXeDataSnapshot snapshot{};
-    Observation(const Observation&) = delete;
+    Observation(const Observation&)            = delete;
     Observation& operator=(const Observation&) = delete;
     Observation(const char* id, uint32_t columns, uint32_t rowCount = 1)
     {
@@ -181,8 +181,8 @@ struct Observation final
     }
     void Number(uint32_t column, double number, uint32_t row = 0)
     {
-        auto& value = values[row][column];
-        value.valueType = RedXeDataValueTypeFloat64;
+        auto& value        = values[row][column];
+        value.valueType    = RedXeDataValueTypeFloat64;
         value.float64Value = number;
     }
     void Integer(uint32_t column, uint64_t number, uint32_t row = 0)
@@ -191,9 +191,9 @@ struct Observation final
     }
     void Text(uint32_t column, const wchar_t* text, uint32_t row = 0)
     {
-        auto& value = values[row][column];
-        value.valueType = RedXeDataValueTypeUtf16;
-        value.utf16Value = text;
+        auto& value           = values[row][column];
+        value.valueType       = RedXeDataValueTypeUtf16;
+        value.utf16Value      = text;
         value.utf16Characters = static_cast<uint32_t>(wcslen(text));
     }
 };
@@ -207,21 +207,20 @@ struct Surface final
     wil::com_ptr_nothrow<ID3D11RenderTargetView> target;
     Surface()
     {
-        Require(SUCCEEDED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
-                                            device.put(), nullptr, context.put())),
+        Require(SUCCEEDED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, device.put(), nullptr, context.put())),
                 "viewer WARP device failed");
         D3D11_TEXTURE2D_DESC description{};
-        description.Width = width;
-        description.Height = height;
+        description.Width     = width;
+        description.Height    = height;
         description.MipLevels = description.ArraySize = 1;
-        description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-        description.SampleDesc.Count = 1;
-        description.BindFlags = D3D11_BIND_RENDER_TARGET;
+        description.Format                            = DXGI_FORMAT_B8G8R8A8_UNORM;
+        description.SampleDesc.Count                  = 1;
+        description.BindFlags                         = D3D11_BIND_RENDER_TARGET;
         Require(SUCCEEDED(device->CreateTexture2D(&description, nullptr, texture.put())) &&
                     SUCCEEDED(device->CreateRenderTargetView(texture.get(), nullptr, target.put())),
                 "viewer target failed");
-        description.Usage = D3D11_USAGE_STAGING;
-        description.BindFlags = 0;
+        description.Usage          = D3D11_USAGE_STAGING;
+        description.BindFlags      = 0;
         description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         Require(SUCCEEDED(device->CreateTexture2D(&description, nullptr, readback.put())), "viewer readback failed");
     }
@@ -231,7 +230,7 @@ struct Surface final
         D3D11_MAPPED_SUBRESOURCE mapped{};
         Require(SUCCEEDED(context->Map(readback.get(), 0, D3D11_MAP_READ, 0, &mapped)), "viewer pixel map failed");
         const auto unmap = wil::scope_exit([&] { context->Unmap(readback.get(), 0); });
-        uint64_t hash = 14695981039346656037ull;
+        uint64_t hash    = 14695981039346656037ull;
         for (uint32_t y = 0; y < height; ++y)
             for (uint32_t x = 0; x < width * 4; ++x)
             {
@@ -255,27 +254,24 @@ struct Viewer final
     wil::com_ptr_nothrow<IRedXeScheduledWidget> scheduled;
     wil::com_ptr_nothrow<IRedXePreparedGpuWidget> prepared;
     Surface& surface;
-    Viewer(RedXeCreateFn create, Surface& surfaceValue, const char* id, const char* type, const char* config = nullptr,
-           bool initializeGpu = true)
+    Viewer(RedXeCreateFn create, Surface& surfaceValue, const char* id, const char* type, const char* config = nullptr, bool initializeGpu = true)
         : surface(surfaceValue)
     {
         RedXeFactoryOptions options{sizeof(options)};
         options.configurationJsonUtf8 = config;
-        options.configurationBytes = config ? static_cast<uint32_t>(std::strlen(config)) : 0;
-        void* object = nullptr;
-        Require(SUCCEEDED(create(__uuidof(IRedXeWidgetProvider), &options, &host, id, &object)),
-                "viewer factory failed");
+        options.configurationBytes    = config ? static_cast<uint32_t>(std::strlen(config)) : 0;
+        void* object                  = nullptr;
+        Require(SUCCEEDED(create(__uuidof(IRedXeWidgetProvider), &options, &host, id, &object)), "viewer factory failed");
         provider.attach(static_cast<IRedXeWidgetProvider*>(object));
-        Require(SUCCEEDED(provider->CreateWidget(type, "schedule.fixture", widget.put())) &&
-                    SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(scheduled.put())),
+        Require(SUCCEEDED(provider->CreateWidget(type, "schedule.fixture", widget.put())) && SUCCEEDED(widget.query_to(gpu.put())) &&
+                    SUCCEEDED(widget.query_to(scheduled.put())),
                 "viewer interfaces failed");
         const HRESULT preparation = widget.query_to(prepared.put());
         Require(SUCCEEDED(preparation) || g_pixelReference.is_open(), "viewer preparation interface missing");
         _type = type;
         if (initializeGpu)
         {
-            const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM,
-                                               D3D_FEATURE_LEVEL_11_0};
+            const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM, D3D_FEATURE_LEVEL_11_0};
             Require(SUCCEEDED(gpu->OnDeviceCreated(&device)), "viewer device setup failed");
             Resize(Surface::width, Surface::height);
             Require(SUCCEEDED(widget->SetVisible(TRUE)), "viewer show failed");
@@ -301,7 +297,7 @@ struct Viewer final
     }
     HRESULT Prepare() noexcept
     {
-        if (!prepared && g_pixelReference.is_open())
+        if (! prepared && g_pixelReference.is_open())
             return S_FALSE;
         const RedXeGpuPreparationContext context{sizeof(context), 96, Surface::width, Surface::height, 0, 0, {}};
         return prepared->Prepare(&context);
@@ -320,11 +316,7 @@ struct Viewer final
         surface.context->ClearRenderTargetView(target, black);
         const RedXeWidgetFrameContext frame{sizeof(frame), Surface::width, Surface::height, 96, now, delta};
         const RedXeGpuFrameContext context{
-            sizeof(context),
-            &frame,
-            surface.context.get(),
-            {0, 0, static_cast<float>(Surface::width), static_cast<float>(Surface::height), 0, 1},
-            view};
+            sizeof(context), &frame, surface.context.get(), {0, 0, static_cast<float>(Surface::width), static_cast<float>(Surface::height), 0, 1}, view};
         surface.context->RSSetViewports(1, &context.viewport);
         const HRESULT result = gpu->Render(&context);
         if (SUCCEEDED(result) && g_pixelReference.is_open())
@@ -333,7 +325,7 @@ struct Viewer final
     }
     bool Moving()
     {
-        uint32_t delay = 123;
+        uint32_t delay       = 123;
         const HRESULT result = scheduled->GetNextFrameDelayMilliseconds(&delay);
         Require((result == S_FALSE && delay == 0) || (result == S_OK && delay == 33), "viewer deadline is invalid");
         return result == S_OK;
@@ -363,36 +355,33 @@ void CheckCadence(RedXeCreateFn create, Surface& surface)
     Observation sample("system.summary", 10);
     FillSummary(sample, 10);
     viewer.Send(sample);
-    Require(viewer.Draw(1) == S_OK && !viewer.Moving(), "first observation did not snap and park");
+    Require(viewer.Draw(1) == S_OK && ! viewer.Moving(), "first observation did not snap and park");
     const uint64_t initial = surface.Pixels();
     for (uint32_t observation = 0; observation < 12; ++observation)
         viewer.Send(sample);
-    Require(viewer.Draw(2, 0, 1) == S_OK && !viewer.Moving() && surface.Pixels() == initial,
+    Require(viewer.Draw(2, 0, 1) == S_OK && ! viewer.Moving() && surface.Pixels() == initial,
             "identical snapshot burst changed pixels or scheduled an idle ease");
 
     sample.Number(0, 60);
     viewer.Send(sample);
-    Require(viewer.Draw(3, 0, 1) == S_OK && viewer.Moving() && surface.Pixels() == initial,
-            "changed value skipped its ease after a long static interval");
+    Require(viewer.Draw(3, 0, 1) == S_OK && viewer.Moving() && surface.Pixels() == initial, "changed value skipped its ease after a long static interval");
     Require(viewer.Draw(3.1f) == S_OK && viewer.Moving(), "visible ease stopped early");
     const uint64_t middle = surface.Pixels();
-    Require(middle != initial && viewer.Draw(3.1f, 1) == S_OK && surface.Pixels() == middle,
-            "tile and raised draw advanced one animation twice");
+    Require(middle != initial && viewer.Draw(3.1f, 1) == S_OK && surface.Pixels() == middle, "tile and raised draw advanced one animation twice");
     viewer.Send(sample);
-    Require(viewer.Draw(3.33f) == S_OK && !viewer.Moving(), "identical sample restarted an active ease");
+    Require(viewer.Draw(3.33f) == S_OK && ! viewer.Moving(), "identical sample restarted an active ease");
     const uint64_t final = surface.Pixels();
     Require(final != initial && final != middle, "visible easing lost its final target");
-    Require(viewer.Draw(5, 0, 1.67f) == S_OK && surface.Pixels() == final && !viewer.Moving(),
-            "settled values changed or introduced an idle deadline");
+    Require(viewer.Draw(5, 0, 1.67f) == S_OK && surface.Pixels() == final && ! viewer.Moving(), "settled values changed or introduced an idle deadline");
 
     sample.Number(0, 60.02);
     viewer.Send(sample);
-    Require(viewer.Draw(6) == S_OK && !viewer.Moving(), "sub-pixel observation started an ease");
+    Require(viewer.Draw(6) == S_OK && ! viewer.Moving(), "sub-pixel observation started an ease");
     viewer.Resize(5000, 720);
     sample.Number(0, 60.05);
     viewer.Send(sample);
     Require(viewer.Draw(7) == S_OK && viewer.Moving(), "largest raised extent was ignored for the pixel threshold");
-    Require(viewer.Draw(7.33f) == S_OK && !viewer.Moving(), "size-sensitive ease did not complete");
+    Require(viewer.Draw(7.33f) == S_OK && ! viewer.Moving(), "size-sensitive ease did not complete");
     viewer.Resize(Surface::width, Surface::height);
 
     sample.Number(0, 90);
@@ -400,35 +389,31 @@ void CheckCadence(RedXeCreateFn create, Surface& surface)
     Require(viewer.Draw(8) == S_OK && viewer.Moving() && viewer.Draw(8.34f) == S_OK && viewer.Moving(),
             "high-band pulse was lost when the value ease completed");
     const uint64_t pulsing = surface.Pixels();
-    Require(viewer.Draw(8.45f) == S_OK && !viewer.Moving() && surface.Pixels() != pulsing,
-            "420ms pulse did not end with the same high-band value");
+    Require(viewer.Draw(8.45f) == S_OK && ! viewer.Moving() && surface.Pixels() != pulsing, "420ms pulse did not end with the same high-band value");
     viewer.Send(sample);
-    Require(viewer.Draw(9) == S_OK && viewer.Moving() && viewer.Draw(9.45f) == S_OK && !viewer.Moving(),
+    Require(viewer.Draw(9) == S_OK && viewer.Moving() && viewer.Draw(9.45f) == S_OK && ! viewer.Moving(),
             "unchanged high-band sample did not retain its bounded warning pulse");
 
     viewer.Send(sample);
     sample.Number(0, 20);
     viewer.Send(sample);
-    Require(viewer.Draw(9.5f) == S_OK && viewer.Moving() && viewer.Draw(9.84f) == S_OK && !viewer.Moving(),
+    Require(viewer.Draw(9.5f) == S_OK && viewer.Moving() && viewer.Draw(9.84f) == S_OK && ! viewer.Moving(),
             "superseded high-band observation replayed a stale pulse");
 
     sample.Number(0, 70);
     viewer.Send(sample);
     Require(viewer.Draw(10) == S_OK && viewer.Moving(), "changed sample did not start before hide");
-    Require(viewer.widget->SetVisible(FALSE) == S_OK && !viewer.Moving() &&
-                viewer.host.data->Deliver(sample.snapshot) == S_FALSE,
+    Require(viewer.widget->SetVisible(FALSE) == S_OK && ! viewer.Moving() && viewer.host.data->Deliver(sample.snapshot) == S_FALSE,
             "hide left work or a subscription active");
-    Require(viewer.widget->SetVisible(TRUE) == S_OK && viewer.Draw(30) == S_OK && !viewer.Moving(),
-            "reentry replayed interrupted motion");
-    Require(viewer.Draw(31) == S_OK && !viewer.Moving(), "reentry left an idle deadline");
+    Require(viewer.widget->SetVisible(TRUE) == S_OK && viewer.Draw(30) == S_OK && ! viewer.Moving(), "reentry replayed interrupted motion");
+    Require(viewer.Draw(31) == S_OK && ! viewer.Moving(), "reentry left an idle deadline");
     const uint64_t recovered = surface.Pixels();
     Viewer reference(create, surface, "builtin.system-pulse", "system-pulse");
     reference.Send(sample);
-    Require(reference.Draw(31) == S_OK && !reference.Moving() && surface.Pixels() == recovered,
-            "recovery endpoint differs from a fresh exact-value view");
+    Require(reference.Draw(31) == S_OK && ! reference.Moving() && surface.Pixels() == recovered, "recovery endpoint differs from a fresh exact-value view");
     sample.Number(0, 40);
     viewer.Send(sample);
-    Require(viewer.Draw(32) == S_OK && viewer.Moving() && reference.Draw(32) == S_OK && !reference.Moving(),
+    Require(viewer.Draw(32) == S_OK && viewer.Moving() && reference.Draw(32) == S_OK && ! reference.Moving(),
             "independent viewer instances share animation state");
     Require(viewer.host.requests == 0, "Render or scheduling requested immediate animation frames");
 }
@@ -445,21 +430,19 @@ void CheckRanksAndAuxiliaryData(RedXeCreateFn create, Surface& surface)
         processes.Integer(3, 20'000'000, row);
     }
     viewer.Send(processes);
-    Require(viewer.Draw(1) == S_OK && !viewer.Moving(), "ranked bootstrap did not park");
+    Require(viewer.Draw(1) == S_OK && ! viewer.Moving(), "ranked bootstrap did not park");
     const uint64_t first = surface.Pixels();
     processes.Number(2, 30, 1);
     viewer.Send(processes);
-    Require(viewer.Draw(2) == S_OK && viewer.Moving() && viewer.Draw(2.15f) == S_OK && viewer.Moving(),
-            "rank change lost its row/value motion");
+    Require(viewer.Draw(2) == S_OK && viewer.Moving() && viewer.Draw(2.15f) == S_OK && viewer.Moving(), "rank change lost its row/value motion");
     processes.Text(1, L"Renamed", 1);
     viewer.Send(processes);
-    Require(viewer.Draw(2.33f) == S_OK && !viewer.Moving() && surface.Pixels() != first,
+    Require(viewer.Draw(2.33f) == S_OK && ! viewer.Moving() && surface.Pixels() != first,
             "label update restarted rank motion or discarded the changed ranking");
     const uint64_t ranked = surface.Pixels();
     processes.Integer(3, 40'000'000, 1);
     viewer.Send(processes);
-    Require(viewer.Draw(3) == S_OK && !viewer.Moving() && surface.Pixels() != ranked,
-            "changed working-set label was lost or caused an empty ease");
+    Require(viewer.Draw(3) == S_OK && ! viewer.Moving() && surface.Pixels() != ranked, "changed working-set label was lost or caused an empty ease");
 
     Viewer cpu(create, surface, "builtin.cpu-meter", "cpu-meter");
     Observation summary("cpu.summary", 4);
@@ -472,7 +455,7 @@ void CheckRanksAndAuxiliaryData(RedXeCreateFn create, Surface& surface)
     logical.Number(9, 3, 1);
     cpu.Send(summary);
     cpu.Send(logical);
-    Require(cpu.Draw(4) == S_OK && !cpu.Moving(), "CPU bootstrap did not park");
+    Require(cpu.Draw(4) == S_OK && ! cpu.Moving(), "CPU bootstrap did not park");
     summary.Number(0, 50);
     summary.Number(1, 30);
     summary.Number(2, 20);
@@ -481,33 +464,31 @@ void CheckRanksAndAuxiliaryData(RedXeCreateFn create, Surface& surface)
     cpu.Send(logical);
     Require(cpu.Draw(5.15f) == S_OK && cpu.Moving(), "second dataset stopped the CPU ease");
     cpu.Send(logical);
-    Require(cpu.Draw(5.33f) == S_OK && !cpu.Moving(), "second dataset restarted an unchanged CPU target");
+    Require(cpu.Draw(5.33f) == S_OK && ! cpu.Moving(), "second dataset restarted an unchanged CPU target");
     logical.Number(9, 3.01);
     cpu.Send(logical);
-    Require(cpu.Draw(6) == S_OK && !cpu.Moving(), "imperceptible heat colour started an ease");
+    Require(cpu.Draw(6) == S_OK && ! cpu.Moving(), "imperceptible heat colour started an ease");
     logical.Number(9, 60);
     cpu.Send(logical);
-    Require(cpu.Draw(7) == S_OK && cpu.Moving() && cpu.Draw(7.33f) == S_OK && !cpu.Moving(),
-            "visible heat colour change lost its ease");
+    Require(cpu.Draw(7) == S_OK && cpu.Moving() && cpu.Draw(7.33f) == S_OK && ! cpu.Moving(), "visible heat colour change lost its ease");
     Require(cpu.host.requests == 0 && viewer.host.requests == 0, "snapshot easing added unbounded frame requests");
 }
 
 void CheckIdleProcessPulse(RedXeCreateFn create, Surface& surface)
 {
-    Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer",
-                  R"json({"plugin":{},"instance":{"topN":10,"hideIdle":false}})json");
+    Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer", R"json({"plugin":{},"instance":{"topN":10,"hideIdle":false}})json");
     Observation sample("process.activity", 7);
     sample.Integer(0, 0);
     sample.Text(1, L"System Idle Process");
     sample.Number(2, 96);
     viewer.Send(sample);
-    Require(viewer.Draw(1) == S_OK && !viewer.Moving(), "System Idle Process started a warning pulse");
+    Require(viewer.Draw(1) == S_OK && ! viewer.Moving(), "System Idle Process started a warning pulse");
     sample.snapshot.rowCount = 2;
     sample.Integer(0, 100, 1);
     sample.Text(1, L"Busy process", 1);
     sample.Number(2, 88, 1);
     viewer.Send(sample);
-    Require(viewer.Draw(2) == S_OK && viewer.Moving() && viewer.Draw(2.45f) == S_OK && !viewer.Moving(),
+    Require(viewer.Draw(2) == S_OK && viewer.Moving() && viewer.Draw(2.45f) == S_OK && ! viewer.Moving(),
             "listed idle process suppressed a genuine busy-process pulse");
 }
 
@@ -535,36 +516,34 @@ void CheckAllocationAndDeviceRecovery(RedXeCreateFn create, Surface& surface)
     sample.Number(0, 60);
     viewer.Send(sample);
     {
-        allocations = 0;
-        renderThread = GetCurrentThreadId();
+        allocations         = 0;
+        renderThread        = GetCurrentThreadId();
         const auto previous = _CrtSetAllocHook(CountAllocation);
-        const auto restore = wil::scope_exit(
-            [&]
-            {
+        const auto restore  = wil::scope_exit([&]
+        {
         // The CRT return type erases noexcept; restore the exact previous hook unchanged.
         // Owner: RedXe test maintainers; review: 2027-01-31.
 #pragma warning(suppress : 5039)
-                (void)_CrtSetAllocHook(previous);
-                renderThread = 0;
-            });
+            (void)_CrtSetAllocHook(previous);
+            renderThread = 0;
+        });
         for (uint32_t index = 0; index < 120; ++index)
-            Require(viewer.Draw(4 + static_cast<float>(index / 2) / 60, index % 2) == S_OK,
-                    "cached tile/raised draw or scheduling failed");
+            Require(viewer.Draw(4 + static_cast<float>(index / 2) / 60, index % 2) == S_OK, "cached tile/raised draw or scheduling failed");
         (void)viewer.Moving();
         Require(allocations == 0, "steady viewer Render or scheduling allocated CRT memory");
     }
 #endif
     Require(viewer.widget->SetVisible(FALSE) == S_OK, "pre-recovery hide failed");
     viewer.gpu->OnDeviceLost();
-    const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM,
-                                       D3D_FEATURE_LEVEL_11_0};
-    Require(viewer.gpu->OnDeviceCreated(&device) == S_OK && viewer.widget->SetVisible(TRUE) == S_OK &&
-                viewer.Draw(50) == S_OK && !viewer.Moving(),
+    const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM, D3D_FEATURE_LEVEL_11_0};
+    Require(viewer.gpu->OnDeviceCreated(&device) == S_OK && viewer.widget->SetVisible(TRUE) == S_OK && viewer.Draw(50) == S_OK && ! viewer.Moving(),
             "device recovery replayed stale motion");
 }
 
-void CheckPreparedGlyphs(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn diagnostics,
-                         decltype(&RedXeProcessViewerFailNextGlyphPreparation) failNext, Surface& surface)
+void CheckPreparedGlyphs(RedXeCreateFn create,
+                         ProcessViewerGetTestDiagnosticsFn diagnostics,
+                         decltype(&RedXeProcessViewerFailNextGlyphPreparation) failNext,
+                         Surface& surface)
 {
     Viewer viewer(create, surface, "builtin.process-viewer", "process-viewer");
     Require(viewer.prepared->Prepare(nullptr) == E_INVALIDARG, "viewer accepted missing preparation context");
@@ -576,7 +555,7 @@ void CheckPreparedGlyphs(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn
     viewer.Send(sample);
     Require(viewer.Draw(1) == S_OK, "prepared glyph control failed");
     const uint64_t control = surface.Pixels();
-    const auto read = [&]()
+    const auto read        = [&]()
     {
         ProcessViewerTestDiagnostics value{sizeof(value)};
         Require(diagnostics(&value) == S_OK, "prepared glyph diagnostics failed");
@@ -589,31 +568,26 @@ void CheckPreparedGlyphs(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn
     const auto delivered = read();
     Require(delivered.glyphUploadBytes == before.glyphUploadBytes && delivered.fontSessions == before.fontSessions,
             "worker delivery accessed the font or GPU atlas");
-    Require(viewer.Draw(1, 0, 0, false) == S_OK && surface.Pixels() == control,
-            "delivery changed the previously prepared frame");
+    Require(viewer.Draw(1, 0, 0, false) == S_OK && surface.Pixels() == control, "delivery changed the previously prepared frame");
     Require(viewer.Prepare() == S_OK, "new Unicode glyph preparation failed");
     const auto prepared = read();
-    Require(prepared.glyphUploadCells == before.glyphUploadCells + 1 &&
-                prepared.glyphUploadBytes == before.glyphUploadBytes + 48 * 48 &&
+    Require(prepared.glyphUploadCells == before.glyphUploadCells + 1 && prepared.glyphUploadBytes == before.glyphUploadBytes + 48 * 48 &&
                 prepared.fontSessions == before.fontSessions + 1,
             "one new glyph did not upload exactly one cell");
     Require(viewer.Draw(2, 0, 0, false) == S_OK && surface.Pixels() != control, "prepared Unicode label was not drawn");
     const uint64_t painted = surface.Pixels();
     sample.Text(1, L"M\u00fcnchen");
     viewer.Send(sample); // Arrival after preparation must wait for the next frame, including the raised view.
-    Require(viewer.Draw(2, 1, 0, false) == S_OK && surface.Pixels() == painted,
-            "tile and raised frame disagree after late delivery");
+    Require(viewer.Draw(2, 1, 0, false) == S_OK && surface.Pixels() == painted, "tile and raised frame disagree after late delivery");
     Require(viewer.Prepare() == S_OK && viewer.Draw(3, 0, 0, false) == S_OK && surface.Pixels() != painted,
             "late Unicode label was lost on the next preparation");
     const auto next = read();
-    Require(next.glyphUploadCells == prepared.glyphUploadCells + 1 &&
-                next.glyphUploadBytes == prepared.glyphUploadBytes + 48 * 48,
+    Require(next.glyphUploadCells == prepared.glyphUploadCells + 1 && next.glyphUploadBytes == prepared.glyphUploadBytes + 48 * 48,
             "late glyph preparation uploaded more than one cell");
-    Require(viewer.Prepare() == S_FALSE && viewer.Draw(3, 1, 0, false) == S_OK,
-            "clean preparation changed or prevented drawing");
+    Require(viewer.Prepare() == S_FALSE && viewer.Draw(3, 1, 0, false) == S_OK, "clean preparation changed or prevented drawing");
     const auto clean = read();
-    Require(clean.glyphUploadBytes == next.glyphUploadBytes && clean.fontSessions == next.fontSessions &&
-                clean.preparations == next.preparations && clean.livePreparationFonts == 0,
+    Require(clean.glyphUploadBytes == next.glyphUploadBytes && clean.fontSessions == next.fontSessions && clean.preparations == next.preparations &&
+                clean.livePreparationFonts == 0,
             "clean preparation or Render did font/upload work");
     // Distinct strings share one temporary font session, which is released before either draw.
     sample.snapshot.rowCount = 2;
@@ -631,24 +605,20 @@ void CheckPreparedGlyphs(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn
     sample.Text(1, L"G\u03a9");
     viewer.Send(sample);
     failNext();
-    Require(viewer.Prepare() == E_OUTOFMEMORY && viewer.Draw(5, 0, 0, false) == S_FALSE,
-            "failed preparation still drew an unprepared sample");
+    Require(viewer.Prepare() == E_OUTOFMEMORY && viewer.Draw(5, 0, 0, false) == S_FALSE, "failed preparation still drew an unprepared sample");
     const auto failed = read();
     Require(failed.preparationFailures == batch.preparationFailures + 1 && failed.livePreparationFonts == 0 &&
                 failed.glyphUploadBytes == batch.glyphUploadBytes,
             "failed preparation retained fonts or uploaded cells");
-    Require(viewer.Prepare() == S_FALSE && read().preparationFailures == failed.preparationFailures,
-            "unchanged failed preparation retried automatically");
+    Require(viewer.Prepare() == S_FALSE && read().preparationFailures == failed.preparationFailures, "unchanged failed preparation retried automatically");
     wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
     Require(viewer.widget.query_to(interactive.put()) == S_OK, "viewer input interface missing");
     const RedXePointerEvent pointer{sizeof(pointer), 1, RedXePointerKindMouse, RedXePointerPhaseDown, 20, 20};
     Require(interactive->OnPointer(&pointer) == S_FALSE, "failed preparation accepted input");
     const RedXeGpuPreparationContext retry{sizeof(retry), 96, Surface::width - 1, Surface::height, 0, 0, {}};
-    Require(viewer.prepared->Prepare(&retry) == S_OK && viewer.Draw(6, 0, 0, false) == S_OK &&
-                read().livePreparationFonts == 0,
+    Require(viewer.prepared->Prepare(&retry) == S_OK && viewer.Draw(6, 0, 0, false) == S_OK && read().livePreparationFonts == 0,
             "extent change did not recover failed preparation");
-    std::cout << "[       -- ] prepared_sample_bytes=" << clean.pendingSampleBytes
-              << " glyph_upload_bytes_per_cell=" << 48 * 48 << '\n';
+    std::cout << "[       -- ] prepared_sample_bytes=" << clean.pendingSampleBytes << " glyph_upload_bytes_per_cell=" << 48 * 48 << '\n';
     Require(viewer.widget->SetVisible(FALSE) == S_OK && viewer.Prepare() == S_FALSE, "hidden preparation did work");
 }
 
@@ -689,13 +659,14 @@ void CheckGlyphCellReuse(RedXeCreateFn create, Surface& surface)
         }
         sample.Text(1, L"\uffff");
         viewer.Send(sample);
-        Require(viewer.Draw(1, 0, 0) == S_OK && surface.Pixels() == emptyGlyph,
-                "reused unsupported glyph retained the preceding glyph's ink");
+        Require(viewer.Draw(1, 0, 0) == S_OK && surface.Pixels() == emptyGlyph, "reused unsupported glyph retained the preceding glyph's ink");
     }
 }
 
-void CheckAtlasLifetime(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn diagnostics,
-                        decltype(&RedXeProcessViewerFailNextAtlasInitialization) failNext, Surface& surface)
+void CheckAtlasLifetime(RedXeCreateFn create,
+                        ProcessViewerGetTestDiagnosticsFn diagnostics,
+                        decltype(&RedXeProcessViewerFailNextAtlasInitialization) failNext,
+                        Surface& surface)
 {
     const auto check = [diagnostics](uint32_t bytes, uint32_t sets)
     {
@@ -717,17 +688,16 @@ void CheckAtlasLifetime(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn 
             Viewer second(create, surface, "builtin.memory-meter", "memory-meter");
             check(1'048'576, 1);
             first.Send(sample);
-            Require(first.Draw(1) == S_OK && !first.Moving(), "viewer atlas pixel control failed");
+            Require(first.Draw(1) == S_OK && ! first.Moving(), "viewer atlas pixel control failed");
             pixels = surface.Pixels();
             Require(first.widget->SetVisible(FALSE) == S_OK, "viewer atlas pre-loss hide failed");
             first.gpu->OnDeviceLost();
             first.gpu->OnDeviceLost(); // Idempotent release must not retire the second user's atlas.
             check(1'048'576, 1);
             Require(second.Draw(1) == S_OK, "surviving viewer lost its shared atlas");
-            const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM,
-                                               D3D_FEATURE_LEVEL_11_0};
-            Require(first.gpu->OnDeviceCreated(&device) == S_OK && first.widget->SetVisible(TRUE) == S_OK &&
-                        first.Draw(2) == S_OK && surface.Pixels() == pixels,
+            const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM, D3D_FEATURE_LEVEL_11_0};
+            Require(first.gpu->OnDeviceCreated(&device) == S_OK && first.widget->SetVisible(TRUE) == S_OK && first.Draw(2) == S_OK &&
+                        surface.Pixels() == pixels,
                     "shared viewer atlas recovery changed Unicode pixels");
             check(1'048'576, 1);
         }
@@ -737,8 +707,7 @@ void CheckAtlasLifetime(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn 
     {
         Viewer revisited(create, surface, "builtin.process-viewer", "process-viewer");
         revisited.Send(sample);
-        Require(revisited.Draw(3) == S_OK && surface.Pixels() == pixels,
-                "recreated viewer atlas changed Unicode pixels");
+        Require(revisited.Draw(3) == S_OK && surface.Pixels() == pixels, "recreated viewer atlas changed Unicode pixels");
         check(1'048'576, 1);
     }
     check(0, 0);
@@ -746,8 +715,7 @@ void CheckAtlasLifetime(RedXeCreateFn create, ProcessViewerGetTestDiagnosticsFn 
         Viewer cold(create, surface, "builtin.process-viewer", "process-viewer", nullptr, false);
         check(0, 0);
         Require(cold.gpu->OnDeviceCreated(nullptr) == E_INVALIDARG, "viewer accepted a missing device");
-        const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM,
-                                           D3D_FEATURE_LEVEL_11_0};
+        const RedXeGpuDeviceContext device{sizeof(device), surface.device.get(), DXGI_FORMAT_B8G8R8A8_UNORM, D3D_FEATURE_LEVEL_11_0};
         failNext();
         Require(cold.gpu->OnDeviceCreated(&device) == E_OUTOFMEMORY, "viewer partial-init fault was not exercised");
         check(0, 0);
@@ -789,81 +757,80 @@ void CheckRemainingViewers(RedXeCreateFn create, Surface& surface)
         Observation second(item.second, item.secondColumns, index == 5 ? 0u : 1u);
         switch (index)
         {
-        case 0:
-            first.Integer(0, 64'000'000'000);
-            first.Integer(2, 20'000'000'000);
-            first.Integer(3, 24'000'000'000);
-            first.Integer(4, 64'000'000'000);
-            first.Number(10, 0);
-            break;
-        case 1:
-            first.Integer(0, 1);
-            first.Text(1, L"Ethernet");
-            first.Integer(4, 1);
-            first.Integer(5, 1);
-            first.Integer(7, 1'000'000'000);
-            first.Integer(8, 1'000'000'000);
-            first.Number(11, 1'000'000);
-            first.Number(12, 2'000'000);
-            first.Number(21, 5);
-            second.Number(4, 0);
-            break;
-        case 2:
-            first.Text(1, L"C:\\");
-            first.Text(7, L"System");
-            first.Integer(3, 1'000'000'000'000);
-            first.Integer(4, 700'000'000'000);
-            second.Number(5, 2);
-            second.Number(8, 0);
-            second.Number(9, 0);
-            break;
-        case 3:
-            first.Integer(0, 1);
-            first.Text(1, L"Adapter");
-            first.Integer(6, 8'000'000'000);
-            first.Number(14, 45);
-            break;
-        case 4:
-            first.Integer(0, 100);
-            first.Text(4, L"3D");
-            first.Number(5, 20);
-            second.Integer(0, 100);
-            second.Text(1, L"Client");
-            break;
-        case 5:
-            first.Integer(0, 1);
-            first.Integer(1, 1);
-            first.Number(4, 30);
-            break;
-        case 6:
-            first.Text(0, L"cpu");
-            first.Text(2, L"CPU sensor");
-            first.Number(3, 40);
-            second.Integer(2, 2000);
-            second.Integer(3, 5000);
-            break;
-        default:
-            break;
+            case 0:
+                first.Integer(0, 64'000'000'000);
+                first.Integer(2, 20'000'000'000);
+                first.Integer(3, 24'000'000'000);
+                first.Integer(4, 64'000'000'000);
+                first.Number(10, 0);
+                break;
+            case 1:
+                first.Integer(0, 1);
+                first.Text(1, L"Ethernet");
+                first.Integer(4, 1);
+                first.Integer(5, 1);
+                first.Integer(7, 1'000'000'000);
+                first.Integer(8, 1'000'000'000);
+                first.Number(11, 1'000'000);
+                first.Number(12, 2'000'000);
+                first.Number(21, 5);
+                second.Number(4, 0);
+                break;
+            case 2:
+                first.Text(1, L"C:\\");
+                first.Text(7, L"System");
+                first.Integer(3, 1'000'000'000'000);
+                first.Integer(4, 700'000'000'000);
+                second.Number(5, 2);
+                second.Number(8, 0);
+                second.Number(9, 0);
+                break;
+            case 3:
+                first.Integer(0, 1);
+                first.Text(1, L"Adapter");
+                first.Integer(6, 8'000'000'000);
+                first.Number(14, 45);
+                break;
+            case 4:
+                first.Integer(0, 100);
+                first.Text(4, L"3D");
+                first.Number(5, 20);
+                second.Integer(0, 100);
+                second.Text(1, L"Client");
+                break;
+            case 5:
+                first.Integer(0, 1);
+                first.Integer(1, 1);
+                first.Number(4, 30);
+                break;
+            case 6:
+                first.Text(0, L"cpu");
+                first.Text(2, L"CPU sensor");
+                first.Number(3, 40);
+                second.Integer(2, 2000);
+                second.Integer(3, 5000);
+                break;
+            default: break;
         }
         viewer.Send(first);
         if (item.second)
             viewer.Send(second);
-        Require(viewer.Draw(1) == S_OK && !viewer.Moving(), "viewer family bootstrap did not park");
+        Require(viewer.Draw(1) == S_OK && ! viewer.Moving(), "viewer family bootstrap did not park");
         for (uint32_t repeat = 0; repeat < 4; ++repeat)
         {
             viewer.Send(first);
             if (item.second)
                 viewer.Send(second);
         }
-        Require(viewer.Draw(2) == S_OK && !viewer.Moving(), "unchanged viewer family sample started motion");
+        Require(viewer.Draw(2) == S_OK && ! viewer.Moving(), "unchanged viewer family sample started motion");
         if (index == 0)
         {
             first.values[0][0].quality = RedXeDataQualityUnavailable;
             viewer.Send(first);
-            Require(viewer.Draw(3) == S_OK && !viewer.Moving(), "unavailable memory observation started an empty ease");
+            Require(viewer.Draw(3) == S_OK && ! viewer.Moving(), "unavailable memory observation started an empty ease");
             first.values[0][0].quality = RedXeDataQualityGood;
             viewer.Send(first);
-            Require(viewer.Draw(4) == S_OK && viewer.Moving() && viewer.Draw(4.33f) == S_OK && !viewer.Moving(),
+            Require(viewer.Draw(4) == S_OK && viewer.Moving() && viewer.Draw(4.33f) == S_OK && ! viewer.Moving(),
                     "restored memory capacity lost its visible ease");
         }
         if (index >= 1 && index <= 5)
@@ -871,24 +838,15 @@ void CheckRemainingViewers(RedXeCreateFn create, Surface& surface)
             const uint64_t initial = surface.Pixels();
             switch (index)
             {
-            case 1:
-                first.Number(11, 8'000'000);
-                break;
-            case 2:
-                first.Integer(4, 450'000'000'000);
-                second.Number(5, 20);
-                break;
-            case 3:
-                first.Number(14, 60);
-                break;
-            case 4:
-                first.Number(5, 45);
-                break;
-            case 5:
-                first.Number(4, 60);
-                break;
-            default:
-                break;
+                case 1: first.Number(11, 8'000'000); break;
+                case 2:
+                    first.Integer(4, 450'000'000'000);
+                    second.Number(5, 20);
+                    break;
+                case 3: first.Number(14, 60); break;
+                case 4: first.Number(5, 45); break;
+                case 5: first.Number(4, 60); break;
+                default: break;
             }
             viewer.Send(first);
             if (item.second)
@@ -897,31 +855,30 @@ void CheckRemainingViewers(RedXeCreateFn create, Surface& surface)
                     "changed viewer-family value lost its visible ease");
             if (item.second)
                 viewer.Send(second);
-            Require(viewer.Draw(3.33f) == S_OK && !viewer.Moving() && surface.Pixels() != initial,
+            Require(viewer.Draw(3.33f) == S_OK && ! viewer.Moving() && surface.Pixels() != initial,
                     "viewer-family ease lost its target or restarted on an auxiliary delivery");
             if (index == 5)
             {
                 first.Integer(1, 0);
                 viewer.Send(first);
-                Require(viewer.Draw(4) == S_OK && !viewer.Moving(), "absent battery retained an empty charge ease");
+                Require(viewer.Draw(4) == S_OK && ! viewer.Moving(), "absent battery retained an empty charge ease");
                 first.Number(4, 40);
                 viewer.Send(first);
-                Require(viewer.Draw(5) == S_OK && !viewer.Moving(), "charge on an absent battery started motion");
+                Require(viewer.Draw(5) == S_OK && ! viewer.Moving(), "charge on an absent battery started motion");
             }
         }
         if (index == 6)
         {
             first.Number(3, 20);
             viewer.Send(first);
-            Require(viewer.Draw(3) == S_OK && viewer.Moving() && viewer.Draw(3.33f) == S_OK && !viewer.Moving(),
-                    "changed temperature lost its ease");
+            Require(viewer.Draw(3) == S_OK && viewer.Moving() && viewer.Draw(3.33f) == S_OK && ! viewer.Moving(), "changed temperature lost its ease");
             first.Number(3, 24);
             viewer.Send(first);
-            Require(viewer.Draw(4) == S_OK && viewer.Moving() && viewer.Draw(4.33f) == S_OK && !viewer.Moving(),
+            Require(viewer.Draw(4) == S_OK && viewer.Moving() && viewer.Draw(4.33f) == S_OK && ! viewer.Moving(),
                     "large Celsius change on a saturated track lost its numeral ease");
             first.Number(3, 24.01);
             viewer.Send(first);
-            Require(viewer.Draw(5) == S_OK && !viewer.Moving(), "tiny Celsius change started an empty ease");
+            Require(viewer.Draw(5) == S_OK && ! viewer.Moving(), "tiny Celsius change started an empty ease");
         }
         Require(viewer.host.requests == 0, "viewer family added immediate animation frame requests");
     }
@@ -934,22 +891,19 @@ void TestProcessViewerScheduling(bool& success) noexcept
     try
     {
         std::array<wchar_t, 32768> executable{};
-        Require(GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size())) != 0,
-                "test executable path failed");
+        Require(GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size())) != 0, "test executable path failed");
         const auto path = std::filesystem::path(executable.data()).parent_path() / L"Plugins" / L"ProcessViewer.dll";
-        wil::unique_hmodule module(
-            LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32));
+        wil::unique_hmodule module(LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32));
         Require(module != nullptr, "viewer DLL load failed");
         const FARPROC address = GetProcAddress(module.get(), kRedXeCreateExport);
-        RedXeCreateFn create = nullptr;
+        RedXeCreateFn create  = nullptr;
         static_assert(sizeof(address) == sizeof(create));
         std::memcpy(&create, &address, sizeof(create));
         Require(create != nullptr, "viewer factory export missing");
 // Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
 // Owner: RedXe maintainers; review: 2027-01-31.
 #pragma warning(suppress : 4191)
-        const auto diagnostics = reinterpret_cast<ProcessViewerGetTestDiagnosticsFn>(
-            GetProcAddress(module.get(), kProcessViewerGetTestDiagnosticsExport));
+        const auto diagnostics = reinterpret_cast<ProcessViewerGetTestDiagnosticsFn>(GetProcAddress(module.get(), kProcessViewerGetTestDiagnosticsExport));
         Require(diagnostics != nullptr, "viewer atlas diagnostics missing");
 // Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
 // Owner: RedXe maintainers; review: 2027-01-31.
@@ -958,7 +912,7 @@ void TestProcessViewerScheduling(bool& success) noexcept
             GetProcAddress(module.get(), "RedXeProcessViewerFailNextAtlasInitialization"));
         Require(failNext != nullptr, "viewer atlas fault export missing");
         Surface surface;
-        if (!g_pixelReference.is_open())
+        if (! g_pixelReference.is_open())
         {
 // Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
 // Owner: RedXe maintainers; review: 2027-01-31.

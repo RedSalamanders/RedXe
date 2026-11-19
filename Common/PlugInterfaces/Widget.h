@@ -16,7 +16,7 @@
 // Scheduling behavior advertised by a widget type.
 enum RedXeWidgetFlags : uint32_t
 {
-    RedXeWidgetFlagNone = 0,
+    RedXeWidgetFlagNone                = 0,
     RedXeWidgetFlagContinuousAnimation = 1U << 0U,
 };
 
@@ -85,13 +85,13 @@ struct RedXeGpuFrameContext final
 static_assert(sizeof(RedXeGpuFrameContext) == 56);
 static_assert(offsetof(RedXeGpuFrameContext, viewId) == 48);
 
-inline constexpr uint32_t RedXeAppearanceDark = 1U;
+inline constexpr uint32_t RedXeAppearanceDark         = 1U;
 inline constexpr uint32_t RedXeAppearanceHighContrast = 2U;
 // Cached by the host on Windows appearance notifications, never queried from a rendering callback. Colors are
 // opaque ARGB (not COLORREF). A copied value is valid until the next preparation; no HWND or theme object crosses.
 struct RedXeAppearance final
 {
-    uint32_t flags = RedXeAppearanceDark;
+    uint32_t flags  = RedXeAppearanceDark;
     uint32_t window = 0xff000000, windowText = 0xffffffff;
     uint32_t highlight = 0xffffff00, highlightText = 0xff000000;
     uint32_t button = 0xff000000, buttonText = 0xffffffff, disabledText = 0xff808080;
@@ -161,14 +161,14 @@ enum RedXePointerKind : uint32_t
 {
     RedXePointerKindMouse = 0,
     RedXePointerKindTouch = 1,
-    RedXePointerKindPen = 2,
+    RedXePointerKindPen   = 2,
 };
 
 enum RedXePointerPhase : uint32_t
 {
-    RedXePointerPhaseDown = 0,
-    RedXePointerPhaseMove = 1,
-    RedXePointerPhaseUp = 2,
+    RedXePointerPhaseDown   = 0,
+    RedXePointerPhaseMove   = 1,
+    RedXePointerPhaseUp     = 2,
     RedXePointerPhaseCancel = 3,
     // Independent wheel samples. They neither start nor end gesture capture. wheelDelta keeps the Win32 sign: a
     // vertical sample is positive for wheel up and negative for wheel down; a horizontal sample is positive for tilt
@@ -177,7 +177,7 @@ enum RedXePointerPhase : uint32_t
     // including at its first or last page, so the dashboard never changes page under a paging tile; it answers
     // S_FALSE on a single page or for an axis it does not use. The host decides the owner of a wheel sequence from
     // its first sample and keeps later samples with that owner until the user pauses.
-    RedXePointerPhaseWheel = 4,
+    RedXePointerPhaseWheel           = 4,
     RedXePointerPhaseHorizontalWheel = 5,
 };
 
@@ -189,11 +189,11 @@ struct RedXePointerEvent final
     uint32_t phase;
     float x;
     float y;
-    uint32_t viewId = 0;
-    uint32_t widthPixels = 0;
+    uint32_t viewId       = 0;
+    uint32_t widthPixels  = 0;
     uint32_t heightPixels = 0;
-    uint32_t dpi = 96;
-    uint32_t modifiers = 0;
+    uint32_t dpi          = 96;
+    uint32_t modifiers    = 0;
     // Win32 wheel units for the Wheel and HorizontalWheel phases: one detent is WHEEL_DELTA (120); high-resolution
     // fractions are retained. Zero for every other phase.
     float wheelDelta = 0;
@@ -211,7 +211,7 @@ static_assert(offsetof(RedXePointerEvent, wheelDelta) == 44);
 inline constexpr HRESULT RedXePointerCapture = MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_ITF, 0x301);
 // Committed Up may request generic raise/dismiss after the host releases gesture capture. These are consumed
 // results, never double-activate candidates. The normal advertised extent and host bounds still govern raising.
-inline constexpr HRESULT RedXePointerRaise = MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_ITF, 0x302);
+inline constexpr HRESULT RedXePointerRaise   = MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_ITF, 0x302);
 inline constexpr HRESULT RedXePointerDismiss = MAKE_HRESULT(SEVERITY_SUCCESS, FACILITY_ITF, 0x303);
 
 // One dropped filesystem path or full URL. target is borrowed UTF-16 for this call only.
@@ -238,7 +238,7 @@ static_assert(sizeof(RedXeDropEvent) == 24);
 static_assert(offsetof(RedXeDropEvent, items) == 16);
 
 inline constexpr uint32_t kRedXeMaximumScheduledFrameDelayMilliseconds = 86'400'000U;
-inline constexpr uint32_t kRedXeMaximumDropItems = 8;
+inline constexpr uint32_t kRedXeMaximumDropItems                       = 8;
 
 // A bounded unit of local device work. The host owns the single lazy worker and retains this COM object through
 // completion. Run executes on its MTA worker; Complete executes on the UI thread outside Render and input dispatch.
@@ -249,7 +249,7 @@ interface __declspec(uuid("B44CFD33-5DE8-4A37-92B1-D5663AFA2181")) __declspec(no
 {
     // timeoutMilliseconds is the remaining part of the three-second enqueue-to-result budget, at least 1.
     virtual HRESULT STDMETHODCALLTYPE Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexcept = 0;
-    virtual void STDMETHODCALLTYPE Complete(HRESULT result) noexcept = 0;
+    virtual void STDMETHODCALLTYPE Complete(HRESULT result) noexcept                                 = 0;
 };
 
 // Immutable CPU construction inputs and owned results. The host retains this object until its UI-thread Complete
@@ -260,11 +260,10 @@ interface __declspec(uuid("B44CFD33-5DE8-4A37-92B1-D5663AFA2181")) __declspec(no
 // expires. An uninterruptible Shell call may outlast cancellation: shutdown waits at most one second once, retaining
 // the runtime, work and module mapping until it returns or the process exits. Complete must validate its owner's
 // lifetime and generation before publishing CPU state; it may request a frame or queue a replacement job.
-interface __declspec(uuid("ECFB4B75-6510-445C-AEF0-51986F20826E")) __declspec(novtable) IRedXeConstructionWork
-    : IUnknown
+interface __declspec(uuid("ECFB4B75-6510-445C-AEF0-51986F20826E")) __declspec(novtable) IRedXeConstructionWork : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexcept = 0;
-    virtual void STDMETHODCALLTYPE Complete(HRESULT result) noexcept = 0;
+    virtual void STDMETHODCALLTYPE Complete(HRESULT result) noexcept                                 = 0;
 };
 
 enum RedXeConstructionState : uint32_t
@@ -280,8 +279,7 @@ enum RedXeConstructionState : uint32_t
 // and animated until every incoming widget is Ready (or a locally failed tile is Unavailable). Construction must
 // not defer a touch pan's follow-finger pixels. The host cancels a discrete wait after three seconds and retires
 // the incoming page; a late job must reject that retired owner's result.
-interface __declspec(uuid("E8D8B382-A2A4-4B59-85FA-2256903A1C99")) __declspec(novtable) IRedXeConstructionStateWidget
-    : IUnknown
+interface __declspec(uuid("E8D8B382-A2A4-4B59-85FA-2256903A1C99")) __declspec(novtable) IRedXeConstructionStateWidget : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE GetConstructionState(RedXeConstructionState * state) noexcept = 0;
 };
@@ -290,9 +288,9 @@ interface __declspec(uuid("E8D8B382-A2A4-4B59-85FA-2256903A1C99")) __declspec(no
 enum RedXeRaisedExtent : uint32_t
 {
     RedXeRaisedExtentQuarter = 1,
-    RedXeRaisedExtentThird = 2,
-    RedXeRaisedExtentHalf = 3,
-    RedXeRaisedExtentFull = 4,
+    RedXeRaisedExtentThird   = 2,
+    RedXeRaisedExtentHalf    = 3,
+    RedXeRaisedExtentFull    = 4,
 };
 
 // Generic widget identity and visibility. Rendering mechanisms are sibling interfaces on the same object, never
@@ -325,8 +323,7 @@ interface __declspec(uuid("62DB9FB4-AF7B-47C0-BBF9-B7D5CA535502")) __declspec(no
     // Host-owned buffer. S_FALSE means nothing to save (writtenBytes is 0). S_OK writes a complete settings object
     // or a mergeable subset; writtenBytes is the JSON length excluding a terminator. A null writtenBytes returns
     // E_POINTER. The widget MUST NOT persist from inside this call.
-    virtual HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
-                                                                uint32_t* writtenBytes) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes, uint32_t* writtenBytes) noexcept = 0;
 };
 
 inline HRESULT RedXeCollectNoPersistentSettings(char* jsonUtf8, uint32_t capacityBytes, uint32_t* writtenBytes) noexcept
@@ -335,7 +332,7 @@ inline HRESULT RedXeCollectNoPersistentSettings(char* jsonUtf8, uint32_t capacit
     {
         *writtenBytes = 0;
     }
-    if (!writtenBytes)
+    if (! writtenBytes)
     {
         return E_POINTER;
     }
@@ -347,10 +344,8 @@ inline HRESULT RedXeCollectNoPersistentSettings(char* jsonUtf8, uint32_t capacit
 // Enumerates widget types and creates independent widget instances.
 interface __declspec(uuid("231AC0E8-1204-4BFF-BCEA-7CACF11F439D")) __declspec(novtable) IRedXeWidgetProvider : IUnknown
 {
-    virtual HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                                     uint32_t* count) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
-                                                   IRedXeWidget** widget) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors, uint32_t* count) noexcept  = 0;
+    virtual HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId, IRedXeWidget** widget) noexcept = 0;
 };
 
 // Direct3D 11 rendering mechanism.
@@ -408,8 +403,7 @@ interface __declspec(uuid("355C7084-286B-409F-9FD3-A7695DEF2A33")) __declspec(no
 // Changed preparation MAY allocate/rasterize within bounded resource budgets; Render remains allocation-free.
 // Requests raised during preparation remain pending for a later frame. Failed preparation disables affected
 // input/composition until a later explicit request or extent change succeeds; no automatic retry loop is allowed.
-interface __declspec(uuid("D3E26E68-1F73-47DA-9542-0A44BAE90251")) __declspec(novtable) IRedXePreparedGpuWidget
-    : IUnknown
+interface __declspec(uuid("D3E26E68-1F73-47DA-9542-0A44BAE90251")) __declspec(novtable) IRedXePreparedGpuWidget : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE Prepare(const RedXeGpuPreparationContext* context) noexcept = 0;
 };
@@ -468,13 +462,12 @@ interface __declspec(uuid("A7E4C19B-2F58-4D13-9C6A-80B1D4E7F203")) __declspec(no
 // later one-finger Move/Up of that contact so a plugin can start an internal pan after a padding Down. Two- or
 // three-finger host page pan that locks horizontal sends Cancel and does not launch. Mouse edge-band clicks never
 // reach the widget.
-interface __declspec(uuid("E4C2A91B-7D3E-4F18-B6A5-2C9D8E0F1744")) __declspec(novtable) IRedXeInteractiveWidget
-    : IUnknown
+interface __declspec(uuid("E4C2A91B-7D3E-4F18-B6A5-2C9D8E0F1744")) __declspec(novtable) IRedXeInteractiveWidget : IUnknown
 {
     virtual HRESULT STDMETHODCALLTYPE OnPointer(const RedXePointerEvent* event) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE OnDragOver(float x, float y) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE OnDragLeave() noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE OnDrop(const RedXeDropEvent* event) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE OnDragOver(float x, float y) noexcept              = 0;
+    virtual HRESULT STDMETHODCALLTYPE OnDragLeave() noexcept                             = 0;
+    virtual HRESULT STDMETHODCALLTYPE OnDrop(const RedXeDropEvent* event) noexcept       = 0;
 };
 
 struct RedXeKeyEvent final
@@ -494,21 +487,21 @@ inline constexpr HRESULT RedXeKeyboardBoundary = MAKE_HRESULT(SEVERITY_SUCCESS, 
 // Settings persistence and local-work enqueue are allowed for committed keyboard activation, as for pointer Up.
 interface __declspec(uuid("62B1D6F0-D3DB-48B1-9E17-8A4B0397492C")) __declspec(novtable) IRedXeKeyboardWidget : IUnknown
 {
-    virtual HRESULT STDMETHODCALLTYPE SetKeyboardFocus(BOOL focused, uint32_t viewId) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE OnKey(const RedXeKeyEvent* event) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetKeyboardFocus(BOOL focused, uint32_t viewId) noexcept                      = 0;
+    virtual HRESULT STDMETHODCALLTYPE OnKey(const RedXeKeyEvent* event) noexcept                                    = 0;
     virtual HRESULT STDMETHODCALLTYPE OnCharacter(uint32_t character, uint32_t modifiers, uint32_t viewId) noexcept = 0;
 };
 
-inline constexpr uint32_t kRedXeMaximumTextUnits = 4096;
+inline constexpr uint32_t kRedXeMaximumTextUnits   = 4096;
 inline constexpr uint32_t kRedXeMaximumTextClauses = 256;
-inline constexpr uint32_t kRedXeNoTextIndex = UINT32_MAX;
+inline constexpr uint32_t kRedXeNoTextIndex        = UINT32_MAX;
 enum RedXeTextFlags : uint32_t
 {
-    RedXeTextReadOnly = 1U << 0,
-    RedXeTextMasked = 1U << 1,
-    RedXeTextMultiline = 1U << 2,
-    RedXeTextComposing = 1U << 3,
-    RedXeTextCaretBounds = 1U << 4,
+    RedXeTextReadOnly       = 1U << 0,
+    RedXeTextMasked         = 1U << 1,
+    RedXeTextMultiline      = 1U << 2,
+    RedXeTextComposing      = 1U << 3,
+    RedXeTextCaretBounds    = 1U << 4,
     RedXeTextViewportBounds = 1U << 5,
 };
 enum RedXeTextAction : uint32_t
@@ -530,10 +523,10 @@ static_assert(sizeof(RedXeTextRectangle) == 16);
 // changes when the control loses/reacquires focus. Never truncate a larger document into this transport.
 struct RedXeTextState final
 {
-    uint32_t sizeBytes = sizeof(RedXeTextState);
-    uint32_t flags = 0;
-    uint64_t revision = 0;
-    uint64_t focusId = 0;
+    uint32_t sizeBytes  = sizeof(RedXeTextState);
+    uint32_t flags      = 0;
+    uint64_t revision   = 0;
+    uint64_t focusId    = 0;
     uint32_t textLength = 0, caret = 0, anchor = kRedXeNoTextIndex, firstVisibleLine = 0;
     uint32_t compositionStart = kRedXeNoTextIndex, compositionEnd = kRedXeNoTextIndex;
     uint32_t compositionCursor = kRedXeNoTextIndex;
@@ -556,19 +549,16 @@ static_assert(offsetof(RedXeTextState, clauses) == 8288);
 // Commit is one edit relative to the composition base; Cancel restores the base without committing it.
 interface __declspec(uuid("87529906-149E-4A99-91B3-2A8C65BCD206")) __declspec(novtable) IRedXeTextInputWidget : IUnknown
 {
-    virtual HRESULT STDMETHODCALLTYPE ReadTextState(uint32_t viewId, RedXeTextState* state) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE ApplyTextState(uint32_t viewId, uint32_t action,
-                                                     const RedXeTextState* state) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE ReadTextState(uint32_t viewId, RedXeTextState* state) noexcept                         = 0;
+    virtual HRESULT STDMETHODCALLTYPE ApplyTextState(uint32_t viewId, uint32_t action, const RedXeTextState* state) noexcept = 0;
     // Cancel only the identified focus session's composition, preserving focus and newer external text. S_FALSE
     // means that session no longer exists. Actual focus loss is handled separately by SetKeyboardFocus(FALSE).
     virtual HRESULT STDMETHODCALLTYPE CancelTextInput(uint32_t viewId, uint64_t focusId) noexcept = 0;
     // Geometry is queried outside Render against the same revision as ReadTextState. Clear outputs on failure;
     // stale/unprepared layout returns S_FALSE. Coordinates use the same widget-local physical space as the state.
-    virtual HRESULT STDMETHODCALLTYPE HitTestText(uint32_t viewId, uint64_t revision, float x, float y,
-                                                  uint32_t* index) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE GetTextRangeBounds(uint32_t viewId, uint64_t revision, uint32_t start,
-                                                         uint32_t end, RedXeTextRectangle* bounds,
-                                                         BOOL* clipped) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE HitTestText(uint32_t viewId, uint64_t revision, float x, float y, uint32_t* index) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetTextRangeBounds(
+        uint32_t viewId, uint64_t revision, uint32_t start, uint32_t end, RedXeTextRectangle* bounds, BOOL* clipped) noexcept = 0;
 };
 
 // Optional virtual UIA subtree for prepared GPU controls. All calls run on the RedXe COM STA, outside Render.
@@ -576,42 +566,38 @@ interface __declspec(uuid("87529906-149E-4A99-91B3-2A8C65BCD206")) __declspec(no
 // prepared pixels exactly; no HWND or DxUi C++ ownership crosses this boundary.
 struct RedXeAccessibilityPlacement final
 {
-    uint32_t sizeBytes = sizeof(RedXeAccessibilityPlacement);
-    uint32_t viewId = 0;
+    uint32_t sizeBytes    = sizeof(RedXeAccessibilityPlacement);
+    uint32_t viewId       = 0;
     uint64_t attachmentId = 0;
     double left = 0, top = 0, width = 0, height = 0;
     BOOL keyboardFocused = FALSE;
-    uint32_t reserved = 0;
+    uint32_t reserved    = 0;
 };
 static_assert(sizeof(RedXeAccessibilityPlacement) == 56);
 static_assert(offsetof(RedXeAccessibilityPlacement, attachmentId) == 8);
 static_assert(offsetof(RedXeAccessibilityPlacement, left) == 16);
 
-interface __declspec(uuid("3C430805-12D0-49B0-AAB8-7C07F3909164")) __declspec(novtable) IRedXeAccessibilitySite
-    : IUnknown
+interface __declspec(uuid("3C430805-12D0-49B0-AAB8-7C07F3909164")) __declspec(novtable) IRedXeAccessibilitySite : IUnknown
 {
     // Return owned references, or S_OK/null when a neighbor does not exist. Retained sites are generation-bound;
     // calls after view removal fail instead of navigating or focusing a replacement widget.
-    virtual HRESULT STDMETHODCALLTYPE Navigate(NavigateDirection direction,
-                                               IRawElementProviderFragment * *result) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE GetFragmentRoot(IRawElementProviderFragmentRoot * *result) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE Navigate(NavigateDirection direction, IRawElementProviderFragment * *result) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetFragmentRoot(IRawElementProviderFragmentRoot * *result) noexcept                   = 0;
     // Coalesce UI-thread work; these callbacks must not synchronously change the plugin tree or invoke UIA.
     virtual HRESULT STDMETHODCALLTYPE RequestFocus() noexcept = 0;
     virtual void STDMETHODCALLTYPE ActionCompleted() noexcept = 0;
 };
 
-interface __declspec(uuid("B8FA0B10-EE1D-44E8-8070-A7B80EEA7D4E")) __declspec(novtable) IRedXeAccessibilityWidget
-    : IUnknown
+interface __declspec(uuid("B8FA0B10-EE1D-44E8-8070-A7B80EEA7D4E")) __declspec(novtable) IRedXeAccessibilityWidget : IUnknown
 {
     // Connect only a coherent prepared view. S_FALSE means not available yet; outputs clear on failure.
     // The plugin retains site until disconnect. A new connection disconnects the old provider identity first.
     // Providers may survive widget destruction; their code must remain mapped and all later actions must fail.
-    virtual HRESULT STDMETHODCALLTYPE ConnectAccessibility(const RedXeAccessibilityPlacement* placement,
-                                                           IRedXeAccessibilitySite* site,
-                                                           IRawElementProviderFragmentRoot** result) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE ConnectAccessibility(
+        const RedXeAccessibilityPlacement* placement, IRedXeAccessibilitySite* site, IRawElementProviderFragmentRoot** result) noexcept = 0;
     // S_OK includes unchanged placement/state. S_FALSE means reconnect is required after preparing the view.
     virtual HRESULT STDMETHODCALLTYPE UpdateAccessibility(const RedXeAccessibilityPlacement* placement) noexcept = 0;
-    virtual void STDMETHODCALLTYPE DisconnectAccessibility(uint32_t viewId) noexcept = 0;
+    virtual void STDMETHODCALLTYPE DisconnectAccessibility(uint32_t viewId) noexcept                             = 0;
     // Called after queued ActionCompleted. Consume one committed navigation result (S_OK, PointerRaise/Dismiss).
     // Pointer/keyboard dispatch consumes its own result before returning, so it cannot be replayed here.
     virtual HRESULT STDMETHODCALLTYPE TakeAccessibilityAction(uint32_t viewId, HRESULT* action) noexcept = 0;

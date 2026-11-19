@@ -56,26 +56,25 @@ struct Delta final
 struct NowOrSeconds final
 {
     uint32_t seconds = 0;
-    bool now = false;
+    bool now         = false;
 };
-[[nodiscard]] bool ParseNowOrSeconds(std::string_view value, int32_t minimum, int32_t maximum,
-                                     NowOrSeconds& parsed) noexcept;
+[[nodiscard]] bool ParseNowOrSeconds(std::string_view value, int32_t minimum, int32_t maximum, NowOrSeconds& parsed) noexcept;
 
 // One of the '|'-separated options; index receives its zero-based position.
 [[nodiscard]] bool ParseEnum(std::string_view value, const char* options, uint32_t& index) noexcept;
 
 enum ChordModifiers : uint32_t
 {
-    ChordModifierNone = 0,
+    ChordModifierNone    = 0,
     ChordModifierControl = 1U << 0U,
-    ChordModifierShift = 1U << 1U,
-    ChordModifierAlt = 1U << 2U,
-    ChordModifierWin = 1U << 3U,
+    ChordModifierShift   = 1U << 1U,
+    ChordModifierAlt     = 1U << 2U,
+    ChordModifierWin     = 1U << 3U,
 };
 
 struct KeyChord final
 {
-    uint32_t modifiers = ChordModifierNone;
+    uint32_t modifiers  = ChordModifierNone;
     uint16_t virtualKey = 0;
     // The key sits in the extended block (navigation cluster, right-side modifiers, numeric divide/enter).
     bool extended = false;
@@ -104,7 +103,7 @@ struct MonitorSelector final
         // the XENEON (SecondaryMonitorRank).
         Secondary,
     };
-    Kind kind = Kind::Primary;
+    Kind kind      = Kind::Primary;
     uint32_t index = 0;
     std::string_view name;
 };
@@ -138,10 +137,10 @@ struct WindowSelector final
 
 struct Point final
 {
-    int32_t x = 0;
-    int32_t y = 0;
-    bool relative = false;
-    bool center = false;
+    int32_t x       = 0;
+    int32_t y       = 0;
+    bool relative   = false;
+    bool center     = false;
     bool hasMonitor = false;
     MonitorSelector monitor{};
 };

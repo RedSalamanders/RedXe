@@ -118,8 +118,7 @@ inline constexpr std::array kRedXeDebugOnlyBundledWidgetIds{
     "builtin.logicon-monitor",
 };
 
-template <typename Character>
-consteval bool RedXeBundledTextEquals(const Character* left, const Character* right) noexcept
+template <typename Character> consteval bool RedXeBundledTextEquals(const Character* left, const Character* right) noexcept
 {
     size_t index = 0;
     while (left[index] != static_cast<Character>(0) && right[index] != static_cast<Character>(0))
@@ -138,8 +137,7 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
     for (size_t index = 0; index < kRedXeBundledPlugins.size(); ++index)
     {
         const RedXeBundledPluginSpec& candidate = kRedXeBundledPlugins[index];
-        if (!candidate.pluginId || candidate.pluginId[0] == '\0' || !candidate.moduleName ||
-            candidate.moduleName[0] == L'\0')
+        if (! candidate.pluginId || candidate.pluginId[0] == '\0' || ! candidate.moduleName || candidate.moduleName[0] == L'\0')
         {
             return false;
         }
@@ -160,7 +158,7 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
         {
             catalogued = catalogued || RedXeBundledTextEquals(optIn, widget.pluginId);
         }
-        if (!catalogued)
+        if (! catalogued)
         {
             return false;
         }
@@ -173,7 +171,7 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
         {
             catalogued = catalogued || RedXeBundledTextEquals(debugOnly, widget.pluginId);
         }
-        if (!catalogued)
+        if (! catalogued)
         {
             return false;
         }
@@ -182,7 +180,7 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
     for (size_t index = 0; index < kRedXeBundledServices.size(); ++index)
     {
         const RedXeBundledServiceSpec& service = kRedXeBundledServices[index];
-        if (!service.pluginId || service.pluginId[0] == '\0')
+        if (! service.pluginId || service.pluginId[0] == '\0')
         {
             return false;
         }
@@ -191,7 +189,7 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
         {
             foundPlugin = foundPlugin || RedXeBundledTextEquals(service.pluginId, plugin.pluginId);
         }
-        if (!foundPlugin)
+        if (! foundPlugin)
         {
             return false;
         }
@@ -215,7 +213,7 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
     // A retired service id is never also a current service.
     for (const RedXeBundledServiceSpec& retired : kRedXeRetiredServices)
     {
-        if (!retired.pluginId || retired.pluginId[0] == '\0')
+        if (! retired.pluginId || retired.pluginId[0] == '\0')
         {
             return false;
         }
@@ -231,17 +229,15 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
     for (size_t index = 0; index < kRedXeBundledActionNamespaces.size(); ++index)
     {
         const RedXeBundledActionNamespaceSpec& entry = kRedXeBundledActionNamespaces[index];
-        if (!entry.actionNamespace || entry.actionNamespace[0] < 'a' || entry.actionNamespace[0] > 'z' ||
-            !entry.pluginId)
+        if (! entry.actionNamespace || entry.actionNamespace[0] < 'a' || entry.actionNamespace[0] > 'z' || ! entry.pluginId)
         {
             return false;
         }
         for (size_t position = 0; entry.actionNamespace[position] != '\0'; ++position)
         {
             const char character = entry.actionNamespace[position];
-            const bool allowed = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-                                 (character >= '0' && character <= '9');
-            if (!allowed || position >= 31)
+            const bool allowed   = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
+            if (! allowed || position >= 31)
             {
                 return false;
             }
@@ -258,7 +254,7 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
         {
             foundPlugin = foundPlugin || RedXeBundledTextEquals(entry.pluginId, plugin.pluginId);
         }
-        if (!foundPlugin)
+        if (! foundPlugin)
         {
             return false;
         }
@@ -274,7 +270,7 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
     for (size_t index = 0; index < kRedXeBundledWidgets.size(); ++index)
     {
         const RedXeBundledWidgetSpec& candidate = kRedXeBundledWidgets[index];
-        if (!candidate.pluginId || candidate.pluginId[0] == '\0' || !candidate.typeId || candidate.typeId[0] == '\0')
+        if (! candidate.pluginId || candidate.pluginId[0] == '\0' || ! candidate.typeId || candidate.typeId[0] == '\0')
         {
             return false;
         }
@@ -283,15 +279,14 @@ consteval bool RedXeBundledPluginCatalogIsValid() noexcept
         {
             foundPlugin = foundPlugin || RedXeBundledTextEquals(candidate.pluginId, plugin.pluginId);
         }
-        if (!foundPlugin)
+        if (! foundPlugin)
         {
             return false;
         }
         for (size_t previous = 0; previous < index; ++previous)
         {
             const RedXeBundledWidgetSpec& earlier = kRedXeBundledWidgets[previous];
-            if (RedXeBundledTextEquals(candidate.pluginId, earlier.pluginId) ||
-                RedXeBundledTextEquals(candidate.typeId, earlier.typeId))
+            if (RedXeBundledTextEquals(candidate.pluginId, earlier.pluginId) || RedXeBundledTextEquals(candidate.typeId, earlier.typeId))
             {
                 return false;
             }

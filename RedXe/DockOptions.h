@@ -15,18 +15,18 @@
 
 struct DockOverrides final
 {
-    bool hasEdge = false;
-    DockEdge edge = DockEdge::None;
+    bool hasEdge    = false;
+    DockEdge edge   = DockEdge::None;
     bool hasMonitor = false;
     SettingsText monitor;
-    bool hasMode = false;
-    DockMode mode = DockMode::Fixed;
-    bool hasThickness = false;
+    bool hasMode           = false;
+    DockMode mode          = DockMode::Fixed;
+    bool hasThickness      = false;
     uint32_t thicknessDips = kDockDefaultThicknessDips;
-    bool hasReserve = false;
-    bool reserveWorkArea = true;
-    bool hasPeek = false;
-    uint32_t peekPixels = kDockDefaultPeekPixels;
+    bool hasReserve        = false;
+    bool reserveWorkArea   = true;
+    bool hasPeek           = false;
+    uint32_t peekPixels    = kDockDefaultPeekPixels;
 
     [[nodiscard]] bool Any() const noexcept
     {
@@ -45,20 +45,19 @@ namespace DockOptionsDetail
     {
         return false;
     }
-    const int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(), static_cast<int>(wide.size()),
-                                          text.utf8.data(), static_cast<int>(text.utf8.size() - 1), nullptr, nullptr);
+    const int bytes = WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(), static_cast<int>(wide.size()), text.utf8.data(), static_cast<int>(text.utf8.size() - 1), nullptr, nullptr);
     if (bytes <= 0 || static_cast<size_t>(bytes) > kMaximumSettingsTextBytes)
     {
         text = SettingsText{};
         return false;
     }
-    text.bytes = static_cast<uint32_t>(bytes);
+    text.bytes                            = static_cast<uint32_t>(bytes);
     text.utf8[static_cast<size_t>(bytes)] = '\0';
     return true;
 }
 
-[[nodiscard]] inline bool ParseUnsigned(std::wstring_view value, uint32_t minimum, uint32_t maximum,
-                                        uint32_t& parsed) noexcept
+[[nodiscard]] inline bool ParseUnsigned(std::wstring_view value, uint32_t minimum, uint32_t maximum, uint32_t& parsed) noexcept
 {
     if (value.empty() || value.size() > 10)
     {
@@ -91,7 +90,7 @@ namespace DockOptionsDetail
     const size_t at = value.find(L'@');
     if (at != std::wstring_view::npos)
     {
-        edgeText = value.substr(0, at);
+        edgeText    = value.substr(0, at);
         monitorText = value.substr(at + 1);
         if (monitorText.empty())
         {
@@ -100,26 +99,25 @@ namespace DockOptionsDetail
     }
     SettingsText narrowEdge;
     DockEdge edge = DockEdge::None;
-    if (!DockOptionsDetail::NarrowUtf8(edgeText, narrowEdge) || !DockEdgeParse(narrowEdge.View(), edge))
+    if (! DockOptionsDetail::NarrowUtf8(edgeText, narrowEdge) || ! DockEdgeParse(narrowEdge.View(), edge))
     {
         return false;
     }
     SettingsText monitor;
-    if (!monitorText.empty())
+    if (! monitorText.empty())
     {
         RedXeActions::MonitorSelector selector{};
-        if (!DockOptionsDetail::NarrowUtf8(monitorText, monitor) ||
-            !RedXeActions::ParseMonitorSelector(monitor.View(), false, selector))
+        if (! DockOptionsDetail::NarrowUtf8(monitorText, monitor) || ! RedXeActions::ParseMonitorSelector(monitor.View(), false, selector))
         {
             return false;
         }
     }
     overrides.hasEdge = true;
-    overrides.edge = edge;
-    if (!monitorText.empty())
+    overrides.edge    = edge;
+    if (! monitorText.empty())
     {
         overrides.hasMonitor = true;
-        overrides.monitor = monitor;
+        overrides.monitor    = monitor;
     }
     return true;
 }
@@ -129,12 +127,12 @@ namespace DockOptionsDetail
 {
     SettingsText narrow;
     DockMode mode = DockMode::Fixed;
-    if (!DockOptionsDetail::NarrowUtf8(value, narrow) || !DockModeParse(narrow.View(), mode))
+    if (! DockOptionsDetail::NarrowUtf8(value, narrow) || ! DockModeParse(narrow.View(), mode))
     {
         return false;
     }
     overrides.hasMode = true;
-    overrides.mode = mode;
+    overrides.mode    = mode;
     return true;
 }
 
@@ -142,11 +140,11 @@ namespace DockOptionsDetail
 [[nodiscard]] inline bool ParseDockThicknessArgument(std::wstring_view value, DockOverrides& overrides) noexcept
 {
     uint32_t parsed = 0;
-    if (!DockOptionsDetail::ParseUnsigned(value, kDockMinimumThicknessDips, kDockMaximumThicknessDips, parsed))
+    if (! DockOptionsDetail::ParseUnsigned(value, kDockMinimumThicknessDips, kDockMaximumThicknessDips, parsed))
     {
         return false;
     }
-    overrides.hasThickness = true;
+    overrides.hasThickness  = true;
     overrides.thicknessDips = parsed;
     return true;
 }
@@ -174,19 +172,18 @@ namespace DockOptionsDetail
 [[nodiscard]] inline bool ParseDockPeekArgument(std::wstring_view value, DockOverrides& overrides) noexcept
 {
     uint32_t parsed = 0;
-    if (!DockOptionsDetail::ParseUnsigned(value, kDockMinimumPeekPixels, kDockMaximumPeekPixels, parsed))
+    if (! DockOptionsDetail::ParseUnsigned(value, kDockMinimumPeekPixels, kDockMaximumPeekPixels, parsed))
     {
         return false;
     }
-    overrides.hasPeek = true;
+    overrides.hasPeek    = true;
     overrides.peekPixels = parsed;
     return true;
 }
 
 // Effective dock for this process: the document's `dock` (defaults already merged by the parser) with each present
 // switch replacing its member. Re-run on every live reload.
-[[nodiscard]] inline DockSettings EffectiveDockSettings(const DockSettings& document,
-                                                        const DockOverrides& overrides) noexcept
+[[nodiscard]] inline DockSettings EffectiveDockSettings(const DockSettings& document, const DockOverrides& overrides) noexcept
 {
     DockSettings effective = document;
     if (overrides.hasEdge)

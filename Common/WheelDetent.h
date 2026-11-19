@@ -19,7 +19,7 @@ struct RedXeWheelDetent final
     // or tilt right). Non-finite and zero samples complete nothing and leave the remainder alone.
     [[nodiscard]] int Accumulate(float wheelDelta) noexcept
     {
-        if (!std::isfinite(wheelDelta) || wheelDelta == 0.0f)
+        if (! std::isfinite(wheelDelta) || wheelDelta == 0.0f)
         {
             return 0;
         }

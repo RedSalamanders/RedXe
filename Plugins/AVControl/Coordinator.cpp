@@ -10,7 +10,7 @@ namespace
 const Endpoint* FindEndpoint(const Inventory& inventory, DeviceKind kind, const DeviceId& id) noexcept
 {
     const auto& endpoints = kind == DeviceKind::Output ? inventory.outputs : inventory.inputs;
-    const uint32_t count = kind == DeviceKind::Output ? inventory.outputCount : inventory.inputCount;
+    const uint32_t count  = kind == DeviceKind::Output ? inventory.outputCount : inventory.inputCount;
     for (uint32_t i = 0; i < count; ++i)
         if (endpoints[i].id == id)
             return &endpoints[i];
@@ -18,42 +18,44 @@ const Endpoint* FindEndpoint(const Inventory& inventory, DeviceKind kind, const 
 }
 bool SameDevices(const Inventory& a, const Inventory& b) noexcept
 {
-    if (a.outputCount != b.outputCount || a.inputCount != b.inputCount || a.cameraCount != b.cameraCount ||
-        a.capabilities != b.capabilities || a.truncated != b.truncated)
+    if (a.outputCount != b.outputCount || a.inputCount != b.inputCount || a.cameraCount != b.cameraCount || a.capabilities != b.capabilities ||
+        a.truncated != b.truncated)
         return false;
     for (uint32_t flow = 0; flow < 2; ++flow)
     {
-        const auto& left = flow ? a.inputs : a.outputs;
+        const auto& left  = flow ? a.inputs : a.outputs;
         const auto& right = flow ? b.inputs : b.outputs;
-        const auto count = flow ? a.inputCount : a.outputCount;
+        const auto count  = flow ? a.inputCount : a.outputCount;
         for (uint32_t i = 0; i < count; ++i)
-            if (left[i].id != right[i].id || left[i].name != right[i].name ||
-                left[i].availability != right[i].availability)
+            if (left[i].id != right[i].id || left[i].name != right[i].name || left[i].availability != right[i].availability)
                 return false;
     }
     for (uint32_t i = 0; i < a.cameraCount; ++i)
-        if (a.cameras[i].id != b.cameras[i].id || a.cameras[i].name != b.cameras[i].name ||
-            a.cameras[i].availability != b.cameras[i].availability)
+        if (a.cameras[i].id != b.cameras[i].id || a.cameras[i].name != b.cameras[i].name || a.cameras[i].availability != b.cameras[i].availability)
             return false;
     return true;
 }
 void SelectRole(Inventory& inventory, uint32_t role) noexcept
 {
-    const auto* output = FindEndpoint(inventory, DeviceKind::Output, inventory.state.outputDefaults[role]);
-    const auto* input = FindEndpoint(inventory, DeviceKind::Microphone, inventory.state.inputDefaults[role]);
-    inventory.state.output = output ? *output : Endpoint{};
+    const auto* output         = FindEndpoint(inventory, DeviceKind::Output, inventory.state.outputDefaults[role]);
+    const auto* input          = FindEndpoint(inventory, DeviceKind::Microphone, inventory.state.inputDefaults[role]);
+    inventory.state.output     = output ? *output : Endpoint{};
     inventory.state.microphone = input ? *input : Endpoint{};
 }
 bool ConnectionKnown(HRESULT result, const Broker& broker) noexcept
 {
-    return broker.Running() && result != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) &&
-           result != HRESULT_FROM_WIN32(ERROR_CANCELLED) && result != HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+    return broker.Running() && result != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) && result != HRESULT_FROM_WIN32(ERROR_CANCELLED) &&
+           result != HRESULT_FROM_WIN32(ERROR_TIMEOUT);
 }
 } // namespace
 
 Coordinator::Coordinator(IRedXeHost* host, std::wstring executable, bool synthetic)
-    : _host(host), _executable(std::move(executable)), _synthetic(synthetic), _current(std::make_unique<Inventory>()),
-      _reply(std::make_unique<BrokerReply>()), _preferences(std::make_unique<InventoryPreferences>()),
+    : _host(host),
+      _executable(std::move(executable)),
+      _synthetic(synthetic),
+      _current(std::make_unique<Inventory>()),
+      _reply(std::make_unique<BrokerReply>()),
+      _preferences(std::make_unique<InventoryPreferences>()),
       _workPreferences(std::make_unique<InventoryPreferences>())
 {
 }
@@ -63,10 +65,10 @@ Coordinator::~Coordinator()
 }
 HRESULT Coordinator::Initialize() noexcept
 {
-    if (!_host || _executable.empty())
+    if (! _host || _executable.empty())
         return E_INVALIDARG;
     _wait.reset(CreateThreadpoolWait(Changed, this, nullptr));
-    RETURN_LAST_ERROR_IF(!_wait);
+    RETURN_LAST_ERROR_IF(! _wait);
     return S_OK;
 }
 void CALLBACK Coordinator::Changed(PTP_CALLBACK_INSTANCE, void* context, PTP_WAIT, TP_WAIT_RESULT) noexcept
@@ -88,7 +90,7 @@ void Coordinator::Disarm() noexcept
 }
 void Coordinator::Arm() noexcept
 {
-    if (!_visible || !_wait || !_broker.ChangeEvent())
+    if (! _visible || ! _wait || ! _broker.ChangeEvent())
         return;
     _observing.store(true, std::memory_order_release);
     SetThreadpoolWait(_wait.get(), _broker.ChangeEvent(), nullptr);
@@ -113,8 +115,8 @@ void Coordinator::SetSubscriberVisible(bool visible) noexcept
     {
         Disarm();
         {
-            const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-            _stopRequested = true;
+            const auto guard  = wil::AcquireSRWLockExclusive(&_lock);
+            _stopRequested    = true;
             _observeRequested = false;
         }
         // Closing driver objects belongs to the helper worker, not the visibility callback.
@@ -128,7 +130,7 @@ void Coordinator::Refresh() noexcept
 }
 HRESULT Coordinator::RegisterConfiguration(const Configuration* configuration) noexcept
 {
-    if (!configuration || configuration->count > MaximumProfiles)
+    if (! configuration || configuration->count > MaximumProfiles)
         return E_INVALIDARG;
     for (const auto* existing : _configurations)
         if (existing == configuration)
@@ -147,7 +149,7 @@ void Coordinator::UnregisterConfiguration(const Configuration* configuration) no
 {
     for (auto& slot : _configurations)
     {
-        if (!configuration || slot != configuration)
+        if (! configuration || slot != configuration)
             continue;
         slot = nullptr;
         ConfigurationChanged();
@@ -158,7 +160,7 @@ void Coordinator::ConfigurationChanged() noexcept
 {
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        *_preferences = {};
+        *_preferences    = {};
         for (const auto* configuration : _configurations)
             if (configuration)
                 for (uint32_t i = 0; i < configuration->count; ++i)
@@ -171,13 +173,13 @@ void Coordinator::ConfigurationChanged() noexcept
 }
 void Coordinator::Prepare() noexcept
 {
-    if (!_visible)
+    if (! _visible)
         return;
     if (_dirty.exchange(false, std::memory_order_acq_rel))
     {
-        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        const auto guard  = wil::AcquireSRWLockExclusive(&_lock);
         _observeRequested = true;
-        _stopRequested = false;
+        _stopRequested    = false;
     }
     (void)Schedule();
 }
@@ -189,23 +191,23 @@ bool Coordinator::HasPending() noexcept
 }
 HRESULT Coordinator::Schedule() noexcept
 {
-    if (_inFlight || !HasPending())
+    if (_inFlight || ! HasPending())
         return S_FALSE;
-    _inFlight = true;
-    _ranProfile = false;
-    _stateKnown = false;
+    _inFlight            = true;
+    _ranProfile          = false;
+    _stateKnown          = false;
     const HRESULT result = _host->QueueControlWork(this);
     if (FAILED(result))
     {
-        _inFlight = false;
+        _inFlight   = false;
         _lastResult = result;
         // A host that rejects device work (including automated host smoke tests) gets no retry/frame loop.
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _commands = {};
+        _commands        = {};
         _profile.reset();
-        _profilePending = false;
+        _profilePending   = false;
         _observeRequested = false;
-        _stopRequested = false;
+        _stopRequested    = false;
     }
     return result;
 }
@@ -213,7 +215,7 @@ uint32_t Coordinator::PendingMask() const noexcept
 {
     // Called only on UI; the short lock also protects the worker taking a queued lane.
     const auto guard = wil::AcquireSRWLockShared(&_lock);
-    uint32_t mask = _runningMask;
+    uint32_t mask    = _runningMask;
     for (uint32_t i = 0; i < _commands.size(); ++i)
         if (_commands[i])
             mask |= 1U << i;
@@ -225,12 +227,9 @@ HRESULT Coordinator::Submit(const ViewCommand& command) noexcept
 {
     const auto device = static_cast<uint32_t>(command.device);
     if (device > 2 ||
-        (command.kind != ViewCommandKind::SetMuted && command.kind != ViewCommandKind::SetCameraEnabled &&
-         command.kind != ViewCommandKind::SetLevel) ||
-        (command.kind == ViewCommandKind::SetMuted && device > 1) ||
-        (command.kind == ViewCommandKind::SetCameraEnabled && device != 2) ||
-        (command.kind == ViewCommandKind::SetLevel && device > 1) ||
-        command.value > (command.kind == ViewCommandKind::SetLevel ? 100U : 1U))
+        (command.kind != ViewCommandKind::SetMuted && command.kind != ViewCommandKind::SetCameraEnabled && command.kind != ViewCommandKind::SetLevel) ||
+        (command.kind == ViewCommandKind::SetMuted && device > 1) || (command.kind == ViewCommandKind::SetCameraEnabled && device != 2) ||
+        (command.kind == ViewCommandKind::SetLevel && device > 1) || command.value > (command.kind == ViewCommandKind::SetLevel ? 100U : 1U))
         return E_INVALIDARG;
     const uint32_t lane = command.kind == ViewCommandKind::SetLevel ? device + 3 : device;
     if (_profilePending && lane >= 3)
@@ -239,7 +238,7 @@ HRESULT Coordinator::Submit(const ViewCommand& command) noexcept
         _safety.Publish(command.device, lane == 2 ? command.value == 0 : command.value != 0);
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _commands[lane] = Command{command, GetTickCount64(), _profilePending && lane < 3};
+        _commands[lane]  = Command{command, GetTickCount64(), _profilePending && lane < 3};
     }
     Invalidate();
     return Schedule();
@@ -250,16 +249,16 @@ HRESULT Coordinator::SubmitProfile(const Profile& profile) noexcept
         return HRESULT_FROM_WIN32(ERROR_BUSY);
     // Validate before accepting any work, including profiles submitted through future non-pointer input routes.
     Configuration validation{};
-    validation.count = 1;
+    validation.count       = 1;
     validation.profiles[0] = profile;
     std::array<char, MaximumSettingsBytes> serialized{};
     uint32_t bytes = 0;
     RETURN_IF_FAILED(SerializeConfiguration(validation, serialized.data(), serialized.size(), bytes));
     {
-        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _profile = profile;
+        const auto guard   = wil::AcquireSRWLockExclusive(&_lock);
+        _profile           = profile;
         _profileAcceptedAt = GetTickCount64();
-        _profilePending = true;
+        _profilePending    = true;
         // Uncommitted levels from an old view cannot follow a new route.
         _commands[3].reset();
         _commands[4].reset();
@@ -271,50 +270,50 @@ HRESULT Coordinator::Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexc
 {
     _ranProfile = false;
     _stateKnown = false;
-    _workApply = {};
+    _workApply  = {};
     Command command;
     std::optional<Profile> profile;
-    bool stop = false;
+    bool stop           = false;
     uint64_t acceptedAt = GetTickCount64();
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _runningMask = 0;
+        _runningMask     = 0;
         if (_workPreferenceRevision != _preferenceRevision)
         {
-            *_workPreferences = *_preferences;
+            *_workPreferences       = *_preferences;
             _workPreferenceRevision = _preferenceRevision;
         }
         // All later mute/off lanes precede a queued profile or volume edit.
         for (uint32_t i = 0; i < _commands.size(); ++i)
         {
-            if (!_commands[i])
+            if (! _commands[i])
                 continue;
             command = *_commands[i];
             _commands[i].reset();
             _runningMask = 1U << i;
-            acceptedAt = command.acceptedAt;
+            acceptedAt   = command.acceptedAt;
             break;
         }
-        if (!_runningMask && _profile)
+        if (! _runningMask && _profile)
         {
             profile = *_profile;
             _profile.reset();
             _ranProfile = true;
-            acceptedAt = _profileAcceptedAt;
+            acceptedAt  = _profileAcceptedAt;
         }
-        if (!_runningMask && !profile)
+        if (! _runningMask && ! profile)
         {
-            stop = _stopRequested;
-            _stopRequested = false;
+            stop              = _stopRequested;
+            _stopRequested    = false;
             _observeRequested = false;
         }
     }
     const auto start = GetTickCount64();
-    const auto age = start - acceptedAt;
+    const auto age   = start - acceptedAt;
     if (age >= 3000)
         return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
     const uint32_t budget = (std::min)(timeoutMilliseconds, static_cast<uint32_t>(3000 - age));
-    const auto remaining = [&]() noexcept -> uint32_t
+    const auto remaining  = [&]() noexcept -> uint32_t
     {
         const auto elapsed = GetTickCount64() - start;
         return elapsed < budget ? static_cast<uint32_t>(budget - elapsed) : 0;
@@ -323,17 +322,17 @@ HRESULT Coordinator::Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexc
         return HRESULT_FROM_WIN32(ERROR_CANCELLED);
     if (stop)
     {
-        if (!_broker.Running())
+        if (! _broker.Running())
             return S_FALSE;
         BrokerCommand suspend;
-        suspend.operation = BrokerOperation::SuspendObservation;
+        suspend.operation    = BrokerOperation::SuspendObservation;
         const HRESULT result = _broker.Execute(suspend, *_reply, cancelEvent, remaining());
-        _stateKnown = ConnectionKnown(result, _broker);
-        if (FAILED(result) || !_reply->inventory.cameraRequiresHelper)
+        _stateKnown          = ConnectionKnown(result, _broker);
+        if (FAILED(result) || ! _reply->inventory.cameraRequiresHelper)
             _broker.Stop((std::min)(uint32_t{250}, remaining()));
         return result;
     }
-    if (!_broker.Running())
+    if (! _broker.Running())
     {
         RETURN_IF_FAILED(_broker.Start(_executable, _synthetic));
         _brokerPreferenceRevision = 0;
@@ -343,7 +342,7 @@ HRESULT Coordinator::Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexc
         RETURN_IF_FAILED(_broker.SetPreferences(*_workPreferences));
         _brokerPreferenceRevision = _workPreferenceRevision;
     }
-    if (!remaining())
+    if (! remaining())
     {
         _broker.Stop(0);
         return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
@@ -352,7 +351,7 @@ HRESULT Coordinator::Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexc
     if (profile)
     {
         _workApply = ApplyProfile(*profile, _broker, *_reply, _safety, cancelEvent, remaining());
-        result = _workApply.result;
+        result     = _workApply.result;
         if (_workApply.applied)
             _controlledRole = profile->audioRoles == AudioRoles::Communications ? 2U : 0U;
         _stateKnown = _workApply.stateKnown && ConnectionKnown(result, _broker);
@@ -363,15 +362,15 @@ HRESULT Coordinator::Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexc
         if (_runningMask)
         {
             const auto& intent = command.value;
-            request = {intent.kind == ViewCommandKind::SetLevel   ? BrokerOperation::SetLevel
-                       : intent.kind == ViewCommandKind::SetMuted ? BrokerOperation::SetMute
-                                                                  : BrokerOperation::SetCameraEnabled,
-                       intent.device,
-                       intent.endpointId,
-                       intent.value,
-                       0,
-                       intent.generation,
-                       intent.revision};
+            request            = {intent.kind == ViewCommandKind::SetLevel   ? BrokerOperation::SetLevel
+                                  : intent.kind == ViewCommandKind::SetMuted ? BrokerOperation::SetMute
+                                                                             : BrokerOperation::SetCameraEnabled,
+                                  intent.device,
+                                  intent.endpointId,
+                                  intent.value,
+                                  0,
+                                  intent.generation,
+                                  intent.revision};
             if (command.followRoute)
             {
                 result = _broker.Execute({}, *_reply, cancelEvent, remaining());
@@ -382,18 +381,16 @@ HRESULT Coordinator::Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexc
                         request.expectedRevision = _reply->inventory.state.camera.revision;
                     else
                     {
-                        const auto& endpoint = intent.device == DeviceKind::Output ? _reply->inventory.state.output
-                                                                                   : _reply->inventory.state.microphone;
-                        request.id = endpoint.id;
+                        const auto& endpoint       = intent.device == DeviceKind::Output ? _reply->inventory.state.output : _reply->inventory.state.microphone;
+                        request.id                 = endpoint.id;
                         request.expectedGeneration = endpoint.generation;
-                        request.expectedRevision = endpoint.muteRevision;
+                        request.expectedRevision   = endpoint.muteRevision;
                     }
                 }
             }
         }
         if (SUCCEEDED(result))
-            result = remaining() ? _broker.Execute(request, *_reply, cancelEvent, remaining())
-                                 : HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+            result = remaining() ? _broker.Execute(request, *_reply, cancelEvent, remaining()) : HRESULT_FROM_WIN32(ERROR_TIMEOUT);
         _stateKnown = ConnectionKnown(result, _broker);
     }
     if (_stateKnown)
@@ -402,28 +399,28 @@ HRESULT Coordinator::Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexc
 }
 void Coordinator::Complete(HRESULT result) noexcept
 {
-    _inFlight = false;
+    _inFlight   = false;
     _lastResult = result;
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _runningMask = 0;
+        _runningMask     = 0;
         if (_ranProfile)
         {
             _profilePending = false;
-            _lastApply = _workApply;
+            _lastApply      = _workApply;
         }
     }
     if (_stateKnown)
     {
-        if (!SameDevices(*_current, _reply->inventory))
+        if (! SameDevices(*_current, _reply->inventory))
             ++_deviceRevision;
         *_current = _reply->inventory;
     }
     else if (FAILED(result))
     {
-        _current->state.output.availability = Availability::Unknown;
+        _current->state.output.availability     = Availability::Unknown;
         _current->state.microphone.availability = Availability::Unknown;
-        _current->state.camera.availability = Availability::Unknown;
+        _current->state.camera.availability     = Availability::Unknown;
         ++_deviceRevision;
     }
     Invalidate();

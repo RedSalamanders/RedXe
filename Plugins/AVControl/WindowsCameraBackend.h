@@ -12,7 +12,7 @@ namespace AVControl
 #pragma warning(disable : 4625 4626)
 class WindowsCameraBackend final
 {
-  public:
+public:
     WindowsCameraBackend();
     ~WindowsCameraBackend();
     HRESULT Initialize(HANDLE changed) noexcept;
@@ -25,7 +25,7 @@ class WindowsCameraBackend final
     HRESULT ProcessNotifications() noexcept;
     [[nodiscard]] DWORD WatchdogTimeout() const noexcept;
 
-  private:
+private:
     struct State;
     std::unique_ptr<State> _state;
 };

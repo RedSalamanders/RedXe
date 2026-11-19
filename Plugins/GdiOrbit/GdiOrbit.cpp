@@ -17,18 +17,21 @@
 
 namespace
 {
-constexpr char kPluginId[] = "builtin.gdi-orbit";
-constexpr char kWidgetTypeId[] = "gdi-orbit";
-constexpr char kSettingsSchema[] = R"json({"type":"object","additionalProperties":false})json";
+constexpr char kPluginId[]         = "builtin.gdi-orbit";
+constexpr char kWidgetTypeId[]     = "gdi-orbit";
+constexpr char kSettingsSchema[]   = R"json({"type":"object","additionalProperties":false})json";
 constexpr char kSettingsDefaults[] = R"json({})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
-    sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
+    sizeof(RedXePluginSettingsContract),
+    kSettingsSchema,
+    sizeof(kSettingsSchema) - 1,
+    kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
 };
-constexpr wchar_t kWindowClassName[] = L"RedXe.Plugin.GdiOrbit";
-constexpr UINT_PTR kAnimationTimer = 1;
+constexpr wchar_t kWindowClassName[]          = L"RedXe.Plugin.GdiOrbit";
+constexpr UINT_PTR kAnimationTimer            = 1;
 constexpr UINT kAnimationIntervalMilliseconds = 33;
-constexpr double kPi = 3.14159265358979323846;
+constexpr double kPi                          = 3.14159265358979323846;
 
 HINSTANCE g_moduleInstance = nullptr;
 
@@ -77,9 +80,10 @@ constexpr std::array kWidgetTypes{
 #pragma warning(disable : 4625 4626)
 class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget, IRedXeWindowWidget, IRedXeRaisedWidget>
 {
-  public:
+public:
     GdiOrbitWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, COLORREF background) noexcept
-        : _providerOwner(std::move(providerOwner)), _background(background)
+        : _providerOwner(std::move(providerOwner)),
+          _background(background)
     {
     }
 
@@ -90,13 +94,12 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
 
     HRESULT STDMETHODCALLTYPE Attach(const RedXeWindowWidgetAttachContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
-        if (context->sizeBytes != sizeof(RedXeWindowWidgetAttachContext) || !context->container ||
-            context->widthPixels == 0 || context->heightPixels == 0 || context->dpi == 0 ||
-            !IsWindow(context->container))
+        if (context->sizeBytes != sizeof(RedXeWindowWidgetAttachContext) || ! context->container || context->widthPixels == 0 || context->heightPixels == 0 ||
+            context->dpi == 0 || ! IsWindow(context->container))
         {
             return E_INVALIDARG;
         }
@@ -105,7 +108,7 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
             return E_UNEXPECTED;
         }
 
-        DWORD processId = 0;
+        DWORD processId      = 0;
         const DWORD threadId = GetWindowThreadProcessId(context->container, &processId);
         if (threadId == 0 || threadId != GetCurrentThreadId() || processId != GetCurrentProcessId())
         {
@@ -118,11 +121,20 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
             return result;
         }
 
-        _container = context->container;
-        const HWND window = CreateWindowExW(
-            0, kWindowClassName, L"", WS_CHILD | WS_CLIPSIBLINGS, 0, 0, static_cast<int>(context->widthPixels),
-            static_cast<int>(context->heightPixels), context->container, nullptr, g_moduleInstance, this);
-        if (!window)
+        _container        = context->container;
+        const HWND window = CreateWindowExW(0,
+                                            kWindowClassName,
+                                            L"",
+                                            WS_CHILD | WS_CLIPSIBLINGS,
+                                            0,
+                                            0,
+                                            static_cast<int>(context->widthPixels),
+                                            static_cast<int>(context->heightPixels),
+                                            context->container,
+                                            nullptr,
+                                            g_moduleInstance,
+                                            this);
+        if (! window)
         {
             _container = nullptr;
             return HRESULT_FROM_WIN32(GetLastError());
@@ -140,22 +152,21 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
 
     HRESULT STDMETHODCALLTYPE Resize(const RedXeWindowWidgetSizeContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
-        if (context->sizeBytes != sizeof(RedXeWindowWidgetSizeContext) || context->widthPixels == 0 ||
-            context->heightPixels == 0 || context->dpi == 0)
+        if (context->sizeBytes != sizeof(RedXeWindowWidgetSizeContext) || context->widthPixels == 0 || context->heightPixels == 0 || context->dpi == 0)
         {
             return E_INVALIDARG;
         }
-        if (!_window)
+        if (! _window)
         {
             return E_UNEXPECTED;
         }
 
-        if (!SetWindowPos(_window.get(), nullptr, 0, 0, static_cast<int>(context->widthPixels),
-                          static_cast<int>(context->heightPixels), SWP_NOACTIVATE | SWP_NOZORDER))
+        if (! SetWindowPos(
+                _window.get(), nullptr, 0, 0, static_cast<int>(context->widthPixels), static_cast<int>(context->heightPixels), SWP_NOACTIVATE | SWP_NOZORDER))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -164,7 +175,7 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
 
     HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
     {
-        if (!extent)
+        if (! extent)
         {
             return E_POINTER;
         }
@@ -184,7 +195,7 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
         {
             return S_OK;
         }
-        if (!_window)
+        if (! _window)
         {
             return E_UNEXPECTED;
         }
@@ -197,7 +208,7 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
                 return LastErrorOrFailure();
             }
             _timerRunning = true;
-            _visible = true;
+            _visible      = true;
             ShowWindow(_window.get(), SW_SHOWNA);
             InvalidateRect(_window.get(), nullptr, FALSE);
         }
@@ -218,15 +229,14 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
-                                                        uint32_t* writtenBytes) noexcept override
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes, uint32_t* writtenBytes) noexcept override
     {
         return RedXeCollectNoPersistentSettings(jsonUtf8, capacityBytes, writtenBytes);
     }
 
     void STDMETHODCALLTYPE Detach() noexcept override
     {
-        if (!_window)
+        if (! _window)
         {
             return;
         }
@@ -234,67 +244,63 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
         (void)SetVisible(FALSE);
         _window.reset();
         ReleaseDrawingResources();
-        _container = nullptr;
+        _container          = nullptr;
         _elapsedBeforePause = 0;
-        _resumeTick = 0;
+        _resumeTick         = 0;
     }
 
-  private:
+private:
     static LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
     {
         auto* widget = reinterpret_cast<GdiOrbitWidget*>(GetWindowLongPtrW(window, GWLP_USERDATA));
         if (message == WM_NCCREATE)
         {
             const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
-            widget = static_cast<GdiOrbitWidget*>(create->lpCreateParams);
+            widget             = static_cast<GdiOrbitWidget*>(create->lpCreateParams);
             widget->_window.reset(window);
             SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(widget));
         }
 
-        if (!widget)
+        if (! widget)
         {
             return DefWindowProcW(window, message, wParam, lParam);
         }
 
         switch (message)
         {
-        case WM_TIMER:
-            if (wParam == kAnimationTimer && widget->_visible)
-            {
-                InvalidateRect(window, nullptr, FALSE);
-                return 0;
-            }
-            break;
-        case WM_ERASEBKGND:
-            return 1;
-        case WM_PAINT:
-            widget->Paint();
-            return 0;
-        case WM_NCDESTROY:
-            if (widget->_window.get() == window)
-            {
-                (void)widget->_window.release();
-            }
-            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
-            return DefWindowProcW(window, message, wParam, lParam);
-        default:
-            break;
+            case WM_TIMER:
+                if (wParam == kAnimationTimer && widget->_visible)
+                {
+                    InvalidateRect(window, nullptr, FALSE);
+                    return 0;
+                }
+                break;
+            case WM_ERASEBKGND: return 1;
+            case WM_PAINT: widget->Paint(); return 0;
+            case WM_NCDESTROY:
+                if (widget->_window.get() == window)
+                {
+                    (void)widget->_window.release();
+                }
+                SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+                return DefWindowProcW(window, message, wParam, lParam);
+            default: break;
         }
         return DefWindowProcW(window, message, wParam, lParam);
     }
 
     [[nodiscard]] HRESULT RebuildDrawingResources(uint32_t width, uint32_t height, UINT dpi) noexcept
     {
-        if (!_memoryDc)
+        if (! _memoryDc)
         {
             _memoryDc.reset(CreateCompatibleDC(nullptr));
-            if (!_memoryDc)
+            if (! _memoryDc)
             {
                 return LastErrorOrFailure();
             }
         }
 
-        if (!_surface || width != _width || height != _height)
+        if (! _surface || width != _width || height != _height)
         {
             if (_surface)
             {
@@ -304,31 +310,30 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
             }
 
             BITMAPINFO information{};
-            information.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-            information.bmiHeader.biWidth = static_cast<LONG>(width);
-            information.bmiHeader.biHeight = -static_cast<LONG>(height);
-            information.bmiHeader.biPlanes = 1;
-            information.bmiHeader.biBitCount = 32;
+            information.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+            information.bmiHeader.biWidth       = static_cast<LONG>(width);
+            information.bmiHeader.biHeight      = -static_cast<LONG>(height);
+            information.bmiHeader.biPlanes      = 1;
+            information.bmiHeader.biBitCount    = 32;
             information.bmiHeader.biCompression = BI_RGB;
-            void* pixels = nullptr;
-            wil::unique_hbitmap surface{
-                CreateDIBSection(_memoryDc.get(), &information, DIB_RGB_COLORS, &pixels, nullptr, 0)};
-            if (!surface || !pixels)
+            void* pixels                        = nullptr;
+            wil::unique_hbitmap surface{CreateDIBSection(_memoryDc.get(), &information, DIB_RGB_COLORS, &pixels, nullptr, 0)};
+            if (! surface || ! pixels)
             {
                 return LastErrorOrFailure();
             }
             _previousBitmap = SelectObject(_memoryDc.get(), surface.get());
-            if (!_previousBitmap || _previousBitmap == HGDI_ERROR)
+            if (! _previousBitmap || _previousBitmap == HGDI_ERROR)
             {
                 _previousBitmap = nullptr;
                 return LastErrorOrFailure();
             }
             _surface = std::move(surface);
-            _width = width;
-            _height = height;
+            _width   = width;
+            _height  = height;
         }
 
-        if (_dpi != dpi || !_backgroundBrush)
+        if (_dpi != dpi || ! _backgroundBrush)
         {
             _backgroundBrush.reset(CreateSolidBrush(_background));
             _panelBrush.reset(CreateSolidBrush(RGB(15, 18, 28)));
@@ -338,17 +343,50 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
             _gridPen.reset(CreatePen(PS_SOLID, 1, RGB(21, 27, 40)));
             _orbitPen.reset(CreatePen(PS_SOLID, ScaleForDpi(1, dpi), RGB(64, 71, 88)));
             _redPen.reset(CreatePen(PS_SOLID, ScaleForDpi(2, dpi), RGB(222, 42, 54)));
-            _titleFont.reset(CreateFontW(-ScaleForDpi(13, dpi), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
-                                         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                                         DEFAULT_PITCH | FF_SWISS, L"Segoe UI"));
-            _symbolFont.reset(CreateFontW(-ScaleForDpi(44, dpi), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                                          OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                                          DEFAULT_PITCH | FF_SWISS, L"Segoe UI"));
-            _detailFont.reset(CreateFontW(-ScaleForDpi(11, dpi), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                          DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                                          DEFAULT_PITCH | FF_SWISS, L"Segoe UI"));
-            if (!_backgroundBrush || !_panelBrush || !_redBrush || !_cyanBrush || !_dimBrush || !_gridPen ||
-                !_orbitPen || !_redPen || !_titleFont || !_symbolFont || !_detailFont)
+            _titleFont.reset(CreateFontW(-ScaleForDpi(13, dpi),
+                                         0,
+                                         0,
+                                         0,
+                                         FW_SEMIBOLD,
+                                         FALSE,
+                                         FALSE,
+                                         FALSE,
+                                         DEFAULT_CHARSET,
+                                         OUT_DEFAULT_PRECIS,
+                                         CLIP_DEFAULT_PRECIS,
+                                         CLEARTYPE_QUALITY,
+                                         DEFAULT_PITCH | FF_SWISS,
+                                         L"Segoe UI"));
+            _symbolFont.reset(CreateFontW(-ScaleForDpi(44, dpi),
+                                          0,
+                                          0,
+                                          0,
+                                          FW_BOLD,
+                                          FALSE,
+                                          FALSE,
+                                          FALSE,
+                                          DEFAULT_CHARSET,
+                                          OUT_DEFAULT_PRECIS,
+                                          CLIP_DEFAULT_PRECIS,
+                                          CLEARTYPE_QUALITY,
+                                          DEFAULT_PITCH | FF_SWISS,
+                                          L"Segoe UI"));
+            _detailFont.reset(CreateFontW(-ScaleForDpi(11, dpi),
+                                          0,
+                                          0,
+                                          0,
+                                          FW_NORMAL,
+                                          FALSE,
+                                          FALSE,
+                                          FALSE,
+                                          DEFAULT_CHARSET,
+                                          OUT_DEFAULT_PRECIS,
+                                          CLIP_DEFAULT_PRECIS,
+                                          CLEARTYPE_QUALITY,
+                                          DEFAULT_PITCH | FF_SWISS,
+                                          L"Segoe UI"));
+            if (! _backgroundBrush || ! _panelBrush || ! _redBrush || ! _cyanBrush || ! _dimBrush || ! _gridPen || ! _orbitPen || ! _redPen || ! _titleFont ||
+                ! _symbolFont || ! _detailFont)
             {
                 return LastErrorOrFailure();
             }
@@ -377,16 +415,16 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
         _surface.reset();
         _previousBitmap = nullptr;
         _memoryDc.reset();
-        _width = 0;
+        _width  = 0;
         _height = 0;
-        _dpi = 0;
+        _dpi    = 0;
     }
 
     void Paint() noexcept
     {
         PAINTSTRUCT paint{};
         auto target = wil::BeginPaint(_window.get(), &paint);
-        if (!target || !_memoryDc || !_surface || !_backgroundBrush)
+        if (! target || ! _memoryDc || ! _surface || ! _backgroundBrush)
         {
             return;
         }
@@ -402,7 +440,7 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
         SetBkMode(dc, TRANSPARENT);
 
         HGDIOBJ previousPen = SelectObject(dc, _gridPen.get());
-        const int grid = ScaleForDpi(28, _dpi);
+        const int grid      = ScaleForDpi(28, _dpi);
         for (int x = grid; x < static_cast<int>(_width); x += grid)
         {
             MoveToEx(dc, x, 0, nullptr);
@@ -414,11 +452,11 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
             LineTo(dc, static_cast<int>(_width), y);
         }
 
-        const int centerX = static_cast<int>(_width / 2U);
-        const int centerY = static_cast<int>(_height / 2U);
+        const int centerX          = static_cast<int>(_width / 2U);
+        const int centerY          = static_cast<int>(_height / 2U);
         const int minimumDimension = _width < _height ? static_cast<int>(_width) : static_cast<int>(_height);
-        const int orbitRadiusX = minimumDimension * 3 / 7;
-        const int orbitRadiusY = minimumDimension / 4;
+        const int orbitRadiusX     = minimumDimension * 3 / 7;
+        const int orbitRadiusY     = minimumDimension / 4;
 
         SelectObject(dc, _orbitPen.get());
         SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
@@ -426,32 +464,32 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
         Ellipse(dc, centerX - orbitRadiusY, centerY - orbitRadiusX, centerX + orbitRadiusY, centerY + orbitRadiusX);
 
         const ULONGLONG elapsedMilliseconds = _elapsedBeforePause + (_visible ? GetTickCount64() - _resumeTick : 0ULL);
-        const double angle = static_cast<double>(elapsedMilliseconds) * 0.00115;
-        HGDIOBJ previousBrush = SelectObject(dc, _dimBrush.get());
+        const double angle                  = static_cast<double>(elapsedMilliseconds) * 0.00115;
+        HGDIOBJ previousBrush               = SelectObject(dc, _dimBrush.get());
         SelectObject(dc, GetStockObject(NULL_PEN));
         for (int trail = 7; trail >= 1; --trail)
         {
             const double trailAngle = angle - static_cast<double>(trail) * 0.13;
-            const int x = centerX + static_cast<int>(std::cos(trailAngle) * static_cast<double>(orbitRadiusX));
-            const int y = centerY + static_cast<int>(std::sin(trailAngle) * static_cast<double>(orbitRadiusY));
-            const int radius = ScaleForDpi(2 + (8 - trail) / 2, _dpi);
+            const int x             = centerX + static_cast<int>(std::cos(trailAngle) * static_cast<double>(orbitRadiusX));
+            const int y             = centerY + static_cast<int>(std::sin(trailAngle) * static_cast<double>(orbitRadiusY));
+            const int radius        = ScaleForDpi(2 + (8 - trail) / 2, _dpi);
             Ellipse(dc, x - radius, y - radius, x + radius, y + radius);
         }
 
         SelectObject(dc, _redBrush.get());
-        const int redX = centerX + static_cast<int>(std::cos(angle) * static_cast<double>(orbitRadiusX));
-        const int redY = centerY + static_cast<int>(std::sin(angle) * static_cast<double>(orbitRadiusY));
+        const int redX      = centerX + static_cast<int>(std::cos(angle) * static_cast<double>(orbitRadiusX));
+        const int redY      = centerY + static_cast<int>(std::sin(angle) * static_cast<double>(orbitRadiusY));
         const int redRadius = ScaleForDpi(7, _dpi);
         Ellipse(dc, redX - redRadius, redY - redRadius, redX + redRadius, redY + redRadius);
 
         SelectObject(dc, _cyanBrush.get());
         const double cyanAngle = -angle * 0.72 + kPi * 0.5;
-        const int cyanX = centerX + static_cast<int>(std::cos(cyanAngle) * static_cast<double>(orbitRadiusY));
-        const int cyanY = centerY + static_cast<int>(std::sin(cyanAngle) * static_cast<double>(orbitRadiusX));
-        const int cyanRadius = ScaleForDpi(5, _dpi);
+        const int cyanX        = centerX + static_cast<int>(std::cos(cyanAngle) * static_cast<double>(orbitRadiusY));
+        const int cyanY        = centerY + static_cast<int>(std::sin(cyanAngle) * static_cast<double>(orbitRadiusX));
+        const int cyanRadius   = ScaleForDpi(5, _dpi);
         Ellipse(dc, cyanX - cyanRadius, cyanY - cyanRadius, cyanX + cyanRadius, cyanY + cyanRadius);
 
-        const int cardWidth = ScaleForDpi(112, _dpi);
+        const int cardWidth  = ScaleForDpi(112, _dpi);
         const int cardHeight = ScaleForDpi(128, _dpi);
         RECT card{centerX - cardWidth / 2, centerY - cardHeight / 2, centerX + cardWidth / 2, centerY + cardHeight / 2};
         SelectObject(dc, _panelBrush.get());
@@ -475,16 +513,16 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
 
         SelectObject(dc, _titleFont.get());
         SetTextColor(dc, RGB(239, 241, 246));
-        RECT titleBounds{ScaleForDpi(18, _dpi), ScaleForDpi(14, _dpi), static_cast<LONG>(_width),
-                         ScaleForDpi(42, _dpi)};
+        RECT titleBounds{ScaleForDpi(18, _dpi), ScaleForDpi(14, _dpi), static_cast<LONG>(_width), ScaleForDpi(42, _dpi)};
         DrawTextW(dc, L"NATIVE WINDOW / GDI", -1, &titleBounds, DT_LEFT | DT_TOP | DT_SINGLELINE);
 
         SelectObject(dc, _detailFont.get());
         SetTextColor(dc, RGB(114, 124, 145));
-        RECT statusBounds{ScaleForDpi(18, _dpi), static_cast<LONG>(_height) - ScaleForDpi(35, _dpi),
-                          static_cast<LONG>(_width) - ScaleForDpi(18, _dpi), static_cast<LONG>(_height)};
-        DrawTextW(dc, L"DOUBLE BUFFERED  •  30 FPS  •  IDLE WHEN HIDDEN", -1, &statusBounds,
-                  DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
+        RECT statusBounds{ScaleForDpi(18, _dpi),
+                          static_cast<LONG>(_height) - ScaleForDpi(35, _dpi),
+                          static_cast<LONG>(_width) - ScaleForDpi(18, _dpi),
+                          static_cast<LONG>(_height)};
+        DrawTextW(dc, L"DOUBLE BUFFERED  •  30 FPS  •  IDLE WHEN HIDDEN", -1, &statusBounds, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
 
         SelectObject(dc, previousFont);
         SelectObject(dc, previousBrush);
@@ -494,7 +532,7 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
     // Host-resolved dashboard background (RedXeFactoryOptions::backgroundColor) as a COLORREF for the GDI fill.
     COLORREF _background = RGB(0, 0, 0);
-    HWND _container = nullptr;
+    HWND _container      = nullptr;
     wil::unique_hwnd _window;
     wil::unique_hdc _memoryDc;
     wil::unique_hbitmap _surface;
@@ -510,13 +548,13 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
     wil::unique_hfont _titleFont;
     wil::unique_hfont _symbolFont;
     wil::unique_hfont _detailFont;
-    uint32_t _width = 0;
-    uint32_t _height = 0;
-    UINT _dpi = 0;
+    uint32_t _width               = 0;
+    uint32_t _height              = 0;
+    UINT _dpi                     = 0;
     ULONGLONG _elapsedBeforePause = 0;
-    ULONGLONG _resumeTick = 0;
-    bool _timerRunning = false;
-    bool _visible = false;
+    ULONGLONG _resumeTick         = 0;
+    bool _timerRunning            = false;
+    bool _visible                 = false;
 
     friend HRESULT EnsureWindowClass() noexcept;
 };
@@ -524,16 +562,16 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
 
 [[nodiscard]] HRESULT EnsureWindowClass() noexcept
 {
-    if (!g_moduleInstance)
+    if (! g_moduleInstance)
     {
         return E_UNEXPECTED;
     }
 
     WNDCLASSEXW windowClass{};
-    windowClass.cbSize = sizeof(windowClass);
-    windowClass.lpfnWndProc = GdiOrbitWidget::WindowProcedure;
-    windowClass.hInstance = g_moduleInstance;
-    windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    windowClass.cbSize        = sizeof(windowClass);
+    windowClass.lpfnWndProc   = GdiOrbitWidget::WindowProcedure;
+    windowClass.hInstance     = g_moduleInstance;
+    windowClass.hCursor       = LoadCursorW(nullptr, IDC_ARROW);
     windowClass.lpszClassName = kWindowClassName;
     if (RegisterClassExW(&windowClass))
     {
@@ -550,11 +588,12 @@ class GdiOrbitWidget final : public RedXeComObject<GdiOrbitWidget, IRedXeWidget,
 #pragma warning(disable : 4625 4626 5026 5027)
 class GdiOrbitProvider final : public RedXeComObject<GdiOrbitProvider, IRedXeWidgetProvider>
 {
-  public:
-    explicit GdiOrbitProvider(COLORREF background) noexcept : _background(background) {}
+public:
+    explicit GdiOrbitProvider(COLORREF background) noexcept : _background(background)
+    {
+    }
 
-    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             uint32_t* count) noexcept override
+    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -564,28 +603,27 @@ class GdiOrbitProvider final : public RedXeComObject<GdiOrbitProvider, IRedXeWid
         {
             *count = 0;
         }
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
         {
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<uint32_t>(kWidgetTypes.size());
+        *count       = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
-                                           IRedXeWidget** widget) noexcept override
+    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId, IRedXeWidget** widget) noexcept override
     {
-        if (!widget)
+        if (! widget)
         {
             return E_POINTER;
         }
         *widget = nullptr;
-        if (!typeId || !instanceId || instanceId[0] == '\0')
+        if (! typeId || ! instanceId || instanceId[0] == '\0')
         {
             return E_INVALIDARG;
         }
-        if (!RedXeAsciiEqualsIgnoreCase(typeId, kWidgetTypeId))
+        if (! RedXeAsciiEqualsIgnoreCase(typeId, kWidgetTypeId))
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
@@ -598,7 +636,7 @@ class GdiOrbitProvider final : public RedXeComObject<GdiOrbitProvider, IRedXeWid
         }
 
         auto* created = new (std::nothrow) GdiOrbitWidget(std::move(providerOwner), _background);
-        if (!created)
+        if (! created)
         {
             return E_OUTOFMEMORY;
         }
@@ -606,13 +644,12 @@ class GdiOrbitProvider final : public RedXeComObject<GdiOrbitProvider, IRedXeWid
         return S_OK;
     }
 
-  private:
+private:
     COLORREF _background;
 };
 #pragma warning(pop)
 
-HRESULT CreateGdiOrbitProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
-                               void** result) noexcept
+HRESULT CreateGdiOrbitProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*, void** result) noexcept
 {
     if (interfaceId != __uuidof(IRedXeWidgetProvider))
     {
@@ -626,10 +663,9 @@ HRESULT CreateGdiOrbitProvider(REFIID interfaceId, const RedXeFactoryOptions* op
     }
 
     const uint32_t rgb = RedXeBackgroundRgb(options);
-    auto* provider = new (std::nothrow)
-        GdiOrbitProvider(RGB(static_cast<BYTE>((rgb >> 16U) & 0xFFU), static_cast<BYTE>((rgb >> 8U) & 0xFFU),
-                             static_cast<BYTE>(rgb & 0xFFU)));
-    if (!provider)
+    auto* provider     = new (std::nothrow)
+        GdiOrbitProvider(RGB(static_cast<BYTE>((rgb >> 16U) & 0xFFU), static_cast<BYTE>((rgb >> 8U) & 0xFFU), static_cast<BYTE>(rgb & 0xFFU)));
+    if (! provider)
     {
         return E_OUTOFMEMORY;
     }
@@ -652,11 +688,9 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) noexcept
     return TRUE;
 }
 
-extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                                         const char* pluginId, void** result) noexcept
+extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
-                                         interfaceId, options, host, pluginId, result);
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()), interfaceId, options, host, pluginId, result);
 }
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
@@ -664,8 +698,7 @@ extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** m
     return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata, count);
 }
 
-extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,
-                                                            const RedXePluginSettingsContract** contract) noexcept
+extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId, const RedXePluginSettingsContract** contract) noexcept
 {
     return RedXeGetStaticPluginSettingsContract(kPluginId, pluginId, &kSettingsContract, contract);
 }

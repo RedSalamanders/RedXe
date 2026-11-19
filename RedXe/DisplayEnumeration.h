@@ -22,8 +22,8 @@ inline constexpr size_t kMaximumDisplays = 16;
 // valid.
 struct DisplayEnumeration final
 {
-    DisplayEnumeration() = default;
-    DisplayEnumeration(const DisplayEnumeration&) = delete;
+    DisplayEnumeration()                                     = default;
+    DisplayEnumeration(const DisplayEnumeration&)            = delete;
     DisplayEnumeration& operator=(const DisplayEnumeration&) = delete;
 
     std::array<MONITORINFOEXW, kMaximumDisplays> info{};

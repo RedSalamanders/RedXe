@@ -23,16 +23,16 @@
 // caller-owned reference.
 template <typename Derived, typename First, typename... Rest> class RedXeComObject : public First, public Rest...
 {
-  public:
-    RedXeComObject() = default;
-    RedXeComObject(const RedXeComObject&) = delete;
+public:
+    RedXeComObject()                                 = default;
+    RedXeComObject(const RedXeComObject&)            = delete;
     RedXeComObject& operator=(const RedXeComObject&) = delete;
-    RedXeComObject(RedXeComObject&&) = delete;
-    RedXeComObject& operator=(RedXeComObject&&) = delete;
+    RedXeComObject(RedXeComObject&&)                 = delete;
+    RedXeComObject& operator=(RedXeComObject&&)      = delete;
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
     {
-        if (!result)
+        if (! result)
         {
             return E_POINTER;
         }
@@ -41,7 +41,7 @@ template <typename Derived, typename First, typename... Rest> class RedXeComObje
         {
             *result = static_cast<IUnknown*>(static_cast<First*>(this));
         }
-        else if (!TrySelect<First, Rest...>(interfaceId, result))
+        else if (! TrySelect<First, Rest...>(interfaceId, result))
         {
             return E_NOINTERFACE;
         }
@@ -64,7 +64,7 @@ template <typename Derived, typename First, typename... Rest> class RedXeComObje
         return references;
     }
 
-  protected:
+protected:
     ~RedXeComObject() = default;
 
     // For owners with an independently synchronized lease registry. The owner must hold its reference and prevent
@@ -74,20 +74,16 @@ template <typename Derived, typename First, typename... Rest> class RedXeComObje
         return _references.load(std::memory_order_acquire) == 1;
     }
 
-  private:
+private:
     template <typename... Candidates> [[nodiscard]] bool TrySelect(REFIID interfaceId, void** result) noexcept
     {
-        return ((interfaceId == __uuidof(Candidates)
-                     ? (*result = static_cast<void*>(static_cast<Candidates*>(this)), true)
-                     : false) ||
-                ...);
+        return ((interfaceId == __uuidof(Candidates) ? (*result = static_cast<void*>(static_cast<Candidates*>(this)), true) : false) || ...);
     }
 
     std::atomic<ULONG> _references{1};
 };
 
-using RedXeFactoryCreator = HRESULT (*)(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                                        void** result) noexcept;
+using RedXeFactoryCreator = HRESULT (*)(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, void** result) noexcept;
 
 struct RedXeFactoryEntry final
 {
@@ -101,32 +97,32 @@ struct RedXeSettingsContractEntry final
     const RedXePluginSettingsContract* contract;
 };
 
-[[nodiscard]] inline HRESULT RedXeGetPluginSettingsContractFromEntries(
-    const RedXeSettingsContractEntry* entries, uint32_t entryCount, const char* requestedPluginId,
-    const RedXePluginSettingsContract** contract) noexcept
+[[nodiscard]] inline HRESULT RedXeGetPluginSettingsContractFromEntries(const RedXeSettingsContractEntry* entries,
+                                                                       uint32_t entryCount,
+                                                                       const char* requestedPluginId,
+                                                                       const RedXePluginSettingsContract** contract) noexcept
 {
     if (contract)
     {
         *contract = nullptr;
     }
-    if (!contract)
+    if (! contract)
     {
         return E_POINTER;
     }
-    if (!entries || entryCount == 0 || entryCount > 256 || !requestedPluginId)
+    if (! entries || entryCount == 0 || entryCount > 256 || ! requestedPluginId)
     {
         return E_INVALIDARG;
     }
     for (uint32_t index = 0; index < entryCount; ++index)
     {
         const RedXeSettingsContractEntry& candidate = entries[index];
-        if (!candidate.pluginId || !RedXeAsciiEqualsIgnoreCase(candidate.pluginId, requestedPluginId))
+        if (! candidate.pluginId || ! RedXeAsciiEqualsIgnoreCase(candidate.pluginId, requestedPluginId))
         {
             continue;
         }
-        if (!candidate.contract || candidate.contract->sizeBytes != sizeof(RedXePluginSettingsContract) ||
-            !candidate.contract->schemaJsonUtf8 || candidate.contract->schemaBytes == 0 ||
-            !candidate.contract->defaultsJsonUtf8 || candidate.contract->defaultsBytes == 0)
+        if (! candidate.contract || candidate.contract->sizeBytes != sizeof(RedXePluginSettingsContract) || ! candidate.contract->schemaJsonUtf8 ||
+            candidate.contract->schemaBytes == 0 || ! candidate.contract->defaultsJsonUtf8 || candidate.contract->defaultsBytes == 0)
         {
             return E_UNEXPECTED;
         }
@@ -145,17 +141,16 @@ struct RedXeSettingsContractEntry final
     {
         *contract = nullptr;
     }
-    if (!contract)
+    if (! contract)
     {
         return E_POINTER;
     }
-    if (!expectedPluginId || !requestedPluginId || !RedXeAsciiEqualsIgnoreCase(expectedPluginId, requestedPluginId))
+    if (! expectedPluginId || ! requestedPluginId || ! RedXeAsciiEqualsIgnoreCase(expectedPluginId, requestedPluginId))
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
-    if (!availableContract || availableContract->sizeBytes != sizeof(RedXePluginSettingsContract) ||
-        !availableContract->schemaJsonUtf8 || availableContract->schemaBytes == 0 ||
-        !availableContract->defaultsJsonUtf8 || availableContract->defaultsBytes == 0)
+    if (! availableContract || availableContract->sizeBytes != sizeof(RedXePluginSettingsContract) || ! availableContract->schemaJsonUtf8 ||
+        availableContract->schemaBytes == 0 || ! availableContract->defaultsJsonUtf8 || availableContract->defaultsBytes == 0)
     {
         return E_UNEXPECTED;
     }
@@ -165,7 +160,7 @@ struct RedXeSettingsContractEntry final
 
 [[nodiscard]] inline HRESULT RedXeValidateEmptyNormalizedConfiguration(const RedXeFactoryOptions* options) noexcept
 {
-    if (!options)
+    if (! options)
     {
         return S_OK;
     }
@@ -173,25 +168,24 @@ struct RedXeSettingsContractEntry final
     {
         return E_INVALIDARG;
     }
-    if (!options->configurationJsonUtf8 && options->configurationBytes == 0)
+    if (! options->configurationJsonUtf8 && options->configurationBytes == 0)
     {
         return S_OK;
     }
-    if (!options->configurationJsonUtf8 || options->configurationBytes == 0 ||
-        options->configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
+    if (! options->configurationJsonUtf8 || options->configurationBytes == 0 || options->configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
     {
         return E_INVALIDARG;
     }
 
     constexpr std::string_view expected = R"json({"plugin":{},"instance":{}})json";
-    return options->configurationBytes == expected.size() &&
-                   std::memcmp(options->configurationJsonUtf8, expected.data(), expected.size()) == 0
+    return options->configurationBytes == expected.size() && std::memcmp(options->configurationJsonUtf8, expected.data(), expected.size()) == 0
                ? S_OK
                : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 }
 
 [[nodiscard]] inline HRESULT RedXeEnumerateFactoryMetadata(const RedXePluginMetadata* availableMetadata,
-                                                           uint32_t metadataCount, const RedXePluginMetadata** metadata,
+                                                           uint32_t metadataCount,
+                                                           const RedXePluginMetadata** metadata,
                                                            uint32_t* count) noexcept
 {
     if (metadata)
@@ -202,33 +196,36 @@ struct RedXeSettingsContractEntry final
     {
         *count = 0;
     }
-    if (!metadata || !count)
+    if (! metadata || ! count)
     {
         return E_POINTER;
     }
 
-    if (!availableMetadata || metadataCount == 0 || metadataCount > 256)
+    if (! availableMetadata || metadataCount == 0 || metadataCount > 256)
     {
         return E_INVALIDARG;
     }
 
     *metadata = availableMetadata;
-    *count = metadataCount;
+    *count    = metadataCount;
     return S_OK;
 }
 
-[[nodiscard]] inline HRESULT RedXeCreateFromFactoryEntries(const RedXeFactoryEntry* entries, uint32_t entryCount,
-                                                           REFIID interfaceId, const RedXeFactoryOptions* options,
-                                                           IRedXeHost* host, const char* pluginId,
+[[nodiscard]] inline HRESULT RedXeCreateFromFactoryEntries(const RedXeFactoryEntry* entries,
+                                                           uint32_t entryCount,
+                                                           REFIID interfaceId,
+                                                           const RedXeFactoryOptions* options,
+                                                           IRedXeHost* host,
+                                                           const char* pluginId,
                                                            void** result) noexcept
 {
-    if (!result)
+    if (! result)
     {
         return E_POINTER;
     }
     *result = nullptr;
 
-    if (!entries || entryCount == 0 || entryCount > 256)
+    if (! entries || entryCount == 0 || entryCount > 256)
     {
         return E_INVALIDARG;
     }
@@ -238,7 +235,7 @@ struct RedXeSettingsContractEntry final
     }
 
     const RedXeFactoryEntry* selected = nullptr;
-    if (!pluginId || pluginId[0] == '\0')
+    if (! pluginId || pluginId[0] == '\0')
     {
         return E_INVALIDARG;
     }
@@ -252,11 +249,11 @@ struct RedXeSettingsContractEntry final
         }
     }
 
-    if (!selected)
+    if (! selected)
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
-    if (!selected->create)
+    if (! selected->create)
     {
         return E_UNEXPECTED;
     }
@@ -265,8 +262,7 @@ struct RedXeSettingsContractEntry final
     {
         if (FAILED(created))
         {
-            (void)RedXeHostLog(host, RedXeLogLevelError, pluginId, nullptr, "create-failed", "RedXeCreate failed.",
-                               created);
+            (void)RedXeHostLog(host, RedXeLogLevelError, pluginId, nullptr, "create-failed", "RedXeCreate failed.", created);
         }
         else
         {

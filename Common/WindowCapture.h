@@ -13,8 +13,7 @@ namespace RedXe
 // the OS has no capture support; ERROR_TIMEOUT when no frame arrives within 5 s. The PNG is 32-bit BGRA at the
 // window's content size, or, when clientCrop is given (client pixel coordinates), that rectangle clipped to the
 // client area; an empty intersection fails with E_INVALIDARG.
-[[nodiscard]] HRESULT SaveWindowScreenshot(HWND window, const wchar_t* pngPath,
-                                           const RECT* clientCrop = nullptr) noexcept;
+[[nodiscard]] HRESULT SaveWindowScreenshot(HWND window, const wchar_t* pngPath, const RECT* clientCrop = nullptr) noexcept;
 
 // Whether this host can capture that window at all, without capturing: E_NOTIMPL when the OS has no capture
 // support, otherwise the failure of the hardware Direct3D 11 device or of the capture item, otherwise S_OK with

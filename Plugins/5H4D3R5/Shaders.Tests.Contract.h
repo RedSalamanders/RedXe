@@ -16,7 +16,7 @@ enum class ShadersSetupPhase : uint32_t
     LookupTableBake,
 };
 
-inline constexpr uint32_t kShadersSetupPhaseCount = 6;
+inline constexpr uint32_t kShadersSetupPhaseCount      = 6;
 inline constexpr uint32_t kShadersBackgroundTexelCount = 349'525;
 
 // Call-local setup attribution. No host call, override, retained pointer or production timing state.
@@ -54,23 +54,20 @@ struct ShadersTestDiagnostics final
 #define REDXE_SHADERS_TEST_API
 #endif
 
-extern "C" REDXE_SHADERS_TEST_API HRESULT __stdcall RedXeShadersGetTestDiagnostics(
-    ShadersTestDiagnostics* diagnostics) noexcept;
+extern "C" REDXE_SHADERS_TEST_API HRESULT __stdcall RedXeShadersGetTestDiagnostics(ShadersTestDiagnostics* diagnostics) noexcept;
 // Fresh slideshow device setup through the same implementation as OnDeviceCreated. The caller owns the
 // isolated device and its context; all temporary widget/shared owners retire before returning.
-extern "C" REDXE_SHADERS_TEST_API HRESULT __stdcall RedXeShadersMeasureTestSetup(const RedXeGpuDeviceContext* context,
-                                                                                 ShadersSetupTimings* timings) noexcept;
+extern "C" REDXE_SHADERS_TEST_API HRESULT __stdcall RedXeShadersMeasureTestSetup(const RedXeGpuDeviceContext* context, ShadersSetupTimings* timings) noexcept;
 // Production CPU background and all ten mip levels, in descending size. Writes exactly the required prefix;
 // insufficient capacity refuses before writing. Used to compare the actual old/new DLL payloads.
-extern "C" REDXE_SHADERS_TEST_API HRESULT __stdcall RedXeShadersCopyTestBackground(uint32_t* texels,
-                                                                                   uint32_t capacityTexels) noexcept;
+extern "C" REDXE_SHADERS_TEST_API HRESULT __stdcall RedXeShadersCopyTestBackground(uint32_t* texels, uint32_t capacityTexels) noexcept;
 
 using ShadersGetTestDiagnosticsFn = decltype(&RedXeShadersGetTestDiagnostics);
-using ShadersMeasureTestSetupFn = decltype(&RedXeShadersMeasureTestSetup);
+using ShadersMeasureTestSetupFn   = decltype(&RedXeShadersMeasureTestSetup);
 using ShadersCopyTestBackgroundFn = decltype(&RedXeShadersCopyTestBackground);
 
 inline constexpr char kShadersGetTestDiagnosticsExport[] = "RedXeShadersGetTestDiagnostics";
-inline constexpr char kShadersMeasureTestSetupExport[] = "RedXeShadersMeasureTestSetup";
+inline constexpr char kShadersMeasureTestSetupExport[]   = "RedXeShadersMeasureTestSetup";
 inline constexpr char kShadersCopyTestBackgroundExport[] = "RedXeShadersCopyTestBackground";
 
 #undef REDXE_SHADERS_TEST_API

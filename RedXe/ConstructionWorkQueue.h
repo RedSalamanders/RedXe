@@ -16,9 +16,9 @@
 // modules alive until Running is false; Join is only for destruction of a private owner that cannot retain storage.
 class ConstructionWorkQueue final
 {
-  public:
-    using Notify = void (*)(void*) noexcept;
-    static constexpr size_t Capacity = 16;
+public:
+    using Notify                               = void (*)(void*) noexcept;
+    static constexpr size_t Capacity           = 16;
     static constexpr uint32_t WorkMilliseconds = 3000;
     static constexpr uint32_t StopMilliseconds = 1000;
     enum class StopResult : uint8_t
@@ -29,7 +29,7 @@ class ConstructionWorkQueue final
     };
     ConstructionWorkQueue() = default;
     ~ConstructionWorkQueue();
-    ConstructionWorkQueue(const ConstructionWorkQueue&) = delete;
+    ConstructionWorkQueue(const ConstructionWorkQueue&)            = delete;
     ConstructionWorkQueue& operator=(const ConstructionWorkQueue&) = delete;
     [[nodiscard]] HRESULT Start(Notify notify, void* context) noexcept;
     [[nodiscard]] HRESULT Enqueue(IRedXeConstructionWork* work) noexcept;
@@ -41,7 +41,7 @@ class ConstructionWorkQueue final
         return _worker.joinable();
     }
 
-  private:
+private:
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct ConstructionWorkQueueTestAccess;
 #endif
@@ -55,8 +55,8 @@ class ConstructionWorkQueue final
     struct Slot final
     {
         wil::com_ptr_nothrow<IRedXeConstructionWork> work;
-        State state = State::Empty;
-        HRESULT result = S_OK;
+        State state       = State::Empty;
+        HRESULT result    = S_OK;
         uint64_t queuedAt = 0;
     };
     void Worker() noexcept;
@@ -70,5 +70,5 @@ class ConstructionWorkQueue final
     void* _context = nullptr;
     std::atomic<bool> _completed{false};
     size_t _lastSelected = Capacity - 1;
-    bool _waitedOut = false;
+    bool _waitedOut      = false;
 };

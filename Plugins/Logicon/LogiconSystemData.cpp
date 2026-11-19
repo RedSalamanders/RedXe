@@ -8,9 +8,9 @@ namespace Logicon
 {
 namespace
 {
-constexpr char kCpuDataSetId[] = "cpu.summary";
+constexpr char kCpuDataSetId[]    = "cpu.summary";
 constexpr char kMemoryDataSetId[] = "memory.summary";
-constexpr char kGpuDataSetId[] = "gpu.adapter";
+constexpr char kGpuDataSetId[]    = "gpu.adapter";
 
 struct ColumnLookup final
 {
@@ -35,7 +35,7 @@ constexpr ColumnLookup kLookups[] = {
 
 [[nodiscard]] const RedXeDataValue* ValueAt(const RedXeDataRow& row, int32_t column) noexcept
 {
-    if (column < 0 || !row.values || static_cast<uint32_t>(column) >= row.valueCount)
+    if (column < 0 || ! row.values || static_cast<uint32_t>(column) >= row.valueCount)
     {
         return nullptr;
     }
@@ -45,7 +45,7 @@ constexpr ColumnLookup kLookups[] = {
 
 [[nodiscard]] bool ReadNumber(const RedXeDataValue* value, double& number) noexcept
 {
-    if (!value)
+    if (! value)
     {
         return false;
     }
@@ -64,7 +64,7 @@ constexpr ColumnLookup kLookups[] = {
 
 [[nodiscard]] int32_t RoundPercent(double value) noexcept
 {
-    if (!std::isfinite(value))
+    if (! std::isfinite(value))
     {
         return -1;
     }
@@ -85,7 +85,7 @@ SystemDataFeed::~SystemDataFeed()
 
 HRESULT SystemDataFeed::Start(IRedXeHost* host) noexcept
 {
-    if (!host)
+    if (! host)
     {
         return E_POINTER;
     }
@@ -99,13 +99,13 @@ HRESULT SystemDataFeed::Start(IRedXeHost* host) noexcept
     {
         return result;
     }
-    if (!provider)
+    if (! provider)
     {
         return E_UNEXPECTED;
     }
     const RedXeDataSetDescriptor* descriptors = nullptr;
-    uint32_t count = 0;
-    result = provider->GetDataSets(&descriptors, &count);
+    uint32_t count                            = 0;
+    result                                    = provider->GetDataSets(&descriptors, &count);
     if (FAILED(result))
     {
         return result;
@@ -114,13 +114,13 @@ HRESULT SystemDataFeed::Start(IRedXeHost* host) noexcept
     for (uint32_t index = 0; index < count && descriptors; ++index)
     {
         const RedXeDataSetDescriptor& descriptor = descriptors[index];
-        if (descriptor.sizeBytes != sizeof(RedXeDataSetDescriptor) || !descriptor.columns)
+        if (descriptor.sizeBytes != sizeof(RedXeDataSetDescriptor) || ! descriptor.columns)
         {
             continue;
         }
         for (uint32_t lookup = 0; lookup < ColumnCount; ++lookup)
         {
-            if (!SameId(descriptor.dataSetId, kLookups[lookup].dataSetId))
+            if (! SameId(descriptor.dataSetId, kLookups[lookup].dataSetId))
             {
                 continue;
             }
@@ -142,10 +142,10 @@ HRESULT SystemDataFeed::Start(IRedXeHost* host) noexcept
     for (uint32_t index = 0; index < _subscriptions.size(); ++index)
     {
         RedXeDataSubscriptionOptions options{};
-        options.sizeBytes = sizeof(options);
-        options.dataSetId = dataSetIds[index];
+        options.sizeBytes                     = sizeof(options);
+        options.dataSetId                     = dataSetIds[index];
         options.requestedIntervalMilliseconds = kSystemDataIntervalMilliseconds;
-        result = provider->Subscribe(&options, static_cast<IRedXeDataSink*>(this), _subscriptions[index].put());
+        result                                = provider->Subscribe(&options, static_cast<IRedXeDataSink*>(this), _subscriptions[index].put());
         if (FAILED(result))
         {
             for (auto& subscription : _subscriptions)
@@ -158,14 +158,14 @@ HRESULT SystemDataFeed::Start(IRedXeHost* host) noexcept
     _provider = std::move(provider);
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _values = SystemValues{};
+        _values          = SystemValues{};
     }
     return S_OK;
 }
 
 void SystemDataFeed::SetActive(bool active) noexcept
 {
-    if (!_provider || _active == active)
+    if (! _provider || _active == active)
     {
         return;
     }
@@ -200,24 +200,22 @@ bool SystemDataFeed::Active() const noexcept
     return _active;
 }
 
-void SystemDataFeed::Reduce(const RedXeDataSnapshot& snapshot, const std::array<int32_t, 8>& columns,
-                            SystemValues& values) noexcept
+void SystemDataFeed::Reduce(const RedXeDataSnapshot& snapshot, const std::array<int32_t, 8>& columns, SystemValues& values) noexcept
 {
-    if (snapshot.sizeBytes != sizeof(RedXeDataSnapshot) || !snapshot.dataSetId || !snapshot.rows ||
-        snapshot.rowCount == 0)
+    if (snapshot.sizeBytes != sizeof(RedXeDataSnapshot) || ! snapshot.dataSetId || ! snapshot.rows || snapshot.rowCount == 0)
     {
         return;
     }
     if (SameId(snapshot.dataSetId, kCpuDataSetId))
     {
-        double total = 0.0;
+        double total      = 0.0;
         values.cpuPercent = ReadNumber(ValueAt(snapshot.rows[0], columns[CpuTotal]), total) ? RoundPercent(total) : -1;
         return;
     }
     if (SameId(snapshot.dataSetId, kMemoryDataSetId))
     {
-        double total = 0.0;
-        double used = 0.0;
+        double total         = 0.0;
+        double used          = 0.0;
         values.memoryPercent = ReadNumber(ValueAt(snapshot.rows[0], columns[MemoryTotal]), total) &&
                                        ReadNumber(ValueAt(snapshot.rows[0], columns[MemoryUsed]), used) && total > 0.0
                                    ? RoundPercent(used * 100.0 / total)
@@ -228,39 +226,36 @@ void SystemDataFeed::Reduce(const RedXeDataSnapshot& snapshot, const std::array<
     {
         // Prefer a discrete hardware adapter, then any hardware adapter, then the first row.
         const RedXeDataRow* chosen = nullptr;
-        int32_t chosenRank = 0;
+        int32_t chosenRank         = 0;
         for (uint32_t index = 0; index < snapshot.rowCount; ++index)
         {
             const RedXeDataRow& row = snapshot.rows[index];
-            double software = 0.0;
-            double integrated = 0.0;
-            const bool hardware = ReadNumber(ValueAt(row, columns[GpuSoftware]), software) && software == 0.0;
-            const bool discrete =
-                hardware && ReadNumber(ValueAt(row, columns[GpuIntegrated]), integrated) && integrated == 0.0;
-            const int32_t rank = discrete ? 3 : hardware ? 2 : 1;
-            if (!chosen || rank > chosenRank)
+            double software         = 0.0;
+            double integrated       = 0.0;
+            const bool hardware     = ReadNumber(ValueAt(row, columns[GpuSoftware]), software) && software == 0.0;
+            const bool discrete     = hardware && ReadNumber(ValueAt(row, columns[GpuIntegrated]), integrated) && integrated == 0.0;
+            const int32_t rank      = discrete ? 3 : hardware ? 2 : 1;
+            if (! chosen || rank > chosenRank)
             {
-                chosen = &row;
+                chosen     = &row;
                 chosenRank = rank;
             }
         }
         double utilization = 0.0;
-        values.gpuPercent = chosen && ReadNumber(ValueAt(*chosen, columns[GpuUtilization]), utilization)
-                                ? RoundPercent(utilization)
-                                : -1;
+        values.gpuPercent  = chosen && ReadNumber(ValueAt(*chosen, columns[GpuUtilization]), utilization) ? RoundPercent(utilization) : -1;
     }
 }
 
 HRESULT SystemDataFeed::OnDataSnapshot(const RedXeDataSnapshot* snapshot) noexcept
 {
-    if (!snapshot)
+    if (! snapshot)
     {
         return E_POINTER;
     }
     SystemValues updated{};
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        updated = _values;
+        updated          = _values;
         Reduce(*snapshot, _columns, updated);
         if (updated == _values)
         {

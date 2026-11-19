@@ -9,9 +9,9 @@ namespace Logicon
 {
 namespace
 {
-constexpr wchar_t kClassName[] = L"RedXe.Logicon.RawInput";
+constexpr wchar_t kClassName[]       = L"RedXe.Logicon.RawInput";
 constexpr USHORT kGenericDesktopPage = 0x01;
-constexpr USHORT kMouseUsage = 0x02;
+constexpr USHORT kMouseUsage         = 0x02;
 // Messages one Pump dispatches before the lane returns to its wait.
 constexpr uint32_t kPumpMessages = 256;
 // Messages Stop dispatches before it gives up on a queue that never empties; above a thread's default quota of 10,000
@@ -20,8 +20,8 @@ constexpr uint32_t kStopDrainMessages = 16384;
 
 [[nodiscard]] bool MouseRegistration(HWND& target, bool& found) noexcept
 {
-    target = nullptr;
-    found = false;
+    target     = nullptr;
+    found      = false;
     UINT count = 0;
     if (GetRegisteredRawInputDevices(nullptr, &count, sizeof(RAWINPUTDEVICE)) == UINT(-1) || count > 32)
     {
@@ -37,7 +37,7 @@ constexpr uint32_t kStopDrainMessages = 16384;
         if (devices[index].usUsagePage == kGenericDesktopPage && devices[index].usUsage == kMouseUsage)
         {
             target = devices[index].hwndTarget;
-            found = true;
+            found  = true;
             break;
         }
     }
@@ -46,7 +46,7 @@ constexpr uint32_t kStopDrainMessages = 16384;
 
 [[nodiscard]] bool ContainsIgnoreCase(const wchar_t* text, const wchar_t* pattern) noexcept
 {
-    const size_t textLength = std::wcslen(text);
+    const size_t textLength    = std::wcslen(text);
     const size_t patternLength = std::wcslen(pattern);
     if (patternLength == 0 || patternLength > textLength)
     {
@@ -55,8 +55,7 @@ constexpr uint32_t kStopDrainMessages = 16384;
     for (size_t start = 0; start + patternLength <= textLength; ++start)
     {
         size_t index = 0;
-        while (index < patternLength && std::towlower(static_cast<wint_t>(text[start + index])) ==
-                                            std::towlower(static_cast<wint_t>(pattern[index])))
+        while (index < patternLength && std::towlower(static_cast<wint_t>(text[start + index])) == std::towlower(static_cast<wint_t>(pattern[index])))
         {
             ++index;
         }
@@ -76,7 +75,7 @@ RawWheelListener::~RawWheelListener()
 
 bool RawWheelListener::DeviceNameMatches(const wchar_t* name, uint16_t vendorId, uint16_t productId) noexcept
 {
-    if (!name || name[0] == L'\0')
+    if (! name || name[0] == L'\0')
     {
         return false;
     }
@@ -112,7 +111,7 @@ void RawWheelListener::FoldMouse(const RAWMOUSE& mouse, WheelState& state, Wheel
     for (uint32_t button = 0; button < 5; ++button)
     {
         const USHORT down = static_cast<USHORT>(1U << (2U * button));
-        const USHORT up = static_cast<USHORT>(down << 1U);
+        const USHORT up   = static_cast<USHORT>(down << 1U);
         if ((flags & down) != 0)
         {
             state.buttonMask |= 1U << button;
@@ -150,23 +149,24 @@ HRESULT RawWheelListener::Start(uint16_t vendorId, uint16_t productId) noexcept
         return S_OK;
     }
     HWND priorTarget = nullptr;
-    bool priorFound = false;
-    if (!MouseRegistration(priorTarget, priorFound) || priorFound)
+    bool priorFound  = false;
+    if (! MouseRegistration(priorTarget, priorFound) || priorFound)
     {
         // RegisterRawInputDevices replaces the process's registration for this device class.
         return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
     }
-    _vendorId = vendorId;
+    _vendorId  = vendorId;
     _productId = productId;
-    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                            reinterpret_cast<LPCWSTR>(&RawWheelListener::Procedure), &_module))
+    if (! GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                             reinterpret_cast<LPCWSTR>(&RawWheelListener::Procedure),
+                             &_module))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
     WNDCLASSEXW windowClass{};
-    windowClass.cbSize = sizeof(windowClass);
-    windowClass.lpfnWndProc = &RawWheelListener::Procedure;
-    windowClass.hInstance = _module;
+    windowClass.cbSize        = sizeof(windowClass);
+    windowClass.lpfnWndProc   = &RawWheelListener::Procedure;
+    windowClass.hInstance     = _module;
     windowClass.lpszClassName = kClassName;
     if (RegisterClassExW(&windowClass) != 0)
     {
@@ -177,9 +177,8 @@ HRESULT RawWheelListener::Start(uint16_t vendorId, uint16_t productId) noexcept
         return HRESULT_FROM_WIN32(GetLastError());
     }
     // A hidden top-level window rather than a message-only one: raw input is not delivered to HWND_MESSAGE children.
-    _window = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClassName, L"Logicon raw input", WS_POPUP, 0, 0, 1,
-                              1, nullptr, nullptr, _module, this);
-    if (!_window)
+    _window = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClassName, L"Logicon raw input", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, _module, this);
+    if (! _window)
     {
         const HRESULT result = HRESULT_FROM_WIN32(GetLastError());
         Stop();
@@ -187,20 +186,20 @@ HRESULT RawWheelListener::Start(uint16_t vendorId, uint16_t productId) noexcept
     }
     RAWINPUTDEVICE device{};
     device.usUsagePage = kGenericDesktopPage;
-    device.usUsage = kMouseUsage;
-    device.dwFlags = RIDEV_INPUTSINK;
-    device.hwndTarget = _window;
-    if (!RegisterRawInputDevices(&device, 1, sizeof(device)))
+    device.usUsage     = kMouseUsage;
+    device.dwFlags     = RIDEV_INPUTSINK;
+    device.hwndTarget  = _window;
+    if (! RegisterRawInputDevices(&device, 1, sizeof(device)))
     {
         const HRESULT result = HRESULT_FROM_WIN32(GetLastError());
         Stop();
         return result;
     }
     _sinkRegistered = true;
-    _state = WheelState{};
-    _pending = WheelDeltas{};
-    _arrived = false;
-    _deviceCount = 0;
+    _state          = WheelState{};
+    _pending        = WheelDeltas{};
+    _arrived        = false;
+    _deviceCount    = 0;
     return S_OK;
 }
 
@@ -209,14 +208,14 @@ void RawWheelListener::Stop() noexcept
     if (_sinkRegistered)
     {
         HWND registeredTarget = nullptr;
-        bool registeredFound = false;
+        bool registeredFound  = false;
         if (MouseRegistration(registeredTarget, registeredFound) && registeredFound && registeredTarget == _window)
         {
             RAWINPUTDEVICE device{};
             device.usUsagePage = kGenericDesktopPage;
-            device.usUsage = kMouseUsage;
-            device.dwFlags = RIDEV_REMOVE;
-            device.hwndTarget = nullptr;
+            device.usUsage     = kMouseUsage;
+            device.dwFlags     = RIDEV_REMOVE;
+            device.hwndTarget  = nullptr;
             (void)RegisterRawInputDevices(&device, 1, sizeof(device));
         }
         _sinkRegistered = false;
@@ -239,11 +238,11 @@ void RawWheelListener::Stop() noexcept
         (void)UnregisterClassW(kClassName, _module);
         _classRegistered = false;
     }
-    _module = nullptr;
+    _module      = nullptr;
     _deviceCount = 0;
-    _state = WheelState{};
-    _pending = WheelDeltas{};
-    _arrived = false;
+    _state       = WheelState{};
+    _pending     = WheelDeltas{};
+    _arrived     = false;
 }
 
 bool RawWheelListener::Running() const noexcept
@@ -254,12 +253,11 @@ bool RawWheelListener::Running() const noexcept
 DWORD RawWheelListener::Wait(uint32_t count, const HANDLE* handles, DWORD timeoutMilliseconds) noexcept
 {
     const uint64_t started = GetTickCount64();
-    DWORD remaining = timeoutMilliseconds;
+    DWORD remaining        = timeoutMilliseconds;
     for (;;)
     {
         // A wake mask of 0 waits on the handles alone; MWMO_INPUTAVAILABLE also reports input already seen.
-        const DWORD waited =
-            MsgWaitForMultipleObjectsEx(count, handles, remaining, Running() ? QS_ALLINPUT : 0, MWMO_INPUTAVAILABLE);
+        const DWORD waited = MsgWaitForMultipleObjectsEx(count, handles, remaining, Running() ? QS_ALLINPUT : 0, MWMO_INPUTAVAILABLE);
         if (waited != WAIT_OBJECT_0 + count || Pump())
         {
             return waited;
@@ -280,7 +278,7 @@ bool RawWheelListener::Pump() noexcept
 {
     Dispatch(kPumpMessages);
     const bool arrived = _arrived;
-    _arrived = false;
+    _arrived           = false;
     return arrived;
 }
 
@@ -308,7 +306,7 @@ const WheelState& RawWheelListener::State() const noexcept
 WheelDeltas RawWheelListener::TakeDeltas() noexcept
 {
     const WheelDeltas taken = _pending;
-    _pending = WheelDeltas{};
+    _pending                = WheelDeltas{};
     return taken;
 }
 
@@ -319,7 +317,7 @@ void RawWheelListener::ForgetDevices() noexcept
 
 bool RawWheelListener::Matches(HANDLE device) noexcept
 {
-    if (!device)
+    if (! device)
     {
         return false;
     }
@@ -331,10 +329,9 @@ bool RawWheelListener::Matches(HANDLE device) noexcept
         }
     }
     std::array<wchar_t, kMaximumRawDeviceNameCharacters> name{};
-    UINT characters = static_cast<UINT>(name.size());
-    const UINT copied = GetRawInputDeviceInfoW(device, RIDI_DEVICENAME, name.data(), &characters);
-    const bool matched = copied != static_cast<UINT>(-1) && copied != 0 && copied < name.size() &&
-                         DeviceNameMatches(name.data(), _vendorId, _productId);
+    UINT characters    = static_cast<UINT>(name.size());
+    const UINT copied  = GetRawInputDeviceInfoW(device, RIDI_DEVICENAME, name.data(), &characters);
+    const bool matched = copied != static_cast<UINT>(-1) && copied != 0 && copied < name.size() && DeviceNameMatches(name.data(), _vendorId, _productId);
     if (_deviceCount < _devices.size())
     {
         _devices[_deviceCount++] = DeviceMatch{device, matched};
@@ -345,7 +342,7 @@ bool RawWheelListener::Matches(HANDLE device) noexcept
 void RawWheelListener::HandleInput(HRAWINPUT input) noexcept
 {
     alignas(8) std::array<uint8_t, 128> buffer{};
-    UINT bytes = static_cast<UINT>(buffer.size());
+    UINT bytes        = static_cast<UINT>(buffer.size());
     const UINT copied = GetRawInputData(input, RID_INPUT, buffer.data(), &bytes, sizeof(RAWINPUTHEADER));
     if (copied == static_cast<UINT>(-1) || copied < sizeof(RAWINPUTHEADER))
     {
@@ -356,7 +353,7 @@ void RawWheelListener::HandleInput(HRAWINPUT input) noexcept
     {
         return;
     }
-    if (!Matches(raw->header.hDevice))
+    if (! Matches(raw->header.hDevice))
     {
         ++_state.otherReports;
         return;

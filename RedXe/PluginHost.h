@@ -33,10 +33,10 @@
 // already-running workers instead of building a second runtime beside them.
 class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
 {
-  public:
+public:
     struct ModuleView final
     {
-        RedXeCreateFn create = nullptr;
+        RedXeCreateFn create                                 = nullptr;
         RedXeGetPluginSettingsContractFn getSettingsContract = nullptr;
     };
 
@@ -59,10 +59,10 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         return _shutdown;
     }
 
-    PluginHost(const PluginHost&) = delete;
+    PluginHost(const PluginHost&)            = delete;
     PluginHost& operator=(const PluginHost&) = delete;
-    PluginHost(PluginHost&&) = delete;
-    PluginHost& operator=(PluginHost&&) = delete;
+    PluginHost(PluginHost&&)                 = delete;
+    PluginHost& operator=(PluginHost&&)      = delete;
 
     static constexpr UINT kDataSnapshotInvalidateMessage = WM_APP + 3;
     // Posted once per batch of queued host actions or finished launches; the UI thread drains both with
@@ -85,8 +85,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT LogRuntimePageCallbacks(const RuntimePageCallbackSample* samples, uint32_t count) noexcept;
     [[nodiscard]] HRESULT LogRuntimePagePreparation(const RuntimePagePreparationSample& sample) noexcept;
     [[nodiscard]] HRESULT QueryAvProbeStatistics(AVControl::ProbeStatistics& statistics) noexcept;
-    [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities,
-                                          ModuleView* module) noexcept;
+    [[nodiscard]] HRESULT GetPluginModule(const char* pluginId, uint32_t requiredCapabilities, ModuleView* module) noexcept;
     void SetUiInvalidateTarget(HWND window) noexcept;
     void AcknowledgeUiInvalidate() noexcept;
 
@@ -99,8 +98,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     void UnregisterNetworkWidget(IRedXeNetworkWidget* widget) noexcept;
     void SetNetworkWidgetActive(IRedXeNetworkWidget* widget, bool active) noexcept;
 
-    using SettingsPersistHandler = HRESULT (*)(void* context, const char* instanceId, const char* settingsJsonUtf8,
-                                               uint32_t settingsBytes) noexcept;
+    using SettingsPersistHandler = HRESULT (*)(void* context, const char* instanceId, const char* settingsJsonUtf8, uint32_t settingsBytes) noexcept;
     void SetSettingsPersistHandler(SettingsPersistHandler handler, void* context) noexcept;
 
     // Named actions (Action.h). Application registers the handler that executes the page, widget, and redxe
@@ -108,7 +106,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // The handler runs on the UI thread from DrainHostActions or ExecuteAction; strings are bounded copies valid
     // for the call only. `completed` runs after every drained action (executed or dropped) so Application can
     // publish host state once.
-    using HostActionHandler = HRESULT (*)(void* context, const char* actionUtf8, const char* targetUtf8) noexcept;
+    using HostActionHandler   = HRESULT (*)(void* context, const char* actionUtf8, const char* targetUtf8) noexcept;
     using HostActionCompleted = void (*)(void* context) noexcept;
     void SetHostActionHandler(HostActionHandler handler, HostActionCompleted completed, void* context) noexcept;
     // UI thread: logs every finished launch, then executes every queued action in submission order, outside any lock.
@@ -139,11 +137,12 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // One blocking stage of a teardown bounded by one deadline (Application::OnEndSession): the smaller of the stage's
     // own bound and the time left at nowTick before deadlineTick less reserveMilliseconds, which the stages after it
     // keep; 0 once that point has passed. Ticks are GetTickCount64 values.
-    [[nodiscard]] static constexpr uint32_t TeardownStageMilliseconds(ULONGLONG nowTick, ULONGLONG deadlineTick,
+    [[nodiscard]] static constexpr uint32_t TeardownStageMilliseconds(ULONGLONG nowTick,
+                                                                      ULONGLONG deadlineTick,
                                                                       uint32_t reserveMilliseconds,
                                                                       uint32_t boundMilliseconds) noexcept
     {
-        const ULONGLONG end = deadlineTick > reserveMilliseconds ? deadlineTick - reserveMilliseconds : 0;
+        const ULONGLONG end  = deadlineTick > reserveMilliseconds ? deadlineTick - reserveMilliseconds : 0;
         const ULONGLONG left = end > nowTick ? end - nowTick : 0;
         return left < boundMilliseconds ? static_cast<uint32_t>(left) : boundMilliseconds;
     }
@@ -152,7 +151,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // mapped modules. A collision, an unregistered namespace, a registered plugin that does not publish its
     // namespace, or a publisher that cannot be loaded produces one Error log line and one bounded notice line;
     // Application shows the notices in its settings-error dialog. UI thread only.
-    static constexpr size_t kMaximumActionNotices = 8;
+    static constexpr size_t kMaximumActionNotices   = 8;
     static constexpr size_t kActionNoticeCharacters = 256;
     // Copies every current notice line (newline separated) into text; returns the number of lines.
     [[nodiscard]] uint32_t CopyActionNotices(wchar_t* text, size_t capacity) const noexcept;
@@ -199,10 +198,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     ULONG STDMETHODCALLTYPE Release() noexcept override;
     HRESULT STDMETHODCALLTYPE GetDataProvider(const char* providerId, IRedXeDataProvider** provider) noexcept override;
     HRESULT STDMETHODCALLTYPE RequestFrame() noexcept override;
-    HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char* instanceId,
-                                                 const RedXeWidgetStatusReport* report) noexcept override;
-    HRESULT STDMETHODCALLTYPE PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8,
-                                                    uint32_t settingsBytes) noexcept override;
+    HRESULT STDMETHODCALLTYPE ReportWidgetStatus(const char* instanceId, const RedXeWidgetStatusReport* report) noexcept override;
+    HRESULT STDMETHODCALLTYPE PersistWidgetSettings(const char* instanceId, const char* settingsJsonUtf8, uint32_t settingsBytes) noexcept override;
     HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override;
     HRESULT STDMETHODCALLTYPE QueueControlWork(IRedXeControlWork* work) noexcept override;
     HRESULT STDMETHODCALLTYPE QueueConstructionWork(IRedXeConstructionWork* work) noexcept override;
@@ -216,14 +213,12 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     }
     HRESULT STDMETHODCALLTYPE RequestAction(const RedXeActionRequest* request) noexcept override;
     HRESULT STDMETHODCALLTYPE ExecuteAction(const RedXeActionRequest* request) noexcept override;
-    HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request,
-                                             const RedXeActionDescriptor** descriptor) noexcept override;
+    HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request, const RedXeActionDescriptor** descriptor) noexcept override;
     void SetControlAccessEnabled(bool enabled) noexcept
     {
         _controlAccessEnabled = enabled;
     }
-    HRESULT STDMETHODCALLTYPE QueueWidgetSettings(const char* instanceId, const char* jsonUtf8,
-                                                  uint32_t bytes) noexcept override;
+    HRESULT STDMETHODCALLTYPE QueueWidgetSettings(const char* instanceId, const char* jsonUtf8, uint32_t bytes) noexcept override;
 
     // Opens `%LocalAppData%\RedXe\Logs` (or a test directory) and starts the event-blocked writer. `--self-test`
     // must not call this. Until it succeeds, Log returns S_OK and drops the line. A null or empty directory returns
@@ -244,20 +239,20 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     // UI-thread cold-path registration pins a slot across construction/drawing/teardown. The host outlives the binding.
     class WidgetStatusBinding final
     {
-      public:
+    public:
         WidgetStatusBinding() noexcept = default;
         ~WidgetStatusBinding() noexcept;
         WidgetStatusBinding(WidgetStatusBinding&& other) noexcept;
         WidgetStatusBinding& operator=(WidgetStatusBinding&& other) noexcept;
-        WidgetStatusBinding(const WidgetStatusBinding&) = delete;
+        WidgetStatusBinding(const WidgetStatusBinding&)            = delete;
         WidgetStatusBinding& operator=(const WidgetStatusBinding&) = delete;
         [[nodiscard]] uint32_t Status() const noexcept;
         void Reset() noexcept;
 
-      private:
+    private:
         friend class PluginHost;
         PluginHost* _host = nullptr;
-        uint64_t _key = 0;
+        uint64_t _key     = 0;
     };
     static_assert(sizeof(WidgetStatusBinding) == 16);
     [[nodiscard]] HRESULT BindWidgetStatus(const char* instanceId, WidgetStatusBinding& binding) noexcept;
@@ -269,7 +264,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] bool WidgetStatusReason(const char* instanceId, wchar_t* text, size_t capacity) const noexcept;
     void ClearWidgetStatus(const char* instanceId) noexcept;
 
-  private:
+private:
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct PluginHostTestAccess;
     friend struct PluginHostDataSourceTestAccess;
@@ -278,24 +273,24 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
 #endif
     ControlWorkQueue _controlWork;
     ConstructionWorkQueue _constructionWork;
-    bool _constructionStopReported = false;
-    bool _constructionAccessEnabled = false;
-    bool _controlAccessEnabled = true;
-    static constexpr size_t kMaximumDataSetsPerProvider = 256;
-    static constexpr size_t kMaximumSubscriptions = 32;
+    bool _constructionStopReported                                     = false;
+    bool _constructionAccessEnabled                                    = false;
+    bool _controlAccessEnabled                                         = true;
+    static constexpr size_t kMaximumDataSetsPerProvider                = 256;
+    static constexpr size_t kMaximumSubscriptions                      = 32;
     static constexpr uint32_t kMaximumSubscriptionIntervalMilliseconds = 60'000;
     // One slot per widget instance the host can compose at once: the current page plus its staged neighbour.
-    static constexpr size_t kMaximumWidgetStatusSlots = 64;
-    static constexpr size_t kMaximumWidgetStatusIdBytes = 128;
+    static constexpr size_t kMaximumWidgetStatusSlots            = 64;
+    static constexpr size_t kMaximumWidgetStatusIdBytes          = 128;
     static constexpr size_t kMaximumWidgetStatusReasonCharacters = 96;
-    static constexpr size_t kMaximumNetworkWidgets = 8;
-    static constexpr size_t kLogRingSlots = 32;
-    static constexpr size_t kLogLineCapacity = 1024;
+    static constexpr size_t kMaximumNetworkWidgets               = 8;
+    static constexpr size_t kLogRingSlots                        = 32;
+    static constexpr size_t kLogLineCapacity                     = 1024;
     // The longest the first shutdown with a device lane still running waits for the log writer to empty its queue.
     static constexpr uint32_t kShutdownLogFlushMilliseconds = 1000;
-    static constexpr size_t kHostActionRingSlots = 16;
+    static constexpr size_t kHostActionRingSlots            = 16;
     // ServiceSlot::laneState bits.
-    static constexpr uint32_t kLaneReturned = 1;
+    static constexpr uint32_t kLaneReturned  = 1;
     static constexpr uint32_t kLaneAbandoned = 2;
 
     class DataProvider;
@@ -318,12 +313,12 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     struct ModuleSlot final
     {
         wil::unique_hmodule module;
-        RedXeCreateFn create = nullptr;
-        RedXeEnumeratePluginsFn enumerate = nullptr;
+        RedXeCreateFn create                                 = nullptr;
+        RedXeEnumeratePluginsFn enumerate                    = nullptr;
         RedXeGetPluginSettingsContractFn getSettingsContract = nullptr;
-        RedXeGetActionContractFn getActionContract = nullptr;
-        RedXePluginShutdownFn shutdown = nullptr;
-        uint32_t capabilities = RedXePluginCapabilityNone;
+        RedXeGetActionContractFn getActionContract           = nullptr;
+        RedXePluginShutdownFn shutdown                       = nullptr;
+        uint32_t capabilities                                = RedXePluginCapabilityNone;
     };
 #pragma warning(pop)
 
@@ -337,7 +332,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         // its started service object instead and never retained here.
         wil::com_ptr_nothrow<IRedXeActionPack> executor;
         ActionPublisherState state = ActionPublisherState::Unresolved;
-        bool noticeShown = false;
+        bool noticeShown           = false;
     };
 
     struct ActionNotice final
@@ -349,9 +344,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     struct DataSetRuntime final
     {
         const RedXeDataSetDescriptor* descriptor = nullptr;
-        uint64_t due = 0;
-        uint32_t activeIntervalMilliseconds = kMaximumSubscriptionIntervalMilliseconds;
-        bool active = false;
+        uint64_t due                             = 0;
+        uint32_t activeIntervalMilliseconds      = kMaximumSubscriptionIntervalMilliseconds;
+        bool active                              = false;
     };
     static_assert(sizeof(DataSetRuntime) == 24);
 
@@ -365,7 +360,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         wil::com_ptr_nothrow<IRedXeDataSource> source;
         wil::com_ptr_nothrow<IRedXeDataProvider> provider;
         const RedXeDataSetDescriptor* descriptors = nullptr;
-        uint32_t descriptorCount = 0;
+        uint32_t descriptorCount                  = 0;
         // Cold publication allocates exactly descriptorCount records. The acquisition worker reuses them until
         // the source's external/subscription leases and borrowed collection/callback storage are quiescent.
         std::unique_ptr<DataSetRuntime[]> dataSets;
@@ -384,7 +379,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         std::array<wchar_t, kMaximumWidgetStatusReasonCharacters> reason{};
         std::atomic<uint64_t> statusAndGeneration{RedXeWidgetStatusOk};
         uint32_t bindings = 0;
-        bool used = false;
+        bool used         = false;
     };
 #pragma warning(pop)
 
@@ -396,20 +391,20 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     struct SubscriptionSlot final
     {
         wil::com_ptr_nothrow<IRedXeDataSink> sink;
-        uint64_t token = 0;
-        size_t providerIndex = 0;
-        size_t dataSetIndex = 0;
+        uint64_t token                = 0;
+        size_t providerIndex          = 0;
+        size_t dataSetIndex           = 0;
         uint32_t intervalMilliseconds = 0;
-        bool active = false;
-        bool removing = false;
-        uint32_t inFlight = 0;
+        bool active                   = false;
+        bool removing                 = false;
+        uint32_t inFlight             = 0;
     };
 
     struct NetworkSlot final
     {
         wil::com_ptr_nothrow<IRedXeNetworkWidget> widget;
-        uint64_t due = 0;
-        bool active = false;
+        uint64_t due  = 0;
+        bool active   = false;
         bool inFlight = false;
     };
 
@@ -425,7 +420,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         std::array<char, kRedXeMaximumActionTargetBytes + 1> target{};
         // GetTickCount64 of the latest request, refreshed when an identical request coalesces into this slot.
         ULONGLONG queued = 0;
-        bool used = false;
+        bool used        = false;
     };
 
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
@@ -447,9 +442,9 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
         // budget runs out. Each reads the other's bit in the same exchange, so exactly one acts: the UI thread joins
         // a lane that already returned, or the lane posts kServiceLaneMessage when it returns later.
         std::atomic<uint32_t> laneState{0};
-        bool started = false;
-        bool laneRunning = false;
-        bool stopPending = false;
+        bool started        = false;
+        bool laneRunning    = false;
+        bool stopPending    = false;
         bool laneTombstoned = false;
         // service-start-deferred was logged for the current tombstone.
         bool startDeferred = false;
@@ -463,10 +458,11 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT EnsureProvider(const char* providerId, IRedXeDataProvider** provider) noexcept;
     [[nodiscard]] HRESULT ValidateDataSets(ProviderRuntime& runtime) noexcept;
     [[nodiscard]] HRESULT EnsureWorker() noexcept;
-    [[nodiscard]] HRESULT GetDataSets(size_t providerIndex, const RedXeDataSetDescriptor** descriptors,
-                                      uint32_t* count) noexcept;
-    [[nodiscard]] HRESULT Subscribe(size_t providerIndex, const RedXeDataSubscriptionOptions* options,
-                                    IRedXeDataSink* sink, IRedXeDataSubscription** subscription) noexcept;
+    [[nodiscard]] HRESULT GetDataSets(size_t providerIndex, const RedXeDataSetDescriptor** descriptors, uint32_t* count) noexcept;
+    [[nodiscard]] HRESULT Subscribe(size_t providerIndex,
+                                    const RedXeDataSubscriptionOptions* options,
+                                    IRedXeDataSink* sink,
+                                    IRedXeDataSubscription** subscription) noexcept;
     [[nodiscard]] HRESULT SetSubscriptionActive(size_t index, uint64_t token, bool active) noexcept;
     void RemoveSubscription(size_t index, uint64_t token) noexcept;
     void RequestDataSourceTrim() noexcept;
@@ -502,8 +498,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     [[nodiscard]] HRESULT EnsurePublisherContract(PublisherSlot& slot) noexcept;
     // The executor for a publisher: the started service object, or a created (retained) pack object.
     [[nodiscard]] HRESULT EnsurePublisherExecutor(PublisherSlot& slot, IRedXeActionPack** executor) noexcept;
-    [[nodiscard]] const RedXeActionDescriptor* FindPublishedAction(const PublisherSlot& slot,
-                                                                   std::string_view actionName) const noexcept;
+    [[nodiscard]] const RedXeActionDescriptor* FindPublishedAction(const PublisherSlot& slot, std::string_view actionName) const noexcept;
     void AddActionNotice(const wchar_t* text) noexcept;
     void ReleaseActionExecutors() noexcept;
     [[nodiscard]] HRESULT CreateService(ServiceSlot& slot, const ServiceSettings& settings) noexcept;
@@ -528,7 +523,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     bool _dataSourcesNeedTrim = false;
     bool _dataServiceStopping = false;
     std::array<SubscriptionSlot, kMaximumSubscriptions> _subscriptions;
-    SRWLOCK _subscriptionLock = SRWLOCK_INIT;
+    SRWLOCK _subscriptionLock               = SRWLOCK_INIT;
     CONDITION_VARIABLE _subscriptionDrained = CONDITION_VARIABLE_INIT;
     std::array<WidgetStatusSlot, kMaximumWidgetStatusSlots> _widgetStatus;
     mutable SRWLOCK _widgetStatusLock = SRWLOCK_INIT;
@@ -547,7 +542,7 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     std::atomic<HWND> _uiWindow{nullptr};
     std::atomic<uint32_t> _pendingInvalidate{0};
     SettingsPersistHandler _settingsPersistHandler = nullptr;
-    void* _settingsPersistContext = nullptr;
+    void* _settingsPersistContext                  = nullptr;
     std::wstring _logDirectory;
     std::wstring _logFilePath;
     wil::unique_hfile _logFile;
@@ -556,8 +551,8 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     wil::unique_event_nothrow _logIdleEvent;
     std::jthread _logWorker;
     std::array<LogLineSlot, kLogRingSlots> _logRing{};
-    size_t _logHead = 0;
-    size_t _logTail = 0;
+    size_t _logHead  = 0;
+    size_t _logTail  = 0;
     size_t _logCount = 0;
     SRWLOCK _logLock = SRWLOCK_INIT;
     std::atomic<uint32_t> _logQueued{0};
@@ -576,13 +571,13 @@ class PluginHost final : public IRedXeHost, public IRedXeSettingsQueue
     wil::unique_event_nothrow _logWriterGate;
 #endif
     std::array<HostActionSlot, kHostActionRingSlots> _hostActions{};
-    size_t _hostActionHead = 0;
-    size_t _hostActionCount = 0;
+    size_t _hostActionHead          = 0;
+    size_t _hostActionCount         = 0;
     mutable SRWLOCK _hostActionLock = SRWLOCK_INIT;
     std::atomic<uint32_t> _pendingHostActionPost{0};
-    HostActionHandler _hostActionHandler = nullptr;
+    HostActionHandler _hostActionHandler     = nullptr;
     HostActionCompleted _hostActionCompleted = nullptr;
-    void* _hostActionContext = nullptr;
+    void* _hostActionContext                 = nullptr;
     // Declared after the members its completion callback posts through, so it is destroyed (joined) before them.
     LaunchWorker _launches{&PluginHost::NotifyLaunchFinished, this};
     // StopLaunches logged launch-stop-timeout; a later stop finds the same launch and logs nothing.

@@ -193,7 +193,7 @@ package.ps1           Portable ZIP with clean-extraction smoke
 winget-manifest.ps1   Winget manifest generation and validation
 restore-dxui.ps1      Restore the pinned DxUi source and build its dependencies (build.ps1 runs it)
 Update-DxUi.ps1       Update the validated DxUi pin, optionally without local validation
-format.ps1            clang-format entrypoint
+format.ps1            Format with the CI formatter; -Check verifies without writing
 validate-skills.ps1   Validate every repository-local skill
 Directory.Build.props Shared MSBuild output and compiler defaults
 vcpkg-install.ps1     Pinned dependency bootstrap and manifest install

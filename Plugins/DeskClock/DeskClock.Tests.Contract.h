@@ -45,14 +45,13 @@ struct DeskClockTestDiagnostics final
 extern "C"
 {
     REDXE_DESK_CLOCK_TEST_API HRESULT __stdcall RedXeDeskClockSetTestTime(const DeskClockTestTime* time) noexcept;
-    REDXE_DESK_CLOCK_TEST_API HRESULT __stdcall RedXeDeskClockGetTestDiagnostics(
-        DeskClockTestDiagnostics* diagnostics) noexcept;
+    REDXE_DESK_CLOCK_TEST_API HRESULT __stdcall RedXeDeskClockGetTestDiagnostics(DeskClockTestDiagnostics* diagnostics) noexcept;
 }
 
-using DeskClockSetTestTimeFn = decltype(&RedXeDeskClockSetTestTime);
+using DeskClockSetTestTimeFn        = decltype(&RedXeDeskClockSetTestTime);
 using DeskClockGetTestDiagnosticsFn = decltype(&RedXeDeskClockGetTestDiagnostics);
 
-inline constexpr char kDeskClockSetTestTimeExport[] = "RedXeDeskClockSetTestTime";
+inline constexpr char kDeskClockSetTestTimeExport[]        = "RedXeDeskClockSetTestTime";
 inline constexpr char kDeskClockGetTestDiagnosticsExport[] = "RedXeDeskClockGetTestDiagnostics";
 
 #undef REDXE_DESK_CLOCK_TEST_API

@@ -34,7 +34,7 @@ const wchar_t* FallbackToggleGlyph(size_t index, bool off) noexcept
 }
 DxUi::FontRole IconFontRole(bool fluent, float sizeDip) noexcept
 {
-    if (!fluent)
+    if (! fluent)
         return sizeDip >= 24.0f ? DxUi::FontRole::BodyLarge : DxUi::FontRole::Body;
     return sizeDip >= 28.0f ? DxUi::FontRole::IconLarge : DxUi::FontRole::Icon;
 }
@@ -42,28 +42,20 @@ const wchar_t* AvailabilityText(Availability value) noexcept
 {
     switch (value)
     {
-    case Availability::Unknown:
-        return L"Loading";
-    case Availability::Ready:
-        return L"Ready";
-    case Availability::Missing:
-        return L"Missing";
-    case Availability::AccessDenied:
-        return L"Denied";
-    case Availability::Busy:
-        return L"Busy";
-    case Availability::Unsupported:
-        return L"N/A";
-    case ::AVControl::Availability::Failed:
-    default:
-        return L"Error";
+        case Availability::Unknown: return L"Loading";
+        case Availability::Ready: return L"Ready";
+        case Availability::Missing: return L"Missing";
+        case Availability::AccessDenied: return L"Denied";
+        case Availability::Busy: return L"Busy";
+        case Availability::Unsupported: return L"N/A";
+        case ::AVControl::Availability::Failed:
+        default: return L"Error";
     }
 }
 bool CanRetryCamera(const CameraState& state) noexcept
 {
-    return !state.sourceId.View().empty() && state.revision && !state.enabled &&
-           (state.availability == Availability::AccessDenied || state.availability == Availability::Busy ||
-            state.availability == Availability::Failed);
+    return ! state.sourceId.View().empty() && state.revision && ! state.enabled &&
+           (state.availability == Availability::AccessDenied || state.availability == Availability::Busy || state.availability == Availability::Failed);
 }
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
@@ -71,7 +63,7 @@ bool CanRetryCamera(const CameraState& state) noexcept
 #pragma warning(disable : 4625 4626 5026 5027)
 class ViewSurface final : public DxUi::Panel
 {
-  public:
+public:
     void Paint(DxUi::ControlHost& host) const override
     {
         // EmbeddedHost deliberately preserves transparency. AV owns an opaque theme surface so a light or
@@ -92,7 +84,7 @@ class ViewSurface final : public DxUi::Panel
 #pragma warning(disable : 4625 4626 5026 5027)
 class ConfirmedToggle final : public DxUi::Toggle
 {
-  public:
+public:
     void Paint(DxUi::ControlHost& host) const override
     {
         DxUi::Button::Paint(host);
@@ -120,8 +112,10 @@ class ConfirmedToggle final : public DxUi::Toggle
 #pragma warning(disable : 4625 4626 5026 5027)
 class LevelMuteButton final : public DxUi::Button
 {
-  public:
-    void Paint(DxUi::ControlHost&) const override {}
+public:
+    void Paint(DxUi::ControlHost&) const override
+    {
+    }
 };
 #pragma warning(pop)
 
@@ -129,13 +123,15 @@ class LevelMuteButton final : public DxUi::Button
 
 HRESULT LiveView::Attach(std::shared_ptr<DxUi::GraphicsDevice> graphics, ViewCallbacks callbacks) noexcept
 {
-    _callbacks = callbacks;
-    const HRESULT hr = _view.Attach(std::move(graphics), {this, [](void* context) noexcept
-                                                          {
-                                                              auto& self = *static_cast<LiveView*>(context);
-                                                              if (self._callbacks.requestFrame)
-                                                                  self._callbacks.requestFrame(self._callbacks.context);
-                                                          }});
+    _callbacks       = callbacks;
+    const HRESULT hr = _view.Attach(std::move(graphics),
+                                    {this,
+                                     [](void* context) noexcept
+    {
+        auto& self = *static_cast<LiveView*>(context);
+        if (self._callbacks.requestFrame)
+            self._callbacks.requestFrame(self._callbacks.context);
+    }});
     if (FAILED(hr))
         return hr;
     try
@@ -154,10 +150,10 @@ HRESULT LiveView::Attach(std::shared_ptr<DxUi::GraphicsDevice> graphics, ViewCal
 
 void LiveView::Build()
 {
-    auto tree = std::make_unique<ViewSurface>();
+    auto tree  = std::make_unique<ViewSurface>();
     auto* root = _livePanel = tree->AddChild<DxUi::Panel>();
-    _heading = root->AddChild<DxUi::Label>(L"AV Control");
-    _profile = root->AddChild<DxUi::Button>(L"Profiles");
+    _heading                = root->AddChild<DxUi::Label>(L"AV Control");
+    _profile                = root->AddChild<DxUi::Button>(L"Profiles");
     _profile->SetAccessibleName(L"Choose an AV profile");
     _profile->SetAccessibleAutomationId(L"av.profiles");
     _profile->SetOnClick([this] { Emit({ViewCommandKind::OpenProfiles}); });
@@ -198,14 +194,13 @@ void LiveView::Build()
         mute->SetOnClick([this, i] { Toggle(i); });
     }
     _view.Controls().SetRoot(std::move(tree));
-    _view.Controls().SetOnTabBoundary(
-        [this](bool)
-        {
-            if (_profilesVisible)
-                return false;
-            _tabBoundary = true;
-            return true;
-        });
+    _view.Controls().SetOnTabBoundary([this](bool)
+    {
+        if (_profilesVisible)
+            return false;
+        _tabBoundary = true;
+        return true;
+    });
 }
 
 void LiveView::SetAppearance(const RedXeAppearance& appearance) noexcept
@@ -223,14 +218,14 @@ void LiveView::SetBackground(uint32_t rgb) noexcept
     if (_backgroundRgb == rgb)
         return;
     _backgroundRgb = rgb;
-    _themeDirty = true;
+    _themeDirty    = true;
     _view.MarkDirty();
 }
 void LiveView::ApplyTheme()
 {
-    auto theme = DxUi::MakeDefaultThemePalette((_appearance.flags & RedXeAppearanceDark) != 0);
+    auto theme          = DxUi::MakeDefaultThemePalette((_appearance.flags & RedXeAppearanceDark) != 0);
     theme.reducedMotion = true; // Live acknowledgements never add animation-only frames.
-    theme.highContrast = (_appearance.flags & RedXeAppearanceHighContrast) != 0;
+    theme.highContrast  = (_appearance.flags & RedXeAppearanceHighContrast) != 0;
     // The opaque view surface is the dashboard background so the AV tile matches its neighbours; cards and
     // controls keep the palette's raised surfaces. High contrast keeps the system window color below.
     theme.windowBackground = D2D1::ColorF(static_cast<float>((_backgroundRgb >> 16) & 255) / 255.0f,
@@ -240,9 +235,8 @@ void LiveView::ApplyTheme()
     {
         const auto color = [](uint32_t argb) noexcept
         {
-            return D2D1::ColorF(static_cast<float>((argb >> 16) & 255) / 255.0f,
-                                static_cast<float>((argb >> 8) & 255) / 255.0f,
-                                static_cast<float>(argb & 255) / 255.0f);
+            return D2D1::ColorF(
+                static_cast<float>((argb >> 16) & 255) / 255.0f, static_cast<float>((argb >> 8) & 255) / 255.0f, static_cast<float>(argb & 255) / 255.0f);
         };
         const auto window = color(_appearance.window), text = color(_appearance.windowText);
         const auto selected = color(_appearance.highlight), selectedText = color(_appearance.highlightText);
@@ -250,23 +244,22 @@ void LiveView::ApplyTheme()
         theme.windowBackground = theme.surfaceBackground = theme.cardBackground = theme.overlayBackground = window;
         theme.headerBackground = theme.headerHovered = theme.headerPressed = window;
         theme.text = theme.subduedText = text;
-        theme.disabledText = color(_appearance.disabledText);
+        theme.disabledText             = color(_appearance.disabledText);
         theme.border = theme.borderDefault = theme.borderStrong = theme.gridLine = theme.overlayBorder = text;
         theme.buttonFill = theme.buttonHotFill = theme.buttonPressedFill = button;
-        theme.buttonBorder = buttonText;
-        theme.inputFill = window;
-        theme.inputBorder = text;
-        theme.selectionFill = theme.selectionInactiveFill = theme.accent = theme.accentHover = theme.accentPressed =
-            selected;
+        theme.buttonBorder                                               = buttonText;
+        theme.inputFill                                                  = window;
+        theme.inputBorder                                                = text;
+        theme.selectionFill = theme.selectionInactiveFill = theme.accent = theme.accentHover = theme.accentPressed = selected;
         theme.selectionText = theme.toggleKnobCheckedFill = selectedText;
-        theme.toggleKnobFill = text;
+        theme.toggleKnobFill                              = text;
         theme.focusStroke = theme.focusStrokeOuter = text;
-        theme.focusStrokeInner = window;
+        theme.focusStrokeInner                     = window;
         theme.hoverFill = theme.pressedFill = button;
-        theme.scrollbarTrack = window;
+        theme.scrollbarTrack                = window;
         theme.scrollbarThumb = theme.scrollbarThumbHot = text;
-        theme.tooltipBackground = window;
-        theme.tooltipText = text;
+        theme.tooltipBackground                        = window;
+        theme.tooltipText                              = text;
         theme.infoFill = theme.warningFill = theme.errorFill = window;
         theme.infoText = theme.warningText = theme.errorText = text;
     }
@@ -288,7 +281,7 @@ void LiveView::Detach() noexcept
 }
 void LiveView::SetVisible(bool visible) noexcept
 {
-    if (!visible)
+    if (! visible)
     {
         DisconnectAccessibility();
         Cancel();
@@ -298,37 +291,34 @@ void LiveView::SetVisible(bool visible) noexcept
 }
 void LiveView::SetState(const ConfirmedState& state, std::wstring_view profileName, uint32_t pendingMask) noexcept
 {
-    const bool outputChanged = _state.output.id != state.output.id ||
-                               _state.output.generation != state.output.generation ||
-                               _state.output.levelRevision != state.output.levelRevision;
-    const bool microphoneChanged = _state.microphone.id != state.microphone.id ||
-                                   _state.microphone.generation != state.microphone.generation ||
+    const bool outputChanged =
+        _state.output.id != state.output.id || _state.output.generation != state.output.generation || _state.output.levelRevision != state.output.levelRevision;
+    const bool microphoneChanged = _state.microphone.id != state.microphone.id || _state.microphone.generation != state.microphone.generation ||
                                    _state.microphone.levelRevision != state.microphone.levelRevision;
-    const auto* captured = _view.Controls().GetCapturedControl();
+    const auto* captured         = _view.Controls().GetCapturedControl();
     // An unrelated endpoint's level notification must not interrupt the slider under the finger.
     // Inspect capture, including a thumb grab that has not emitted its first Preview yet.
-    const bool unaffectedSlider =
-        captured && ((captured == _sliders[0] && !outputChanged) || (captured == _sliders[1] && !microphoneChanged));
-    if ((outputChanged || microphoneChanged) && !unaffectedSlider)
+    const bool unaffectedSlider = captured && ((captured == _sliders[0] && ! outputChanged) || (captured == _sliders[1] && ! microphoneChanged));
+    if ((outputChanged || microphoneChanged) && ! unaffectedSlider)
         Cancel();
-    _state = state;
+    _state             = state;
     const size_t count = (std::min)(profileName.size(), _profileName.size() - 1);
     std::copy_n(profileName.data(), count, _profileName.data());
     _profileName[count] = 0;
-    _pendingMask = pendingMask;
-    _modelDirty = true;
+    _pendingMask        = pendingMask;
+    _modelDirty         = true;
     _view.MarkDirty();
 }
 
 void LiveView::Arrange()
 {
-    _livePanel->SetBounds(D2D1::RectF(0, 0, static_cast<float>(_width) * 96.0f / static_cast<float>(_dpi),
-                                      static_cast<float>(_height) * 96.0f / static_cast<float>(_dpi)));
-    const bool usable = _layout.density != Density::Unusable;
+    _livePanel->SetBounds(
+        D2D1::RectF(0, 0, static_cast<float>(_width) * 96.0f / static_cast<float>(_dpi), static_cast<float>(_height) * 96.0f / static_cast<float>(_dpi)));
+    const bool usable  = _layout.density != Density::Unusable;
     const bool minimal = _layout.density == Density::Minimal;
-    const bool fluent = _view.Controls().HasFluentIconFont();
+    const bool fluent  = _view.Controls().HasFluentIconFont();
     _heading->SetBounds(Bounds(_layout.header));
-    _heading->SetVisible(minimal || !usable);
+    _heading->SetVisible(minimal || ! usable);
     _profile->SetBounds(Bounds(_layout.profileSelector));
     _profile->SetVisible(usable);
     _profileCaption->SetBounds(Bounds(_layout.profileSelector));
@@ -343,7 +333,7 @@ void LiveView::Arrange()
         _toggleNames[i]->SetVisible(named);
         constexpr float kIconDip = 32.0f;
         constexpr float kIconPad = 12.0f;
-        const float icon = (std::min)(kIconDip, (std::max)(24.0f, r.height - 2.0f * kIconPad));
+        const float icon         = (std::min)(kIconDip, (std::max)(24.0f, r.height - 2.0f * kIconPad));
         _toggleIcons[i]->SetFontRole(IconFontRole(fluent, icon));
         if (named)
         {
@@ -365,8 +355,8 @@ void LiveView::Arrange()
     {
         _sliders[i]->SetVisible(usable);
         _sliders[i]->SetBounds(Bounds(_layout.sliders[i]));
-        const Rect panel = _layout.levelPanels[i];
-        const Rect mute = _layout.levelMutes[i];
+        const Rect panel  = _layout.levelPanels[i];
+        const Rect mute   = _layout.levelMutes[i];
         const Rect slider = _layout.sliders[i];
         _levelCards[i]->SetBounds(Bounds(panel));
         _levelCards[i]->SetVisible(false);
@@ -374,12 +364,12 @@ void LiveView::Arrange()
         _levelMutes[i]->SetBounds(Bounds(mute));
         _levelIcons[i]->SetVisible(usable);
         constexpr float kLevelIconDip = 32.0f;
-        const float icon = (std::min)(kLevelIconDip, (std::max)(24.0f, mute.height - 8.0f));
+        const float icon              = (std::min)(kLevelIconDip, (std::max)(24.0f, mute.height - 8.0f));
         _levelIcons[i]->SetFontRole(IconFontRole(fluent, icon));
-        const float rowTop = mute.y;
+        const float rowTop    = mute.y;
         const float rowBottom = mute.y + mute.height;
-        const float iconX = mute.x + 8.0f;
-        const float iconY = rowTop + (mute.height - icon) * 0.5f;
+        const float iconX     = mute.x + 8.0f;
+        const float iconY     = rowTop + (mute.height - icon) * 0.5f;
         _levelIcons[i]->SetBounds(D2D1::RectF(iconX, iconY, iconX + icon, iconY + icon));
         // Preserve the touch targets when the minimum microphone row cannot fit a readable percentage.
         // The Slider still exposes its confirmed value through RangeValue accessibility.
@@ -393,39 +383,30 @@ void LiveView::Arrange()
 void LiveView::Refresh()
 {
     const bool minimal = _layout.density == Density::Minimal;
-    const bool fluent = _view.Controls().HasFluentIconFont();
-    _heading->SetText(_layout.density == Density::Unusable
-                          ? L"Increase tile size"
-                          : (minimal ? (_profileName[0] ? _profileName.data() : L"Custom") : L"Live controls"));
-    _profile->SetText(minimal           ? L""
-                      : _profileName[0] ? std::wstring(_profileName.data()) + L" · Profiles"
-                                        : L"Custom · Profiles");
-    _profile->SetAccessibleName(std::wstring(L"Choose an AV profile. Current: ") +
-                                (_profileName[0] ? _profileName.data() : L"Custom"));
+    const bool fluent  = _view.Controls().HasFluentIconFont();
+    _heading->SetText(_layout.density == Density::Unusable ? L"Increase tile size"
+                                                           : (minimal ? (_profileName[0] ? _profileName.data() : L"Custom") : L"Live controls"));
+    _profile->SetText(minimal ? L"" : _profileName[0] ? std::wstring(_profileName.data()) + L" · Profiles" : L"Custom · Profiles");
+    _profile->SetAccessibleName(std::wstring(L"Choose an AV profile. Current: ") + (_profileName[0] ? _profileName.data() : L"Custom"));
     for (size_t i = 0; i < 3; ++i)
     {
-        const auto availability = i == 2 ? _state.camera.availability : Audio(i).availability;
-        const bool enabled = availability == Availability::Ready;
-        const bool retry = i == 2 && CanRetryCamera(_state.camera);
-        const bool off = i == 2 ? !_state.camera.enabled : Audio(i).muted;
-        const wchar_t* stateText = !enabled ? AvailabilityText(availability)
-                                   : off    ? (i == 2 ? L"Off" : L"Muted")
-                                            : L"On";
-        const bool pending = (_pendingMask & (1U << i)) != 0;
-        const wchar_t* caption = pending ? L"Wait…" : enabled ? DeviceName(i) : stateText;
+        const auto availability  = i == 2 ? _state.camera.availability : Audio(i).availability;
+        const bool enabled       = availability == Availability::Ready;
+        const bool retry         = i == 2 && CanRetryCamera(_state.camera);
+        const bool off           = i == 2 ? ! _state.camera.enabled : Audio(i).muted;
+        const wchar_t* stateText = ! enabled ? AvailabilityText(availability) : off ? (i == 2 ? L"Off" : L"Muted") : L"On";
+        const bool pending       = (_pendingMask & (1U << i)) != 0;
+        const wchar_t* caption   = pending ? L"Wait…" : enabled ? DeviceName(i) : stateText;
         _toggles[i]->SetEnabled(enabled || retry);
         _toggles[i]->SetChecked(enabled && off);
         _toggles[i]->SetPrimary(enabled && off);
-        const auto& theme = _view.Controls().GetTheme();
-        const auto labelColor = !enabled && !retry ? theme.disabledText
-                                : enabled && off   ? theme.selectionText
-                                                   : theme.text;
+        const auto& theme     = _view.Controls().GetTheme();
+        const auto labelColor = ! enabled && ! retry ? theme.disabledText : enabled && off ? theme.selectionText : theme.text;
         _toggleIcons[i]->SetTextColor(labelColor);
         _toggleNames[i]->SetTextColor(labelColor);
         const auto iconBounds = _toggleIcons[i]->GetBounds();
         _toggleIcons[i]->SetFontRole(IconFontRole(fluent, iconBounds.bottom - iconBounds.top));
-        _toggleIcons[i]->SetText(fluent ? std::wstring(1, FluentToggleGlyph(i, off))
-                                        : std::wstring(FallbackToggleGlyph(i, off)));
+        _toggleIcons[i]->SetText(fluent ? std::wstring(1, FluentToggleGlyph(i, off)) : std::wstring(FallbackToggleGlyph(i, off)));
         _toggleNames[i]->SetText(caption);
         std::wstring accessible = names[i];
         if (enabled)
@@ -437,25 +418,23 @@ void LiveView::Refresh()
         accessible += stateText;
         accessible += enabled ? (off ? L". Turn on" : L". Turn off") : retry ? L". Retry camera" : L". Unavailable";
         _toggles[i]->SetAccessibleName(std::move(accessible));
-        _toggles[i]->SetAccessibleHelpText(
-            pending ? L"Change pending. Safety off remains available."
-            : retry ? L"Resolve camera access or close the other capture app, then activate to retry."
-                    : L"");
+        _toggles[i]->SetAccessibleHelpText(pending ? L"Change pending. Safety off remains available."
+                                           : retry ? L"Resolve camera access or close the other capture app, then activate to retry."
+                                                   : L"");
     }
     for (size_t i = 0; i < 2; ++i)
     {
         const auto& endpoint = Audio(i);
-        const bool enabled = endpoint.availability == Availability::Ready;
+        const bool enabled   = endpoint.availability == Availability::Ready;
         const uint32_t value = _gestures[i].Active() ? _gestures[i].Draft() : endpoint.level;
         wchar_t caption[16]{};
-        if (!enabled)
+        if (! enabled)
             wcscpy_s(caption, L"—");
         else
             swprintf_s(caption, L"%u%s", value, (_pendingMask & (1U << (i + 3))) ? L"…" : L"");
         const auto iconBounds = _levelIcons[i]->GetBounds();
         _levelIcons[i]->SetFontRole(IconFontRole(fluent, iconBounds.bottom - iconBounds.top));
-        _levelIcons[i]->SetText(fluent ? std::wstring(1, FluentToggleGlyph(i, endpoint.muted))
-                                       : std::wstring(FallbackToggleGlyph(i, endpoint.muted)));
+        _levelIcons[i]->SetText(fluent ? std::wstring(1, FluentToggleGlyph(i, endpoint.muted)) : std::wstring(FallbackToggleGlyph(i, endpoint.muted)));
         _levelValues[i]->SetText(caption);
         _levelMutes[i]->SetEnabled(enabled);
         _levelMutes[i]->SetAccessibleName(i ? (endpoint.muted ? L"Unmute microphone" : L"Mute microphone")
@@ -467,9 +446,9 @@ void LiveView::Refresh()
 
 HRESULT LiveView::Prepare(uint32_t width, uint32_t height, float dpi) noexcept
 {
-    if (!std::isfinite(dpi) || dpi <= 0)
+    if (! std::isfinite(dpi) || dpi <= 0)
         return E_INVALIDARG;
-    if (!_visible || !width || !height)
+    if (! _visible || ! width || ! height)
         return S_FALSE;
     try
     {
@@ -479,43 +458,39 @@ HRESULT LiveView::Prepare(uint32_t width, uint32_t height, float dpi) noexcept
         {
             Cancel();
             ++_layoutRevision;
-            _width = width;
+            _width  = width;
             _height = height;
-            _dpi = dpi;
-            _layout = LayoutLive(static_cast<float>(width) * 96.0f / static_cast<float>(dpi),
-                                 static_cast<float>(height) * 96.0f / static_cast<float>(dpi));
+            _dpi    = dpi;
+            _layout = LayoutLive(static_cast<float>(width) * 96.0f / static_cast<float>(dpi), static_cast<float>(height) * 96.0f / static_cast<float>(dpi));
             Arrange();
             _modelDirty = true;
         }
-        _livePanel->SetVisible(!_profilesVisible);
+        _livePanel->SetVisible(! _profilesVisible);
         if (_profilesVisible)
         {
-            if (!_profileControls)
+            if (! _profileControls)
             {
-                _profileControls = std::make_unique<ProfileControls>(
-                    *static_cast<DxUi::Panel*>(_view.Controls().GetRoot()),
-                    ProfileCallbacks{
-                        this,
-                        [](void* context, uint32_t index) noexcept
-                        {
-                            auto& self = *static_cast<LiveView*>(context);
-                            self.CloseProfiles();
-                            self.Emit({ViewCommandKind::ApplyProfile, {}, {}, 0, 0, index});
-                        },
-                        [](void* context, const Configuration& configuration) noexcept
-                        {
-                            auto& self = *static_cast<LiveView*>(context);
-                            return self._callbacks.saveProfiles
-                                       ? self._callbacks.saveProfiles(self._callbacks.context, configuration)
-                                       : E_ACCESSDENIED;
-                        },
-                        [](void* context) noexcept
-                        {
-                            auto& self = *static_cast<LiveView*>(context);
-                            self.CloseProfiles();
-                            self.Emit({ViewCommandKind::CloseProfiles});
-                        },
-                        [](void* context) noexcept { static_cast<LiveView*>(context)->_view.MarkDirty(); }});
+                _profileControls =
+                    std::make_unique<ProfileControls>(*static_cast<DxUi::Panel*>(_view.Controls().GetRoot()),
+                                                      ProfileCallbacks{this,
+                                                                       [](void* context, uint32_t index) noexcept
+                {
+                    auto& self = *static_cast<LiveView*>(context);
+                    self.CloseProfiles();
+                    self.Emit({ViewCommandKind::ApplyProfile, {}, {}, 0, 0, index});
+                },
+                                                                       [](void* context, const Configuration& configuration) noexcept
+                {
+                    auto& self = *static_cast<LiveView*>(context);
+                    return self._callbacks.saveProfiles ? self._callbacks.saveProfiles(self._callbacks.context, configuration) : E_ACCESSDENIED;
+                },
+                                                                       [](void* context) noexcept
+                {
+                    auto& self = *static_cast<LiveView*>(context);
+                    self.CloseProfiles();
+                    self.Emit({ViewCommandKind::CloseProfiles});
+                },
+                                                                       [](void* context) noexcept { static_cast<LiveView*>(context)->_view.MarkDirty(); }});
                 _profileControls->SetConfiguration(_configuration);
                 _profileControls->SetInventory(_inventory, _deviceRevision);
                 _profileControls->Show();
@@ -527,7 +502,7 @@ HRESULT LiveView::Prepare(uint32_t width, uint32_t height, float dpi) noexcept
             }
             _profileControls->Prepare(static_cast<float>(width) * 96.0f / static_cast<float>(dpi),
                                       static_cast<float>(height) * 96.0f / static_cast<float>(dpi));
-            if (_profileFocusPending || !_view.Controls().GetFocusControl())
+            if (_profileFocusPending || ! _view.Controls().GetFocusControl())
             {
                 _view.Controls().SetFocusControl(_profileControls->InitialFocus());
                 _profileFocusPending = false;
@@ -544,7 +519,7 @@ HRESULT LiveView::Prepare(uint32_t width, uint32_t height, float dpi) noexcept
             }
         }
         const HRESULT hr = _view.Prepare(width, height, dpi);
-        _ready = SUCCEEDED(hr) && width && height;
+        _ready           = SUCCEEDED(hr) && width && height;
         return hr;
     }
     catch (...)
@@ -585,20 +560,20 @@ bool LiveView::Character(wchar_t character, UINT modifiers) noexcept
 HRESULT LiveView::ReadText(RedXeTextState& state) noexcept
 {
     state = {};
-    if (!_ready || !_visible)
+    if (! _ready || ! _visible)
         return S_FALSE;
     DxUi::EmbeddedTextInputSnapshot snapshot;
     const HRESULT read = _view.ReadTextInput(snapshot);
     if (read != S_OK)
         return read;
-    return RedXeTextTransport::EncodeTextState(snapshot.revision, snapshot.focusId, snapshot.state,
-                                               snapshot.caretBoundsDip, snapshot.viewportBoundsDip, _dpi, state);
+    return RedXeTextTransport::EncodeTextState(
+        snapshot.revision, snapshot.focusId, snapshot.state, snapshot.caretBoundsDip, snapshot.viewportBoundsDip, _dpi, state);
 }
 HRESULT LiveView::ApplyText(uint32_t action, const RedXeTextState& state) noexcept
 {
-    if (action > RedXeTextCancel || !IsValidRedXeTextState(state))
+    if (action > RedXeTextCancel || ! IsValidRedXeTextState(state))
         return E_INVALIDARG;
-    if (!_ready || !_visible)
+    if (! _ready || ! _visible)
         return S_FALSE;
     DxUi::EmbeddedTextInputSnapshot current;
     const HRESULT read = _view.ReadTextInput(current);
@@ -614,9 +589,9 @@ HRESULT LiveView::ApplyText(uint32_t action, const RedXeTextState& state) noexce
 }
 HRESULT LiveView::CancelText(uint64_t focusId) noexcept
 {
-    if (!focusId)
+    if (! focusId)
         return E_INVALIDARG;
-    if (!_ready || !_visible)
+    if (! _ready || ! _visible)
         return S_FALSE;
     DxUi::EmbeddedTextInputSnapshot current;
     const HRESULT read = _view.ReadTextInput(current);
@@ -629,11 +604,10 @@ HRESULT LiveView::CancelText(uint64_t focusId) noexcept
 HRESULT LiveView::HitText(uint64_t revision, float x, float y, uint32_t& index) noexcept
 {
     index = 0;
-    if (!_ready || !_visible)
+    if (! _ready || ! _visible)
         return S_FALSE;
-    size_t acp = 0;
-    const HRESULT hr =
-        _view.HitTestTextInput(revision, {x * 96 / static_cast<float>(_dpi), y * 96 / static_cast<float>(_dpi)}, acp);
+    size_t acp       = 0;
+    const HRESULT hr = _view.HitTestTextInput(revision, {x * 96 / static_cast<float>(_dpi), y * 96 / static_cast<float>(_dpi)}, acp);
     if (hr == S_OK)
     {
         if (acp > kRedXeMaximumTextUnits)
@@ -642,39 +616,39 @@ HRESULT LiveView::HitText(uint64_t revision, float x, float y, uint32_t& index) 
     }
     return hr;
 }
-HRESULT LiveView::TextRange(uint64_t revision, uint32_t start, uint32_t end, RedXeTextRectangle& bounds,
-                            BOOL& clipped) noexcept
+HRESULT LiveView::TextRange(uint64_t revision, uint32_t start, uint32_t end, RedXeTextRectangle& bounds, BOOL& clipped) noexcept
 {
-    bounds = {};
+    bounds  = {};
     clipped = TRUE;
-    if (!_ready || !_visible)
+    if (! _ready || ! _visible)
         return S_FALSE;
     D2D1_RECT_F dip{};
-    bool wasClipped = true;
+    bool wasClipped  = true;
     const HRESULT hr = _view.GetTextInputRangeBounds(revision, start, end, dip, wasClipped);
     if (hr != S_OK)
         return hr;
     const float scale = _dpi / 96;
-    bounds = {dip.left * scale, dip.top * scale, dip.right * scale, dip.bottom * scale};
-    clipped = wasClipped ? TRUE : FALSE;
+    bounds            = {dip.left * scale, dip.top * scale, dip.right * scale, dip.bottom * scale};
+    clipped           = wasClipped ? TRUE : FALSE;
     return S_OK;
 }
-HRESULT LiveView::ConnectAccessibility(const RedXeAccessibilityPlacement& placement, IRedXeAccessibilitySite* site,
+HRESULT LiveView::ConnectAccessibility(const RedXeAccessibilityPlacement& placement,
+                                       IRedXeAccessibilitySite* site,
                                        IRawElementProviderFragmentRoot** result) noexcept
 {
-    if (!result)
+    if (! result)
         return E_POINTER;
     *result = nullptr;
-    if (!site || !IsValidRedXeAccessibilityPlacement(placement))
+    if (! site || ! IsValidRedXeAccessibilityPlacement(placement))
         return E_INVALIDARG;
-    if (!_ready || !_visible)
+    if (! _ready || ! _visible)
         return S_FALSE;
     DisconnectAccessibility();
     try
     {
         auto adapter = std::make_shared<AccessibilitySite>(site);
-        const DxUi::EmbeddedAccessibilityPlacement geometry{
-            {placement.left, placement.top, placement.width, placement.height}, placement.keyboardFocused != FALSE};
+        const DxUi::EmbeddedAccessibilityPlacement geometry{{placement.left, placement.top, placement.width, placement.height},
+                                                            placement.keyboardFocused != FALSE};
         const HRESULT attached = _view.AttachAccessibility(std::move(adapter), placement.attachmentId, geometry);
         if (attached != S_OK)
             return attached;
@@ -691,9 +665,9 @@ HRESULT LiveView::ConnectAccessibility(const RedXeAccessibilityPlacement& placem
 }
 HRESULT LiveView::UpdateAccessibility(const RedXeAccessibilityPlacement& placement) noexcept
 {
-    if (!IsValidRedXeAccessibilityPlacement(placement))
+    if (! IsValidRedXeAccessibilityPlacement(placement))
         return E_INVALIDARG;
-    if (!_ready || !_visible || placement.attachmentId != _accessibilityIdentity)
+    if (! _ready || ! _visible || placement.attachmentId != _accessibilityIdentity)
         return S_FALSE;
     // A UIA command may dirty layout before its posted host focus/action is drained. Keep this
     // connection alive; the next successful preparation publishes its new geometry and state.
@@ -703,8 +677,7 @@ HRESULT LiveView::UpdateAccessibility(const RedXeAccessibilityPlacement& placeme
     const HRESULT current = _view.GetAccessibilityProvider(provider.put());
     if (current != S_OK)
         return current;
-    const DxUi::EmbeddedAccessibilityPlacement geometry{
-        {placement.left, placement.top, placement.width, placement.height}, placement.keyboardFocused != FALSE};
+    const DxUi::EmbeddedAccessibilityPlacement geometry{{placement.left, placement.top, placement.width, placement.height}, placement.keyboardFocused != FALSE};
     const HRESULT updated = _view.UpdateAccessibility(geometry);
     return updated == S_FALSE ? S_OK : updated;
 }
@@ -713,11 +686,10 @@ void LiveView::DisconnectAccessibility() noexcept
     _accessibilityIdentity = 0;
     _view.DisconnectAccessibility();
 }
-void LiveView::SetProfiles(const Configuration& configuration, const Inventory* inventory,
-                           uint64_t deviceRevision) noexcept
+void LiveView::SetProfiles(const Configuration& configuration, const Inventory* inventory, uint64_t deviceRevision) noexcept
 {
-    _configuration = configuration;
-    _inventory = inventory;
+    _configuration  = configuration;
+    _inventory      = inventory;
     _deviceRevision = deviceRevision;
     if (_profileControls)
     {
@@ -727,7 +699,7 @@ void LiveView::SetProfiles(const Configuration& configuration, const Inventory* 
 }
 void LiveView::ShowProfiles() noexcept
 {
-    _profilesVisible = true;
+    _profilesVisible     = true;
     _profileFocusPending = true;
     if (_profileControls)
         _profileControls->Show();
@@ -756,18 +728,21 @@ void LiveView::Toggle(size_t index) noexcept
 {
     if (index == 2)
     {
-        if (_state.camera.availability != Availability::Ready && !CanRetryCamera(_state.camera))
+        if (_state.camera.availability != Availability::Ready && ! CanRetryCamera(_state.camera))
             return;
-        Emit({ViewCommandKind::SetCameraEnabled, DeviceKind::Camera, _state.camera.sourceId, 0, _state.camera.revision,
-              _state.camera.enabled ? 0U : 1U});
+        Emit({ViewCommandKind::SetCameraEnabled, DeviceKind::Camera, _state.camera.sourceId, 0, _state.camera.revision, _state.camera.enabled ? 0U : 1U});
     }
     else
     {
         const auto& endpoint = Audio(index);
         if (endpoint.availability != Availability::Ready)
             return;
-        Emit({ViewCommandKind::SetMuted, index ? DeviceKind::Microphone : DeviceKind::Output, endpoint.id,
-              endpoint.generation, endpoint.muteRevision, endpoint.muted ? 0U : 1U});
+        Emit({ViewCommandKind::SetMuted,
+              index ? DeviceKind::Microphone : DeviceKind::Output,
+              endpoint.id,
+              endpoint.generation,
+              endpoint.muteRevision,
+              endpoint.muted ? 0U : 1U});
     }
 }
 void LiveView::SliderChanged(size_t index, DxUi::SliderChange change) noexcept
@@ -779,10 +754,10 @@ void LiveView::SliderChanged(size_t index, DxUi::SliderChange change) noexcept
         _modelDirty = true;
         return;
     }
-    if (!gesture.Active() && !gesture.Begin(Audio(index), _layoutRevision))
+    if (! gesture.Active() && ! gesture.Begin(Audio(index), _layoutRevision))
         return;
     const auto value = static_cast<uint32_t>(std::clamp(std::round(change.value), 0.0, 100.0));
-    if (!gesture.Preview(value))
+    if (! gesture.Preview(value))
         return;
     _modelDirty = true;
     if (change.phase == DxUi::SliderChangePhase::Commit)
@@ -791,8 +766,12 @@ void LiveView::SliderChanged(size_t index, DxUi::SliderChange change) noexcept
         if (gesture.Commit(Audio(index), _layoutRevision, committed))
         {
             const auto& endpoint = Audio(index);
-            Emit({ViewCommandKind::SetLevel, index ? DeviceKind::Microphone : DeviceKind::Output, endpoint.id,
-                  endpoint.generation, endpoint.levelRevision, committed});
+            Emit({ViewCommandKind::SetLevel,
+                  index ? DeviceKind::Microphone : DeviceKind::Output,
+                  endpoint.id,
+                  endpoint.generation,
+                  endpoint.levelRevision,
+                  committed});
         }
     }
 }

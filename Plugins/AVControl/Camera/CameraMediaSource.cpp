@@ -55,21 +55,18 @@ HRESULT CreateType(IMFMediaType** result) noexcept
 }
 bool IsSupportedType(IMFMediaType* type) noexcept
 {
-    if (!type)
+    if (! type)
         return false;
     GUID major{}, subtype{};
     UINT32 width = 0, height = 0, numerator = 0, denominator = 0, interlace = 0;
-    return SUCCEEDED(type->GetGUID(MF_MT_MAJOR_TYPE, &major)) && major == MFMediaType_Video &&
-           SUCCEEDED(type->GetGUID(MF_MT_SUBTYPE, &subtype)) && subtype == MFVideoFormat_NV12 &&
-           SUCCEEDED(MFGetAttributeSize(type, MF_MT_FRAME_SIZE, &width, &height)) && width == FrameWidth &&
-           height == FrameHeight && SUCCEEDED(MFGetAttributeRatio(type, MF_MT_FRAME_RATE, &numerator, &denominator)) &&
-           numerator == FrameRate && denominator == 1 && SUCCEEDED(type->GetUINT32(MF_MT_INTERLACE_MODE, &interlace)) &&
-           interlace == MFVideoInterlace_Progressive;
+    return SUCCEEDED(type->GetGUID(MF_MT_MAJOR_TYPE, &major)) && major == MFMediaType_Video && SUCCEEDED(type->GetGUID(MF_MT_SUBTYPE, &subtype)) &&
+           subtype == MFVideoFormat_NV12 && SUCCEEDED(MFGetAttributeSize(type, MF_MT_FRAME_SIZE, &width, &height)) && width == FrameWidth &&
+           height == FrameHeight && SUCCEEDED(MFGetAttributeRatio(type, MF_MT_FRAME_RATE, &numerator, &denominator)) && numerator == FrameRate &&
+           denominator == 1 && SUCCEEDED(type->GetUINT32(MF_MT_INTERLACE_MODE, &interlace)) && interlace == MFVideoInterlace_Progressive;
 }
 HRESULT Neutral(BYTE* bytes, DWORD capacity, LONG pitch) noexcept
 {
-    if (!bytes || pitch < static_cast<LONG>(FrameWidth) ||
-        static_cast<uint64_t>(pitch) * FrameHeight * 3 / 2 > capacity)
+    if (! bytes || pitch < static_cast<LONG>(FrameWidth) || static_cast<uint64_t>(pitch) * FrameHeight * 3 / 2 > capacity)
         return E_INVALIDARG;
     // Limited-range black NV12. Clear padding too so no previous physical image survives an off/failure frame.
     std::memset(bytes, 16, static_cast<size_t>(pitch) * FrameHeight);
@@ -83,10 +80,10 @@ HRESULT Neutral(BYTE* bytes, DWORD capacity, LONG pitch) noexcept
 #pragma warning(disable : 4625 4626)
 class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCallback>, private Counted
 {
-  public:
+public:
     HRESULT Initialize(IMFMediaSource* parent, std::shared_ptr<FrameProvider> provider) noexcept
     {
-        _parent = parent;
+        _parent   = parent;
         _provider = std::move(provider);
         RETURN_IF_FAILED(MFCreateEventQueue(_events.put()));
         wil::com_ptr_nothrow<IMFMediaType> type;
@@ -111,9 +108,7 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
     }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** output) noexcept override
     {
-        return RedXeComObject::QueryInterface(iid == __uuidof(IMFMediaStream) || iid == __uuidof(IMFMediaEventGenerator)
-                                                  ? __uuidof(IMFMediaStream2)
-                                                  : iid,
+        return RedXeComObject::QueryInterface(iid == __uuidof(IMFMediaStream) || iid == __uuidof(IMFMediaEventGenerator) ? __uuidof(IMFMediaStream2) : iid,
                                               output);
     }
     HRESULT STDMETHODCALLTYPE GetEvent(DWORD flags, IMFMediaEvent** result) noexcept override
@@ -137,25 +132,24 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         return _shutdown ? MF_E_SHUTDOWN : _events->EndGetEvent(result, event);
     }
-    HRESULT STDMETHODCALLTYPE QueueEvent(MediaEventType type, REFGUID extended, HRESULT status,
-                                         const PROPVARIANT* value) noexcept override
+    HRESULT STDMETHODCALLTYPE QueueEvent(MediaEventType type, REFGUID extended, HRESULT status, const PROPVARIANT* value) noexcept override
     {
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         return _shutdown ? MF_E_SHUTDOWN : _events->QueueEventParamVar(type, extended, status, value);
     }
     HRESULT STDMETHODCALLTYPE GetMediaSource(IMFMediaSource** result) noexcept override
     {
-        if (!result)
+        if (! result)
             return E_POINTER;
-        *result = nullptr;
+        *result         = nullptr;
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         return _shutdown ? MF_E_SHUTDOWN : _parent.copy_to(result);
     }
     HRESULT STDMETHODCALLTYPE GetStreamDescriptor(IMFStreamDescriptor** result) noexcept override
     {
-        if (!result)
+        if (! result)
             return E_POINTER;
-        *result = nullptr;
+        *result         = nullptr;
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         return _shutdown ? MF_E_SHUTDOWN : _descriptor.copy_to(result);
     }
@@ -191,7 +185,7 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
     }
     HRESULT STDMETHODCALLTYPE GetStreamState(MF_STREAM_STATE* state) noexcept override
     {
-        if (!state)
+        if (! state)
             return E_POINTER;
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         if (_shutdown)
@@ -206,7 +200,7 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
             return MF_E_SHUTDOWN;
         if (_state != MF_STREAM_STATE_STOPPED)
             return MF_E_INVALID_STATE_TRANSITION;
-        if (!allocator)
+        if (! allocator)
             return E_POINTER;
         return allocator->QueryInterface(IID_PPV_ARGS(_allocator.put()));
     }
@@ -215,15 +209,15 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
         const auto lock = wil::AcquireSRWLockExclusive(&_lock);
         if (_shutdown)
             return MF_E_SHUTDOWN;
-        if (!IsSupportedType(type))
+        if (! IsSupportedType(type))
             return MF_E_INVALIDMEDIATYPE;
         if (_state == MF_STREAM_STATE_RUNNING)
             return S_OK;
-        if (!_allocator)
+        if (! _allocator)
             RETURN_IF_FAILED(MFCreateVideoSampleAllocatorEx(IID_PPV_ARGS(_allocator.put())));
         RETURN_IF_FAILED(_allocator->InitializeSampleAllocator(MaximumSamplePool, type));
         _session.attach(new (std::nothrow) Session());
-        if (!_session)
+        if (! _session)
         {
             (void)_allocator->UninitializeSampleAllocator();
             return E_OUTOFMEMORY;
@@ -235,10 +229,10 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
             (void)_allocator->UninitializeSampleAllocator();
             return started;
         }
-        _state = MF_STREAM_STATE_RUNNING;
+        _state         = MF_STREAM_STATE_RUNNING;
         _lastTimestamp = 0;
         PROPVARIANT time{};
-        time.vt = VT_I8;
+        time.vt            = VT_I8;
         time.hVal.QuadPart = MFGetSystemTime();
         return _events->QueueEventParamVar(MEStreamStarted, GUID_NULL, S_OK, &time);
     }
@@ -264,7 +258,7 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
     }
     HRESULT STDMETHODCALLTYPE GetParameters(DWORD* flags, DWORD* queue) noexcept override
     {
-        if (!flags || !queue)
+        if (! flags || ! queue)
             return E_POINTER;
         *flags = 0;
         *queue = _workQueue.get();
@@ -273,30 +267,29 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
     HRESULT STDMETHODCALLTYPE Invoke(IMFAsyncResult* result) noexcept override
     {
         wil::com_ptr_nothrow<IUnknown> session;
-        if (!result || FAILED(result->GetState(session.put())))
+        if (! result || FAILED(result->GetState(session.put())))
             return E_INVALIDARG;
         const auto lock = wil::AcquireSRWLockExclusive(&_lock);
         // Canceling an MF timer does not drain an already delivered callback. Its immutable session identity
         // prevents an old callback from consuming a new session's token or clearing its timer.
-        if (_shutdown || !_session || session.get() != static_cast<IUnknown*>(_session.get()))
+        if (_shutdown || ! _session || session.get() != static_cast<IUnknown*>(_session.get()))
             return S_OK;
         _scheduled = false;
-        _workKey = 0;
+        _workKey   = 0;
         if (_state != MF_STREAM_STATE_RUNNING || _count == 0)
             return S_OK;
         auto token = std::move(_tokens[_head]);
-        _head = (_head + 1) % _tokens.size();
+        _head      = (_head + 1) % _tokens.size();
         --_count;
         wil::com_ptr_nothrow<IMFSample> sample;
         HRESULT status = S_OK;
         {
-            const auto releaseGate = wil::scope_exit(
-                [&]
-                {
-                    if (_provider)
-                        _provider->EndFrame();
-                });
-            status = FillSample(token.get(), sample.put());
+            const auto releaseGate = wil::scope_exit([&]
+            {
+                if (_provider)
+                    _provider->EndFrame();
+            });
+            status                 = FillSample(token.get(), sample.put());
             if (SUCCEEDED(status))
                 status = _events->QueueEventParamUnk(MEMediaSample, GUID_NULL, S_OK, sample.get());
         }
@@ -307,7 +300,7 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
         return S_OK;
     }
 
-  private:
+private:
     SRWLOCK _lock = SRWLOCK_INIT;
     wil::com_ptr_nothrow<IMFMediaSource> _parent;
     wil::com_ptr_nothrow<IMFMediaEventQueue> _events;
@@ -324,10 +317,10 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
     wil::unique_any<DWORD, decltype(&MFUnlockWorkQueue), MFUnlockWorkQueue> _workQueue;
     HRESULT Schedule() noexcept
     {
-        if (_scheduled || !_count)
+        if (_scheduled || ! _count)
             return S_OK;
         const LONGLONG remaining = _lastTimestamp + FrameDuration - MFGetSystemTime();
-        const LONGLONG delay = std::max<LONGLONG>(1, (remaining + 9999) / 10000);
+        const LONGLONG delay     = std::max<LONGLONG>(1, (remaining + 9999) / 10000);
         RETURN_IF_FAILED(MFScheduleWorkItem(this, _session.get(), -delay, &_workKey));
         _scheduled = true;
         return S_OK;
@@ -337,7 +330,7 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
         if (_scheduled)
             (void)MFCancelWorkItem(_workKey);
         _scheduled = false;
-        _workKey = 0;
+        _workKey   = 0;
         _session.reset();
         for (auto& token : _tokens)
             token.reset();
@@ -357,17 +350,17 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
         wil::com_ptr_nothrow<IMF2DBuffer2> plane;
         RETURN_IF_FAILED(sample->GetBufferByIndex(0, buffer.put()));
         RETURN_IF_FAILED(buffer.query_to(plane.put()));
-        BYTE* scan = nullptr;
+        BYTE* scan  = nullptr;
         BYTE* start = nullptr;
         DWORD bytes = 0;
-        LONG pitch = 0;
+        LONG pitch  = 0;
         RETURN_IF_FAILED(plane->Lock2DSize(MF2DBuffer_LockFlags_Write, &scan, &pitch, &start, &bytes));
         const auto unlock = wil::scope_exit([&] { (void)plane->Unlock2D(); });
-        if (!scan || !start || scan < start || static_cast<uint64_t>(scan - start) > bytes)
+        if (! scan || ! start || scan < start || static_cast<uint64_t>(scan - start) > bytes)
             return E_UNEXPECTED;
-        const DWORD capacity = bytes - static_cast<DWORD>(scan - start);
+        const DWORD capacity     = bytes - static_cast<DWORD>(scan - start);
         const LONGLONG timestamp = std::max(MFGetSystemTime(), _lastTimestamp + FrameDuration);
-        if (!_provider || FAILED(_provider->Fill(scan, capacity, pitch, timestamp)))
+        if (! _provider || FAILED(_provider->Fill(scan, capacity, pitch, timestamp)))
             RETURN_IF_FAILED(Neutral(scan, capacity, pitch));
         RETURN_IF_FAILED(sample->SetSampleTime(timestamp));
         RETURN_IF_FAILED(sample->SetSampleDuration(FrameDuration));
@@ -377,7 +370,7 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
         else
             (void)sample->DeleteItem(MFSampleExtension_Token);
         _lastTimestamp = timestamp;
-        *result = sample.detach();
+        *result        = sample.detach();
         return S_OK;
     }
 };
@@ -387,19 +380,16 @@ class Stream final : public RedXeComObject<Stream, IMFMediaStream2, IMFAsyncCall
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
 #pragma warning(disable : 4625 4626)
-class Source final
-    : public RedXeComObject<Source, IMFMediaSourceEx, IMFGetService, IKsControl, IMFSampleAllocatorControl>,
-      private Counted
+class Source final : public RedXeComObject<Source, IMFMediaSourceEx, IMFGetService, IKsControl, IMFSampleAllocatorControl>, private Counted
 {
-  public:
+public:
     HRESULT Initialize(std::shared_ptr<FrameProvider> provider) noexcept
     {
         RETURN_IF_FAILED(MFCreateEventQueue(_events.put()));
         RETURN_IF_FAILED(MFCreateAttributes(_attributes.put(), 3));
-        RETURN_IF_FAILED(
-            _attributes->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID));
+        RETURN_IF_FAILED(_attributes->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID));
         _stream.attach(new (std::nothrow) Stream());
-        if (!_stream)
+        if (! _stream)
             return E_OUTOFMEMORY;
         RETURN_IF_FAILED(_stream->Initialize(this, std::move(provider)));
         wil::com_ptr_nothrow<IMFStreamDescriptor> descriptor;
@@ -414,9 +404,7 @@ class Source final
     }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** result) noexcept override
     {
-        return RedXeComObject::QueryInterface(iid == __uuidof(IMFMediaSource) || iid == __uuidof(IMFMediaEventGenerator)
-                                                  ? __uuidof(IMFMediaSourceEx)
-                                                  : iid,
+        return RedXeComObject::QueryInterface(iid == __uuidof(IMFMediaSource) || iid == __uuidof(IMFMediaEventGenerator) ? __uuidof(IMFMediaSourceEx) : iid,
                                               result);
     }
     HRESULT STDMETHODCALLTYPE GetEvent(DWORD flags, IMFMediaEvent** result) noexcept override
@@ -440,15 +428,14 @@ class Source final
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         return _shutdown ? MF_E_SHUTDOWN : _events->EndGetEvent(result, event);
     }
-    HRESULT STDMETHODCALLTYPE QueueEvent(MediaEventType type, REFGUID extended, HRESULT status,
-                                         const PROPVARIANT* value) noexcept override
+    HRESULT STDMETHODCALLTYPE QueueEvent(MediaEventType type, REFGUID extended, HRESULT status, const PROPVARIANT* value) noexcept override
     {
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         return _shutdown ? MF_E_SHUTDOWN : _events->QueueEventParamVar(type, extended, status, value);
     }
     HRESULT STDMETHODCALLTYPE GetCharacteristics(DWORD* result) noexcept override
     {
-        if (!result)
+        if (! result)
             return E_POINTER;
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         if (_shutdown)
@@ -458,19 +445,18 @@ class Source final
     }
     HRESULT STDMETHODCALLTYPE CreatePresentationDescriptor(IMFPresentationDescriptor** result) noexcept override
     {
-        if (!result)
+        if (! result)
             return E_POINTER;
-        *result = nullptr;
+        *result         = nullptr;
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         return _shutdown ? MF_E_SHUTDOWN : _presentation->Clone(result);
     }
-    HRESULT STDMETHODCALLTYPE Start(IMFPresentationDescriptor* presentation, const GUID* timeFormat,
-                                    const PROPVARIANT* position) noexcept override
+    HRESULT STDMETHODCALLTYPE Start(IMFPresentationDescriptor* presentation, const GUID* timeFormat, const PROPVARIANT* position) noexcept override
     {
         const auto lock = wil::AcquireSRWLockExclusive(&_lock);
         if (_shutdown)
             return MF_E_SHUTDOWN;
-        if (!presentation || !position)
+        if (! presentation || ! position)
             return E_INVALIDARG;
         if (timeFormat && *timeFormat != GUID_NULL)
             return MF_E_UNSUPPORTED_TIME_FORMAT;
@@ -486,17 +472,17 @@ class Source final
             return MF_E_INVALIDSTREAMNUMBER;
         RETURN_IF_FAILED(presentation->GetStreamDescriptorByIndex(0, &selected, descriptor.put()));
         RETURN_IF_FAILED(descriptor->GetStreamIdentifier(&id));
-        if (!selected || id != 0)
+        if (! selected || id != 0)
             return MF_E_INVALIDSTREAMNUMBER;
         RETURN_IF_FAILED(descriptor->GetMediaTypeHandler(handler.put()));
         RETURN_IF_FAILED(handler->GetCurrentMediaType(type.put()));
         RETURN_IF_FAILED(_stream->Start(type.get()));
-        RETURN_IF_FAILED(_events->QueueEventParamUnk(_everStarted ? MEUpdatedStream : MENewStream, GUID_NULL, S_OK,
-                                                     static_cast<IMFMediaStream2*>(_stream.get())));
+        RETURN_IF_FAILED(
+            _events->QueueEventParamUnk(_everStarted ? MEUpdatedStream : MENewStream, GUID_NULL, S_OK, static_cast<IMFMediaStream2*>(_stream.get())));
         _everStarted = true;
-        _started = true;
+        _started     = true;
         PROPVARIANT time{};
-        time.vt = VT_I8;
+        time.vt            = VT_I8;
         time.hVal.QuadPart = MFGetSystemTime();
         return _events->QueueEventParamVar(MESourceStarted, GUID_NULL, S_OK, &time);
     }
@@ -505,7 +491,7 @@ class Source final
         const auto lock = wil::AcquireSRWLockExclusive(&_lock);
         if (_shutdown)
             return MF_E_SHUTDOWN;
-        if (!_started)
+        if (! _started)
             return S_OK;
         RETURN_IF_FAILED(_stream->Stop());
         _started = false;
@@ -522,7 +508,7 @@ class Source final
         if (_shutdown)
             return S_OK;
         _shutdown = true;
-        _started = false;
+        _started  = false;
         if (_stream)
             _stream->Shutdown();
         if (_events)
@@ -535,17 +521,17 @@ class Source final
     }
     HRESULT STDMETHODCALLTYPE GetSourceAttributes(IMFAttributes** result) noexcept override
     {
-        if (!result)
+        if (! result)
             return E_POINTER;
-        *result = nullptr;
+        *result         = nullptr;
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         return _shutdown ? MF_E_SHUTDOWN : _attributes.copy_to(result);
     }
     HRESULT STDMETHODCALLTYPE GetStreamAttributes(DWORD id, IMFAttributes** result) noexcept override
     {
-        if (!result)
+        if (! result)
             return E_POINTER;
-        *result = nullptr;
+        *result         = nullptr;
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         if (_shutdown)
             return MF_E_SHUTDOWN;
@@ -562,7 +548,7 @@ class Source final
     }
     HRESULT STDMETHODCALLTYPE GetService(REFGUID, REFIID, void** result) noexcept override
     {
-        if (!result)
+        if (! result)
             return E_POINTER;
         *result = nullptr;
         return MF_E_UNSUPPORTED_SERVICE;
@@ -594,7 +580,7 @@ class Source final
     }
     HRESULT STDMETHODCALLTYPE GetAllocatorUsage(DWORD id, DWORD* input, MFSampleAllocatorUsage* usage) noexcept override
     {
-        if (!input || !usage)
+        if (! input || ! usage)
             return E_POINTER;
         const auto lock = wil::AcquireSRWLockShared(&_lock);
         if (_shutdown)
@@ -606,7 +592,7 @@ class Source final
         return S_OK;
     }
 
-  private:
+private:
     SRWLOCK _lock = SRWLOCK_INIT;
     wil::com_ptr_nothrow<IMFMediaEventQueue> _events;
     wil::com_ptr_nothrow<IMFAttributes> _attributes;
@@ -619,12 +605,12 @@ class Source final
 } // namespace
 HRESULT CreateMediaSource(std::shared_ptr<FrameProvider> provider, IMFMediaSource** result) noexcept
 {
-    if (!result)
+    if (! result)
         return E_POINTER;
     *result = nullptr;
     wil::com_ptr_nothrow<Source> source;
     source.attach(new (std::nothrow) Source());
-    if (!source)
+    if (! source)
         return E_OUTOFMEMORY;
     const HRESULT initialized = source->Initialize(std::move(provider));
     if (FAILED(initialized))

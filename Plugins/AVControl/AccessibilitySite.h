@@ -8,8 +8,10 @@ namespace AVControl
 // Module-local C++ adaptation of the application's generation-bound COM site.
 class AccessibilitySite final : public DxUi::EmbeddedAccessibilitySite
 {
-  public:
-    explicit AccessibilitySite(IRedXeAccessibilitySite* site) noexcept : _site(site) {}
+public:
+    explicit AccessibilitySite(IRedXeAccessibilitySite* site) noexcept : _site(site)
+    {
+    }
     HRESULT Navigate(NavigateDirection direction, IRawElementProviderFragment** result) noexcept override
     {
         return _site->Navigate(direction, result);
@@ -27,7 +29,7 @@ class AccessibilitySite final : public DxUi::EmbeddedAccessibilitySite
         _site->ActionCompleted();
     }
 
-  private:
+private:
     wil::com_ptr_nothrow<IRedXeAccessibilitySite> _site;
 };
 } // namespace AVControl

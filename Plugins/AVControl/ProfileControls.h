@@ -6,16 +6,16 @@ namespace AVControl
 {
 struct ProfileCallbacks final
 {
-    void* context = nullptr;
-    void (*apply)(void*, uint32_t index) noexcept = nullptr;
+    void* context                                         = nullptr;
+    void (*apply)(void*, uint32_t index) noexcept         = nullptr;
     HRESULT (*save)(void*, const Configuration&) noexcept = nullptr;
-    void (*close)(void*) noexcept = nullptr;
-    void (*invalidate)(void*) noexcept = nullptr;
+    void (*close)(void*) noexcept                         = nullptr;
+    void (*invalidate)(void*) noexcept                    = nullptr;
 };
 // Temporary, retained chooser/editor inside one existing EmbeddedHost; never owns another surface or HWND.
 class ProfileControls final
 {
-  public:
+public:
     struct RetainedState final
     {
         Profile draft;
@@ -39,7 +39,7 @@ class ProfileControls final
     [[nodiscard]] RetainedState CaptureState() const noexcept;
     void RestoreState(const RetainedState& state) noexcept;
 
-  private:
+private:
     enum class Mode
     {
         Chooser,
@@ -52,18 +52,18 @@ class ProfileControls final
     Configuration _configuration;
     Profile _draft;
     const Inventory* _inventory = nullptr;
-    uint64_t _deviceRevision = 0;
-    size_t _editingIndex = MaximumProfiles;
+    uint64_t _deviceRevision    = 0;
+    size_t _editingIndex        = MaximumProfiles;
     uint32_t _page = 0, _pageCount = 1;
     float _width = 0, _height = 0;
     bool _dirty = true, _draftDirty = true, _optionsDirty = true, _shown = false;
     std::array<wchar_t, 192> _error{};
-    DxUi::Panel* _panel = nullptr;
-    DxUi::Label* _title = nullptr;
-    DxUi::Label* _message = nullptr;
-    DxUi::Button* _back = nullptr;
-    DxUi::Button* _remove = nullptr;
-    DxUi::Button* _cameraSetup = nullptr;
+    DxUi::Panel* _panel             = nullptr;
+    DxUi::Label* _title             = nullptr;
+    DxUi::Label* _message           = nullptr;
+    DxUi::Button* _back             = nullptr;
+    DxUi::Button* _remove           = nullptr;
+    DxUi::Button* _cameraSetup      = nullptr;
     DxUi::PageIndicator* _indicator = nullptr;
     std::array<DxUi::Button*, MaximumProfiles> _profiles{};
     std::array<DxUi::Button*, 3> _footer{};
@@ -73,7 +73,7 @@ class ProfileControls final
     std::array<DxUi::ComboBox*, 3> _devices{};
     std::array<std::array<DeviceId, MaximumOutputs + 1>, 3> _deviceIds{};
     std::array<size_t, 3> _deviceCounts{};
-    DxUi::ComboBox* _roles = nullptr;
+    DxUi::ComboBox* _roles   = nullptr;
     DxUi::Checkbox* _restore = nullptr;
     std::array<DxUi::Slider*, 2> _savedLevels{};
     void Invalidate() noexcept;

@@ -20,12 +20,15 @@
 
 namespace
 {
-constexpr char kPluginId[] = "builtin.rotating-triangle";
-constexpr char kWidgetTypeId[] = "rotating-triangle";
-constexpr char kSettingsSchema[] = R"json({"type":"object","additionalProperties":false})json";
+constexpr char kPluginId[]         = "builtin.rotating-triangle";
+constexpr char kWidgetTypeId[]     = "rotating-triangle";
+constexpr char kSettingsSchema[]   = R"json({"type":"object","additionalProperties":false})json";
 constexpr char kSettingsDefaults[] = R"json({})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
-    sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
+    sizeof(RedXePluginSettingsContract),
+    kSettingsSchema,
+    sizeof(kSettingsSchema) - 1,
+    kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
 };
 
@@ -80,10 +83,10 @@ constexpr std::array kVertices{
 
 class TriangleDeviceResources final
 {
-  public:
+public:
     [[nodiscard]] HRESULT Initialize(ID3D11Device* device) noexcept
     {
-        if (!device)
+        if (! device)
         {
             return E_POINTER;
         }
@@ -95,16 +98,14 @@ class TriangleDeviceResources final
         Reset();
 
         wil::com_ptr_nothrow<ID3D11VertexShader> vertexShader;
-        HRESULT result = device->CreateVertexShader(
-            g_RotatingTriangleVertexShader, sizeof(g_RotatingTriangleVertexShader), nullptr, vertexShader.put());
+        HRESULT result = device->CreateVertexShader(g_RotatingTriangleVertexShader, sizeof(g_RotatingTriangleVertexShader), nullptr, vertexShader.put());
         if (FAILED(result))
         {
             return result;
         }
 
         wil::com_ptr_nothrow<ID3D11PixelShader> pixelShader;
-        result = device->CreatePixelShader(g_RotatingTrianglePixelShader, sizeof(g_RotatingTrianglePixelShader),
-                                           nullptr, pixelShader.put());
+        result = device->CreatePixelShader(g_RotatingTrianglePixelShader, sizeof(g_RotatingTrianglePixelShader), nullptr, pixelShader.put());
         if (FAILED(result))
         {
             return result;
@@ -114,9 +115,8 @@ class TriangleDeviceResources final
             D3D11_INPUT_ELEMENT_DESC{"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
         };
         wil::com_ptr_nothrow<ID3D11InputLayout> inputLayout;
-        result =
-            device->CreateInputLayout(layout.data(), static_cast<UINT>(layout.size()), g_RotatingTriangleVertexShader,
-                                      sizeof(g_RotatingTriangleVertexShader), inputLayout.put());
+        result = device->CreateInputLayout(
+            layout.data(), static_cast<UINT>(layout.size()), g_RotatingTriangleVertexShader, sizeof(g_RotatingTriangleVertexShader), inputLayout.put());
         if (FAILED(result))
         {
             return result;
@@ -124,7 +124,7 @@ class TriangleDeviceResources final
 
         D3D11_BUFFER_DESC vertexDescription{};
         vertexDescription.ByteWidth = sizeof(kVertices);
-        vertexDescription.Usage = D3D11_USAGE_IMMUTABLE;
+        vertexDescription.Usage     = D3D11_USAGE_IMMUTABLE;
         vertexDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
         D3D11_SUBRESOURCE_DATA vertexData{};
         vertexData.pSysMem = kVertices.data();
@@ -136,9 +136,9 @@ class TriangleDeviceResources final
         }
 
         D3D11_BUFFER_DESC constantDescription{};
-        constantDescription.ByteWidth = sizeof(TriangleConstants);
-        constantDescription.Usage = D3D11_USAGE_DYNAMIC;
-        constantDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        constantDescription.ByteWidth      = sizeof(TriangleConstants);
+        constantDescription.Usage          = D3D11_USAGE_DYNAMIC;
+        constantDescription.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
         constantDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         wil::com_ptr_nothrow<ID3D11Buffer> constantBuffer;
         result = device->CreateBuffer(&constantDescription, nullptr, constantBuffer.put());
@@ -148,10 +148,10 @@ class TriangleDeviceResources final
         }
 
         _deviceIdentity = device;
-        _vertexShader = std::move(vertexShader);
-        _pixelShader = std::move(pixelShader);
-        _inputLayout = std::move(inputLayout);
-        _vertexBuffer = std::move(vertexBuffer);
+        _vertexShader   = std::move(vertexShader);
+        _pixelShader    = std::move(pixelShader);
+        _inputLayout    = std::move(inputLayout);
+        _vertexBuffer   = std::move(vertexBuffer);
         _constantBuffer = std::move(constantBuffer);
         return S_OK;
     }
@@ -168,7 +168,7 @@ class TriangleDeviceResources final
 
     [[nodiscard]] HRESULT Render(ID3D11DeviceContext* context, const TriangleConstants& constants) noexcept
     {
-        if (!context || !_constantBuffer)
+        if (! context || ! _constantBuffer)
         {
             return E_UNEXPECTED;
         }
@@ -182,9 +182,9 @@ class TriangleDeviceResources final
         std::memcpy(mapped.pData, &constants, sizeof(constants));
         context->Unmap(_constantBuffer.get(), 0);
 
-        constexpr UINT stride = sizeof(TriangleVertex);
-        constexpr UINT offset = 0;
-        ID3D11Buffer* vertexBuffers[] = {_vertexBuffer.get()};
+        constexpr UINT stride           = sizeof(TriangleVertex);
+        constexpr UINT offset           = 0;
+        ID3D11Buffer* vertexBuffers[]   = {_vertexBuffer.get()};
         ID3D11Buffer* constantBuffers[] = {_constantBuffer.get()};
         context->IASetInputLayout(_inputLayout.get());
         context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -202,7 +202,7 @@ class TriangleDeviceResources final
         return S_OK;
     }
 
-  private:
+private:
     ID3D11Device* _deviceIdentity = nullptr;
     wil::com_ptr_nothrow<ID3D11VertexShader> _vertexShader;
     wil::com_ptr_nothrow<ID3D11PixelShader> _pixelShader;
@@ -226,16 +226,16 @@ class TriangleDeviceResources final
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
 #pragma warning(disable : 4625 4626 5026 5027)
-class RotatingTriangleWidget final
-    : public RedXeComObject<RotatingTriangleWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget>
+class RotatingTriangleWidget final : public RedXeComObject<RotatingTriangleWidget, IRedXeWidget, IRedXeGpuWidget, IRedXeRaisedWidget>
 {
-  public:
-    RotatingTriangleWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
-                           TriangleDeviceResources& resources, uint32_t instanceHash) noexcept
-        : _providerOwner(std::move(providerOwner)), _resources(&resources),
+public:
+    RotatingTriangleWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, TriangleDeviceResources& resources, uint32_t instanceHash) noexcept
+        : _providerOwner(std::move(providerOwner)),
+          _resources(&resources),
           _speed((instanceHash & 1U) == 0U ? 0.55f + static_cast<float>((instanceHash >> 1U) % 5U) * 0.11f
                                            : -0.55f - static_cast<float>((instanceHash >> 1U) % 5U) * 0.11f),
-          _phase(static_cast<float>(instanceHash % 6283U) * 0.001f), _colorOffset(instanceHash % 3U)
+          _phase(static_cast<float>(instanceHash % 6283U) * 0.001f),
+          _colorOffset(instanceHash % 3U)
     {
     }
 
@@ -244,15 +244,14 @@ class RotatingTriangleWidget final
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
-                                                        uint32_t* writtenBytes) noexcept override
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes, uint32_t* writtenBytes) noexcept override
     {
         return RedXeCollectNoPersistentSettings(jsonUtf8, capacityBytes, writtenBytes);
     }
 
     HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
     {
-        if (!extent)
+        if (! extent)
         {
             return E_POINTER;
         }
@@ -267,11 +266,11 @@ class RotatingTriangleWidget final
 
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
-        if (context->sizeBytes != sizeof(RedXeGpuDeviceContext) || !context->device)
+        if (context->sizeBytes != sizeof(RedXeGpuDeviceContext) || ! context->device)
         {
             return E_INVALIDARG;
         }
@@ -285,7 +284,7 @@ class RotatingTriangleWidget final
 
     HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
     {
-        if (!context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
+        if (! context || context->sizeBytes != sizeof(RedXeGpuTargetSizeContext))
         {
             return E_INVALIDARG;
         }
@@ -295,14 +294,14 @@ class RotatingTriangleWidget final
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
-        if (!context || !context->widget)
+        if (! context || ! context->widget)
         {
             return E_POINTER;
         }
         const RedXeWidgetFrameContext& widget = *context->widget;
-        if (context->sizeBytes != sizeof(RedXeGpuFrameContext) || widget.sizeBytes != sizeof(RedXeWidgetFrameContext) ||
-            !context->deviceContext || widget.widthPixels == 0 || widget.heightPixels == 0 ||
-            !std::isfinite(widget.elapsedSeconds) || !std::isfinite(widget.deltaSeconds) || widget.deltaSeconds < 0.0f)
+        if (context->sizeBytes != sizeof(RedXeGpuFrameContext) || widget.sizeBytes != sizeof(RedXeWidgetFrameContext) || ! context->deviceContext ||
+            widget.widthPixels == 0 || widget.heightPixels == 0 || ! std::isfinite(widget.elapsedSeconds) || ! std::isfinite(widget.deltaSeconds) ||
+            widget.deltaSeconds < 0.0f)
         {
             return E_INVALIDARG;
         }
@@ -320,12 +319,17 @@ class RotatingTriangleWidget final
 
         const float angle = widget.elapsedSeconds * _speed + _phase;
         const TriangleConstants constants{
-            std::cos(angle), std::sin(angle), scaleX, scaleY, _colorOffset, {},
+            std::cos(angle),
+            std::sin(angle),
+            scaleX,
+            scaleY,
+            _colorOffset,
+            {},
         };
         return _resources->Render(context->deviceContext, constants);
     }
 
-  private:
+private:
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _providerOwner;
     TriangleDeviceResources* _resources;
     float _speed;
@@ -340,9 +344,8 @@ class RotatingTriangleWidget final
 #pragma warning(disable : 4625 4626 5026 5027)
 class RotatingTriangleProvider final : public RedXeComObject<RotatingTriangleProvider, IRedXeWidgetProvider>
 {
-  public:
-    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             uint32_t* count) noexcept override
+public:
+    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -352,28 +355,27 @@ class RotatingTriangleProvider final : public RedXeComObject<RotatingTrianglePro
         {
             *count = 0;
         }
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
         {
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<uint32_t>(kWidgetTypes.size());
+        *count       = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
-                                           IRedXeWidget** widget) noexcept override
+    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId, IRedXeWidget** widget) noexcept override
     {
-        if (!widget)
+        if (! widget)
         {
             return E_POINTER;
         }
         *widget = nullptr;
-        if (!typeId || !instanceId || instanceId[0] == '\0')
+        if (! typeId || ! instanceId || instanceId[0] == '\0')
         {
             return E_INVALIDARG;
         }
-        if (!RedXeAsciiEqualsIgnoreCase(typeId, kWidgetTypeId))
+        if (! RedXeAsciiEqualsIgnoreCase(typeId, kWidgetTypeId))
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
@@ -385,9 +387,8 @@ class RotatingTriangleProvider final : public RedXeComObject<RotatingTrianglePro
             return result;
         }
 
-        auto* created =
-            new (std::nothrow) RotatingTriangleWidget(std::move(providerOwner), _resources, HashInstanceId(instanceId));
-        if (!created)
+        auto* created = new (std::nothrow) RotatingTriangleWidget(std::move(providerOwner), _resources, HashInstanceId(instanceId));
+        if (! created)
         {
             return E_OUTOFMEMORY;
         }
@@ -395,13 +396,12 @@ class RotatingTriangleProvider final : public RedXeComObject<RotatingTrianglePro
         return S_OK;
     }
 
-  private:
+private:
     TriangleDeviceResources _resources;
 };
 #pragma warning(pop)
 
-HRESULT CreateRotatingTriangleProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*,
-                                       void** result) noexcept
+HRESULT CreateRotatingTriangleProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost*, void** result) noexcept
 {
     if (interfaceId != __uuidof(IRedXeWidgetProvider))
     {
@@ -415,7 +415,7 @@ HRESULT CreateRotatingTriangleProvider(REFIID interfaceId, const RedXeFactoryOpt
     }
 
     auto* provider = new (std::nothrow) RotatingTriangleProvider();
-    if (!provider)
+    if (! provider)
     {
         return E_OUTOFMEMORY;
     }
@@ -428,11 +428,9 @@ constexpr std::array kFactoryEntries{
 };
 } // namespace
 
-extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                                         const char* pluginId, void** result) noexcept
+extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
-                                         interfaceId, options, host, pluginId, result);
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()), interfaceId, options, host, pluginId, result);
 }
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
@@ -440,8 +438,7 @@ extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** m
     return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata, count);
 }
 
-extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,
-                                                            const RedXePluginSettingsContract** contract) noexcept
+extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId, const RedXePluginSettingsContract** contract) noexcept
 {
     return RedXeGetStaticPluginSettingsContract(kPluginId, pluginId, &kSettingsContract, contract);
 }

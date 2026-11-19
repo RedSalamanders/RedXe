@@ -13,16 +13,15 @@ namespace AVControl
 #pragma warning(disable : 4625 4626)
 class WindowsAudioBackend final
 {
-  public:
+public:
     WindowsAudioBackend();
     ~WindowsAudioBackend();
     HRESULT Initialize(HANDLE changedEvent) noexcept;
     // Explicit injected enumerator for isolated component tests. This path never activates a Windows policy client.
     HRESULT InitializeWithEnumerator(HANDLE changedEvent, IMMDeviceEnumerator* enumerator) noexcept;
-    HRESULT Execute(const BrokerCommand& command, const InventoryPreferences& preferences,
-                    Inventory& inventory) noexcept;
+    HRESULT Execute(const BrokerCommand& command, const InventoryPreferences& preferences, Inventory& inventory) noexcept;
 
-  private:
+private:
     struct State;
     std::unique_ptr<State> _state;
 };

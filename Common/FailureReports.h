@@ -23,7 +23,7 @@
 namespace RedXeFailureReports
 {
 inline constexpr int kFailedCheckExitCode = 3;
-inline constexpr int kAbortExitCode = 4;
+inline constexpr int kAbortExitCode       = 4;
 
 // Writes text to stderr without the CRT's streams: as UTF-16 to a console, as UTF-8 to a pipe or a file. A CRT stream
 // in the default "C" locale stops at the first character above U+00FF, which would cut a report off inside a source
@@ -32,12 +32,12 @@ inline constexpr int kAbortExitCode = 4;
 inline void WriteToStandardError(const wchar_t* text) noexcept
 {
     const HANDLE error = GetStdHandle(STD_ERROR_HANDLE);
-    if (!text || !error || error == INVALID_HANDLE_VALUE)
+    if (! text || ! error || error == INVALID_HANDLE_VALUE)
     {
         return;
     }
-    DWORD mode = 0;
-    const bool console = GetConsoleMode(error, &mode) != FALSE;
+    DWORD mode                        = 0;
+    const bool console                = GetConsoleMode(error, &mode) != FALSE;
     constexpr size_t kChunkCharacters = 256;
     char bytes[kChunkCharacters * 3]; // A UTF-16 code unit becomes at most three UTF-8 bytes.
     for (size_t remaining = std::wcslen(text); remaining != 0;)
@@ -54,8 +54,7 @@ inline void WriteToStandardError(const wchar_t* text) noexcept
         }
         else
         {
-            const int length = WideCharToMultiByte(CP_UTF8, 0, text, static_cast<int>(count), bytes,
-                                                   static_cast<int>(sizeof(bytes)), nullptr, nullptr);
+            const int length = WideCharToMultiByte(CP_UTF8, 0, text, static_cast<int>(count), bytes, static_cast<int>(sizeof(bytes)), nullptr, nullptr);
             if (length > 0)
             {
                 static_cast<void>(WriteFile(error, bytes, static_cast<DWORD>(length), &written, nullptr));
@@ -71,12 +70,12 @@ inline void WriteToStandardError(const wchar_t* text) noexcept
 inline void WriteUtf8ToStandardError(const char* text, size_t bytes) noexcept
 {
     const HANDLE error = GetStdHandle(STD_ERROR_HANDLE);
-    if (!text || bytes == 0 || !error || error == INVALID_HANDLE_VALUE)
+    if (! text || bytes == 0 || ! error || error == INVALID_HANDLE_VALUE)
     {
         return;
     }
     DWORD written = 0;
-    DWORD mode = 0;
+    DWORD mode    = 0;
     if (GetConsoleMode(error, &mode) == FALSE)
     {
         static_cast<void>(WriteFile(error, text, static_cast<DWORD>(bytes), &written, nullptr));
@@ -95,8 +94,7 @@ inline void WriteUtf8ToStandardError(const char* text, size_t bytes) noexcept
         {
             count = bytes < kChunkBytes ? bytes : kChunkBytes; // Malformed: a run of continuation bytes.
         }
-        const int length =
-            MultiByteToWideChar(CP_UTF8, 0, text, static_cast<int>(count), characters, static_cast<int>(kChunkBytes));
+        const int length = MultiByteToWideChar(CP_UTF8, 0, text, static_cast<int>(count), characters, static_cast<int>(kChunkBytes));
         if (length > 0)
         {
             static_cast<void>(WriteConsoleW(error, characters, static_cast<DWORD>(length), &written, nullptr));

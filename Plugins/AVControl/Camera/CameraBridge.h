@@ -4,9 +4,9 @@
 
 namespace AVControl::Camera
 {
-inline constexpr uint32_t BridgeMagic = 0x42435852;
-inline constexpr uint32_t BridgeVersion = 1;
-inline constexpr DWORD BridgeDeadlineMs = 100;
+inline constexpr uint32_t BridgeMagic    = 0x42435852;
+inline constexpr uint32_t BridgeVersion  = 1;
+inline constexpr DWORD BridgeDeadlineMs  = 100;
 inline constexpr size_t MaximumConsumers = 4;
 struct BridgeHello final
 {
@@ -43,8 +43,10 @@ HRESULT BridgeTransfer(HANDLE pipe, bool write, void* bytes, DWORD size, ULONGLO
 #pragma warning(disable : 4625 4626)
 class BridgeFrameProvider final : public FrameProvider
 {
-  public:
-    explicit BridgeFrameProvider(BridgeIdentity identity) noexcept : _identity(std::move(identity)) {}
+public:
+    explicit BridgeFrameProvider(BridgeIdentity identity) noexcept : _identity(std::move(identity))
+    {
+    }
     ~BridgeFrameProvider() override
     {
         Stop();
@@ -57,16 +59,16 @@ class BridgeFrameProvider final : public FrameProvider
         _channel.EndRead();
     }
 
-  private:
+private:
     BridgeIdentity _identity;
     FrameChannel _channel;
     wil::unique_handle _pipe;
     wil::unique_event _demandEvent;
     OVERLAPPED _demand{};
-    BYTE _demandByte = 1;
+    BYTE _demandByte    = 1;
     bool _demandPending = false;
-    ULONGLONG _retryAt = 0;
-    bool _started = false;
+    ULONGLONG _retryAt  = 0;
+    bool _started       = false;
     HRESULT Connect() noexcept;
     void Disconnect() noexcept;
     HRESULT Demand() noexcept;

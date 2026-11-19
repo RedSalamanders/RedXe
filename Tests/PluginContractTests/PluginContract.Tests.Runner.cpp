@@ -56,17 +56,17 @@ static_assert(std::is_base_of_v<IUnknown, IRedXeDataSource>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeDataProvider>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeDataSink>);
 static_assert(std::is_base_of_v<IUnknown, IRedXeDataSubscription>);
-static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeGpuWidget>);
-static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeScheduledWidget>);
-static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeWindowWidget>);
-static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeRaisedWidget>);
-static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeInteractiveWidget>);
-static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeNetworkWidget>);
-static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeHost>);
-static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSource>);
-static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataProvider>);
-static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSink>);
-static_assert(!std::is_base_of_v<IRedXeWidget, IRedXeDataSubscription>);
+static_assert(! std::is_base_of_v<IRedXeWidget, IRedXeGpuWidget>);
+static_assert(! std::is_base_of_v<IRedXeWidget, IRedXeScheduledWidget>);
+static_assert(! std::is_base_of_v<IRedXeWidget, IRedXeWindowWidget>);
+static_assert(! std::is_base_of_v<IRedXeWidget, IRedXeRaisedWidget>);
+static_assert(! std::is_base_of_v<IRedXeWidget, IRedXeInteractiveWidget>);
+static_assert(! std::is_base_of_v<IRedXeWidget, IRedXeNetworkWidget>);
+static_assert(! std::is_base_of_v<IRedXeWidget, IRedXeHost>);
+static_assert(! std::is_base_of_v<IRedXeWidget, IRedXeDataSource>);
+static_assert(! std::is_base_of_v<IRedXeWidget, IRedXeDataProvider>);
+static_assert(! std::is_base_of_v<IRedXeWidget, IRedXeDataSink>);
+static_assert(! std::is_base_of_v<IRedXeWidget, IRedXeDataSubscription>);
 
 static_assert(sizeof(RedXeLogRecord) == 48);
 static_assert(offsetof(RedXeLogRecord, pluginId) == 8);
@@ -75,12 +75,12 @@ static_assert(offsetof(RedXeLogRecord, eventId) == 24);
 static_assert(offsetof(RedXeLogRecord, messageUtf8) == 32);
 static_assert(offsetof(RedXeLogRecord, code) == 40);
 
-constexpr char kPluginId[] = "builtin.rotating-triangle";
-constexpr char kWidgetTypeId[] = "rotating-triangle";
-constexpr char kGdiPluginId[] = "builtin.gdi-orbit";
-constexpr char kGdiWidgetTypeId[] = "gdi-orbit";
-constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
-constexpr char kMatrixWidgetTypeId[] = "matrix-rain";
+constexpr char kPluginId[]              = "builtin.rotating-triangle";
+constexpr char kWidgetTypeId[]          = "rotating-triangle";
+constexpr char kGdiPluginId[]           = "builtin.gdi-orbit";
+constexpr char kGdiWidgetTypeId[]       = "gdi-orbit";
+constexpr char kMatrixPluginId[]        = "builtin.matrix-rain";
+constexpr char kMatrixWidgetTypeId[]    = "matrix-rain";
 constexpr char kProcessViewerPluginId[] = "builtin.process-viewer";
 constexpr std::string_view kDefaultMatrixConfiguration =
     R"json({"seed":1999,"glyphHeightDips":18,"densityPercent":70,"speedPercent":100,"trailLengthGlyphs":18,"mutationPerSecond":8,"headColor":"#F6FFF6","trailColor":"#33FF33","glowPercent":35})json";
@@ -89,8 +89,7 @@ constexpr std::string_view kDefaultMatrixConfiguration =
 std::atomic<uint64_t> gMatrixRenderAllocationCount{0};
 std::atomic<DWORD> gMatrixRenderThreadId{0};
 
-int __cdecl CountMatrixRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*,
-                                        int) noexcept
+int __cdecl CountMatrixRenderAllocation(int allocationType, void*, size_t, int, long, const unsigned char*, int) noexcept
 {
     if (allocationType == _HOOK_ALLOC && gMatrixRenderThreadId.load(std::memory_order_relaxed) == GetCurrentThreadId())
     {
@@ -103,7 +102,7 @@ int __cdecl CountMatrixRenderAllocation(int allocationType, void*, size_t, int, 
 template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE module, const char* name) noexcept
 {
     const FARPROC procedure = GetProcAddress(module, name);
-    Function function = nullptr;
+    Function function       = nullptr;
     static_assert(sizeof(function) == sizeof(procedure));
     std::memcpy(&function, &procedure, sizeof(function));
     return function;
@@ -113,7 +112,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 {
     wil::com_ptr_nothrow<IRedXeRaisedWidget> raised;
     HRESULT result = widget.QueryInterface(__uuidof(IRedXeRaisedWidget), reinterpret_cast<void**>(raised.put()));
-    if (FAILED(result) || !raised)
+    if (FAILED(result) || ! raised)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -122,7 +121,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     RedXeRaisedExtent extent = static_cast<RedXeRaisedExtent>(0);
-    result = raised->GetRaisedExtent(&extent);
+    result                   = raised->GetRaisedExtent(&extent);
     if (result != S_OK || extent != expected)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -133,8 +132,8 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
     wil::com_ptr_nothrow<IUnknown> widgetIdentity;
     wil::com_ptr_nothrow<IUnknown> raisedIdentity;
-    if (FAILED(widget.QueryInterface(__uuidof(IUnknown), reinterpret_cast<void**>(widgetIdentity.put()))) ||
-        FAILED(raised.query_to(raisedIdentity.put())) || widgetIdentity.get() != raisedIdentity.get())
+    if (FAILED(widget.QueryInterface(__uuidof(IUnknown), reinterpret_cast<void**>(widgetIdentity.put()))) || FAILED(raised.query_to(raisedIdentity.put())) ||
+        widgetIdentity.get() != raisedIdentity.get())
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -149,9 +148,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     std::array<char, 8> collectBuffer{};
-    if (widget.CollectPersistentSettings(collectBuffer.data(), static_cast<uint32_t>(collectBuffer.size()), &written) !=
-            S_FALSE ||
-        written != 0)
+    if (widget.CollectPersistentSettings(collectBuffer.data(), static_cast<uint32_t>(collectBuffer.size()), &written) != S_FALSE || written != 0)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -160,64 +157,62 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
 [[nodiscard]] HRESULT ValidateEmptyNormalizedFactoryConfiguration(RedXeCreateFn create, const char* pluginId) noexcept
 {
-    if (!create || !pluginId)
+    if (! create || ! pluginId)
     {
         return E_INVALIDARG;
     }
     constexpr std::string_view normalized = R"json({"plugin":{},"instance":{}})json";
     RedXeFactoryOptions options{};
-    options.sizeBytes = sizeof(options);
+    options.sizeBytes             = sizeof(options);
     options.configurationJsonUtf8 = normalized.data();
-    options.configurationBytes = static_cast<uint32_t>(normalized.size());
-    void* object = nullptr;
-    HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, pluginId, &object);
-    if (FAILED(result) || !object)
+    options.configurationBytes    = static_cast<uint32_t>(normalized.size());
+    void* object                  = nullptr;
+    HRESULT result                = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, pluginId, &object);
+    if (FAILED(result) || ! object)
     {
         return FAILED(result) ? result : E_UNEXPECTED;
     }
     static_cast<IRedXeWidgetProvider*>(object)->Release();
 
     constexpr std::string_view invalid = R"json({"plugin":{},"instance":{"unexpected":1}})json";
-    options.configurationJsonUtf8 = invalid.data();
-    options.configurationBytes = static_cast<uint32_t>(invalid.size());
-    object = reinterpret_cast<void*>(1);
-    result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, pluginId, &object);
+    options.configurationJsonUtf8      = invalid.data();
+    options.configurationBytes         = static_cast<uint32_t>(invalid.size());
+    object                             = reinterpret_cast<void*>(1);
+    result                             = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, pluginId, &object);
     if (result != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || object)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
     options.configurationJsonUtf8 = nullptr;
-    options.configurationBytes = 1;
-    object = reinterpret_cast<void*>(1);
-    result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, pluginId, &object);
-    return result == E_INVALIDARG && !object ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    options.configurationBytes    = 1;
+    object                        = reinterpret_cast<void*>(1);
+    result                        = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, pluginId, &object);
+    return result == E_INVALIDARG && ! object ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 }
 
 [[nodiscard]] HRESULT ValidateSettingsContract(HMODULE module, const char* pluginId, bool expectEmpty) noexcept
 {
-    const RedXeGetPluginSettingsContractFn getContract =
-        ResolveFunction<RedXeGetPluginSettingsContractFn>(module, kRedXeGetPluginSettingsContractExport);
-    if (!getContract)
+    const RedXeGetPluginSettingsContractFn getContract = ResolveFunction<RedXeGetPluginSettingsContractFn>(module, kRedXeGetPluginSettingsContractExport);
+    if (! getContract)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
 
     const RedXePluginSettingsContract* contract = reinterpret_cast<const RedXePluginSettingsContract*>(1);
-    if (getContract(pluginId, nullptr) != E_POINTER ||
-        getContract("missing.plugin", &contract) != HRESULT_FROM_WIN32(ERROR_NOT_FOUND) || contract)
+    if (getContract(pluginId, nullptr) != E_POINTER || getContract("missing.plugin", &contract) != HRESULT_FROM_WIN32(ERROR_NOT_FOUND) || contract)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     HRESULT result = getContract(pluginId, &contract);
-    if (FAILED(result) || !contract || contract->sizeBytes != sizeof(*contract) || !contract->schemaJsonUtf8 ||
-        contract->schemaBytes == 0 || !contract->defaultsJsonUtf8 || contract->defaultsBytes == 0)
+    if (FAILED(result) || ! contract || contract->sizeBytes != sizeof(*contract) || ! contract->schemaJsonUtf8 || contract->schemaBytes == 0 ||
+        ! contract->defaultsJsonUtf8 || contract->defaultsBytes == 0)
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     const std::string_view schema(contract->schemaJsonUtf8, contract->schemaBytes);
     const std::string_view defaults(contract->defaultsJsonUtf8, contract->defaultsBytes);
-    if (!schema.starts_with('{') || !schema.ends_with('}') || !defaults.starts_with('{') || !defaults.ends_with('}') ||
+    if (! schema.starts_with('{') || ! schema.ends_with('}') || ! defaults.starts_with('{') || ! defaults.ends_with('}') ||
         (expectEmpty ? defaults != "{}" : defaults == "{}"))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -227,7 +222,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
 [[nodiscard]] HRESULT BuildPluginPath(const wchar_t* moduleName, std::array<wchar_t, 1024>& path) noexcept
 {
-    if (!moduleName)
+    if (! moduleName)
     {
         return E_INVALIDARG;
     }
@@ -242,12 +237,12 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
 
     wchar_t* separator = std::wcsrchr(path.data(), L'\\');
-    if (!separator)
+    if (! separator)
     {
         return HRESULT_FROM_WIN32(ERROR_BAD_PATHNAME);
     }
     const size_t prefixLength = static_cast<size_t>(separator - path.data()) + 1;
-    HRESULT result = StringCchCopyW(separator + 1, path.size() - prefixLength, L"Plugins\\");
+    HRESULT result            = StringCchCopyW(separator + 1, path.size() - prefixLength, L"Plugins\\");
     if (FAILED(result))
     {
         return result;
@@ -264,9 +259,8 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return result;
     }
 
-    wil::unique_hmodule module{
-        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
-    if (!module)
+    wil::unique_hmodule module{LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (! module)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -275,10 +269,9 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    const RedXeCreateFn create = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
-    const RedXeEnumeratePluginsFn enumerate =
-        ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
-    if (!create || !enumerate)
+    const RedXeCreateFn create              = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    const RedXeEnumeratePluginsFn enumerate = ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
+    if (! create || ! enumerate)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
@@ -301,7 +294,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
 
     void* object = reinterpret_cast<void*>(1);
-    result = create(__uuidof(IRedXeHost), &options, nullptr, kPluginId, &object);
+    result       = create(__uuidof(IRedXeHost), &options, nullptr, kPluginId, &object);
     if (result != E_NOINTERFACE || object)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -316,8 +309,8 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
     RedXeFactoryOptions undersized{};
     undersized.sizeBytes = sizeof(undersized.sizeBytes);
-    object = reinterpret_cast<void*>(1);
-    result = create(__uuidof(IRedXeWidgetProvider), &undersized, nullptr, kPluginId, &object);
+    object               = reinterpret_cast<void*>(1);
+    result               = create(__uuidof(IRedXeWidgetProvider), &undersized, nullptr, kPluginId, &object);
     if (result != E_INVALIDARG || object)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -325,8 +318,8 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
     RedXeFactoryOptions oversized{};
     oversized.sizeBytes = sizeof(oversized) + 32;
-    object = reinterpret_cast<void*>(1);
-    result = create(__uuidof(IRedXeWidgetProvider), &oversized, nullptr, kPluginId, &object);
+    object              = reinterpret_cast<void*>(1);
+    result              = create(__uuidof(IRedXeWidgetProvider), &oversized, nullptr, kPluginId, &object);
     if (result != E_INVALIDARG || object)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -339,7 +332,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
     object = nullptr;
     result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kPluginId, &object);
-    if (FAILED(result) || !object)
+    if (FAILED(result) || ! object)
     {
         return FAILED(result) ? result : E_UNEXPECTED;
     }
@@ -347,8 +340,8 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     provider.attach(static_cast<IRedXeWidgetProvider*>(object));
 
     const RedXePluginMetadata* metadata = reinterpret_cast<const RedXePluginMetadata*>(1);
-    uint32_t metadataCount = 1;
-    result = enumerate(nullptr, &metadataCount);
+    uint32_t metadataCount              = 1;
+    result                              = enumerate(nullptr, &metadataCount);
     if (result != E_POINTER || metadataCount != 0)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -359,21 +352,20 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     result = enumerate(&metadata, &metadataCount);
-    if (FAILED(result) || !metadata || metadataCount != 1 || metadata[0].sizeBytes != sizeof(RedXePluginMetadata) ||
-        !RedXeIsValidMachineId(metadata[0].id))
+    if (FAILED(result) || ! metadata || metadataCount != 1 || metadata[0].sizeBytes != sizeof(RedXePluginMetadata) || ! RedXeIsValidMachineId(metadata[0].id))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     const RedXePluginMetadata* secondMetadata = nullptr;
-    uint32_t secondMetadataCount = 0;
-    result = enumerate(&secondMetadata, &secondMetadataCount);
+    uint32_t secondMetadataCount              = 0;
+    result                                    = enumerate(&secondMetadata, &secondMetadataCount);
     if (FAILED(result) || secondMetadata != metadata || secondMetadataCount != metadataCount)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
     const RedXeWidgetTypeDescriptor* widgetTypes = nullptr;
-    uint32_t widgetTypeCount = 0;
+    uint32_t widgetTypeCount                     = 0;
     if (provider->GetWidgetTypes(nullptr, &widgetTypeCount) != E_POINTER || widgetTypeCount != 0)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -384,14 +376,14 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     result = provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
-    if (FAILED(result) || !widgetTypes || widgetTypeCount != 1 ||
-        widgetTypes[0].sizeBytes != sizeof(RedXeWidgetTypeDescriptor) || !RedXeIsValidMachineId(widgetTypes[0].typeId))
+    if (FAILED(result) || ! widgetTypes || widgetTypeCount != 1 || widgetTypes[0].sizeBytes != sizeof(RedXeWidgetTypeDescriptor) ||
+        ! RedXeIsValidMachineId(widgetTypes[0].typeId))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     const RedXeWidgetTypeDescriptor* secondWidgetTypes = nullptr;
-    uint32_t secondWidgetTypeCount = 0;
-    result = provider->GetWidgetTypes(&secondWidgetTypes, &secondWidgetTypeCount);
+    uint32_t secondWidgetTypeCount                     = 0;
+    result                                             = provider->GetWidgetTypes(&secondWidgetTypes, &secondWidgetTypeCount);
     if (FAILED(result) || secondWidgetTypes != widgetTypes || secondWidgetTypeCount != widgetTypeCount)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -402,13 +394,13 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     IRedXeWidget* rejectedWidget = reinterpret_cast<IRedXeWidget*>(1);
-    result = provider->CreateWidget("missing.type", "contract.instance", &rejectedWidget);
+    result                       = provider->CreateWidget("missing.type", "contract.instance", &rejectedWidget);
     if (result != HRESULT_FROM_WIN32(ERROR_NOT_FOUND) || rejectedWidget)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     rejectedWidget = reinterpret_cast<IRedXeWidget*>(1);
-    result = provider->CreateWidget(kWidgetTypeId, "", &rejectedWidget);
+    result         = provider->CreateWidget(kWidgetTypeId, "", &rejectedWidget);
     if (result != E_INVALIDARG || rejectedWidget)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -428,13 +420,13 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
     wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
     result = widget.query_to(gpuWidget.put());
-    if (FAILED(result) || !gpuWidget)
+    if (FAILED(result) || ! gpuWidget)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
     void* unsupportedWidget = reinterpret_cast<void*>(1);
-    result = widget->QueryInterface(__uuidof(IRedXeWindowWidget), &unsupportedWidget);
+    result                  = widget->QueryInterface(__uuidof(IRedXeWindowWidget), &unsupportedWidget);
     if (result != E_NOINTERFACE || unsupportedWidget)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -442,8 +434,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
     wil::com_ptr_nothrow<IUnknown> widgetIdentity;
     wil::com_ptr_nothrow<IUnknown> gpuIdentity;
-    if (FAILED(widget.query_to(widgetIdentity.put())) || FAILED(gpuWidget.query_to(gpuIdentity.put())) ||
-        widgetIdentity.get() != gpuIdentity.get())
+    if (FAILED(widget.query_to(widgetIdentity.put())) || FAILED(gpuWidget.query_to(gpuIdentity.put())) || widgetIdentity.get() != gpuIdentity.get())
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -484,17 +475,15 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return result;
     }
 
-    wil::unique_hmodule module{
-        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
-    if (!module)
+    wil::unique_hmodule module{LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (! module)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
 
-    const RedXeCreateFn create = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
-    const RedXeEnumeratePluginsFn enumerate =
-        ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
-    if (!create || !enumerate)
+    const RedXeCreateFn create              = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    const RedXeEnumeratePluginsFn enumerate = ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
+    if (! create || ! enumerate)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
@@ -510,9 +499,9 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     }
 
     const RedXePluginMetadata* metadata = nullptr;
-    uint32_t metadataCount = 0;
-    result = enumerate(&metadata, &metadataCount);
-    if (FAILED(result) || !metadata || metadataCount != 1 || !RedXeAsciiEqualsIgnoreCase(metadata[0].id, kGdiPluginId))
+    uint32_t metadataCount              = 0;
+    result                              = enumerate(&metadata, &metadataCount);
+    if (FAILED(result) || ! metadata || metadataCount != 1 || ! RedXeAsciiEqualsIgnoreCase(metadata[0].id, kGdiPluginId))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -521,18 +510,17 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
     options.sizeBytes = sizeof(options);
     wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
     void* providerObject = nullptr;
-    result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kGdiPluginId, &providerObject);
-    if (FAILED(result) || !providerObject)
+    result               = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kGdiPluginId, &providerObject);
+    if (FAILED(result) || ! providerObject)
     {
         return FAILED(result) ? result : E_UNEXPECTED;
     }
     provider.attach(static_cast<IRedXeWidgetProvider*>(providerObject));
 
     const RedXeWidgetTypeDescriptor* widgetTypes = nullptr;
-    uint32_t widgetTypeCount = 0;
-    result = provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
-    if (FAILED(result) || !widgetTypes || widgetTypeCount != 1 ||
-        !RedXeAsciiEqualsIgnoreCase(widgetTypes[0].typeId, kGdiWidgetTypeId))
+    uint32_t widgetTypeCount                     = 0;
+    result                                       = provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
+    if (FAILED(result) || ! widgetTypes || widgetTypeCount != 1 || ! RedXeAsciiEqualsIgnoreCase(widgetTypes[0].typeId, kGdiWidgetTypeId))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -546,13 +534,13 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
     wil::com_ptr_nothrow<IRedXeWindowWidget> windowWidget;
     result = widget.query_to(windowWidget.put());
-    if (FAILED(result) || !windowWidget)
+    if (FAILED(result) || ! windowWidget)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
     void* unsupportedGpu = reinterpret_cast<void*>(1);
-    result = widget->QueryInterface(__uuidof(IRedXeGpuWidget), &unsupportedGpu);
+    result               = widget->QueryInterface(__uuidof(IRedXeGpuWidget), &unsupportedGpu);
     if (result != E_NOINTERFACE || unsupportedGpu)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -560,8 +548,7 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
     wil::com_ptr_nothrow<IUnknown> widgetIdentity;
     wil::com_ptr_nothrow<IUnknown> windowIdentity;
-    if (FAILED(widget.query_to(widgetIdentity.put())) || FAILED(windowWidget.query_to(windowIdentity.put())) ||
-        widgetIdentity.get() != windowIdentity.get())
+    if (FAILED(widget.query_to(widgetIdentity.put())) || FAILED(windowWidget.query_to(windowIdentity.put())) || widgetIdentity.get() != windowIdentity.get())
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -571,8 +558,8 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return result;
     }
 
-    if (windowWidget->Attach(nullptr) != E_POINTER || windowWidget->Resize(nullptr) != E_POINTER ||
-        widget->SetVisible(FALSE) != S_OK || widget->SetVisible(TRUE) != E_UNEXPECTED)
+    if (windowWidget->Attach(nullptr) != E_POINTER || windowWidget->Resize(nullptr) != E_POINTER || widget->SetVisible(FALSE) != S_OK ||
+        widget->SetVisible(TRUE) != E_UNEXPECTED)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -584,24 +571,26 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    wil::unique_hwnd parent{
-        CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPED, 0, 0, 640, 360, nullptr, nullptr, nullptr, nullptr)};
-    if (!parent)
+    wil::unique_hwnd parent{CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPED, 0, 0, 640, 360, nullptr, nullptr, nullptr, nullptr)};
+    if (! parent)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    wil::unique_hwnd container{
-        CreateWindowExW(0, L"STATIC", L"", WS_CHILD, 0, 0, 640, 360, parent.get(), nullptr, nullptr, nullptr)};
-    if (!container)
+    wil::unique_hwnd container{CreateWindowExW(0, L"STATIC", L"", WS_CHILD, 0, 0, 640, 360, parent.get(), nullptr, nullptr, nullptr)};
+    if (! container)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
 
     const RedXeWindowWidgetAttachContext attach{
-        sizeof(RedXeWindowWidgetAttachContext), container.get(), 640, 360, USER_DEFAULT_SCREEN_DPI,
+        sizeof(RedXeWindowWidgetAttachContext),
+        container.get(),
+        640,
+        360,
+        USER_DEFAULT_SCREEN_DPI,
     };
     result = windowWidget->Attach(&attach);
-    if (FAILED(result) || !GetWindow(container.get(), GW_CHILD) || windowWidget->Attach(&attach) != E_UNEXPECTED)
+    if (FAILED(result) || ! GetWindow(container.get(), GW_CHILD) || windowWidget->Attach(&attach) != E_UNEXPECTED)
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -643,8 +632,8 @@ template <typename Function> [[nodiscard]] Function ResolveFunction(HMODULE modu
 
 struct MatrixRenderTarget final
 {
-    uint32_t width = 0;
-    uint32_t height = 0;
+    uint32_t width                 = 0;
+    uint32_t height                = 0;
     D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
     wil::com_ptr_nothrow<ID3D11Device> device;
     wil::com_ptr_nothrow<ID3D11DeviceContext> context;
@@ -654,7 +643,9 @@ struct MatrixRenderTarget final
     wil::com_ptr_nothrow<ID3D11Query> completionQuery;
 };
 
-[[nodiscard]] HRESULT CreateMatrixRenderTarget(uint32_t width, uint32_t height, MatrixRenderTarget& target,
+[[nodiscard]] HRESULT CreateMatrixRenderTarget(uint32_t width,
+                                               uint32_t height,
+                                               MatrixRenderTarget& target,
                                                D3D_DRIVER_TYPE driverType = D3D_DRIVER_TYPE_WARP) noexcept
 {
     if (width == 0 || height == 0)
@@ -667,26 +658,33 @@ struct MatrixRenderTarget final
         D3D_FEATURE_LEVEL_11_0,
     };
     MatrixRenderTarget created{};
-    created.width = width;
+    created.width  = width;
     created.height = height;
-    HRESULT result = D3D11CreateDevice(nullptr, driverType, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                                       featureLevels.data(), static_cast<UINT>(featureLevels.size()), D3D11_SDK_VERSION,
-                                       created.device.put(), &created.featureLevel, created.context.put());
+    HRESULT result = D3D11CreateDevice(nullptr,
+                                       driverType,
+                                       nullptr,
+                                       D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                       featureLevels.data(),
+                                       static_cast<UINT>(featureLevels.size()),
+                                       D3D11_SDK_VERSION,
+                                       created.device.put(),
+                                       &created.featureLevel,
+                                       created.context.put());
     if (FAILED(result))
     {
         return result;
     }
 
     D3D11_TEXTURE2D_DESC textureDescription{};
-    textureDescription.Width = width;
-    textureDescription.Height = height;
-    textureDescription.MipLevels = 1;
-    textureDescription.ArraySize = 1;
-    textureDescription.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    textureDescription.Width            = width;
+    textureDescription.Height           = height;
+    textureDescription.MipLevels        = 1;
+    textureDescription.ArraySize        = 1;
+    textureDescription.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
     textureDescription.SampleDesc.Count = 1;
-    textureDescription.Usage = D3D11_USAGE_DEFAULT;
-    textureDescription.BindFlags = D3D11_BIND_RENDER_TARGET;
-    result = created.device->CreateTexture2D(&textureDescription, nullptr, created.texture.put());
+    textureDescription.Usage            = D3D11_USAGE_DEFAULT;
+    textureDescription.BindFlags        = D3D11_BIND_RENDER_TARGET;
+    result                              = created.device->CreateTexture2D(&textureDescription, nullptr, created.texture.put());
     if (FAILED(result))
     {
         return result;
@@ -697,10 +695,10 @@ struct MatrixRenderTarget final
         return result;
     }
 
-    textureDescription.Usage = D3D11_USAGE_STAGING;
-    textureDescription.BindFlags = 0;
+    textureDescription.Usage          = D3D11_USAGE_STAGING;
+    textureDescription.BindFlags      = 0;
     textureDescription.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    result = created.device->CreateTexture2D(&textureDescription, nullptr, created.staging.put());
+    result                            = created.device->CreateTexture2D(&textureDescription, nullptr, created.staging.put());
     if (FAILED(result))
     {
         return result;
@@ -708,7 +706,7 @@ struct MatrixRenderTarget final
 
     D3D11_QUERY_DESC queryDescription{};
     queryDescription.Query = D3D11_QUERY_EVENT;
-    result = created.device->CreateQuery(&queryDescription, created.completionQuery.put());
+    result                 = created.device->CreateQuery(&queryDescription, created.completionQuery.put());
     if (FAILED(result))
     {
         return result;
@@ -719,11 +717,12 @@ struct MatrixRenderTarget final
 }
 
 // backgroundColor is the host-resolved dashboard background (opaque ARGB) the provider paints behind the rain.
-[[nodiscard]] HRESULT CreateMatrixProvider(RedXeCreateFn create, std::string_view configuration,
+[[nodiscard]] HRESULT CreateMatrixProvider(RedXeCreateFn create,
+                                           std::string_view configuration,
                                            wil::com_ptr_nothrow<IRedXeWidgetProvider>& provider,
                                            uint32_t backgroundColor = 0xFF010502) noexcept
 {
-    if (!create || provider)
+    if (! create || provider)
     {
         return E_INVALIDARG;
     }
@@ -733,17 +732,17 @@ struct MatrixRenderTarget final
         envelope.reserve(configuration.size() + 32);
         envelope.append("{\"plugin\":{},\"instance\":").append(configuration).append("}");
         RedXeFactoryOptions options{};
-        options.sizeBytes = sizeof(options);
+        options.sizeBytes             = sizeof(options);
         options.configurationJsonUtf8 = envelope.data();
-        options.configurationBytes = static_cast<uint32_t>(envelope.size());
-        options.backgroundColor = backgroundColor;
-        void* object = nullptr;
-        const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object);
+        options.configurationBytes    = static_cast<uint32_t>(envelope.size());
+        options.backgroundColor       = backgroundColor;
+        void* object                  = nullptr;
+        const HRESULT result          = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object);
         if (FAILED(result))
         {
             return result;
         }
-        if (!object)
+        if (! object)
         {
             return E_UNEXPECTED;
         }
@@ -760,7 +759,8 @@ struct MatrixRenderTarget final
     }
 }
 
-[[nodiscard]] HRESULT CreateMatrixWidget(IRedXeWidgetProvider& provider, wil::com_ptr_nothrow<IRedXeWidget>& widget,
+[[nodiscard]] HRESULT CreateMatrixWidget(IRedXeWidgetProvider& provider,
+                                         wil::com_ptr_nothrow<IRedXeWidget>& widget,
                                          wil::com_ptr_nothrow<IRedXeGpuWidget>& gpuWidget) noexcept
 {
     HRESULT result = provider.CreateWidget(kMatrixWidgetTypeId, "matrix.contract.1", widget.put());
@@ -772,8 +772,7 @@ struct MatrixRenderTarget final
     return SUCCEEDED(result) && gpuWidget ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 }
 
-[[nodiscard]] HRESULT RenderMatrixFrame(IRedXeGpuWidget& widget, MatrixRenderTarget& target, float elapsedSeconds,
-                                        std::vector<std::uint8_t>& pixels) noexcept
+[[nodiscard]] HRESULT RenderMatrixFrame(IRedXeGpuWidget& widget, MatrixRenderTarget& target, float elapsedSeconds, std::vector<std::uint8_t>& pixels) noexcept
 {
     try
     {
@@ -781,12 +780,21 @@ struct MatrixRenderTarget final
         ID3D11RenderTargetView* renderTargets[] = {target.renderTarget.get()};
         target.context->OMSetRenderTargets(1, renderTargets, nullptr);
         const D3D11_VIEWPORT viewport{
-            0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f,
+            0.0f,
+            0.0f,
+            static_cast<float>(target.width),
+            static_cast<float>(target.height),
+            0.0f,
+            1.0f,
         };
         target.context->RSSetViewports(1, &viewport);
         const RedXeWidgetFrameContext frame{
-            sizeof(RedXeWidgetFrameContext), target.width,   target.height,
-            USER_DEFAULT_SCREEN_DPI,         elapsedSeconds, 1.0f / 60.0f,
+            sizeof(RedXeWidgetFrameContext),
+            target.width,
+            target.height,
+            USER_DEFAULT_SCREEN_DPI,
+            elapsedSeconds,
+            1.0f / 60.0f,
         };
         const RedXeGpuFrameContext gpuFrame{
             sizeof(RedXeGpuFrameContext),
@@ -807,7 +815,7 @@ struct MatrixRenderTarget final
         {
             return result;
         }
-        const auto unmap = wil::scope_exit([&]() noexcept { target.context->Unmap(target.staging.get(), 0); });
+        const auto unmap      = wil::scope_exit([&]() noexcept { target.context->Unmap(target.staging.get(), 0); });
         const size_t rowBytes = static_cast<size_t>(target.width) * 4U;
         pixels.resize(rowBytes * target.height);
         for (uint32_t row = 0; row < target.height; ++row)
@@ -834,11 +842,21 @@ struct MatrixRenderTarget final
     ID3D11RenderTargetView* renderTargets[] = {target.renderTarget.get()};
     target.context->OMSetRenderTargets(1, renderTargets, nullptr);
     const D3D11_VIEWPORT viewport{
-        0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f,
+        0.0f,
+        0.0f,
+        static_cast<float>(target.width),
+        static_cast<float>(target.height),
+        0.0f,
+        1.0f,
     };
     target.context->RSSetViewports(1, &viewport);
     RedXeWidgetFrameContext frame{
-        sizeof(RedXeWidgetFrameContext), target.width, target.height, USER_DEFAULT_SCREEN_DPI, 0.0f, 1.0f / 60.0f,
+        sizeof(RedXeWidgetFrameContext),
+        target.width,
+        target.height,
+        USER_DEFAULT_SCREEN_DPI,
+        0.0f,
+        1.0f / 60.0f,
     };
     const RedXeGpuFrameContext gpuFrame{
         sizeof(RedXeGpuFrameContext),
@@ -861,11 +879,11 @@ struct MatrixRenderTarget final
     gMatrixRenderAllocationCount = 0;
     gMatrixRenderThreadId.store(GetCurrentThreadId(), std::memory_order_relaxed);
     const _CRT_ALLOC_HOOK previousHook = _CrtSetAllocHook(CountMatrixRenderAllocation);
-    HRESULT renderResult = S_OK;
+    HRESULT renderResult               = S_OK;
     for (uint32_t frameIndex = 0; frameIndex < 240; ++frameIndex)
     {
         frame.elapsedSeconds = static_cast<float>(frameIndex) / 60.0f;
-        renderResult = widget.Render(&gpuFrame);
+        renderResult         = widget.Render(&gpuFrame);
         if (FAILED(renderResult))
         {
             break;
@@ -882,8 +900,7 @@ struct MatrixRenderTarget final
     }
     if (gMatrixRenderAllocationCount != 0)
     {
-        std::wprintf(L"Matrix render CRT allocations: %llu\n",
-                     static_cast<unsigned long long>(gMatrixRenderAllocationCount.load()));
+        std::wprintf(L"Matrix render CRT allocations: %llu\n", static_cast<unsigned long long>(gMatrixRenderAllocationCount.load()));
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 #else
@@ -893,17 +910,16 @@ struct MatrixRenderTarget final
     return S_OK;
 }
 
-[[nodiscard]] bool ContainsBackgroundAndGlyphPixels(const std::vector<std::uint8_t>& pixels,
-                                                    std::array<std::uint8_t, 4> background) noexcept
+[[nodiscard]] bool ContainsBackgroundAndGlyphPixels(const std::vector<std::uint8_t>& pixels, std::array<std::uint8_t, 4> background) noexcept
 {
     bool foundBackground = false;
-    bool foundGlyph = false;
+    bool foundGlyph      = false;
     for (size_t offset = 0; offset + 3 < pixels.size(); offset += 4)
     {
-        const bool matches = pixels[offset] == background[0] && pixels[offset + 1] == background[1] &&
-                             pixels[offset + 2] == background[2] && pixels[offset + 3] == background[3];
-        foundBackground = foundBackground || matches;
-        foundGlyph = foundGlyph || !matches;
+        const bool matches = pixels[offset] == background[0] && pixels[offset + 1] == background[1] && pixels[offset + 2] == background[2] &&
+                             pixels[offset + 3] == background[3];
+        foundBackground    = foundBackground || matches;
+        foundGlyph         = foundGlyph || ! matches;
     }
     return foundBackground && foundGlyph;
 }
@@ -911,34 +927,32 @@ struct MatrixRenderTarget final
 [[nodiscard]] HRESULT ValidateMatrixConfigurationRejections(RedXeCreateFn create) noexcept
 {
     RedXeFactoryOptions options{};
-    options.sizeBytes = sizeof(options);
-    char present = '{';
+    options.sizeBytes             = sizeof(options);
+    char present                  = '{';
     options.configurationJsonUtf8 = &present;
-    options.configurationBytes = 0;
-    void* object = reinterpret_cast<void*>(1);
+    options.configurationBytes    = 0;
+    void* object                  = reinterpret_cast<void*>(1);
     if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object) != E_INVALIDARG || object)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     options.configurationJsonUtf8 = kDefaultMatrixConfiguration.data();
-    options.configurationBytes = static_cast<uint32_t>(kDefaultMatrixConfiguration.size());
-    object = reinterpret_cast<void*>(1);
-    if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object) !=
-            HRESULT_FROM_WIN32(ERROR_INVALID_DATA) ||
-        object)
+    options.configurationBytes    = static_cast<uint32_t>(kDefaultMatrixConfiguration.size());
+    object                        = reinterpret_cast<void*>(1);
+    if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object) != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || object)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     options.configurationJsonUtf8 = nullptr;
-    options.configurationBytes = 1;
-    object = reinterpret_cast<void*>(1);
+    options.configurationBytes    = 1;
+    object                        = reinterpret_cast<void*>(1);
     if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object) != E_INVALIDARG || object)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     options.configurationJsonUtf8 = &present;
-    options.configurationBytes = kRedXeMaximumFactoryConfigurationBytes + 1;
-    object = reinterpret_cast<void*>(1);
+    options.configurationBytes    = kRedXeMaximumFactoryConfigurationBytes + 1;
+    object                        = reinterpret_cast<void*>(1);
     if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object) != E_INVALIDARG || object)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -978,9 +992,9 @@ struct MatrixRenderTarget final
             envelope.reserve(invalid.size() + 32);
             envelope.append("{\"plugin\":{},\"instance\":").append(invalid).append("}");
             options.configurationJsonUtf8 = envelope.data();
-            options.configurationBytes = static_cast<uint32_t>(envelope.size());
-            object = reinterpret_cast<void*>(1);
-            const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object);
+            options.configurationBytes    = static_cast<uint32_t>(envelope.size());
+            object                        = reinterpret_cast<void*>(1);
+            const HRESULT result          = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object);
             if (result != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || object)
             {
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -1005,11 +1019,9 @@ struct MatrixRenderTarget final
     for (const std::string_view invalid : invalidNormalizedConfigurations)
     {
         options.configurationJsonUtf8 = invalid.data();
-        options.configurationBytes = static_cast<uint32_t>(invalid.size());
-        object = reinterpret_cast<void*>(1);
-        if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object) !=
-                HRESULT_FROM_WIN32(ERROR_INVALID_DATA) ||
-            object)
+        options.configurationBytes    = static_cast<uint32_t>(invalid.size());
+        object                        = reinterpret_cast<void*>(1);
+        if (create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &object) != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || object)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -1034,22 +1046,21 @@ struct MatrixRenderTarget final
     }
 
     IRedXeWidget* duplicate = reinterpret_cast<IRedXeWidget*>(1);
-    result = provider->CreateWidget(kMatrixWidgetTypeId, "matrix.contract.2", &duplicate);
+    result                  = provider->CreateWidget(kMatrixWidgetTypeId, "matrix.contract.2", &duplicate);
     if (result != HRESULT_FROM_WIN32(ERROR_TOO_MANY_NAMES) || duplicate)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
     void* unsupported = reinterpret_cast<void*>(1);
-    result = widget->QueryInterface(__uuidof(IRedXeWindowWidget), &unsupported);
+    result            = widget->QueryInterface(__uuidof(IRedXeWindowWidget), &unsupported);
     if (result != E_NOINTERFACE || unsupported)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     wil::com_ptr_nothrow<IUnknown> widgetIdentity;
     wil::com_ptr_nothrow<IUnknown> gpuIdentity;
-    if (FAILED(widget.query_to(widgetIdentity.put())) || FAILED(gpuWidget.query_to(gpuIdentity.put())) ||
-        widgetIdentity.get() != gpuIdentity.get())
+    if (FAILED(widget.query_to(widgetIdentity.put())) || FAILED(gpuWidget.query_to(gpuIdentity.put())) || widgetIdentity.get() != gpuIdentity.get())
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -1111,8 +1122,7 @@ struct MatrixRenderTarget final
     {
         result = RenderMatrixFrame(*gpuWidget, target, 2.25f, animated);
     }
-    if (FAILED(result) || first != identical || first == animated ||
-        !ContainsBackgroundAndGlyphPixels(first, {0x01, 0x05, 0x02, 0xFF}))
+    if (FAILED(result) || first != identical || first == animated || ! ContainsBackgroundAndGlyphPixels(first, {0x01, 0x05, 0x02, 0xFF}))
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -1167,7 +1177,7 @@ struct MatrixRenderTarget final
             result = RenderMatrixFrame(*borrowedGpuWidget, recreatedTarget, 1.25f, borrowedPixels);
         }
         borrowedGpuWidget->OnDeviceLost();
-        if (FAILED(result) || !ContainsBackgroundAndGlyphPixels(borrowedPixels, {0x7A, 0x11, 0x33, 0xFF}))
+        if (FAILED(result) || ! ContainsBackgroundAndGlyphPixels(borrowedPixels, {0x7A, 0x11, 0x33, 0xFF}))
         {
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -1240,16 +1250,14 @@ struct MatrixRenderTarget final
         result = RenderMatrixFrame(*differentSeedGpuWidget, recreatedTarget, 1.25f, differentSeedPixels);
     }
     differentSeedGpuWidget->OnDeviceLost();
-    return FAILED(result) || first == differentSeedPixels
-               ? (FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA))
-               : S_OK;
+    return FAILED(result) || first == differentSeedPixels ? (FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA)) : S_OK;
 }
 
 [[nodiscard]] HRESULT RunMatrixRainContractTests() noexcept
 {
-    const bool compilerWasLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
+    const bool compilerWasLoaded    = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
     const bool directWriteWasLoaded = GetModuleHandleW(L"dwrite.dll") != nullptr;
-    const bool wicWasLoaded = GetModuleHandleW(L"windowscodecs.dll") != nullptr;
+    const bool wicWasLoaded         = GetModuleHandleW(L"windowscodecs.dll") != nullptr;
 
     std::array<wchar_t, 1024> path{};
     HRESULT result = BuildPluginPath(L"MatrixRain.dll", path);
@@ -1257,23 +1265,20 @@ struct MatrixRenderTarget final
     {
         return result;
     }
-    wil::unique_hmodule module{
-        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
-    if (!module)
+    wil::unique_hmodule module{LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (! module)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    if ((!compilerWasLoaded && GetModuleHandleW(L"d3dcompiler_47.dll")) ||
-        (!directWriteWasLoaded && GetModuleHandleW(L"dwrite.dll")) ||
-        (!wicWasLoaded && GetModuleHandleW(L"windowscodecs.dll")))
+    if ((! compilerWasLoaded && GetModuleHandleW(L"d3dcompiler_47.dll")) || (! directWriteWasLoaded && GetModuleHandleW(L"dwrite.dll")) ||
+        (! wicWasLoaded && GetModuleHandleW(L"windowscodecs.dll")))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    const RedXeCreateFn create = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
-    const RedXeEnumeratePluginsFn enumerate =
-        ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
-    if (!create || !enumerate)
+    const RedXeCreateFn create              = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    const RedXeEnumeratePluginsFn enumerate = ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
+    if (! create || ! enumerate)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
@@ -1284,19 +1289,18 @@ struct MatrixRenderTarget final
     }
 
     const RedXePluginMetadata* metadata = nullptr;
-    uint32_t metadataCount = 0;
-    result = enumerate(&metadata, &metadataCount);
-    if (FAILED(result) || !metadata || metadataCount != 1 ||
-        !RedXeAsciiEqualsIgnoreCase(metadata[0].id, kMatrixPluginId))
+    uint32_t metadataCount              = 0;
+    result                              = enumerate(&metadata, &metadataCount);
+    if (FAILED(result) || ! metadata || metadataCount != 1 || ! RedXeAsciiEqualsIgnoreCase(metadata[0].id, kMatrixPluginId))
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
     RedXeFactoryOptions options{};
-    options.sizeBytes = sizeof(options);
+    options.sizeBytes    = sizeof(options);
     void* providerObject = nullptr;
-    result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &providerObject);
-    if (FAILED(result) || !providerObject)
+    result               = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kMatrixPluginId, &providerObject);
+    if (FAILED(result) || ! providerObject)
     {
         return FAILED(result) ? result : E_UNEXPECTED;
     }
@@ -1304,20 +1308,18 @@ struct MatrixRenderTarget final
     provider.attach(static_cast<IRedXeWidgetProvider*>(providerObject));
 
     const RedXeWidgetTypeDescriptor* widgetTypes = nullptr;
-    uint32_t widgetTypeCount = 0;
-    result = provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
-    if (FAILED(result) || !widgetTypes || widgetTypeCount != 1 ||
-        widgetTypes[0].sizeBytes != sizeof(RedXeWidgetTypeDescriptor) ||
-        !RedXeAsciiEqualsIgnoreCase(widgetTypes[0].typeId, kMatrixWidgetTypeId) ||
-        (widgetTypes[0].flags & RedXeWidgetFlagContinuousAnimation) == 0)
+    uint32_t widgetTypeCount                     = 0;
+    result                                       = provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
+    if (FAILED(result) || ! widgetTypes || widgetTypeCount != 1 || widgetTypes[0].sizeBytes != sizeof(RedXeWidgetTypeDescriptor) ||
+        ! RedXeAsciiEqualsIgnoreCase(widgetTypes[0].typeId, kMatrixWidgetTypeId) || (widgetTypes[0].flags & RedXeWidgetFlagContinuousAnimation) == 0)
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
     RedXeFactoryOptions oversizedOptions{};
     oversizedOptions.sizeBytes = sizeof(oversizedOptions) + 32;
-    void* rejectedObject = reinterpret_cast<void*>(1);
-    result = create(__uuidof(IRedXeWidgetProvider), &oversizedOptions, nullptr, kMatrixPluginId, &rejectedObject);
+    void* rejectedObject       = reinterpret_cast<void*>(1);
+    result                     = create(__uuidof(IRedXeWidgetProvider), &oversizedOptions, nullptr, kMatrixPluginId, &rejectedObject);
     if (result != E_INVALIDARG || rejectedObject)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -1334,10 +1336,9 @@ struct MatrixRenderTarget final
 constexpr std::string_view kDefaultShadersConfiguration =
     R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json";
 
-[[nodiscard]] HRESULT CreateShadersProvider(RedXeCreateFn create, std::string_view configuration,
-                                            wil::com_ptr_nothrow<IRedXeWidgetProvider>& provider) noexcept
+[[nodiscard]] HRESULT CreateShadersProvider(RedXeCreateFn create, std::string_view configuration, wil::com_ptr_nothrow<IRedXeWidgetProvider>& provider) noexcept
 {
-    if (!create || provider)
+    if (! create || provider)
     {
         return E_INVALIDARG;
     }
@@ -1347,17 +1348,17 @@ constexpr std::string_view kDefaultShadersConfiguration =
         envelope.reserve(configuration.size() + 32);
         envelope.append("{\"plugin\":{},\"instance\":").append(configuration).append("}");
         RedXeFactoryOptions options{};
-        options.sizeBytes = sizeof(options);
+        options.sizeBytes             = sizeof(options);
         options.configurationJsonUtf8 = envelope.data();
-        options.configurationBytes = static_cast<uint32_t>(envelope.size());
-        options.backgroundColor = 0xFF010502;
-        void* object = nullptr;
-        const HRESULT result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, Shaders::kPluginId, &object);
+        options.configurationBytes    = static_cast<uint32_t>(envelope.size());
+        options.backgroundColor       = 0xFF010502;
+        void* object                  = nullptr;
+        const HRESULT result          = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, Shaders::kPluginId, &object);
         if (FAILED(result))
         {
             return result;
         }
-        if (!object)
+        if (! object)
         {
             return E_UNEXPECTED;
         }
@@ -1375,8 +1376,10 @@ constexpr std::string_view kDefaultShadersConfiguration =
 }
 
 // A widget of `provider` with device resources on `target`, sized to the target, ready to render.
-[[nodiscard]] HRESULT PrepareShadersWidget(IRedXeWidgetProvider& provider, MatrixRenderTarget& target,
-                                           const char* instanceId, wil::com_ptr_nothrow<IRedXeWidget>& widget,
+[[nodiscard]] HRESULT PrepareShadersWidget(IRedXeWidgetProvider& provider,
+                                           MatrixRenderTarget& target,
+                                           const char* instanceId,
+                                           wil::com_ptr_nothrow<IRedXeWidget>& widget,
                                            wil::com_ptr_nothrow<IRedXeGpuWidget>& gpuWidget) noexcept
 {
     HRESULT result = provider.CreateWidget(Shaders::kWidgetTypeId, instanceId, widget.put());
@@ -1385,14 +1388,13 @@ constexpr std::string_view kDefaultShadersConfiguration =
         return result;
     }
     result = widget.query_to(gpuWidget.put());
-    if (FAILED(result) || !gpuWidget)
+    if (FAILED(result) || ! gpuWidget)
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     wil::com_ptr_nothrow<IRedXeRaisedWidget> raised;
     RedXeRaisedExtent extent = RedXeRaisedExtentQuarter;
-    if (FAILED(widget.query_to(raised.put())) || !raised || FAILED(raised->GetRaisedExtent(&extent)) ||
-        extent != RedXeRaisedExtentFull)
+    if (FAILED(widget.query_to(raised.put())) || ! raised || FAILED(raised->GetRaisedExtent(&extent)) || extent != RedXeRaisedExtentFull)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -1435,7 +1437,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
 [[nodiscard]] HRESULT ReadShadersDiagnostics(HMODULE module, ShadersTestDiagnostics& diagnostics) noexcept
 {
     const auto getDiagnostics = ResolveFunction<ShadersGetTestDiagnosticsFn>(module, kShadersGetTestDiagnosticsExport);
-    if (!getDiagnostics)
+    if (! getDiagnostics)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
@@ -1446,32 +1448,30 @@ constexpr std::string_view kDefaultShadersConfiguration =
 [[nodiscard]] HRESULT ValidateShadersSetupAttribution(HMODULE module) noexcept
 {
     const auto measure = ResolveFunction<ShadersMeasureTestSetupFn>(module, kShadersMeasureTestSetupExport);
-    const auto copy = ResolveFunction<ShadersCopyTestBackgroundFn>(module, kShadersCopyTestBackgroundExport);
-    if (!measure || !copy)
+    const auto copy    = ResolveFunction<ShadersCopyTestBackgroundFn>(module, kShadersCopyTestBackgroundExport);
+    if (! measure || ! copy)
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     ShadersSetupTimings timings{};
     timings.sizeBytes = sizeof(timings);
     ShadersSetupTimings shortRecord{};
     shortRecord.sizeBytes = sizeof(uint32_t);
-    if (measure(nullptr, nullptr) != E_POINTER || measure(nullptr, &shortRecord) != E_INVALIDARG ||
-        measure(nullptr, &timings) != E_POINTER || timings.phaseCount != kShadersSetupPhaseCount ||
-        std::any_of(std::begin(timings.phaseCalls), std::end(timings.phaseCalls),
-                    [](uint32_t calls) { return calls != 0; }))
+    if (measure(nullptr, nullptr) != E_POINTER || measure(nullptr, &shortRecord) != E_INVALIDARG || measure(nullptr, &timings) != E_POINTER ||
+        timings.phaseCount != kShadersSetupPhaseCount ||
+        std::any_of(std::begin(timings.phaseCalls), std::end(timings.phaseCalls), [](uint32_t calls) { return calls != 0; }))
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     const uint32_t capacity = kShadersBackgroundTexelCount + 2;
     std::unique_ptr<uint32_t[]> pixels(new (std::nothrow) uint32_t[capacity]);
-    if (!pixels)
+    if (! pixels)
         return E_OUTOFMEMORY;
     constexpr uint32_t sentinel = 0x13579BDF;
     std::fill_n(pixels.get(), capacity, sentinel);
     if (copy(nullptr, kShadersBackgroundTexelCount) != E_POINTER ||
         copy(pixels.get() + 1, kShadersBackgroundTexelCount - 1) != HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) ||
-        !std::all_of(pixels.get(), pixels.get() + capacity, [](uint32_t value) { return value == sentinel; }))
+        ! std::all_of(pixels.get(), pixels.get() + capacity, [](uint32_t value) { return value == sentinel; }))
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     HRESULT result = copy(pixels.get() + 1, kShadersBackgroundTexelCount + 1);
     if (FAILED(result) || pixels[0] != sentinel || pixels[capacity - 1] != sentinel ||
-        !std::all_of(pixels.get() + 1, pixels.get() + capacity - 1,
-                     [](uint32_t value) { return (value & 0xFF000000U) == 0xFF000000U; }))
+        ! std::all_of(pixels.get() + 1, pixels.get() + capacity - 1, [](uint32_t value) { return (value & 0xFF000000U) == 0xFF000000U; }))
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     result = ValidateShadersBackgroundReference(pixels.get() + 1, kShadersBackgroundTexelCount);
     if (FAILED(result))
@@ -1480,8 +1480,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
     result = CreateMatrixRenderTarget(160, 90, target);
     if (FAILED(result))
         return result;
-    const RedXeGpuDeviceContext context{sizeof(RedXeGpuDeviceContext), target.device.get(), DXGI_FORMAT_R8G8B8A8_UNORM,
-                                        target.featureLevel};
+    const RedXeGpuDeviceContext context{sizeof(RedXeGpuDeviceContext), target.device.get(), DXGI_FORMAT_R8G8B8A8_UNORM, target.featureLevel};
     ShadersTestDiagnostics before{}, after{};
     result = ReadShadersDiagnostics(module, before);
     if (SUCCEEDED(result))
@@ -1500,8 +1499,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
     target.context->ClearState();
     result = ReadShadersDiagnostics(module, after);
     if (FAILED(result) || total > timings.totalTicks || before.liveProviderCount != after.liveProviderCount ||
-        before.liveWidgetCount != after.liveWidgetCount ||
-        before.liveSharedResourceSetCount != after.liveSharedResourceSetCount)
+        before.liveWidgetCount != after.liveWidgetCount || before.liveSharedResourceSetCount != after.liveSharedResourceSetCount)
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     std::wprintf(L"5H4D3R5 setup attribution: refusal, pixel bounds, six phases and owner retirement pass.\n");
     return S_OK;
@@ -1513,29 +1511,27 @@ constexpr std::string_view kDefaultShadersConfiguration =
     HRESULT result = BuildPluginPath(L"5H4D3R5.dll", path);
     if (FAILED(result))
         return result;
-    wil::unique_hmodule module{
-        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
-    if (!module)
+    wil::unique_hmodule module{LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (! module)
         return HRESULT_FROM_WIN32(GetLastError());
     const auto measure = ResolveFunction<ShadersMeasureTestSetupFn>(module.get(), kShadersMeasureTestSetupExport);
-    const auto copy = ResolveFunction<ShadersCopyTestBackgroundFn>(module.get(), kShadersCopyTestBackgroundExport);
-    if (!measure || !copy)
+    const auto copy    = ResolveFunction<ShadersCopyTestBackgroundFn>(module.get(), kShadersCopyTestBackgroundExport);
+    if (! measure || ! copy)
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     if (pixelsPath)
     {
         std::unique_ptr<uint32_t[]> pixels(new (std::nothrow) uint32_t[kShadersBackgroundTexelCount]);
-        if (!pixels)
+        if (! pixels)
             return E_OUTOFMEMORY;
         result = copy(pixels.get(), kShadersBackgroundTexelCount);
         if (FAILED(result))
             return result;
-        wil::unique_handle file{
-            CreateFileW(pixelsPath, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr)};
-        if (!file)
+        wil::unique_handle file{CreateFileW(pixelsPath, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if (! file)
             return HRESULT_FROM_WIN32(GetLastError());
         constexpr DWORD bytes = kShadersBackgroundTexelCount * sizeof(uint32_t);
-        DWORD written = 0;
-        if (!WriteFile(file.get(), pixels.get(), bytes, &written, nullptr))
+        DWORD written         = 0;
+        if (! WriteFile(file.get(), pixels.get(), bytes, &written, nullptr))
             return HRESULT_FROM_WIN32(GetLastError());
         if (written != bytes)
             return HRESULT_FROM_WIN32(ERROR_WRITE_FAULT);
@@ -1555,25 +1551,32 @@ constexpr std::string_view kDefaultShadersConfiguration =
     if (FAILED(result))
         return result;
     std::wprintf(L"shader_setup_device backend=%ls vendor=%u luid=%08X:%08X description=%ls\n",
-                 hardware ? L"hardware-default" : L"warp", adapterDescription.VendorId,
+                 hardware ? L"hardware-default" : L"warp",
+                 adapterDescription.VendorId,
                  static_cast<unsigned>(adapterDescription.AdapterLuid.HighPart),
-                 static_cast<unsigned>(adapterDescription.AdapterLuid.LowPart), adapterDescription.Description);
-    const RedXeGpuDeviceContext context{sizeof(RedXeGpuDeviceContext), target.device.get(), DXGI_FORMAT_R8G8B8A8_UNORM,
-                                        target.featureLevel};
+                 static_cast<unsigned>(adapterDescription.AdapterLuid.LowPart),
+                 adapterDescription.Description);
+    const RedXeGpuDeviceContext context{sizeof(RedXeGpuDeviceContext), target.device.get(), DXGI_FORMAT_R8G8B8A8_UNORM, target.featureLevel};
     for (uint32_t sample = 0; sample < 32; ++sample)
     {
         ShadersSetupTimings timings{};
         timings.sizeBytes = sizeof(timings);
-        result = measure(&context, &timings);
+        result            = measure(&context, &timings);
         if (FAILED(result) || timings.frequency == 0)
             return FAILED(result) ? result : E_UNEXPECTED;
-        std::wprintf(L"shader_setup sample=%u backend=%ls frequency=%llu total_ticks=%llu", sample,
-                     hardware ? L"hardware" : L"warp", static_cast<unsigned long long>(timings.frequency),
+        std::wprintf(L"shader_setup sample=%u backend=%ls frequency=%llu total_ticks=%llu",
+                     sample,
+                     hardware ? L"hardware" : L"warp",
+                     static_cast<unsigned long long>(timings.frequency),
                      static_cast<unsigned long long>(timings.totalTicks));
         for (uint32_t index = 0; index < kShadersSetupPhaseCount; ++index)
-            std::wprintf(L" phase%u_ticks=%llu phase%u_calls=%u phase%u_result=%u", index,
-                         static_cast<unsigned long long>(timings.phaseTicks[index]), index, timings.phaseCalls[index],
-                         index, static_cast<unsigned>(timings.phaseResults[index]));
+            std::wprintf(L" phase%u_ticks=%llu phase%u_calls=%u phase%u_result=%u",
+                         index,
+                         static_cast<unsigned long long>(timings.phaseTicks[index]),
+                         index,
+                         timings.phaseCalls[index],
+                         index,
+                         static_cast<unsigned>(timings.phaseResults[index]));
         std::wprintf(L"\n");
         target.context->ClearState();
     }
@@ -1583,27 +1586,17 @@ constexpr std::string_view kDefaultShadersConfiguration =
 [[nodiscard]] HRESULT ValidateShadersConfigurationRejections(RedXeCreateFn create) noexcept
 {
     constexpr std::array rejected{
-        std::string_view{
-            R"json({"mode":"loop","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
-        std::string_view{
-            R"json({"mode":"single","shader":"nope","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
-        std::string_view{
-            R"json({"mode":"single","shader":"Seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
-        std::string_view{
-            R"json({"mode":"single","shader":"seascape","intervalSeconds":9,"shuffle":false,"renderScalePercent":50})json"},
-        std::string_view{
-            R"json({"mode":"single","shader":"seascape","intervalSeconds":3601,"shuffle":false,"renderScalePercent":50})json"},
-        std::string_view{
-            R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":1,"renderScalePercent":50})json"},
-        std::string_view{
-            R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":24})json"},
-        std::string_view{
-            R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":101})json"},
+        std::string_view{R"json({"mode":"loop","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
+        std::string_view{R"json({"mode":"single","shader":"nope","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
+        std::string_view{R"json({"mode":"single","shader":"Seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
+        std::string_view{R"json({"mode":"single","shader":"seascape","intervalSeconds":9,"shuffle":false,"renderScalePercent":50})json"},
+        std::string_view{R"json({"mode":"single","shader":"seascape","intervalSeconds":3601,"shuffle":false,"renderScalePercent":50})json"},
+        std::string_view{R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":1,"renderScalePercent":50})json"},
+        std::string_view{R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":24})json"},
+        std::string_view{R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":101})json"},
         std::string_view{R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false})json"},
-        std::string_view{
-            R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50,"extra":1})json"},
-        std::string_view{
-            R"json({"mode":"single","mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
+        std::string_view{R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50,"extra":1})json"},
+        std::string_view{R"json({"mode":"single","mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json"},
     };
     for (const std::string_view configuration : rejected)
     {
@@ -1650,8 +1643,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
             wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
             ID3D11RenderTargetView* hostTargets[] = {target.renderTarget.get()};
             target.context->OMSetRenderTargets(1, hostTargets, nullptr);
-            const D3D11_VIEWPORT hostViewport{
-                0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f};
+            const D3D11_VIEWPORT hostViewport{0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f};
             target.context->RSSetViewports(1, &hostViewport);
             result = PrepareShadersWidget(*provider, target, "shaders.contract.render", widget, gpuWidget);
             if (FAILED(result))
@@ -1664,8 +1656,8 @@ constexpr std::string_view kDefaultShadersConfiguration =
             UINT restoredViewportCount = 1;
             D3D11_VIEWPORT restoredViewport{};
             target.context->RSGetViewports(&restoredViewportCount, &restoredViewport);
-            if (restoredTarget.get() != target.renderTarget.get() || restoredViewportCount != 1 ||
-                restoredViewport.Width != hostViewport.Width || restoredViewport.Height != hostViewport.Height)
+            if (restoredTarget.get() != target.renderTarget.get() || restoredViewportCount != 1 || restoredViewport.Width != hostViewport.Width ||
+                restoredViewport.Height != hostViewport.Height)
             {
                 std::wprintf(L"5H4D3R5 %hs did not restore the host target after size notification.\n", info.name);
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -1673,7 +1665,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
             // Feedback shaders initialize over their first frames and need a run before ink or heat appears; the
             // others are checked after their own start-up fades (Heartfelt fades in over ten seconds).
             const uint32_t frameCount = info.feedbackBuffer ? 150 : 3;
-            const ULONGLONG started = GetTickCount64();
+            const ULONGLONG started   = GetTickCount64();
             for (uint32_t frame = 0; frame < frameCount; ++frame)
             {
                 result = RenderMatrixFrame(*gpuWidget, target, 12.0f + static_cast<float>(frame) / 60.0f, pixels);
@@ -1693,19 +1685,22 @@ constexpr std::string_view kDefaultShadersConfiguration =
                     }
                 }
             }
-            if (!HasAtLeastTwoColors(pixels))
+            if (! HasAtLeastTwoColors(pixels))
             {
                 std::wprintf(L"5H4D3R5 %hs at %u%% rendered one flat color.\n", info.name, renderScale);
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
-            std::wprintf(L"5H4D3R5 %hs (%hs) at %u%%: %u WARP frames at 320x180 in %llu ms\n", info.name, info.title,
-                         renderScale, frameCount, static_cast<unsigned long long>(GetTickCount64() - started));
+            std::wprintf(L"5H4D3R5 %hs (%hs) at %u%%: %u WARP frames at 320x180 in %llu ms\n",
+                         info.name,
+                         info.title,
+                         renderScale,
+                         frameCount,
+                         static_cast<unsigned long long>(GetTickCount64() - started));
             ShadersTestDiagnostics diagnostics{};
             result = ReadShadersDiagnostics(module, diagnostics);
             if (FAILED(result) || diagnostics.lastShaderIndex != index || diagnostics.lastShaderFrame != frameCount)
             {
-                std::wprintf(L"5H4D3R5 %hs diagnostics disagree (index %u, frame %u).\n", info.name,
-                             diagnostics.lastShaderIndex, diagnostics.lastShaderFrame);
+                std::wprintf(L"5H4D3R5 %hs diagnostics disagree (index %u, frame %u).\n", info.name, diagnostics.lastShaderIndex, diagnostics.lastShaderFrame);
                 return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
             gpuWidget->OnDeviceLost();
@@ -1717,9 +1712,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
     {
         wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
         result = CreateShadersProvider(
-            create,
-            R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":10,"shuffle":false,"renderScalePercent":25})json",
-            provider);
+            create, R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":10,"shuffle":false,"renderScalePercent":25})json", provider);
         if (FAILED(result))
         {
             return result;
@@ -1732,7 +1725,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
             return result;
         }
         constexpr uint32_t seascape = Shaders::kDefaultShaderIndex;
-        constexpr uint32_t count = Shaders::kShaderCount;
+        constexpr uint32_t count    = Shaders::kShaderCount;
         constexpr std::array expected{
             std::pair<float, uint32_t>{1.0f, seascape},
             std::pair<float, uint32_t>{9.9f, seascape},
@@ -1748,19 +1741,16 @@ constexpr std::string_view kDefaultShadersConfiguration =
             {
                 result = ReadShadersDiagnostics(module, diagnostics);
             }
-            if (FAILED(result) || diagnostics.lastShaderIndex != shaderIndex ||
-                (elapsed != 9.9f && diagnostics.lastShaderFrame != 1))
+            if (FAILED(result) || diagnostics.lastShaderIndex != shaderIndex || (elapsed != 9.9f && diagnostics.lastShaderFrame != 1))
             {
-                std::wprintf(L"5H4D3R5 slideshow at %.1f s showed index %u frame %u.\n", elapsed,
-                             diagnostics.lastShaderIndex, diagnostics.lastShaderFrame);
+                std::wprintf(L"5H4D3R5 slideshow at %.1f s showed index %u frame %u.\n", elapsed, diagnostics.lastShaderIndex, diagnostics.lastShaderFrame);
                 return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
         }
         // At the very start and at each change the picture fades from the dashboard background, so the first
         // frame of a cycle is that background.
         result = RenderMatrixFrame(*gpuWidget, target, 10.0f, pixels);
-        if (FAILED(result) || HasAtLeastTwoColors(pixels) || pixels.size() < 4 || pixels[0] != 0x01 ||
-            pixels[1] != 0x05 || pixels[2] != 0x02)
+        if (FAILED(result) || HasAtLeastTwoColors(pixels) || pixels.size() < 4 || pixels[0] != 0x01 || pixels[1] != 0x05 || pixels[2] != 0x02)
         {
             std::wprintf(L"5H4D3R5 did not fade through the dashboard background at a change.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -1773,9 +1763,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
     {
         wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
         result = CreateShadersProvider(
-            create,
-            R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":100,"shuffle":false,"renderScalePercent":25})json",
-            provider);
+            create, R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":100,"shuffle":false,"renderScalePercent":25})json", provider);
         if (FAILED(result))
         {
             return result;
@@ -1788,7 +1776,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
             return result;
         }
         wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
-        if (FAILED(widget.query_to(interactive.put())) || !interactive)
+        if (FAILED(widget.query_to(interactive.put())) || ! interactive)
         {
             std::wprintf(L"5H4D3R5 does not expose IRedXeInteractiveWidget.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -1796,9 +1784,9 @@ constexpr std::string_view kDefaultShadersConfiguration =
         const auto pointer = [&](uint32_t kind, uint32_t phase, float x, float y) noexcept
         {
             RedXePointerEvent event{sizeof(RedXePointerEvent), 1, kind, phase, x, y};
-            event.widthPixels = target.width;
+            event.widthPixels  = target.width;
             event.heightPixels = target.height;
-            event.dpi = USER_DEFAULT_SCREEN_DPI;
+            event.dpi          = USER_DEFAULT_SCREEN_DPI;
             return interactive->OnPointer(&event);
         };
         const auto shownIndex = [&](float elapsed, uint32_t& index, uint32_t& frame) noexcept
@@ -1814,27 +1802,25 @@ constexpr std::string_view kDefaultShadersConfiguration =
             return frameResult;
         };
         constexpr uint32_t seascape = Shaders::kDefaultShaderIndex;
-        constexpr uint32_t count = Shaders::kShaderCount;
-        uint32_t index = 0;
-        uint32_t frame = 0;
-        result = shownIndex(5.0f, index, frame);
+        constexpr uint32_t count    = Shaders::kShaderCount;
+        uint32_t index              = 0;
+        uint32_t frame              = 0;
+        result                      = shownIndex(5.0f, index, frame);
         if (FAILED(result) || index != seascape)
         {
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         // A drag (Down far from Up) is not a tap.
         if (pointer(RedXePointerKindTouch, RedXePointerPhaseDown, 20.0f, 20.0f) != S_FALSE ||
-            pointer(RedXePointerKindTouch, RedXePointerPhaseUp, 200.0f, 20.0f) != S_FALSE ||
-            FAILED(shownIndex(5.5f, index, frame)) || index != seascape)
+            pointer(RedXePointerKindTouch, RedXePointerPhaseUp, 200.0f, 20.0f) != S_FALSE || FAILED(shownIndex(5.5f, index, frame)) || index != seascape)
         {
             std::wprintf(L"5H4D3R5 treated a drag as a tap.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         // A mouse click: at 6 s the entry is still seascape but fading out; at 7 s the next one has begun.
         if (pointer(RedXePointerKindMouse, RedXePointerPhaseDown, 40.0f, 30.0f) != S_FALSE ||
-            pointer(RedXePointerKindMouse, RedXePointerPhaseUp, 44.0f, 33.0f) != S_OK ||
-            FAILED(shownIndex(6.0f, index, frame)) || index != seascape || HasAtLeastTwoColors(pixels) == false ||
-            FAILED(shownIndex(7.0f, index, frame)) || index != (seascape + 1U) % count || frame != 1)
+            pointer(RedXePointerKindMouse, RedXePointerPhaseUp, 44.0f, 33.0f) != S_OK || FAILED(shownIndex(6.0f, index, frame)) || index != seascape ||
+            HasAtLeastTwoColors(pixels) == false || FAILED(shownIndex(7.0f, index, frame)) || index != (seascape + 1U) % count || frame != 1)
         {
             std::wprintf(L"5H4D3R5 did not advance on a click (index %u, frame %u).\n", index, frame);
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -1864,9 +1850,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
         // Single mode: the click is not consumed and nothing changes.
         wil::com_ptr_nothrow<IRedXeWidgetProvider> singleProvider;
         result = CreateShadersProvider(
-            create,
-            R"json({"mode":"single","shader":"octagrams","intervalSeconds":100,"shuffle":false,"renderScalePercent":25})json",
-            singleProvider);
+            create, R"json({"mode":"single","shader":"octagrams","intervalSeconds":100,"shuffle":false,"renderScalePercent":25})json", singleProvider);
         if (FAILED(result))
         {
             return result;
@@ -1879,29 +1863,26 @@ constexpr std::string_view kDefaultShadersConfiguration =
             return result;
         }
         wil::com_ptr_nothrow<IRedXeInteractiveWidget> singleInteractive;
-        if (FAILED(singleWidget.query_to(singleInteractive.put())) || !singleInteractive)
+        if (FAILED(singleWidget.query_to(singleInteractive.put())) || ! singleInteractive)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        interactive = singleInteractive;
-        gpuWidget = singleGpu;
+        interactive        = singleInteractive;
+        gpuWidget          = singleGpu;
         uint32_t octagrams = 0;
-        if (!Shaders::TryFindShader("octagrams", octagrams) || FAILED(shownIndex(3.0f, index, frame)) ||
-            index != octagrams || pointer(RedXePointerKindMouse, RedXePointerPhaseDown, 10.0f, 10.0f) != S_FALSE ||
-            pointer(RedXePointerKindMouse, RedXePointerPhaseUp, 10.0f, 10.0f) != S_FALSE ||
-            FAILED(shownIndex(4.0f, index, frame)) || index != octagrams || frame != 2)
+        if (! Shaders::TryFindShader("octagrams", octagrams) || FAILED(shownIndex(3.0f, index, frame)) || index != octagrams ||
+            pointer(RedXePointerKindMouse, RedXePointerPhaseDown, 10.0f, 10.0f) != S_FALSE ||
+            pointer(RedXePointerKindMouse, RedXePointerPhaseUp, 10.0f, 10.0f) != S_FALSE || FAILED(shownIndex(4.0f, index, frame)) || index != octagrams ||
+            frame != 2)
         {
             std::wprintf(L"5H4D3R5 single mode reacted to a click (index %u, frame %u).\n", index, frame);
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         singleGpu->OnDeviceLost();
     }
-    for (
-        const std::string_view configuration :
-        {std::string_view{
-             R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":10,"shuffle":true,"renderScalePercent":25})json"},
-         std::string_view{
-             R"json({"mode":"random","shader":"seascape","intervalSeconds":10,"shuffle":false,"renderScalePercent":25})json"}})
+    for (const std::string_view configuration :
+         {std::string_view{R"json({"mode":"slideshow","shader":"seascape","intervalSeconds":10,"shuffle":true,"renderScalePercent":25})json"},
+          std::string_view{R"json({"mode":"random","shader":"seascape","intervalSeconds":10,"shuffle":false,"renderScalePercent":25})json"}})
     {
         wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
         result = CreateShadersProvider(create, configuration, provider);
@@ -1940,9 +1921,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
         }
         wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
         result = CreateShadersProvider(
-            create,
-            R"json({"mode":"single","shader":"neon-pulse","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json",
-            provider);
+            create, R"json({"mode":"single","shader":"neon-pulse","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json", provider);
         if (FAILED(result))
         {
             return result;
@@ -1966,7 +1945,8 @@ constexpr std::string_view kDefaultShadersConfiguration =
         if (FAILED(result) || diagnostics.liveSharedResourceSetCount != 1 || diagnostics.liveWidgetCount != 2)
         {
             std::wprintf(L"5H4D3R5 siblings did not share one device-resource set (%u sets, %u widgets).\n",
-                         diagnostics.liveSharedResourceSetCount, diagnostics.liveWidgetCount);
+                         diagnostics.liveSharedResourceSetCount,
+                         diagnostics.liveWidgetCount);
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         result = ValidateAllocationFreeMatrixRender(*gpuWidget, smallTarget);
@@ -2003,7 +1983,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
         {
             result = RenderMatrixFrame(*gpuWidget, smallTarget, 3.0f, pixels);
         }
-        if (FAILED(result) || !HasAtLeastTwoColors(pixels))
+        if (FAILED(result) || ! HasAtLeastTwoColors(pixels))
         {
             std::wprintf(L"5H4D3R5 did not render after device recreation.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -2026,7 +2006,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
         return result;
     }
     uint32_t sky = 0;
-    if (!Shaders::TryFindShader("sky-atmosphere", sky))
+    if (! Shaders::TryFindShader("sky-atmosphere", sky))
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
@@ -2042,16 +2022,15 @@ constexpr std::string_view kDefaultShadersConfiguration =
         return gpuWidget.OnTargetSizeChanged(&size);
     };
     ShadersTestDiagnostics initial{};
-    result = ReadShadersDiagnostics(module, initial);
-    uint32_t bakes = initial.lookupTableBakeCount;
+    result                 = ReadShadersDiagnostics(module, initial);
+    uint32_t bakes         = initial.lookupTableBakeCount;
     const auto expectBakes = [&](uint32_t added, const wchar_t* step) noexcept
     {
         ShadersTestDiagnostics diagnostics{};
         const HRESULT read = ReadShadersDiagnostics(module, diagnostics);
         if (FAILED(read) || diagnostics.lookupTableBakeCount != bakes + added)
         {
-            std::wprintf(L"5H4D3R5 drew lookup tables %u times instead of %u %ls.\n",
-                         diagnostics.lookupTableBakeCount - bakes, added, step);
+            std::wprintf(L"5H4D3R5 drew lookup tables %u times instead of %u %ls.\n", diagnostics.lookupTableBakeCount - bakes, added, step);
             return FAILED(read) ? read : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         bakes = diagnostics.lookupTableBakeCount;
@@ -2064,9 +2043,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
     {
         wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
         result = CreateShadersProvider(
-            create,
-            R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json",
-            provider);
+            create, R"json({"mode":"single","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json", provider);
         wil::com_ptr_nothrow<IRedXeWidget> widget;
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
         if (SUCCEEDED(result))
@@ -2145,9 +2122,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
     {
         wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
         result = CreateShadersProvider(
-            create,
-            R"json({"mode":"random","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json",
-            provider);
+            create, R"json({"mode":"random","shader":"seascape","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json", provider);
         wil::com_ptr_nothrow<IRedXeWidget> widget;
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
         if (SUCCEEDED(result))
@@ -2179,9 +2154,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
     {
         wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
         result = CreateShadersProvider(
-            create,
-            R"json({"mode":"single","shader":"sky-atmosphere","intervalSeconds":120,"shuffle":false,"renderScalePercent":100})json",
-            provider);
+            create, R"json({"mode":"single","shader":"sky-atmosphere","intervalSeconds":120,"shuffle":false,"renderScalePercent":100})json", provider);
         wil::com_ptr_nothrow<IRedXeWidget> widget;
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
         if (SUCCEEDED(result))
@@ -2205,9 +2178,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
     {
         wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
         result = CreateShadersProvider(
-            create,
-            R"json({"mode":"single","shader":"sky-atmosphere","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json",
-            provider);
+            create, R"json({"mode":"single","shader":"sky-atmosphere","intervalSeconds":120,"shuffle":false,"renderScalePercent":50})json", provider);
         wil::com_ptr_nothrow<IRedXeWidget> widget;
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
         if (SUCCEEDED(result))
@@ -2262,9 +2233,9 @@ constexpr std::string_view kDefaultShadersConfiguration =
 
 [[nodiscard]] HRESULT RunShadersContractTests() noexcept
 {
-    const bool compilerWasLoaded = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
+    const bool compilerWasLoaded    = GetModuleHandleW(L"d3dcompiler_47.dll") != nullptr;
     const bool directWriteWasLoaded = GetModuleHandleW(L"dwrite.dll") != nullptr;
-    const bool wicWasLoaded = GetModuleHandleW(L"windowscodecs.dll") != nullptr;
+    const bool wicWasLoaded         = GetModuleHandleW(L"windowscodecs.dll") != nullptr;
 
     std::array<wchar_t, 1024> path{};
     HRESULT result = BuildPluginPath(L"5H4D3R5.dll", path);
@@ -2272,23 +2243,20 @@ constexpr std::string_view kDefaultShadersConfiguration =
     {
         return result;
     }
-    wil::unique_hmodule module{
-        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
-    if (!module)
+    wil::unique_hmodule module{LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (! module)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    if ((!compilerWasLoaded && GetModuleHandleW(L"d3dcompiler_47.dll")) ||
-        (!directWriteWasLoaded && GetModuleHandleW(L"dwrite.dll")) ||
-        (!wicWasLoaded && GetModuleHandleW(L"windowscodecs.dll")))
+    if ((! compilerWasLoaded && GetModuleHandleW(L"d3dcompiler_47.dll")) || (! directWriteWasLoaded && GetModuleHandleW(L"dwrite.dll")) ||
+        (! wicWasLoaded && GetModuleHandleW(L"windowscodecs.dll")))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    const RedXeCreateFn create = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
-    const RedXeEnumeratePluginsFn enumerate =
-        ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
-    if (!create || !enumerate)
+    const RedXeCreateFn create              = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    const RedXeEnumeratePluginsFn enumerate = ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
+    if (! create || ! enumerate)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
@@ -2299,10 +2267,9 @@ constexpr std::string_view kDefaultShadersConfiguration =
     }
 
     const RedXePluginMetadata* metadata = nullptr;
-    uint32_t metadataCount = 0;
-    result = enumerate(&metadata, &metadataCount);
-    if (FAILED(result) || !metadata || metadataCount != 1 ||
-        !RedXeAsciiEqualsIgnoreCase(metadata[0].id, Shaders::kPluginId))
+    uint32_t metadataCount              = 0;
+    result                              = enumerate(&metadata, &metadataCount);
+    if (FAILED(result) || ! metadata || metadataCount != 1 || ! RedXeAsciiEqualsIgnoreCase(metadata[0].id, Shaders::kPluginId))
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -2315,22 +2282,19 @@ constexpr std::string_view kDefaultShadersConfiguration =
             return result;
         }
         const RedXeWidgetTypeDescriptor* widgetTypes = nullptr;
-        uint32_t widgetTypeCount = 0;
-        result = provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
-        if (FAILED(result) || !widgetTypes || widgetTypeCount != 1 ||
-            widgetTypes[0].sizeBytes != sizeof(RedXeWidgetTypeDescriptor) ||
-            !RedXeAsciiEqualsIgnoreCase(widgetTypes[0].typeId, Shaders::kWidgetTypeId) ||
-            (widgetTypes[0].flags & RedXeWidgetFlagContinuousAnimation) == 0)
+        uint32_t widgetTypeCount                     = 0;
+        result                                       = provider->GetWidgetTypes(&widgetTypes, &widgetTypeCount);
+        if (FAILED(result) || ! widgetTypes || widgetTypeCount != 1 || widgetTypes[0].sizeBytes != sizeof(RedXeWidgetTypeDescriptor) ||
+            ! RedXeAsciiEqualsIgnoreCase(widgetTypes[0].typeId, Shaders::kWidgetTypeId) || (widgetTypes[0].flags & RedXeWidgetFlagContinuousAnimation) == 0)
         {
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
     }
 
     ShadersTestDiagnostics diagnostics{};
-    const auto getDiagnostics =
-        ResolveFunction<ShadersGetTestDiagnosticsFn>(module.get(), kShadersGetTestDiagnosticsExport);
+    const auto getDiagnostics = ResolveFunction<ShadersGetTestDiagnosticsFn>(module.get(), kShadersGetTestDiagnosticsExport);
     ShadersTestDiagnostics shortRecord{sizeof(uint32_t), 0, 0, 0, 0, 0, 0};
-    if (!getDiagnostics || getDiagnostics(nullptr) != E_POINTER || getDiagnostics(&shortRecord) != E_INVALIDARG)
+    if (! getDiagnostics || getDiagnostics(nullptr) != E_POINTER || getDiagnostics(&shortRecord) != E_INVALIDARG)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -2354,11 +2318,11 @@ constexpr std::string_view kDefaultShadersConfiguration =
         return result;
     }
     result = ReadShadersDiagnostics(module.get(), diagnostics);
-    if (FAILED(result) || diagnostics.liveProviderCount != 0 || diagnostics.liveWidgetCount != 0 ||
-        diagnostics.liveSharedResourceSetCount != 0)
+    if (FAILED(result) || diagnostics.liveProviderCount != 0 || diagnostics.liveWidgetCount != 0 || diagnostics.liveSharedResourceSetCount != 0)
     {
         std::wprintf(L"5H4D3R5 leaked objects after the contract tests (%u providers, %u widgets, %u sets).\n",
-                     diagnostics.liveProviderCount, diagnostics.liveWidgetCount,
+                     diagnostics.liveProviderCount,
+                     diagnostics.liveWidgetCount,
                      diagnostics.liveSharedResourceSetCount);
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -2367,24 +2331,32 @@ constexpr std::string_view kDefaultShadersConfiguration =
     return S_OK;
 }
 
-[[nodiscard]] HRESULT SubmitBenchmarkFrame(IRedXeGpuWidget* widget, MatrixRenderTarget& target,
-                                           float elapsedSeconds) noexcept
+[[nodiscard]] HRESULT SubmitBenchmarkFrame(IRedXeGpuWidget* widget, MatrixRenderTarget& target, float elapsedSeconds) noexcept
 {
     ID3D11RenderTargetView* renderTargets[] = {target.renderTarget.get()};
     target.context->OMSetRenderTargets(1, renderTargets, nullptr);
     constexpr std::array clearColor{0.025f, 0.035f, 0.075f, 1.0f};
     target.context->ClearRenderTargetView(target.renderTarget.get(), clearColor.data());
     const D3D11_VIEWPORT viewport{
-        0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f,
+        0.0f,
+        0.0f,
+        static_cast<float>(target.width),
+        static_cast<float>(target.height),
+        0.0f,
+        1.0f,
     };
     target.context->RSSetViewports(1, &viewport);
-    if (!widget)
+    if (! widget)
     {
         return S_OK;
     }
     const RedXeWidgetFrameContext frame{
-        sizeof(RedXeWidgetFrameContext), target.width,   target.height,
-        USER_DEFAULT_SCREEN_DPI,         elapsedSeconds, 1.0f / 60.0f,
+        sizeof(RedXeWidgetFrameContext),
+        target.width,
+        target.height,
+        USER_DEFAULT_SCREEN_DPI,
+        elapsedSeconds,
+        1.0f / 60.0f,
     };
     const RedXeGpuFrameContext gpuFrame{
         sizeof(RedXeGpuFrameContext),
@@ -2397,14 +2369,14 @@ constexpr std::string_view kDefaultShadersConfiguration =
 
 [[nodiscard]] HRESULT WaitForBenchmarkGpu(MatrixRenderTarget& target) noexcept
 {
-    if (!target.completionQuery)
+    if (! target.completionQuery)
     {
         return E_UNEXPECTED;
     }
     target.context->End(target.completionQuery.get());
     target.context->Flush();
     const ULONGLONG deadline = GetTickCount64() + 30'000;
-    HRESULT result = S_FALSE;
+    HRESULT result           = S_FALSE;
     while ((result = target.context->GetData(target.completionQuery.get(), nullptr, 0, 0)) == S_FALSE)
     {
         if (GetTickCount64() >= deadline)
@@ -2416,13 +2388,12 @@ constexpr std::string_view kDefaultShadersConfiguration =
     return result;
 }
 
-[[nodiscard]] HRESULT MeasureCpuSubmission(IRedXeGpuWidget* widget, MatrixRenderTarget& target, uint32_t frameCount,
-                                           double& microsecondsPerFrame) noexcept
+[[nodiscard]] HRESULT MeasureCpuSubmission(IRedXeGpuWidget* widget, MatrixRenderTarget& target, uint32_t frameCount, double& microsecondsPerFrame) noexcept
 {
     LARGE_INTEGER frequency{};
     LARGE_INTEGER start{};
     LARGE_INTEGER end{};
-    if (!QueryPerformanceFrequency(&frequency) || !QueryPerformanceCounter(&start))
+    if (! QueryPerformanceFrequency(&frequency) || ! QueryPerformanceCounter(&start))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -2434,12 +2405,12 @@ constexpr std::string_view kDefaultShadersConfiguration =
             return result;
         }
     }
-    if (!QueryPerformanceCounter(&end))
+    if (! QueryPerformanceCounter(&end))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    microsecondsPerFrame = static_cast<double>(end.QuadPart - start.QuadPart) * 1'000'000.0 /
-                           static_cast<double>(frequency.QuadPart) / static_cast<double>(frameCount);
+    microsecondsPerFrame =
+        static_cast<double>(end.QuadPart - start.QuadPart) * 1'000'000.0 / static_cast<double>(frequency.QuadPart) / static_cast<double>(frameCount);
     const HRESULT waitResult = WaitForBenchmarkGpu(target);
     if (SUCCEEDED(waitResult))
     {
@@ -2448,8 +2419,7 @@ constexpr std::string_view kDefaultShadersConfiguration =
     return waitResult;
 }
 
-[[nodiscard]] HRESULT MeasureGpuTime(IRedXeGpuWidget* widget, MatrixRenderTarget& target, uint32_t frameCount,
-                                     double& millisecondsPerFrame) noexcept
+[[nodiscard]] HRESULT MeasureGpuTime(IRedXeGpuWidget* widget, MatrixRenderTarget& target, uint32_t frameCount, double& millisecondsPerFrame) noexcept
 {
     D3D11_QUERY_DESC description{};
     description.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
@@ -2501,8 +2471,8 @@ constexpr std::string_view kDefaultShadersConfiguration =
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     uint64_t startTicks = 0;
-    uint64_t endTicks = 0;
-    result = target.context->GetData(start.get(), &startTicks, sizeof(startTicks), 0);
+    uint64_t endTicks   = 0;
+    result              = target.context->GetData(start.get(), &startTicks, sizeof(startTicks), 0);
     if (SUCCEEDED(result))
     {
         result = target.context->GetData(end.get(), &endTicks, sizeof(endTicks), 0);
@@ -2511,14 +2481,13 @@ constexpr std::string_view kDefaultShadersConfiguration =
     {
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    millisecondsPerFrame = static_cast<double>(endTicks - startTicks) * 1'000.0 /
-                           static_cast<double>(timing.Frequency) / static_cast<double>(frameCount);
+    millisecondsPerFrame = static_cast<double>(endTicks - startTicks) * 1'000.0 / static_cast<double>(timing.Frequency) / static_cast<double>(frameCount);
     return S_OK;
 }
 
 struct ProcessMemorySnapshot final
 {
-    uint64_t privateBytes = 0;
+    uint64_t privateBytes    = 0;
     uint64_t workingSetBytes = 0;
 };
 
@@ -2526,12 +2495,11 @@ struct ProcessMemorySnapshot final
 {
     PROCESS_MEMORY_COUNTERS_EX counters{};
     counters.cb = sizeof(counters);
-    if (!GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
-                              sizeof(counters)))
+    if (! GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters), sizeof(counters)))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    snapshot.privateBytes = counters.PrivateUsage;
+    snapshot.privateBytes    = counters.PrivateUsage;
     snapshot.workingSetBytes = counters.WorkingSetSize;
     return S_OK;
 }
@@ -2539,7 +2507,7 @@ struct ProcessMemorySnapshot final
 struct HeapSnapshot final
 {
     uint64_t busyBlocks = 0;
-    uint64_t busyBytes = 0;
+    uint64_t busyBytes  = 0;
 };
 
 [[nodiscard]] HRESULT QueryHeapSnapshot(HeapSnapshot& snapshot) noexcept
@@ -2561,7 +2529,7 @@ struct HeapSnapshot final
         HeapSnapshot measured{};
         for (DWORD heapIndex = 0; heapIndex < actualCount; ++heapIndex)
         {
-            if (!HeapLock(heaps[heapIndex]))
+            if (! HeapLock(heaps[heapIndex]))
             {
                 return HRESULT_FROM_WIN32(GetLastError());
             }
@@ -2576,7 +2544,7 @@ struct HeapSnapshot final
                 }
             }
             const DWORD walkError = GetLastError();
-            if (!HeapUnlock(heaps[heapIndex]))
+            if (! HeapUnlock(heaps[heapIndex]))
             {
                 return HRESULT_FROM_WIN32(GetLastError());
             }
@@ -2600,18 +2568,18 @@ struct HeapSnapshot final
 
 [[nodiscard]] HRESULT RunMatrixRainBenchmark(bool soak, bool disabledSoak) noexcept
 {
-    constexpr uint32_t width = 2560;
-    constexpr uint32_t height = 720;
+    constexpr uint32_t width             = 2560;
+    constexpr uint32_t height            = 720;
     constexpr uint32_t measurementFrames = 600;
-    constexpr uint32_t gpuFrames = 120;
+    constexpr uint32_t gpuFrames         = 120;
 
     MatrixRenderTarget target;
-    bool hardware = true;
+    bool hardware  = true;
     HRESULT result = CreateMatrixRenderTarget(width, height, target, D3D_DRIVER_TYPE_HARDWARE);
     if (FAILED(result))
     {
         hardware = false;
-        result = CreateMatrixRenderTarget(width, height, target, D3D_DRIVER_TYPE_WARP);
+        result   = CreateMatrixRenderTarget(width, height, target, D3D_DRIVER_TYPE_WARP);
     }
     if (FAILED(result))
     {
@@ -2637,7 +2605,7 @@ struct HeapSnapshot final
     HeapSnapshot baselineHeapAfter{};
     double baselineCpuMicroseconds = 0.0;
     double baselineGpuMilliseconds = 0.0;
-    result = QueryProcessMemorySnapshot(disabledMemory);
+    result                         = QueryProcessMemorySnapshot(disabledMemory);
     if (SUCCEEDED(result))
     {
         result = QueryHeapSnapshot(baselineHeapBefore);
@@ -2665,9 +2633,8 @@ struct HeapSnapshot final
     {
         return result;
     }
-    wil::unique_hmodule module{
-        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
-    if (!module)
+    wil::unique_hmodule module{LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (! module)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -2718,7 +2685,7 @@ struct HeapSnapshot final
     HeapSnapshot heapAfter{};
     double pluginCpuMicroseconds = 0.0;
     double pluginGpuMilliseconds = 0.0;
-    result = QueryProcessMemorySnapshot(enabledMemory);
+    result                       = QueryProcessMemorySnapshot(enabledMemory);
     if (SUCCEEDED(result))
     {
         result = MeasureGpuTime(gpuWidget.get(), target, gpuFrames, pluginGpuMilliseconds);
@@ -2761,8 +2728,7 @@ struct HeapSnapshot final
         const ULONGLONG endTime = GetTickCount64() + 300'000;
         while (SUCCEEDED(result) && GetTickCount64() < endTime)
         {
-            result = SubmitBenchmarkFrame(disabledSoak ? nullptr : gpuWidget.get(), target,
-                                          static_cast<float>(soakFrames) / 60.0f);
+            result = SubmitBenchmarkFrame(disabledSoak ? nullptr : gpuWidget.get(), target, static_cast<float>(soakFrames) / 60.0f);
             ++soakFrames;
             Sleep(16);
         }
@@ -2794,10 +2760,14 @@ struct HeapSnapshot final
 
     gpuWidget->OnDeviceLost();
     std::wprintf(L"MatrixRain benchmark (%ls, 2560x720, Release defaults)\n", hardware ? L"hardware" : L"WARP");
-    std::wprintf(L"cpu_us_per_frame baseline=%.3f enabled=%.3f delta=%.3f\n", baselineCpuMicroseconds,
-                 pluginCpuMicroseconds, pluginCpuMicroseconds - baselineCpuMicroseconds);
-    std::wprintf(L"gpu_ms_per_frame baseline=%.4f enabled=%.4f delta=%.4f\n", baselineGpuMilliseconds,
-                 pluginGpuMilliseconds, pluginGpuMilliseconds - baselineGpuMilliseconds);
+    std::wprintf(L"cpu_us_per_frame baseline=%.3f enabled=%.3f delta=%.3f\n",
+                 baselineCpuMicroseconds,
+                 pluginCpuMicroseconds,
+                 pluginCpuMicroseconds - baselineCpuMicroseconds);
+    std::wprintf(L"gpu_ms_per_frame baseline=%.4f enabled=%.4f delta=%.4f\n",
+                 baselineGpuMilliseconds,
+                 pluginGpuMilliseconds,
+                 pluginGpuMilliseconds - baselineGpuMilliseconds);
     std::wprintf(L"memory_bytes disabled_private=%llu enabled_private=%llu steady_private=%llu\n",
                  static_cast<unsigned long long>(disabledMemory.privateBytes),
                  static_cast<unsigned long long>(enabledMemory.privateBytes),
@@ -2806,41 +2776,38 @@ struct HeapSnapshot final
                  static_cast<unsigned long long>(disabledMemory.workingSetBytes),
                  static_cast<unsigned long long>(enabledMemory.workingSetBytes),
                  static_cast<unsigned long long>(steadyMemory.workingSetBytes));
-    std::wprintf(
-        L"baseline_heap busy_blocks_before=%llu after=%llu delta=%lld busy_bytes_before=%llu after=%llu "
-        L"delta=%lld\n",
-        static_cast<unsigned long long>(baselineHeapBefore.busyBlocks),
-        static_cast<unsigned long long>(baselineHeapAfter.busyBlocks),
-        static_cast<long long>(baselineHeapAfter.busyBlocks) - static_cast<long long>(baselineHeapBefore.busyBlocks),
-        static_cast<unsigned long long>(baselineHeapBefore.busyBytes),
-        static_cast<unsigned long long>(baselineHeapAfter.busyBytes),
-        static_cast<long long>(baselineHeapAfter.busyBytes) - static_cast<long long>(baselineHeapBefore.busyBytes));
-    std::wprintf(
-        L"steady_heap busy_blocks_before=%llu after=%llu delta=%lld busy_bytes_before=%llu after=%llu "
-        L"delta=%lld\n",
-        static_cast<unsigned long long>(heapBefore.busyBlocks), static_cast<unsigned long long>(heapAfter.busyBlocks),
-        static_cast<long long>(heapAfter.busyBlocks) - static_cast<long long>(heapBefore.busyBlocks),
-        static_cast<unsigned long long>(heapBefore.busyBytes), static_cast<unsigned long long>(heapAfter.busyBytes),
-        static_cast<long long>(heapAfter.busyBytes) - static_cast<long long>(heapBefore.busyBytes));
+    std::wprintf(L"baseline_heap busy_blocks_before=%llu after=%llu delta=%lld busy_bytes_before=%llu after=%llu "
+                 L"delta=%lld\n",
+                 static_cast<unsigned long long>(baselineHeapBefore.busyBlocks),
+                 static_cast<unsigned long long>(baselineHeapAfter.busyBlocks),
+                 static_cast<long long>(baselineHeapAfter.busyBlocks) - static_cast<long long>(baselineHeapBefore.busyBlocks),
+                 static_cast<unsigned long long>(baselineHeapBefore.busyBytes),
+                 static_cast<unsigned long long>(baselineHeapAfter.busyBytes),
+                 static_cast<long long>(baselineHeapAfter.busyBytes) - static_cast<long long>(baselineHeapBefore.busyBytes));
+    std::wprintf(L"steady_heap busy_blocks_before=%llu after=%llu delta=%lld busy_bytes_before=%llu after=%llu "
+                 L"delta=%lld\n",
+                 static_cast<unsigned long long>(heapBefore.busyBlocks),
+                 static_cast<unsigned long long>(heapAfter.busyBlocks),
+                 static_cast<long long>(heapAfter.busyBlocks) - static_cast<long long>(heapBefore.busyBlocks),
+                 static_cast<unsigned long long>(heapBefore.busyBytes),
+                 static_cast<unsigned long long>(heapAfter.busyBytes),
+                 static_cast<long long>(heapAfter.busyBytes) - static_cast<long long>(heapBefore.busyBytes));
     if (soak)
     {
         std::wprintf(L"soak_5m mode=%ls frames=%llu heap_blocks_delta=%lld heap_bytes_delta=%lld "
                      L"private_bytes_delta=%lld working_set_delta=%lld\n",
-                     disabledSoak ? L"disabled" : L"enabled", static_cast<unsigned long long>(soakFrames),
+                     disabledSoak ? L"disabled" : L"enabled",
+                     static_cast<unsigned long long>(soakFrames),
                      static_cast<long long>(soakAfter.busyBlocks) - static_cast<long long>(soakBefore.busyBlocks),
                      static_cast<long long>(soakAfter.busyBytes) - static_cast<long long>(soakBefore.busyBytes),
-                     static_cast<long long>(soakMemoryAfter.privateBytes) -
-                         static_cast<long long>(soakMemoryBefore.privateBytes),
-                     static_cast<long long>(soakMemoryAfter.workingSetBytes) -
-                         static_cast<long long>(soakMemoryBefore.workingSetBytes));
+                     static_cast<long long>(soakMemoryAfter.privateBytes) - static_cast<long long>(soakMemoryBefore.privateBytes),
+                     static_cast<long long>(soakMemoryAfter.workingSetBytes) - static_cast<long long>(soakMemoryBefore.workingSetBytes));
         std::wprintf(L"soak_5m_pre_fence heap_blocks_delta=%lld heap_bytes_delta=%lld private_bytes_delta=%lld "
                      L"working_set_delta=%lld\n",
                      static_cast<long long>(soakPreFence.busyBlocks) - static_cast<long long>(soakBefore.busyBlocks),
                      static_cast<long long>(soakPreFence.busyBytes) - static_cast<long long>(soakBefore.busyBytes),
-                     static_cast<long long>(soakMemoryPreFence.privateBytes) -
-                         static_cast<long long>(soakMemoryBefore.privateBytes),
-                     static_cast<long long>(soakMemoryPreFence.workingSetBytes) -
-                         static_cast<long long>(soakMemoryBefore.workingSetBytes));
+                     static_cast<long long>(soakMemoryPreFence.privateBytes) - static_cast<long long>(soakMemoryBefore.privateBytes),
+                     static_cast<long long>(soakMemoryPreFence.workingSetBytes) - static_cast<long long>(soakMemoryBefore.workingSetBytes));
     }
     return S_OK;
 }
@@ -2854,9 +2821,8 @@ struct HeapSnapshot final
         return result;
     }
 
-    wil::unique_hmodule module{
-        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
-    if (!module)
+    wil::unique_hmodule module{LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    if (! module)
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
@@ -2865,30 +2831,35 @@ struct HeapSnapshot final
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    const RedXeCreateFn create = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
-    const RedXeEnumeratePluginsFn enumerate =
-        ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
-    if (!create || !enumerate)
+    const RedXeCreateFn create              = ResolveFunction<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    const RedXeEnumeratePluginsFn enumerate = ResolveFunction<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
+    if (! create || ! enumerate)
     {
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
     }
 
     const RedXePluginMetadata* metadata = nullptr;
-    uint32_t metadataCount = 0;
-    result = enumerate(&metadata, &metadataCount);
-    if (FAILED(result) || !metadata || metadataCount != 10)
+    uint32_t metadataCount              = 0;
+    result                              = enumerate(&metadata, &metadataCount);
+    if (FAILED(result) || ! metadata || metadataCount != 10)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     constexpr std::array expectedIds{
-        "builtin.process-viewer", "builtin.system-pulse",  "builtin.cpu-meter", "builtin.memory-meter",
-        "builtin.network-meter",  "builtin.storage-meter", "builtin.gpu-meter", "builtin.gpu-processes",
-        "builtin.power-meter",    "builtin.thermal-meter",
+        "builtin.process-viewer",
+        "builtin.system-pulse",
+        "builtin.cpu-meter",
+        "builtin.memory-meter",
+        "builtin.network-meter",
+        "builtin.storage-meter",
+        "builtin.gpu-meter",
+        "builtin.gpu-processes",
+        "builtin.power-meter",
+        "builtin.thermal-meter",
     };
     for (uint32_t index = 0; index < metadataCount; ++index)
     {
-        if (metadata[index].sizeBytes != sizeof(RedXePluginMetadata) || !metadata[index].id ||
-            std::strcmp(metadata[index].id, expectedIds[index]) != 0 ||
+        if (metadata[index].sizeBytes != sizeof(RedXePluginMetadata) || ! metadata[index].id || std::strcmp(metadata[index].id, expectedIds[index]) != 0 ||
             (metadata[index].capabilities & RedXePluginCapabilityWidgetProvider) == 0)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -2901,9 +2872,8 @@ struct HeapSnapshot final
             }
         }
         const bool expectEmpty = std::strcmp(metadata[index].id, "builtin.process-viewer") != 0 &&
-                                 std::strcmp(metadata[index].id, "builtin.network-meter") != 0 &&
-                                 std::strcmp(metadata[index].id, "builtin.gpu-processes") != 0;
-        result = ValidateSettingsContract(module.get(), metadata[index].id, expectEmpty);
+                                 std::strcmp(metadata[index].id, "builtin.network-meter") != 0 && std::strcmp(metadata[index].id, "builtin.gpu-processes") != 0;
+        result                 = ValidateSettingsContract(module.get(), metadata[index].id, expectEmpty);
         if (FAILED(result))
         {
             return result;
@@ -2912,8 +2882,8 @@ struct HeapSnapshot final
 
     RedXeFactoryOptions options{};
     options.sizeBytes = sizeof(options);
-    void* object = reinterpret_cast<void*>(1);
-    result = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kProcessViewerPluginId, &object);
+    void* object      = reinterpret_cast<void*>(1);
+    result            = create(__uuidof(IRedXeWidgetProvider), &options, nullptr, kProcessViewerPluginId, &object);
     if (result != E_POINTER || object)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -2954,8 +2924,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--failure-report-self-test")
     {
 #if defined(_DEBUG)
-        _ASSERT_EXPR(false,
-                     L"the failure-report self-test fails this check on purpose (\u0141), and its report goes on");
+        _ASSERT_EXPR(false, L"the failure-report self-test fails this check on purpose (\u0141), and its report goes on");
         std::fputs("The failed check returned instead of ending the run.\n", stderr);
         return 1;
 #else
@@ -2969,7 +2938,7 @@ int wmain(int argumentCount, wchar_t** arguments)
     if (argumentCount == 2 && std::wstring_view(arguments[1]) == L"--abort-self-test")
     {
         _set_app_type(_crt_gui_app);
-        assert(!"the abort self-test fails this assert() on purpose");
+        assert(! "the abort self-test fails this assert() on purpose");
         std::abort();
     }
     // Reached only through --unbuffered-output-self-test, which test.ps1 runs: a line written just before the process
@@ -2986,17 +2955,17 @@ int wmain(int argumentCount, wchar_t** arguments)
     }
     if (argumentCount >= 2 && std::wstring_view(arguments[1]) == L"--matrix-benchmark")
     {
-        const std::wstring_view mode = argumentCount >= 3 ? std::wstring_view(arguments[2]) : std::wstring_view{};
-        const bool disabledSoak = mode == L"--soak-disabled";
-        const bool soak = mode == L"--soak" || disabledSoak;
+        const std::wstring_view mode  = argumentCount >= 3 ? std::wstring_view(arguments[2]) : std::wstring_view{};
+        const bool disabledSoak       = mode == L"--soak-disabled";
+        const bool soak               = mode == L"--soak" || disabledSoak;
         const HRESULT benchmarkResult = RunMatrixRainBenchmark(soak, disabledSoak);
         return FAILED(benchmarkResult) ? ReportSuiteFailure(L"Matrix Rain benchmark", benchmarkResult) : 0;
     }
     if (argumentCount >= 2 && std::wstring_view(arguments[1]) == L"--shader-setup-attribution")
     {
-        const bool hardware = argumentCount >= 3 && std::wstring_view(arguments[2]) == L"--hardware";
+        const bool hardware       = argumentCount >= 3 && std::wstring_view(arguments[2]) == L"--hardware";
         const wchar_t* pixelsPath = argumentCount >= 4 ? arguments[3] : nullptr;
-        const HRESULT measured = RunShadersSetupAttribution(hardware, pixelsPath);
+        const HRESULT measured    = RunShadersSetupAttribution(hardware, pixelsPath);
         return FAILED(measured) ? ReportSuiteFailure(L"5H4D3R5 setup attribution", measured) : 0;
     }
     const HRESULT result = RunContractTests();

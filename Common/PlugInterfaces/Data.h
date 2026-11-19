@@ -14,32 +14,32 @@
 enum RedXeDataValueType : uint32_t
 {
     RedXeDataValueTypeInvalid = 0,
-    RedXeDataValueTypeUInt64 = 1,
+    RedXeDataValueTypeUInt64  = 1,
     RedXeDataValueTypeFloat64 = 2,
-    RedXeDataValueTypeUtf16 = 3,
+    RedXeDataValueTypeUtf16   = 3,
 };
 
 // Availability of a collected data value.
 enum RedXeDataQuality : uint32_t
 {
-    RedXeDataQualityGood = 0,
-    RedXeDataQualityUnavailable = 1,
+    RedXeDataQualityGood         = 0,
+    RedXeDataQualityUnavailable  = 1,
     RedXeDataQualityInitializing = 2,
 };
 
 // Shape and sensitivity declared by a dataset.
 enum RedXeDataSetFlags : uint32_t
 {
-    RedXeDataSetFlagNone = 0,
-    RedXeDataSetFlagTable = 1U << 0U,
+    RedXeDataSetFlagNone           = 0,
+    RedXeDataSetFlagTable          = 1U << 0U,
     RedXeDataSetFlagLocalSensitive = 1U << 1U,
-    RedXeDataSetFlagDeviceLane = 1U << 2U,
+    RedXeDataSetFlagDeviceLane     = 1U << 2U,
 };
 
 // Conditions affecting a collected snapshot.
 enum RedXeDataSnapshotFlags : uint32_t
 {
-    RedXeDataSnapshotFlagNone = 0,
+    RedXeDataSnapshotFlagNone      = 0,
     RedXeDataSnapshotFlagTruncated = 1U << 0U,
 };
 
@@ -170,12 +170,10 @@ interface __declspec(uuid("C3A81F6E-2D47-4B90-A1E5-6F8C9D0B3E21")) __declspec(no
 {
     // Returns a module-owned immutable descriptor array valid while the module is mapped. Both outputs are cleared
     // before validation.
-    virtual HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors,
-                                                  uint32_t* count) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors, uint32_t* count) noexcept = 0;
     // Collects one batch of due datasets. The result and everything it points at are source-owned and stay valid
     // only until the next CollectSnapshots call on this source or until the source is released.
-    virtual HRESULT STDMETHODCALLTYPE CollectSnapshots(const RedXeDataCollectRequest* request,
-                                                       const RedXeDataCollectResult** result) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE CollectSnapshots(const RedXeDataCollectRequest* request, const RedXeDataCollectResult** result) noexcept = 0;
 };
 
 // Receives one borrowed snapshot synchronously on the host acquisition worker.
@@ -194,8 +192,7 @@ interface __declspec(uuid("F9834987-EBC6-411E-9F28-A49E4DBB49D9")) __declspec(no
 };
 
 // Controls one inactive-by-default host subscription.
-interface __declspec(uuid("B8912B7D-89AD-4830-9CFB-73F4E72027FB")) __declspec(novtable) IRedXeDataSubscription
-    : IUnknown
+interface __declspec(uuid("B8912B7D-89AD-4830-9CFB-73F4E72027FB")) __declspec(novtable) IRedXeDataSubscription : IUnknown
 {
     // Called outside OnDataSnapshot, SetActive(FALSE) and releasing the subscription both drain running and reserved
     // sink callbacks (including a copied sink not yet invoked) before returning. No later callback may start while
@@ -211,8 +208,7 @@ interface __declspec(uuid("B8912B7D-89AD-4830-9CFB-73F4E72027FB")) __declspec(no
 // callbacks finish. A later lookup recreates the source behind the same facade identity; module metadata stays valid.
 interface __declspec(uuid("9EAE20F1-36A8-48A8-B451-F60401A898CD")) __declspec(novtable) IRedXeDataProvider : IUnknown
 {
-    virtual HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors,
-                                                  uint32_t* count) noexcept = 0;
-    virtual HRESULT STDMETHODCALLTYPE Subscribe(const RedXeDataSubscriptionOptions* options, IRedXeDataSink* sink,
-                                                IRedXeDataSubscription** subscription) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors, uint32_t* count) noexcept = 0;
+    virtual HRESULT STDMETHODCALLTYPE Subscribe(
+        const RedXeDataSubscriptionOptions* options, IRedXeDataSink* sink, IRedXeDataSubscription** subscription) noexcept = 0;
 };

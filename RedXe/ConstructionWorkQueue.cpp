@@ -13,7 +13,7 @@ HRESULT ConstructionWorkQueue::Start(Notify notify, void* context) noexcept
         return _stop.is_signaled() ? E_UNEXPECTED : S_FALSE;
     RETURN_IF_FAILED(_stop.create(wil::EventOptions::ManualReset));
     RETURN_IF_FAILED(_ready.create());
-    _notify = notify;
+    _notify  = notify;
     _context = context;
     try
     {
@@ -34,9 +34,9 @@ HRESULT ConstructionWorkQueue::Start(Notify notify, void* context) noexcept
 
 HRESULT ConstructionWorkQueue::Enqueue(IRedXeConstructionWork* work) noexcept
 {
-    if (!work)
+    if (! work)
         return E_POINTER;
-    if (!Running())
+    if (! Running())
         return E_UNEXPECTED;
     const auto guard = wil::AcquireSRWLockExclusive(&_lock);
     if (_stop.is_signaled())
@@ -48,8 +48,8 @@ HRESULT ConstructionWorkQueue::Enqueue(IRedXeConstructionWork* work) noexcept
     {
         if (slot.state != State::Empty)
             continue;
-        slot.work = work;
-        slot.state = State::Queued;
+        slot.work     = work;
+        slot.state    = State::Queued;
         slot.queuedAt = GetTickCount64();
         _ready.SetEvent();
         return S_OK;
@@ -60,12 +60,11 @@ HRESULT ConstructionWorkQueue::Enqueue(IRedXeConstructionWork* work) noexcept
 void ConstructionWorkQueue::Worker() noexcept
 {
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    const auto uninitialize = wil::scope_exit(
-        [&]() noexcept
-        {
-            if (SUCCEEDED(apartment))
-                CoUninitialize();
-        });
+    const auto uninitialize = wil::scope_exit([&]() noexcept
+    {
+        if (SUCCEEDED(apartment))
+            CoUninitialize();
+    });
     const HANDLE events[]{_stop.get(), _ready.get()};
     for (;;)
     {
@@ -73,7 +72,7 @@ void ConstructionWorkQueue::Worker() noexcept
         if (wait == WAIT_OBJECT_0 + 2)
         {
             MSG message{};
-            while (!_stop.is_signaled() && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+            while (! _stop.is_signaled() && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
                 (void)DispatchMessageW(&message);
             continue;
         }
@@ -91,29 +90,28 @@ void ConstructionWorkQueue::Worker() noexcept
                     const size_t i = (_lastSelected + offset) % Capacity;
                     if (_slots[i].state != State::Queued)
                         continue;
-                    _lastSelected = i;
+                    _lastSelected   = i;
                     _slots[i].state = State::Running;
-                    running = &_slots[i];
+                    running         = &_slots[i];
                     break;
                 }
             }
-            if (!running)
+            if (! running)
                 break;
             // The owning slot stays pinned through Run. No worker-owned AddRef can become the final release of a
             // job containing a UI completion token or plugin objects.
             const uint64_t age = GetTickCount64() - running->queuedAt;
-            HRESULT result = FAILED(apartment) ? apartment
-                             : age >= WorkMilliseconds
-                                 ? HRESULT_FROM_WIN32(ERROR_TIMEOUT)
-                                 : running->work->Run(_stop.get(), static_cast<uint32_t>(WorkMilliseconds - age));
+            HRESULT result     = FAILED(apartment)         ? apartment
+                                 : age >= WorkMilliseconds ? HRESULT_FROM_WIN32(ERROR_TIMEOUT)
+                                                           : running->work->Run(_stop.get(), static_cast<uint32_t>(WorkMilliseconds - age));
             if (SUCCEEDED(result) && GetTickCount64() - running->queuedAt >= WorkMilliseconds)
                 result = HRESULT_FROM_WIN32(ERROR_TIMEOUT);
             bool notify = false;
             {
                 const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-                running->result = result;
-                running->state = State::Complete;
-                notify = !_stop.is_signaled();
+                running->result  = result;
+                running->state   = State::Complete;
+                notify           = ! _stop.is_signaled();
                 if (notify)
                     _completed.store(true, std::memory_order_release);
             }
@@ -125,7 +123,7 @@ void ConstructionWorkQueue::Worker() noexcept
 
 void ConstructionWorkQueue::DrainCompletions() noexcept
 {
-    if (!Running() || _stop.is_signaled() || !_completed.exchange(false, std::memory_order_acq_rel))
+    if (! Running() || _stop.is_signaled() || ! _completed.exchange(false, std::memory_order_acq_rel))
         return;
     std::array<Slot, Capacity> ready{};
     size_t count = 0;
@@ -136,23 +134,23 @@ void ConstructionWorkQueue::DrainCompletions() noexcept
             if (slot.state != State::Complete)
                 continue;
             ready[count++] = std::move(slot);
-            slot = Slot{};
+            slot           = Slot{};
         }
     }
-    for (size_t i = 0; i < count && Running() && !_stop.is_signaled(); ++i)
+    for (size_t i = 0; i < count && Running() && ! _stop.is_signaled(); ++i)
         ready[i].work->Complete(ready[i].result);
 }
 
 ConstructionWorkQueue::StopResult ConstructionWorkQueue::Stop(uint32_t timeoutMilliseconds) noexcept
 {
-    if (!Running())
+    if (! Running())
         return StopResult::Stopped;
     _stop.SetEvent();
     std::array<wil::com_ptr_nothrow<IRedXeConstructionWork>, Capacity> discarded{};
     bool inProgress = false;
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        size_t count = 0;
+        size_t count     = 0;
         for (Slot& slot : _slots)
         {
             if (slot.state == State::Running)
@@ -160,7 +158,7 @@ ConstructionWorkQueue::StopResult ConstructionWorkQueue::Stop(uint32_t timeoutMi
             else if (slot.state != State::Empty)
             {
                 discarded[count++] = std::move(slot.work);
-                slot = Slot{};
+                slot               = Slot{};
             }
         }
     }
@@ -189,10 +187,10 @@ void ConstructionWorkQueue::Reset() noexcept
 {
     _slots = {};
     _completed.store(false, std::memory_order_release);
-    _notify = nullptr;
+    _notify  = nullptr;
     _context = nullptr;
     _ready.reset();
     _stop.reset();
     _lastSelected = Capacity - 1;
-    _waitedOut = false;
+    _waitedOut    = false;
 }

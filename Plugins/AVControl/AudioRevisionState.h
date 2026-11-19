@@ -10,7 +10,7 @@ namespace AVControl
 // the original value), separately from mute, so a percent-rounded UI never commits a stale gesture.
 class AudioRevisionState final
 {
-  public:
+public:
     struct Snapshot final
     {
         uint64_t level = 0, mute = 0;
@@ -18,14 +18,14 @@ class AudioRevisionState final
     [[nodiscard]] Snapshot Observe(float scalar, bool muted) noexcept
     {
         const auto lock = wil::AcquireSRWLockExclusive(&_lock);
-        if (!std::isfinite(scalar) || scalar < 0 || scalar > 1)
+        if (! std::isfinite(scalar) || scalar < 0 || scalar > 1)
             return {_levelRevision, _muteRevision};
-        if (!_initialized || scalar != _scalar)
+        if (! _initialized || scalar != _scalar)
             ++_levelRevision;
-        if (!_initialized || muted != _muted)
+        if (! _initialized || muted != _muted)
             ++_muteRevision;
-        _scalar = scalar;
-        _muted = muted;
+        _scalar      = scalar;
+        _muted       = muted;
         _initialized = true;
         return {_levelRevision, _muteRevision};
     }
@@ -35,7 +35,7 @@ class AudioRevisionState final
         return {_levelRevision, _muteRevision};
     }
 
-  private:
+private:
     SRWLOCK _lock = SRWLOCK_INIT;
     float _scalar = 0;
     bool _muted = false, _initialized = false;

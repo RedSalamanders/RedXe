@@ -34,8 +34,8 @@
 
 namespace
 {
-using unique_yyjson_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
-using unique_mut_doc = wil::unique_any<yyjson_mut_doc*, decltype(&yyjson_mut_doc_free), yyjson_mut_doc_free>;
+using unique_yyjson_doc    = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
+using unique_mut_doc       = wil::unique_any<yyjson_mut_doc*, decltype(&yyjson_mut_doc_free), yyjson_mut_doc_free>;
 using unique_malloc_string = wil::unique_any<char*, decltype(&free), free>;
 
 [[nodiscard]] unique_yyjson_doc ParseStoredObject(const JsonObjectSettings& settings) noexcept;
@@ -68,8 +68,8 @@ constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
 
 [[nodiscard]] bool IsStructuredJsonSection(std::string_view key) noexcept
 {
-    return key == "\"declare\"" || key == "\"pages\"" || key == "\"widgets\"" || key == "\"columns\"" ||
-           key == "\"rows\"" || key == "\"shortcuts\"" || key == "\"services\"" || key == "\"keys\"";
+    return key == "\"declare\"" || key == "\"pages\"" || key == "\"widgets\"" || key == "\"columns\"" || key == "\"rows\"" || key == "\"shortcuts\"" ||
+           key == "\"services\"" || key == "\"keys\"";
 }
 
 [[nodiscard]] bool FitsInlineJson(std::string_view json, size_t begin, size_t column) noexcept
@@ -78,7 +78,7 @@ constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
     if (json[begin] == '{' && begin + 1 < json.size() && json[begin + 1] == '"')
     {
         const size_t keyEnd = JsonTokenEnd(json, begin + 1, json.size());
-        const size_t value = keyEnd + 1;
+        const size_t value  = keyEnd + 1;
         if (value < json.size() && json[keyEnd] == ':' && json[value] != '{' && json[value] != '[')
         {
             const size_t valueEnd = JsonTokenEnd(json, value, json.size());
@@ -90,7 +90,7 @@ constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
     if (column >= lineWidth)
         return false;
     const size_t available = lineWidth - column;
-    const size_t scanEnd = begin + ((json.size() - begin < available) ? json.size() - begin : available);
+    const size_t scanEnd   = begin + ((json.size() - begin < available) ? json.size() - begin : available);
     size_t width = 0, depth = 0;
     std::string_view lastString;
     for (size_t cursor = begin; cursor < scanEnd; ++cursor)
@@ -120,9 +120,8 @@ constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
         }
         else if (value == ':')
         {
-            if (IsStructuredJsonSection(lastString) && cursor + 2 < json.size() &&
-                (json[cursor + 1] == '{' || json[cursor + 1] == '[') && json[cursor + 2] != '}' &&
-                json[cursor + 2] != ']')
+            if (IsStructuredJsonSection(lastString) && cursor + 2 < json.size() && (json[cursor + 1] == '{' || json[cursor + 1] == '[') &&
+                json[cursor + 2] != '}' && json[cursor + 2] != ']')
                 return false;
             width += 2;
         }
@@ -135,8 +134,7 @@ constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
 }
 
 // `byteOrderMark` starts the output with the UTF-8 BOM, which counts toward the size cap but not the line width.
-[[nodiscard]] HRESULT FormatCompactSettingsJson(std::string_view json, bool byteOrderMark,
-                                                std::string& formatted) noexcept
+[[nodiscard]] HRESULT FormatCompactSettingsJson(std::string_view json, bool byteOrderMark, std::string& formatted) noexcept
 {
     try
     {
@@ -182,8 +180,7 @@ constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
                 else
                 {
                     const bool inlineValue =
-                        !structuredSection && ((!inlineContainers.empty() && inlineContainers.back() != 0) ||
-                                               FitsInlineJson(json, cursor, column));
+                        ! structuredSection && ((! inlineContainers.empty() && inlineContainers.back() != 0) || FitsInlineJson(json, cursor, column));
                     append(json.substr(cursor++, 1));
                     inlineContainers.push_back(inlineValue ? 1 : 0);
                     if (inlineValue)
@@ -207,7 +204,7 @@ constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
             else if (value == ',')
             {
                 append(json.substr(cursor++, 1));
-                if (!inlineContainers.empty() && inlineContainers.back() != 0)
+                if (! inlineContainers.empty() && inlineContainers.back() != 0)
                     append(" ");
                 else
                     newline(inlineContainers.size());
@@ -221,14 +218,14 @@ constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
             else
             {
                 const size_t end = JsonTokenEnd(json, cursor, json.size());
-                lastString = value == '"' ? json.substr(cursor, end - cursor) : std::string_view{};
+                lastString       = value == '"' ? json.substr(cursor, end - cursor) : std::string_view{};
                 append(json.substr(cursor, end - cursor));
-                cursor = end;
+                cursor            = end;
                 structuredSection = false;
             }
         }
         append("\n");
-        if (!fits)
+        if (! fits)
             return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
         formatted.swap(output);
         return S_OK;
@@ -239,14 +236,14 @@ constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
     }
 }
 
-constexpr char kMatrixPluginId[] = "builtin.matrix-rain";
+constexpr char kMatrixPluginId[]        = "builtin.matrix-rain";
 constexpr char kProcessViewerPluginId[] = "builtin.process-viewer";
-constexpr char kStudioClockPluginId[] = "builtin.studio-clock";
-constexpr char kDeskClockPluginId[] = "builtin.desk-clock";
-constexpr char kShadersPluginId[] = "builtin.5h4d3r5";
-constexpr char kWeatherPluginId[] = "builtin.weather";
-constexpr char kLauncherPluginId[] = "builtin.launcher";
-constexpr char kAvControlPluginId[] = "builtin.av-control";
+constexpr char kStudioClockPluginId[]   = "builtin.studio-clock";
+constexpr char kDeskClockPluginId[]     = "builtin.desk-clock";
+constexpr char kShadersPluginId[]       = "builtin.5h4d3r5";
+constexpr char kWeatherPluginId[]       = "builtin.weather";
+constexpr char kLauncherPluginId[]      = "builtin.launcher";
+constexpr char kAvControlPluginId[]     = "builtin.av-control";
 
 #if defined(_DEBUG)
 constexpr const wchar_t* kSelectedSettingsFileName = kRedXeDebugSettingsFileName;
@@ -255,10 +252,9 @@ constexpr const wchar_t* kSelectedSettingsFileName = kRedXeReleaseSettingsFileNa
 constexpr wchar_t kLegacyReleaseSettingsFileName[] = L"RedXe-1.0.settings.json";
 #endif
 
-template <size_t Count>
-[[nodiscard]] bool HasExactKeys(yyjson_val* object, const std::array<const char*, Count>& expected) noexcept
+template <size_t Count> [[nodiscard]] bool HasExactKeys(yyjson_val* object, const std::array<const char*, Count>& expected) noexcept
 {
-    if (!yyjson_is_obj(object) || yyjson_obj_size(object) != Count)
+    if (! yyjson_is_obj(object) || yyjson_obj_size(object) != Count)
     {
         return false;
     }
@@ -268,17 +264,17 @@ template <size_t Count>
     while (yyjson_val* key = yyjson_obj_iter_next(&iterator))
     {
         const char* text = yyjson_get_str(key);
-        bool matched = false;
+        bool matched     = false;
         for (size_t index = 0; index < expected.size(); ++index)
         {
-            if (text && std::strcmp(text, expected[index]) == 0 && !seen[index])
+            if (text && std::strcmp(text, expected[index]) == 0 && ! seen[index])
             {
                 seen[index] = true;
-                matched = true;
+                matched     = true;
                 break;
             }
         }
-        if (!matched)
+        if (! matched)
         {
             return false;
         }
@@ -297,14 +293,13 @@ template <size_t Count>
     {
         return false;
     }
-    return !machineId || RedXeIsValidMachineId(text.utf8.data());
+    return ! machineId || RedXeIsValidMachineId(text.utf8.data());
 }
 
-[[nodiscard]] bool ReadUnsigned(yyjson_val* object, const char* key, uint32_t minimum, uint32_t maximum,
-                                uint32_t& value) noexcept
+[[nodiscard]] bool ReadUnsigned(yyjson_val* object, const char* key, uint32_t minimum, uint32_t maximum, uint32_t& value) noexcept
 {
     yyjson_val* member = yyjson_obj_get(object, key);
-    if (!yyjson_is_uint(member))
+    if (! yyjson_is_uint(member))
     {
         return false;
     }
@@ -320,20 +315,19 @@ template <size_t Count>
 [[nodiscard]] bool IsColor(yyjson_val* object, const char* key) noexcept
 {
     yyjson_val* value = yyjson_obj_get(object, key);
-    if (!yyjson_is_str(value) || yyjson_get_len(value) != 7)
+    if (! yyjson_is_str(value) || yyjson_get_len(value) != 7)
     {
         return false;
     }
     const char* text = yyjson_get_str(value);
-    if (!text || text[0] != '#')
+    if (! text || text[0] != '#')
     {
         return false;
     }
     for (size_t index = 1; index < 7; ++index)
     {
         const char character = text[index];
-        if (!((character >= '0' && character <= '9') || (character >= 'A' && character <= 'F') ||
-              (character >= 'a' && character <= 'f')))
+        if (! ((character >= '0' && character <= '9') || (character >= 'A' && character <= 'F') || (character >= 'a' && character <= 'f')))
         {
             return false;
         }
@@ -344,34 +338,34 @@ template <size_t Count>
 [[nodiscard]] bool IsValidMatrixPrivate(yyjson_val* object) noexcept
 {
     constexpr std::array keys{
-        "seed",      "glyphHeightDips", "densityPercent", "speedPercent", "trailLengthGlyphs", "mutationPerSecond",
-        "headColor", "trailColor",      "glowPercent",
+        "seed",
+        "glyphHeightDips",
+        "densityPercent",
+        "speedPercent",
+        "trailLengthGlyphs",
+        "mutationPerSecond",
+        "headColor",
+        "trailColor",
+        "glowPercent",
     };
     uint32_t value = 0;
-    return HasExactKeys(object, keys) && ReadUnsigned(object, "seed", 0, UINT32_MAX, value) &&
-           ReadUnsigned(object, "glyphHeightDips", 12, 48, value) &&
-           ReadUnsigned(object, "densityPercent", 10, 100, value) &&
-           ReadUnsigned(object, "speedPercent", 25, 300, value) &&
-           ReadUnsigned(object, "trailLengthGlyphs", 6, 48, value) &&
-           ReadUnsigned(object, "mutationPerSecond", 0, 30, value) && IsColor(object, "headColor") &&
+    return HasExactKeys(object, keys) && ReadUnsigned(object, "seed", 0, UINT32_MAX, value) && ReadUnsigned(object, "glyphHeightDips", 12, 48, value) &&
+           ReadUnsigned(object, "densityPercent", 10, 100, value) && ReadUnsigned(object, "speedPercent", 25, 300, value) &&
+           ReadUnsigned(object, "trailLengthGlyphs", 6, 48, value) && ReadUnsigned(object, "mutationPerSecond", 0, 30, value) && IsColor(object, "headColor") &&
            IsColor(object, "trailColor") && ReadUnsigned(object, "glowPercent", 0, 100, value);
 }
 
 [[nodiscard]] bool IsValidStudioClockPrivate(yyjson_val* object) noexcept
 {
-    yyjson_val* dateFormatValue = yyjson_obj_get(object, "dateFormat");
-    const char* dateFormat = yyjson_is_str(dateFormatValue) ? yyjson_get_str(dateFormatValue) : nullptr;
+    yyjson_val* dateFormatValue              = yyjson_obj_get(object, "dateFormat");
+    const char* dateFormat                   = yyjson_is_str(dateFormatValue) ? yyjson_get_str(dateFormatValue) : nullptr;
     StudioClock::DateFormat parsedDateFormat = StudioClock::DateFormat::DayMonthYear;
-    const bool validDateFormat = dateFormat && StudioClock::TryParseDateFormat(dateFormat, parsedDateFormat);
-    uint32_t value = 0;
-    return HasExactKeys(object, StudioClock::kSettingsKeys) &&
-           yyjson_is_bool(yyjson_obj_get(object, "showSecondProgress")) &&
-           yyjson_is_bool(yyjson_obj_get(object, "externalDotsAlwaysOn")) &&
-           yyjson_is_bool(yyjson_obj_get(object, "showSeconds")) &&
-           yyjson_is_bool(yyjson_obj_get(object, "showDate")) && validDateFormat && IsColor(object, "secondsColor") &&
-           IsColor(object, "timeColor") &&
-           ReadUnsigned(object, "glowPercent", StudioClock::kMinimumGlowPercent, StudioClock::kMaximumGlowPercent,
-                        value);
+    const bool validDateFormat               = dateFormat && StudioClock::TryParseDateFormat(dateFormat, parsedDateFormat);
+    uint32_t value                           = 0;
+    return HasExactKeys(object, StudioClock::kSettingsKeys) && yyjson_is_bool(yyjson_obj_get(object, "showSecondProgress")) &&
+           yyjson_is_bool(yyjson_obj_get(object, "externalDotsAlwaysOn")) && yyjson_is_bool(yyjson_obj_get(object, "showSeconds")) &&
+           yyjson_is_bool(yyjson_obj_get(object, "showDate")) && validDateFormat && IsColor(object, "secondsColor") && IsColor(object, "timeColor") &&
+           ReadUnsigned(object, "glowPercent", StudioClock::kMinimumGlowPercent, StudioClock::kMaximumGlowPercent, value);
 }
 
 [[nodiscard]] bool IsValidDeskClockPrivate(yyjson_val* object) noexcept
@@ -383,45 +377,40 @@ template <size_t Count>
         "dateColor",
     };
     uint32_t duration = 0;
-    return HasExactKeys(object, keys) && ReadUnsigned(object, "flipDurationMilliseconds", 250, 800, duration) &&
-           IsColor(object, "cardColor") && IsColor(object, "digitColor") && IsColor(object, "dateColor");
+    return HasExactKeys(object, keys) && ReadUnsigned(object, "flipDurationMilliseconds", 250, 800, duration) && IsColor(object, "cardColor") &&
+           IsColor(object, "digitColor") && IsColor(object, "dateColor");
 }
 
 [[nodiscard]] bool IsValidShadersPrivate(yyjson_val* object) noexcept
 {
-    yyjson_val* modeValue = yyjson_obj_get(object, "mode");
+    yyjson_val* modeValue   = yyjson_obj_get(object, "mode");
     yyjson_val* shaderValue = yyjson_obj_get(object, "shader");
-    Shaders::Mode mode = Shaders::Mode::Slideshow;
-    uint32_t shaderIndex = 0;
-    uint32_t value = 0;
+    Shaders::Mode mode      = Shaders::Mode::Slideshow;
+    uint32_t shaderIndex    = 0;
+    uint32_t value          = 0;
     return HasExactKeys(object, Shaders::kSettingsKeys) && yyjson_is_str(modeValue) &&
-           Shaders::TryParseMode({yyjson_get_str(modeValue), yyjson_get_len(modeValue)}, mode) &&
-           yyjson_is_str(shaderValue) &&
+           Shaders::TryParseMode({yyjson_get_str(modeValue), yyjson_get_len(modeValue)}, mode) && yyjson_is_str(shaderValue) &&
            Shaders::TryFindShader({yyjson_get_str(shaderValue), yyjson_get_len(shaderValue)}, shaderIndex) &&
-           ReadUnsigned(object, "intervalSeconds", Shaders::kMinimumIntervalSeconds, Shaders::kMaximumIntervalSeconds,
-                        value) &&
+           ReadUnsigned(object, "intervalSeconds", Shaders::kMinimumIntervalSeconds, Shaders::kMaximumIntervalSeconds, value) &&
            yyjson_is_bool(yyjson_obj_get(object, "shuffle")) &&
-           ReadUnsigned(object, "renderScalePercent", Shaders::kMinimumRenderScalePercent,
-                        Shaders::kMaximumRenderScalePercent, value);
+           ReadUnsigned(object, "renderScalePercent", Shaders::kMinimumRenderScalePercent, Shaders::kMaximumRenderScalePercent, value);
 }
 
 [[nodiscard]] bool IsValidWeatherPrivate(yyjson_val* object) noexcept
 {
     constexpr std::array keys{"locationMode", "location", "temperatureUnit", "windUnit"};
     yyjson_val* locationModeValue = yyjson_obj_get(object, "locationMode");
-    yyjson_val* locationValue = yyjson_obj_get(object, "location");
-    yyjson_val* temperatureValue = yyjson_obj_get(object, "temperatureUnit");
-    yyjson_val* windValue = yyjson_obj_get(object, "windUnit");
-    const char* locationMode = yyjson_is_str(locationModeValue) ? yyjson_get_str(locationModeValue) : nullptr;
-    const char* temperatureUnit = yyjson_is_str(temperatureValue) ? yyjson_get_str(temperatureValue) : nullptr;
-    const char* windUnit = yyjson_is_str(windValue) ? yyjson_get_str(windValue) : nullptr;
-    const bool validLocationMode =
-        locationMode && (std::strcmp(locationMode, "automatic") == 0 || std::strcmp(locationMode, "manual") == 0);
-    const bool validTemperature = temperatureUnit && (std::strcmp(temperatureUnit, "celsius") == 0 ||
-                                                      std::strcmp(temperatureUnit, "fahrenheit") == 0);
-    const bool validWind = windUnit && (std::strcmp(windUnit, "kmh") == 0 || std::strcmp(windUnit, "mph") == 0);
-    return HasExactKeys(object, keys) && validLocationMode && yyjson_is_str(locationValue) &&
-           yyjson_get_len(locationValue) <= 128 && validTemperature && validWind;
+    yyjson_val* locationValue     = yyjson_obj_get(object, "location");
+    yyjson_val* temperatureValue  = yyjson_obj_get(object, "temperatureUnit");
+    yyjson_val* windValue         = yyjson_obj_get(object, "windUnit");
+    const char* locationMode      = yyjson_is_str(locationModeValue) ? yyjson_get_str(locationModeValue) : nullptr;
+    const char* temperatureUnit   = yyjson_is_str(temperatureValue) ? yyjson_get_str(temperatureValue) : nullptr;
+    const char* windUnit          = yyjson_is_str(windValue) ? yyjson_get_str(windValue) : nullptr;
+    const bool validLocationMode  = locationMode && (std::strcmp(locationMode, "automatic") == 0 || std::strcmp(locationMode, "manual") == 0);
+    const bool validTemperature   = temperatureUnit && (std::strcmp(temperatureUnit, "celsius") == 0 || std::strcmp(temperatureUnit, "fahrenheit") == 0);
+    const bool validWind          = windUnit && (std::strcmp(windUnit, "kmh") == 0 || std::strcmp(windUnit, "mph") == 0);
+    return HasExactKeys(object, keys) && validLocationMode && yyjson_is_str(locationValue) && yyjson_get_len(locationValue) <= 128 && validTemperature &&
+           validWind;
 }
 
 [[nodiscard]] bool IsWeatherPrivate(const JsonObjectSettings& settings) noexcept
@@ -448,9 +437,8 @@ template <size_t Count>
     std::memcpy(mutableJson.data(), settings.Data(), settings.Bytes());
     mutableJson[settings.Bytes()] = '\0';
     yyjson_read_err error{};
-    unique_yyjson_doc document{
-        yyjson_read_opts(mutableJson.data(), settings.Bytes(), YYJSON_READ_NOFLAG, nullptr, &error)};
-    if (!document || !yyjson_is_obj(yyjson_doc_get_root(document.get())))
+    unique_yyjson_doc document{yyjson_read_opts(mutableJson.data(), settings.Bytes(), YYJSON_READ_NOFLAG, nullptr, &error)};
+    if (! document || ! yyjson_is_obj(yyjson_doc_get_root(document.get())))
     {
         return {};
     }
@@ -460,7 +448,7 @@ template <size_t Count>
 [[nodiscard]] bool IsEmptyPrivate(const JsonObjectSettings& settings) noexcept
 {
     unique_yyjson_doc document = ParseStoredObject(settings);
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    yyjson_val* root           = document ? yyjson_doc_get_root(document.get()) : nullptr;
     return yyjson_is_obj(root) && yyjson_obj_size(root) == 0;
 }
 
@@ -473,17 +461,16 @@ template <size_t Count>
 [[nodiscard]] bool IsProcessViewerPrivate(const JsonObjectSettings& settings) noexcept
 {
     unique_yyjson_doc document = ParseStoredObject(settings);
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    yyjson_val* root           = document ? yyjson_doc_get_root(document.get()) : nullptr;
     constexpr std::array keys{"topN", "hideIdle"};
     uint32_t topN = 0;
-    return root && HasExactKeys(root, keys) && ReadUnsigned(root, "topN", 1, 32, topN) &&
-           yyjson_is_bool(yyjson_obj_get(root, "hideIdle"));
+    return root && HasExactKeys(root, keys) && ReadUnsigned(root, "topN", 1, 32, topN) && yyjson_is_bool(yyjson_obj_get(root, "hideIdle"));
 }
 
 [[nodiscard]] bool IsRankedViewerPrivate(const JsonObjectSettings& settings) noexcept
 {
     unique_yyjson_doc document = ParseStoredObject(settings);
-    yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    yyjson_val* root           = document ? yyjson_doc_get_root(document.get()) : nullptr;
     constexpr std::array keys{"topN"};
     uint32_t topN = 0;
     return root && HasExactKeys(root, keys) && ReadUnsigned(root, "topN", 1, 16, topN);
@@ -509,11 +496,11 @@ template <size_t Count>
 
 [[nodiscard]] bool IsValidLauncherIconSize(yyjson_val* iconSize) noexcept
 {
-    if (!iconSize)
+    if (! iconSize)
     {
         return true;
     }
-    if (!yyjson_is_str(iconSize))
+    if (! yyjson_is_str(iconSize))
     {
         return false;
     }
@@ -523,25 +510,24 @@ template <size_t Count>
 
 [[nodiscard]] bool IsValidLauncherPrivate(yyjson_val* settings) noexcept
 {
-    if (!yyjson_is_obj(settings))
+    if (! yyjson_is_obj(settings))
     {
         return false;
     }
     const bool hasIconSize = yyjson_obj_get(settings, "iconSize") != nullptr;
     if (hasIconSize)
     {
-        if (!HasExactKeys(settings, std::array{"shortcuts", "iconSize"}) ||
-            !IsValidLauncherIconSize(yyjson_obj_get(settings, "iconSize")))
+        if (! HasExactKeys(settings, std::array{"shortcuts", "iconSize"}) || ! IsValidLauncherIconSize(yyjson_obj_get(settings, "iconSize")))
         {
             return false;
         }
     }
-    else if (!HasExactKeys(settings, std::array{"shortcuts"}))
+    else if (! HasExactKeys(settings, std::array{"shortcuts"}))
     {
         return false;
     }
     yyjson_val* shortcuts = yyjson_obj_get(settings, "shortcuts");
-    if (!yyjson_is_arr(shortcuts) || yyjson_arr_size(shortcuts) > kLauncherMaximumShortcuts)
+    if (! yyjson_is_arr(shortcuts) || yyjson_arr_size(shortcuts) > kLauncherMaximumShortcuts)
     {
         return false;
     }
@@ -551,8 +537,7 @@ template <size_t Count>
     {
         Launcher::ShortcutItem parsed{};
         const char* error = nullptr;
-        if (!Launcher::ParseShortcutItem(yyjson_arr_get(shortcuts, index), &HostActionCatalog::IsKnownActionName,
-                                         parsed, &error))
+        if (! Launcher::ParseShortcutItem(yyjson_arr_get(shortcuts, index), &HostActionCatalog::IsKnownActionName, parsed, &error))
         {
             return false;
         }
@@ -576,14 +561,14 @@ template <size_t Count>
 
 [[nodiscard]] HRESULT CopyObject(yyjson_val* object, JsonObjectSettings& destination) noexcept
 {
-    if (!yyjson_is_obj(object))
+    if (! yyjson_is_obj(object))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     yyjson_write_err error{};
     size_t length = 0;
     unique_malloc_string serialized{yyjson_val_write_opts(object, YYJSON_WRITE_NOFLAG, nullptr, &length, &error)};
-    if (!serialized)
+    if (! serialized)
     {
         return E_OUTOFMEMORY;
     }
@@ -595,41 +580,40 @@ template <size_t Count>
     return destination.Assign({serialized.get(), length});
 }
 
-[[nodiscard]] HRESULT MergeSettingsObject(const JsonObjectSettings& base, yyjson_val* patch,
-                                          JsonObjectSettings& destination) noexcept
+[[nodiscard]] HRESULT MergeSettingsObject(const JsonObjectSettings& base, yyjson_val* patch, JsonObjectSettings& destination) noexcept
 {
-    if (!yyjson_is_obj(patch))
+    if (! yyjson_is_obj(patch))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     unique_yyjson_doc baseDocument = ParseStoredObject(base);
-    yyjson_val* baseRoot = baseDocument ? yyjson_doc_get_root(baseDocument.get()) : nullptr;
-    if (!yyjson_is_obj(baseRoot))
+    yyjson_val* baseRoot           = baseDocument ? yyjson_doc_get_root(baseDocument.get()) : nullptr;
+    if (! yyjson_is_obj(baseRoot))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     unique_mut_doc mutableDocument{yyjson_mut_doc_new(nullptr)};
     yyjson_mut_val* mutableRoot = mutableDocument ? yyjson_val_mut_copy(mutableDocument.get(), baseRoot) : nullptr;
-    if (!mutableRoot)
+    if (! mutableRoot)
     {
         return E_OUTOFMEMORY;
     }
     yyjson_mut_doc_set_root(mutableDocument.get(), mutableRoot);
     yyjson_obj_iter iterator = yyjson_obj_iter_with(patch);
-    yyjson_val* key = nullptr;
+    yyjson_val* key          = nullptr;
     while ((key = yyjson_obj_iter_next(&iterator)))
     {
-        yyjson_val* value = yyjson_obj_iter_get_val(key);
-        yyjson_mut_val* mutKey = yyjson_mut_strncpy(mutableDocument.get(), yyjson_get_str(key), yyjson_get_len(key));
+        yyjson_val* value        = yyjson_obj_iter_get_val(key);
+        yyjson_mut_val* mutKey   = yyjson_mut_strncpy(mutableDocument.get(), yyjson_get_str(key), yyjson_get_len(key));
         yyjson_mut_val* mutValue = yyjson_val_mut_copy(mutableDocument.get(), value);
-        if (!mutKey || !mutValue || !yyjson_mut_obj_put(mutableRoot, mutKey, mutValue))
+        if (! mutKey || ! mutValue || ! yyjson_mut_obj_put(mutableRoot, mutKey, mutValue))
         {
             return E_OUTOFMEMORY;
         }
     }
     size_t length = 0;
     unique_malloc_string written{yyjson_mut_write(mutableDocument.get(), YYJSON_WRITE_NOFLAG, &length)};
-    if (!written || length == 0)
+    if (! written || length == 0)
     {
         return E_OUTOFMEMORY;
     }
@@ -728,8 +712,7 @@ template <size_t Count>
 
 // The write-through rename that commits a complete temporary file over `target`. S_FALSE without replaceExisting when
 // the target already exists (an install that lost the race keeps that file).
-[[nodiscard]] HRESULT CommitTemporaryFile(const std::wstring& temporary, const std::filesystem::path& target,
-                                          bool replaceExisting) noexcept
+[[nodiscard]] HRESULT CommitTemporaryFile(const std::wstring& temporary, const std::filesystem::path& target, bool replaceExisting) noexcept
 {
     const DWORD flags = MOVEFILE_WRITE_THROUGH | (replaceExisting ? MOVEFILE_REPLACE_EXISTING : 0U);
     if (MoveFileExW(temporary.c_str(), target.c_str(), flags))
@@ -737,7 +720,7 @@ template <size_t Count>
         return S_OK;
     }
     const DWORD error = GetLastError();
-    if (!replaceExisting && (error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS))
+    if (! replaceExisting && (error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS))
     {
         return S_FALSE;
     }
@@ -746,13 +729,12 @@ template <size_t Count>
 
 // The schema copy, refreshed from the deployed file on every start. It skips the data flush a settings document gets
 // (InstallTemplateFile): a schema that a power loss empties is copied again at the next start.
-[[nodiscard]] HRESULT CopyFileAtomically(const std::filesystem::path& source, const std::filesystem::path& target,
-                                         bool replaceExisting) noexcept
+[[nodiscard]] HRESULT CopyFileAtomically(const std::filesystem::path& source, const std::filesystem::path& target, bool replaceExisting) noexcept
 {
     try
     {
         const std::wstring temporary = TemporarySiblingPath(target);
-        if (!CopyFileW(source.c_str(), temporary.c_str(), TRUE))
+        if (! CopyFileW(source.c_str(), temporary.c_str(), TRUE))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -769,9 +751,8 @@ template <size_t Count>
     }
 }
 
-#if !defined(_DEBUG)
-[[nodiscard]] HRESULT MigrateLegacyReleaseSettingsName(const std::filesystem::path& directory,
-                                                       const std::filesystem::path& target) noexcept
+#if ! defined(_DEBUG)
+[[nodiscard]] HRESULT MigrateLegacyReleaseSettingsName(const std::filesystem::path& directory, const std::filesystem::path& target) noexcept
 {
     if (const HRESULT probe = ProbeInstallTarget(target); probe != S_OK)
     {
@@ -779,40 +760,35 @@ template <size_t Count>
     }
 
     const std::filesystem::path legacy = directory / kLegacyReleaseSettingsFileName;
-    const DWORD legacyAttributes = GetFileAttributesW(legacy.c_str());
+    const DWORD legacyAttributes       = GetFileAttributesW(legacy.c_str());
     if (legacyAttributes == INVALID_FILE_ATTRIBUTES)
     {
         const DWORD legacyError = GetLastError();
-        return legacyError == ERROR_FILE_NOT_FOUND || legacyError == ERROR_PATH_NOT_FOUND
-                   ? S_FALSE
-                   : HRESULT_FROM_WIN32(legacyError);
+        return legacyError == ERROR_FILE_NOT_FOUND || legacyError == ERROR_PATH_NOT_FOUND ? S_FALSE : HRESULT_FROM_WIN32(legacyError);
     }
     if ((legacyAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
     {
         return HRESULT_FROM_WIN32(ERROR_DIRECTORY);
     }
-    return MoveFileExW(legacy.c_str(), target.c_str(), MOVEFILE_WRITE_THROUGH) ? S_OK
-                                                                               : HRESULT_FROM_WIN32(GetLastError());
+    return MoveFileExW(legacy.c_str(), target.c_str(), MOVEFILE_WRITE_THROUGH) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
 }
 #endif
 
-[[nodiscard]] HRESULT BackupInvalidSettings(const std::filesystem::path& path,
-                                            std::filesystem::path& backupPath) noexcept
+[[nodiscard]] HRESULT BackupInvalidSettings(const std::filesystem::path& path, std::filesystem::path& backupPath) noexcept
 {
     try
     {
         SYSTEMTIME utc{};
         GetSystemTime(&utc);
         wchar_t suffix[64]{};
-        const int written = swprintf_s(suffix, L".invalid-%04u-%02u-%02u_%02u-%02u-%02uZ", utc.wYear, utc.wMonth,
-                                       utc.wDay, utc.wHour, utc.wMinute, utc.wSecond);
+        const int written =
+            swprintf_s(suffix, L".invalid-%04u-%02u-%02u_%02u-%02u-%02uZ", utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond);
         if (written <= 0)
         {
             return E_FAIL;
         }
-        const std::filesystem::path backup =
-            path.parent_path() / (path.stem().wstring() + suffix + path.extension().wstring());
-        if (!MoveFileExW(path.c_str(), backup.c_str(), MOVEFILE_WRITE_THROUGH))
+        const std::filesystem::path backup = path.parent_path() / (path.stem().wstring() + suffix + path.extension().wstring());
+        if (! MoveFileExW(path.c_str(), backup.c_str(), MOVEFILE_WRITE_THROUGH))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -834,16 +810,20 @@ template <size_t Count>
     try
     {
         const std::wstring pathText(path);
-        wil::unique_hfile file{CreateFileW(pathText.c_str(), GENERIC_READ,
-                                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
-        if (!file)
+        wil::unique_hfile file{CreateFileW(pathText.c_str(),
+                                           GENERIC_READ,
+                                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                           nullptr,
+                                           OPEN_EXISTING,
+                                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
+                                           nullptr)};
+        if (! file)
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
 
         LARGE_INTEGER size{};
-        if (!GetFileSizeEx(file.get(), &size))
+        if (! GetFileSizeEx(file.get(), &size))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -856,9 +836,9 @@ template <size_t Count>
         DWORD totalRead = 0;
         while (totalRead < bytes.size())
         {
-            DWORD chunkRead = 0;
+            DWORD chunkRead       = 0;
             const DWORD remaining = static_cast<DWORD>(bytes.size() - totalRead);
-            if (!ReadFile(file.get(), bytes.data() + totalRead, remaining, &chunkRead, nullptr))
+            if (! ReadFile(file.get(), bytes.data() + totalRead, remaining, &chunkRead, nullptr))
             {
                 return HRESULT_FROM_WIN32(GetLastError());
             }
@@ -921,26 +901,22 @@ template <size_t Count>
     return nullptr;
 }
 
-[[nodiscard]] bool ApplyFlattenedSettings(yyjson_mut_doc* document, yyjson_mut_val* widget,
-                                          yyjson_mut_val* settingsObject) noexcept
+[[nodiscard]] bool ApplyFlattenedSettings(yyjson_mut_doc* document, yyjson_mut_val* widget, yyjson_mut_val* settingsObject) noexcept
 {
-    if (!document || !yyjson_mut_is_obj(widget) || !yyjson_mut_is_obj(settingsObject))
+    if (! document || ! yyjson_mut_is_obj(widget) || ! yyjson_mut_is_obj(settingsObject))
     {
         return false;
     }
     // plugin, use, and backgroundColor are host-owned widget keys: a plugin persist replaces only the plugin's
     // flattened members around them.
     const auto hostOwned = [](const char* name) noexcept
-    {
-        return name && (std::strcmp(name, "plugin") == 0 || std::strcmp(name, "use") == 0 ||
-                        std::strcmp(name, "backgroundColor") == 0);
-    };
+    { return name && (std::strcmp(name, "plugin") == 0 || std::strcmp(name, "use") == 0 || std::strcmp(name, "backgroundColor") == 0); };
     std::vector<std::string> remove;
     yyjson_mut_obj_iter iterator = yyjson_mut_obj_iter_with(widget);
     while (yyjson_mut_val* key = yyjson_mut_obj_iter_next(&iterator))
     {
         const char* name = yyjson_mut_get_str(key);
-        if (name && !hostOwned(name))
+        if (name && ! hostOwned(name))
         {
             remove.emplace_back(name);
         }
@@ -953,12 +929,12 @@ template <size_t Count>
     while (yyjson_mut_val* key = yyjson_mut_obj_iter_next(&settingsIterator))
     {
         const char* name = yyjson_mut_get_str(key);
-        if (!name || hostOwned(name))
+        if (! name || hostOwned(name))
         {
             continue;
         }
         yyjson_mut_val* copiedValue = yyjson_mut_val_mut_copy(document, yyjson_mut_obj_iter_get_val(key));
-        if (!copiedValue || !yyjson_mut_obj_add_val(document, widget, name, copiedValue))
+        if (! copiedValue || ! yyjson_mut_obj_add_val(document, widget, name, copiedValue))
         {
             return false;
         }
@@ -971,32 +947,35 @@ template <size_t Count>
     return yyjson_mut_is_obj(declare) && yyjson_mut_obj_getn(declare, name.data(), name.size()) != nullptr;
 }
 
-[[nodiscard]] bool PatchMutableWidgetValue(yyjson_mut_doc* document, yyjson_mut_val* parent, bool parentIsArray,
-                                           size_t arrayIndex, const char* objectKey, yyjson_mut_val* settingsObject,
+[[nodiscard]] bool PatchMutableWidgetValue(yyjson_mut_doc* document,
+                                           yyjson_mut_val* parent,
+                                           bool parentIsArray,
+                                           size_t arrayIndex,
+                                           const char* objectKey,
+                                           yyjson_mut_val* settingsObject,
                                            yyjson_mut_val* declare) noexcept
 {
-    if (!document || !parent || !settingsObject)
+    if (! document || ! parent || ! settingsObject)
     {
         return false;
     }
-    yyjson_mut_val* widget =
-        parentIsArray ? yyjson_mut_arr_get(parent, arrayIndex) : yyjson_mut_obj_get(parent, objectKey);
-    if (!widget)
+    yyjson_mut_val* widget = parentIsArray ? yyjson_mut_arr_get(parent, arrayIndex) : yyjson_mut_obj_get(parent, objectKey);
+    if (! widget)
     {
         return false;
     }
     if (yyjson_mut_is_str(widget))
     {
         yyjson_mut_val* wrapper = yyjson_mut_obj(document);
-        if (!wrapper)
+        if (! wrapper)
         {
             return false;
         }
         const std::string_view name(yyjson_mut_get_str(widget), yyjson_mut_get_len(widget));
         yyjson_mut_val* copiedName = yyjson_mut_strncpy(document, name.data(), name.size());
-        const bool useDeclare = IsDeclareName(declare, name);
-        if (!copiedName || !yyjson_mut_obj_add_val(document, wrapper, useDeclare ? "use" : "plugin", copiedName) ||
-            !ApplyFlattenedSettings(document, wrapper, settingsObject))
+        const bool useDeclare      = IsDeclareName(declare, name);
+        if (! copiedName || ! yyjson_mut_obj_add_val(document, wrapper, useDeclare ? "use" : "plugin", copiedName) ||
+            ! ApplyFlattenedSettings(document, wrapper, settingsObject))
         {
             return false;
         }
@@ -1007,7 +986,7 @@ template <size_t Count>
         yyjson_mut_val* key = yyjson_mut_str(document, objectKey);
         return key && yyjson_mut_obj_put(parent, key, wrapper);
     }
-    if (!yyjson_mut_is_obj(widget))
+    if (! yyjson_mut_is_obj(widget))
     {
         return false;
     }
@@ -1016,19 +995,25 @@ template <size_t Count>
 
 [[nodiscard]] bool IsMutableSplitContainer(yyjson_mut_val* item) noexcept
 {
-    return yyjson_mut_is_obj(item) && (yyjson_mut_obj_get(item, "weight") || yyjson_mut_obj_get(item, "widget") ||
-                                       yyjson_mut_obj_get(item, "rows") || yyjson_mut_obj_get(item, "columns"));
+    return yyjson_mut_is_obj(item) && (yyjson_mut_obj_get(item, "weight") || yyjson_mut_obj_get(item, "widget") || yyjson_mut_obj_get(item, "rows") ||
+                                       yyjson_mut_obj_get(item, "columns"));
 }
 
-[[nodiscard]] bool PatchMutableHumanItems(yyjson_mut_doc* document, yyjson_mut_val* items, uint32_t& instanceIndex,
-                                          uint32_t targetIndex, yyjson_mut_val* settingsObject,
+[[nodiscard]] bool PatchMutableHumanItems(yyjson_mut_doc* document,
+                                          yyjson_mut_val* items,
+                                          uint32_t& instanceIndex,
+                                          uint32_t targetIndex,
+                                          yyjson_mut_val* settingsObject,
                                           yyjson_mut_val* declare) noexcept;
 
-[[nodiscard]] bool PatchMutableHumanItems(yyjson_mut_doc* document, yyjson_mut_val* items, uint32_t& instanceIndex,
-                                          uint32_t targetIndex, yyjson_mut_val* settingsObject,
+[[nodiscard]] bool PatchMutableHumanItems(yyjson_mut_doc* document,
+                                          yyjson_mut_val* items,
+                                          uint32_t& instanceIndex,
+                                          uint32_t targetIndex,
+                                          yyjson_mut_val* settingsObject,
                                           yyjson_mut_val* declare) noexcept
 {
-    if (!yyjson_mut_is_arr(items))
+    if (! yyjson_mut_is_arr(items))
     {
         return false;
     }
@@ -1038,8 +1023,8 @@ template <size_t Count>
         yyjson_mut_val* item = yyjson_mut_arr_get(items, index);
         if (IsMutableSplitContainer(item))
         {
-            yyjson_mut_val* widget = yyjson_mut_obj_get(item, "widget");
-            yyjson_mut_val* rows = yyjson_mut_obj_get(item, "rows");
+            yyjson_mut_val* widget  = yyjson_mut_obj_get(item, "widget");
+            yyjson_mut_val* rows    = yyjson_mut_obj_get(item, "rows");
             yyjson_mut_val* columns = yyjson_mut_obj_get(item, "columns");
             if (widget)
             {
@@ -1076,18 +1061,21 @@ template <size_t Count>
     return false;
 }
 
-[[nodiscard]] bool PatchMutablePage(yyjson_mut_doc* document, yyjson_mut_val* page, uint32_t& instanceIndex,
-                                    uint32_t targetIndex, yyjson_mut_val* settingsObject,
+[[nodiscard]] bool PatchMutablePage(yyjson_mut_doc* document,
+                                    yyjson_mut_val* page,
+                                    uint32_t& instanceIndex,
+                                    uint32_t targetIndex,
+                                    yyjson_mut_val* settingsObject,
                                     yyjson_mut_val* declare) noexcept
 {
-    if (!yyjson_mut_is_obj(page))
+    if (! yyjson_mut_is_obj(page))
     {
         return false;
     }
     yyjson_mut_val* widgets = yyjson_mut_obj_get(page, "widgets");
     yyjson_mut_val* columns = yyjson_mut_obj_get(page, "columns");
-    yyjson_mut_val* rows = yyjson_mut_obj_get(page, "rows");
-    yyjson_mut_val* items = widgets ? widgets : (columns ? columns : rows);
+    yyjson_mut_val* rows    = yyjson_mut_obj_get(page, "rows");
+    yyjson_mut_val* items   = widgets ? widgets : (columns ? columns : rows);
     return items && PatchMutableHumanItems(document, items, instanceIndex, targetIndex, settingsObject, declare);
 }
 
@@ -1099,18 +1087,17 @@ SettingsWriteSeam g_settingsWriteSeam{};
 [[nodiscard]] HRESULT ReadHandleStamp(HANDLE file, SettingsFileStamp& stamp) noexcept
 {
     BY_HANDLE_FILE_INFORMATION information{};
-    if (!GetFileInformationByHandle(file, &information))
+    if (! GetFileInformationByHandle(file, &information))
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
     SettingsFileStamp read{};
     read.volumeSerialNumber = information.dwVolumeSerialNumber;
-    read.fileIndexHigh = information.nFileIndexHigh;
-    read.fileIndexLow = information.nFileIndexLow;
-    read.lastWriteTime = (static_cast<uint64_t>(information.ftLastWriteTime.dwHighDateTime) << 32U) |
-                         information.ftLastWriteTime.dwLowDateTime;
-    read.fileSize = (static_cast<uint64_t>(information.nFileSizeHigh) << 32U) | information.nFileSizeLow;
-    stamp = read;
+    read.fileIndexHigh      = information.nFileIndexHigh;
+    read.fileIndexLow       = information.nFileIndexLow;
+    read.lastWriteTime      = (static_cast<uint64_t>(information.ftLastWriteTime.dwHighDateTime) << 32U) | information.ftLastWriteTime.dwLowDateTime;
+    read.fileSize           = (static_cast<uint64_t>(information.nFileSizeHigh) << 32U) | information.nFileSizeLow;
+    stamp                   = read;
     return S_OK;
 }
 
@@ -1121,14 +1108,14 @@ SettingsWriteSeam g_settingsWriteSeam{};
 // Destruction closes the handle and deletes the file unless a rename committed it.
 class DocumentTemporary final
 {
-  public:
-    DocumentTemporary() noexcept = default;
-    DocumentTemporary(const DocumentTemporary&) = delete;
+public:
+    DocumentTemporary() noexcept                           = default;
+    DocumentTemporary(const DocumentTemporary&)            = delete;
     DocumentTemporary& operator=(const DocumentTemporary&) = delete;
     ~DocumentTemporary()
     {
         _file.reset();
-        if (!_renamed && !_path.empty())
+        if (! _renamed && ! _path.empty())
         {
             (void)DeleteFileW(_path.c_str());
         }
@@ -1142,10 +1129,14 @@ class DocumentTemporary final
         try
         {
             std::wstring path = TemporarySiblingPath(target);
-            _file.reset(CreateFileW(path.c_str(), GENERIC_WRITE | DELETE | FILE_READ_ATTRIBUTES, 0, nullptr, CREATE_NEW,
+            _file.reset(CreateFileW(path.c_str(),
+                                    GENERIC_WRITE | DELETE | FILE_READ_ATTRIBUTES,
+                                    0,
+                                    nullptr,
+                                    CREATE_NEW,
                                     FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_WRITE_THROUGH,
                                     nullptr));
-            if (!_file)
+            if (! _file)
             {
                 return HRESULT_FROM_WIN32(GetLastError());
             }
@@ -1156,19 +1147,18 @@ class DocumentTemporary final
             return E_OUTOFMEMORY;
         }
         DWORD written = 0;
-        BOOL wrote = FALSE;
+        BOOL wrote    = FALSE;
 #if defined(REDXE_SETTINGS_TESTS)
         if (g_settingsWriteSeam.writeFile)
         {
-            wrote =
-                g_settingsWriteSeam.writeFile(_file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written);
+            wrote = g_settingsWriteSeam.writeFile(_file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written);
         }
         else
 #endif
         {
             wrote = WriteFile(_file.get(), bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr);
         }
-        if (!wrote)
+        if (! wrote)
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -1191,14 +1181,14 @@ class DocumentTemporary final
         }
 #endif
         const size_t nameBytes = target.size() * sizeof(wchar_t);
-        const size_t size = offsetof(FILE_RENAME_INFO, FileName) + nameBytes + sizeof(wchar_t);
+        const size_t size      = offsetof(FILE_RENAME_INFO, FileName) + nameBytes + sizeof(wchar_t);
         if (size > MAXDWORD)
         {
             return HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE);
         }
         // uint64_t storage keeps the record's pointer-sized members aligned.
         const std::unique_ptr<uint64_t[]> storage{new (std::nothrow) uint64_t[(size + 7U) / 8U]{}};
-        if (!storage)
+        if (! storage)
         {
             return E_OUTOFMEMORY;
         }
@@ -1213,8 +1203,7 @@ class DocumentTemporary final
         }
         info->FileNameLength = static_cast<DWORD>(nameBytes);
         std::memcpy(info->FileName, target.c_str(), nameBytes);
-        if (!SetFileInformationByHandle(_file.get(), posix ? FileRenameInfoEx : FileRenameInfo, info,
-                                        static_cast<DWORD>(size)))
+        if (! SetFileInformationByHandle(_file.get(), posix ? FileRenameInfoEx : FileRenameInfo, info, static_cast<DWORD>(size)))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -1238,7 +1227,7 @@ class DocumentTemporary final
         _file.reset();
     }
 
-  private:
+private:
     std::wstring _path;
     wil::unique_hfile _file;
     bool _renamed = false;
@@ -1246,8 +1235,7 @@ class DocumentTemporary final
 
 // An install or recovery write: the temporary is written, flushed, and renamed over target. S_FALSE without
 // replaceExisting when the target already exists (an install that lost the race keeps that file).
-[[nodiscard]] HRESULT WriteUtf8FileAtomically(const std::filesystem::path& target, std::string_view bytes,
-                                              bool replaceExisting) noexcept
+[[nodiscard]] HRESULT WriteUtf8FileAtomically(const std::filesystem::path& target, std::string_view bytes, bool replaceExisting) noexcept
 {
     try
     {
@@ -1258,8 +1246,7 @@ class DocumentTemporary final
         {
             result = temporary.Rename(path, false, replaceExisting);
         }
-        if (!replaceExisting &&
-            (result == HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) || result == HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)))
+        if (! replaceExisting && (result == HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) || result == HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)))
         {
             return S_FALSE;
         }
@@ -1286,8 +1273,10 @@ class DocumentTemporary final
 // program could open the file, or after a classic replacement once that handle closed (empty when that read failed).
 // S_FALSE: nothing was written, because target is missing, held, unreadable, or another file; `stamp` is its stamp
 // (zero when missing or unreadable). Otherwise the failure, and nothing was written.
-[[nodiscard]] HRESULT ReplaceSettingsDocument(const std::wstring& target, const SettingsFileStamp& expected,
-                                              std::string_view bytes, std::optional<SettingsFileStamp>& stamp) noexcept
+[[nodiscard]] HRESULT ReplaceSettingsDocument(const std::wstring& target,
+                                              const SettingsFileStamp& expected,
+                                              std::string_view bytes,
+                                              std::optional<SettingsFileStamp>& stamp) noexcept
 {
     stamp.reset();
     const auto stillExpected = [&target, &expected, &stamp]() noexcept
@@ -1300,16 +1289,15 @@ class DocumentTemporary final
         stamp = current;
         return current == expected;
     };
-    wil::unique_hfile guard{CreateFileW(target.c_str(), DELETE | FILE_READ_ATTRIBUTES,
-                                        FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                                        FILE_ATTRIBUTE_NORMAL, nullptr)};
-    if (!guard)
+    wil::unique_hfile guard{CreateFileW(
+        target.c_str(), DELETE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (! guard)
     {
         // Held, missing, unreadable, or another file: the change waits. The expected file refusing the guard for any
         // other reason (read-only, or its ACL) fails like a refused replacement.
-        const DWORD error = GetLastError();
+        const DWORD error       = GetLastError();
         const bool expectedFile = stillExpected();
-        return error == ERROR_SHARING_VIOLATION || !expectedFile ? S_FALSE : HRESULT_FROM_WIN32(error);
+        return error == ERROR_SHARING_VIOLATION || ! expectedFile ? S_FALSE : HRESULT_FROM_WIN32(error);
     }
     SettingsFileStamp current{};
     if (FAILED(ReadHandleStamp(guard.get(), current)))
@@ -1336,15 +1324,14 @@ class DocumentTemporary final
 #endif
     // The guard shares delete, which the replacement needs, so another program can still replace, rename, or delete
     // the name meanwhile; that must not be undone. Only the moment between this check and the rename stays open.
-    if (!stillExpected())
+    if (! stillExpected())
     {
         return S_FALSE;
     }
-    result = temporary.Rename(target, true, true);
-    const bool posix = result != HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER) &&
-                       result != HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) &&
+    result           = temporary.Rename(target, true, true);
+    const bool posix = result != HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER) && result != HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) &&
                        result != HRESULT_FROM_WIN32(ERROR_INVALID_FUNCTION) && result != E_ACCESSDENIED;
-    if (!posix)
+    if (! posix)
     {
         // No POSIX rename here: a classic replacement refuses any open target, the guard included.
         guard.reset();
@@ -1375,7 +1362,7 @@ class DocumentTemporary final
 #endif
     // After a classic replacement the guard is already gone, and the stamp waits for the renaming handle to close: a
     // file system without POSIX rename (FAT, exFAT) may set the last write time only then.
-    if (!posix)
+    if (! posix)
     {
         temporary.Close();
     }
@@ -1393,18 +1380,14 @@ class DocumentTemporary final
 // A plain template install or recovery: the template's bytes through the same flushed atomic write as a persist, so a
 // power loss right after it cannot leave an empty settings file that the next start backs up and replaces. S_FALSE
 // without replaceExisting when the target already exists.
-[[nodiscard]] HRESULT InstallTemplateFile(const std::filesystem::path& source, const std::filesystem::path& target,
-                                          bool replaceExisting) noexcept
+[[nodiscard]] HRESULT InstallTemplateFile(const std::filesystem::path& source, const std::filesystem::path& target, bool replaceExisting) noexcept
 {
     std::vector<char> bytes;
     const HRESULT result = ReadFileBytes(source.native(), bytes);
-    return FAILED(result)
-               ? result
-               : WriteUtf8FileAtomically(target, std::string_view(bytes.data(), bytes.size()), replaceExisting);
+    return FAILED(result) ? result : WriteUtf8FileAtomically(target, std::string_view(bytes.data(), bytes.size()), replaceExisting);
 }
 
-[[nodiscard]] HRESULT InstallIfMissing(const std::filesystem::path& source,
-                                       const std::filesystem::path& target) noexcept
+[[nodiscard]] HRESULT InstallIfMissing(const std::filesystem::path& source, const std::filesystem::path& target) noexcept
 {
     const HRESULT probe = ProbeInstallTarget(target);
     return probe == S_OK ? InstallTemplateFile(source, target, false) : probe;
@@ -1446,7 +1429,7 @@ HRESULT JsonObjectSettings::Assign(std::string_view utf8) noexcept
         return E_OUTOFMEMORY;
 #endif
     std::unique_ptr<char[]> buffer{new (std::nothrow) char[utf8.size() + 1]};
-    if (!buffer)
+    if (! buffer)
         return E_OUTOFMEMORY;
     std::memcpy(buffer.get(), utf8.data(), utf8.size());
     buffer[utf8.size()] = '\0';
@@ -1457,7 +1440,7 @@ HRESULT JsonObjectSettings::Assign(std::string_view utf8) noexcept
             throw std::bad_alloc{};
 #endif
         std::shared_ptr<const char[]> owner{std::move(buffer)};
-        _utf8 = std::move(owner);
+        _utf8  = std::move(owner);
         _bytes = static_cast<uint32_t>(utf8.size());
         return S_OK;
     }
@@ -1535,7 +1518,7 @@ HRESULT ResolveAdjacentDashboardPage(const AppSettings& settings, int direction,
         return E_INVALIDARG;
     }
     const uint32_t current = settings.dashboard.activePageIndex;
-    uint32_t candidate = current;
+    uint32_t candidate     = current;
     if (direction > 0)
     {
         if (current + 1U < settings.dashboard.pageCount)
@@ -1560,12 +1543,12 @@ HRESULT ResolveAdjacentDashboardPage(const AppSettings& settings, int direction,
 
 HRESULT MoveDashboardPage(AppSettings& settings, int direction) noexcept
 {
-    uint32_t selected = 0;
+    uint32_t selected    = 0;
     const HRESULT result = ResolveAdjacentDashboardPage(settings, direction, selected);
     if (FAILED(result))
         return result;
     settings.dashboard.activePageIndex = selected;
-    settings.dashboard.activePageId = settings.dashboard.pages[selected].id;
+    settings.dashboard.activePageId    = settings.dashboard.pages[selected].id;
     return S_OK;
 }
 
@@ -1586,7 +1569,7 @@ HRESULT PreserveActiveDashboardPage(const AppSettings& previous, AppSettings& ca
             if (SettingsIdEquals(candidate.dashboard.pages[index].id.View(), previous.dashboard.activePageId.View()))
             {
                 candidate.dashboard.activePageIndex = index;
-                candidate.dashboard.activePageId = candidate.dashboard.pages[index].id;
+                candidate.dashboard.activePageId    = candidate.dashboard.pages[index].id;
                 return S_OK;
             }
         }
@@ -1594,41 +1577,41 @@ HRESULT PreserveActiveDashboardPage(const AppSettings& previous, AppSettings& ca
     if (previous.dashboard.activePageIndex < candidate.dashboard.pageCount)
     {
         candidate.dashboard.activePageIndex = previous.dashboard.activePageIndex;
-        candidate.dashboard.activePageId = candidate.dashboard.pages[previous.dashboard.activePageIndex].id;
+        candidate.dashboard.activePageId    = candidate.dashboard.pages[previous.dashboard.activePageIndex].id;
         return S_OK;
     }
     candidate.dashboard.activePageIndex = 0;
-    candidate.dashboard.activePageId = candidate.dashboard.pages[0].id;
+    candidate.dashboard.activePageId    = candidate.dashboard.pages[0].id;
     return S_OK;
 }
 
 bool ActiveDashboardRuntimeEquals(const AppSettings& left, const AppSettings& right) noexcept
 {
-    if (left.dashboard.gridColumns != right.dashboard.gridColumns ||
-        left.dashboard.gridRows != right.dashboard.gridRows || left.backgroundRgb != right.backgroundRgb)
+    if (left.dashboard.gridColumns != right.dashboard.gridColumns || left.dashboard.gridRows != right.dashboard.gridRows ||
+        left.backgroundRgb != right.backgroundRgb)
     {
         return false;
     }
 
-    const DashboardPageSettings* leftPage = FindActiveDashboardPage(left);
+    const DashboardPageSettings* leftPage  = FindActiveDashboardPage(left);
     const DashboardPageSettings* rightPage = FindActiveDashboardPage(right);
-    if (!leftPage || !rightPage || leftPage->widgetCount != rightPage->widgetCount)
+    if (! leftPage || ! rightPage || leftPage->widgetCount != rightPage->widgetCount)
     {
         return false;
     }
 
     for (uint32_t index = 0; index < leftPage->widgetCount; ++index)
     {
-        const WidgetInstanceSettings& leftWidget = leftPage->widgets[index];
+        const WidgetInstanceSettings& leftWidget  = leftPage->widgets[index];
         const WidgetInstanceSettings& rightWidget = rightPage->widgets[index];
         if (leftWidget != rightWidget)
         {
             return false;
         }
 
-        const PluginSettings* leftPlugin = FindPluginSettings(left, leftWidget.pluginId.View());
+        const PluginSettings* leftPlugin  = FindPluginSettings(left, leftWidget.pluginId.View());
         const PluginSettings* rightPlugin = FindPluginSettings(right, rightWidget.pluginId.View());
-        if (!leftPlugin || !rightPlugin || *leftPlugin != *rightPlugin)
+        if (! leftPlugin || ! rightPlugin || *leftPlugin != *rightPlugin)
         {
             return false;
         }
@@ -1644,13 +1627,34 @@ bool RuntimeSettingsEqual(const AppSettings& left, const AppSettings& right) noe
     // reordered one is not caught, so the names below follow the declaration order in Settings.h.
     const auto runtimeMembers = [](const AppSettings& settings) noexcept
     {
-        const auto& [versionMajor, versionMinor, logRetentionDays, backgroundRgb, dock, trayIcon, continuousFrameRate,
-                     sourceDocument, plugins, pluginCount, services, serviceCount, retiredServices, dashboard] =
-            settings;
+        const auto& [versionMajor,
+                     versionMinor,
+                     logRetentionDays,
+                     backgroundRgb,
+                     dock,
+                     trayIcon,
+                     continuousFrameRate,
+                     sourceDocument,
+                     plugins,
+                     pluginCount,
+                     services,
+                     serviceCount,
+                     retiredServices,
+                     dashboard] = settings;
         (void)sourceDocument;
         (void)retiredServices;
-        return std::tie(versionMajor, versionMinor, logRetentionDays, backgroundRgb, dock, trayIcon,
-                        continuousFrameRate, plugins, pluginCount, services, serviceCount, dashboard);
+        return std::tie(versionMajor,
+                        versionMinor,
+                        logRetentionDays,
+                        backgroundRgb,
+                        dock,
+                        trayIcon,
+                        continuousFrameRate,
+                        plugins,
+                        pluginCount,
+                        services,
+                        serviceCount,
+                        dashboard);
     };
     return runtimeMembers(left) == runtimeMembers(right);
 }
@@ -1665,10 +1669,8 @@ HRESULT SetJsonObjectSettings(std::string_view json, JsonObjectSettings& setting
     {
         std::vector<char> mutableJson(json.begin(), json.end());
         yyjson_read_err error{};
-        unique_yyjson_doc document{
-            yyjson_read_opts(mutableJson.data(), mutableJson.size(), YYJSON_READ_NOFLAG, nullptr, &error)};
-        return document ? CopyObject(yyjson_doc_get_root(document.get()), settings)
-                        : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        unique_yyjson_doc document{yyjson_read_opts(mutableJson.data(), mutableJson.size(), YYJSON_READ_NOFLAG, nullptr, &error)};
+        return document ? CopyObject(yyjson_doc_get_root(document.get()), settings) : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     catch (const std::bad_alloc&)
     {
@@ -1682,15 +1684,12 @@ HRESULT SetJsonObjectSettings(std::string_view json, JsonObjectSettings& setting
 
 HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
 {
-    if ((settings.continuousFrameRate != ContinuousFrameRate::Display &&
-         settings.continuousFrameRate != ContinuousFrameRate::Thirty) ||
-        settings.pluginCount > kMaximumSettingsPlugins || settings.plugins.size() != settings.pluginCount ||
-        settings.dashboard.gridColumns == 0 || settings.dashboard.gridRows == 0 ||
-        settings.dashboard.gridColumns > kMaximumDashboardGridDimension ||
+    if ((settings.continuousFrameRate != ContinuousFrameRate::Display && settings.continuousFrameRate != ContinuousFrameRate::Thirty) ||
+        settings.pluginCount > kMaximumSettingsPlugins || settings.plugins.size() != settings.pluginCount || settings.dashboard.gridColumns == 0 ||
+        settings.dashboard.gridRows == 0 || settings.dashboard.gridColumns > kMaximumDashboardGridDimension ||
         settings.dashboard.gridRows > kMaximumDashboardGridDimension || settings.dashboard.pageCount == 0 ||
-        settings.dashboard.pageCount > kMaximumDashboardPages ||
-        settings.dashboard.pages.size() != settings.dashboard.pageCount ||
-        !IsValidStoredText(settings.dashboard.activePageId, true))
+        settings.dashboard.pageCount > kMaximumDashboardPages || settings.dashboard.pages.size() != settings.dashboard.pageCount ||
+        ! IsValidStoredText(settings.dashboard.activePageId, true))
     {
         return E_INVALIDARG;
     }
@@ -1698,7 +1697,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
     for (uint32_t index = 0; index < settings.pluginCount; ++index)
     {
         const PluginSettings& plugin = settings.plugins[index];
-        if (!IsValidStoredText(plugin.id, true) || !ParseStoredObject(plugin.privateConfiguration))
+        if (! IsValidStoredText(plugin.id, true) || ! ParseStoredObject(plugin.privateConfiguration))
         {
             return E_INVALIDARG;
         }
@@ -1709,7 +1708,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
                 return HRESULT_FROM_WIN32(ERROR_DUP_NAME);
             }
         }
-        if (!IsEmptyPrivate(plugin.privateConfiguration))
+        if (! IsEmptyPrivate(plugin.privateConfiguration))
         {
             return E_INVALIDARG;
         }
@@ -1722,8 +1721,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
     for (uint32_t index = 0; index < settings.serviceCount; ++index)
     {
         const ServiceSettings& service = settings.services[index];
-        if (!IsValidStoredText(service.name, false) || !IsValidStoredText(service.pluginId, true) ||
-            !ParseStoredObject(service.privateConfiguration))
+        if (! IsValidStoredText(service.name, false) || ! IsValidStoredText(service.pluginId, true) || ! ParseStoredObject(service.privateConfiguration))
         {
             return E_INVALIDARG;
         }
@@ -1732,7 +1730,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
         {
             catalogued = catalogued || SettingsIdEquals(candidate.pluginId, service.pluginId.View());
         }
-        if (!catalogued)
+        if (! catalogued)
         {
             return E_INVALIDARG;
         }
@@ -1756,7 +1754,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
         {
             catalogued = catalogued || SettingsIdEquals(candidate.pluginId, retired.View());
         }
-        if (!IsValidStoredText(retired, true) || !catalogued)
+        if (! IsValidStoredText(retired, true) || ! catalogued)
         {
             return E_INVALIDARG;
         }
@@ -1766,8 +1764,8 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
     for (uint32_t pageIndex = 0; pageIndex < settings.dashboard.pageCount; ++pageIndex)
     {
         const DashboardPageSettings& page = settings.dashboard.pages[pageIndex];
-        if (!IsValidStoredText(page.id, true) || !IsValidStoredText(page.name, false) ||
-            page.widgetCount > kMaximumWidgetsPerPage || page.widgets.size() != page.widgetCount)
+        if (! IsValidStoredText(page.id, true) || ! IsValidStoredText(page.name, false) || page.widgetCount > kMaximumWidgetsPerPage ||
+            page.widgets.size() != page.widgetCount)
         {
             return E_INVALIDARG;
         }
@@ -1789,15 +1787,13 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
         {
             const WidgetInstanceSettings& widget = page.widgets[widgetIndex];
             const WidgetGridPlacement& placement = widget.placement;
-            if (!IsValidStoredText(widget.id, true) || !IsValidStoredText(widget.pluginId, true) ||
-                !IsValidStoredText(widget.typeId, true) || !ParseStoredObject(widget.privateConfiguration) ||
-                (!widget.usesAdaptivePlacement &&
-                 (placement.column >= settings.dashboard.gridColumns || placement.row >= settings.dashboard.gridRows ||
-                  placement.columnSpan == 0 || placement.rowSpan == 0 ||
-                  placement.columnSpan > settings.dashboard.gridColumns - placement.column ||
+            if (! IsValidStoredText(widget.id, true) || ! IsValidStoredText(widget.pluginId, true) || ! IsValidStoredText(widget.typeId, true) ||
+                ! ParseStoredObject(widget.privateConfiguration) ||
+                (! widget.usesAdaptivePlacement &&
+                 (placement.column >= settings.dashboard.gridColumns || placement.row >= settings.dashboard.gridRows || placement.columnSpan == 0 ||
+                  placement.rowSpan == 0 || placement.columnSpan > settings.dashboard.gridColumns - placement.column ||
                   placement.rowSpan > settings.dashboard.gridRows - placement.row)) ||
-                (widget.usesAdaptivePlacement &&
-                 (widget.adaptivePlacement.depth == 0 || widget.adaptivePlacement.depth > kMaximumLayoutDepth)))
+                (widget.usesAdaptivePlacement && (widget.adaptivePlacement.depth == 0 || widget.adaptivePlacement.depth > kMaximumLayoutDepth)))
             {
                 return E_INVALIDARG;
             }
@@ -1806,10 +1802,8 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
                 for (uint32_t stepIndex = 0; stepIndex < widget.adaptivePlacement.depth; ++stepIndex)
                 {
                     const LayoutSplitStep& step = widget.adaptivePlacement.steps[stepIndex];
-                    if ((step.axis != LayoutAxis::LongSide && step.axis != LayoutAxis::ShortSide) ||
-                        step.sizeRatio == 0 || step.sizeRatio > 1000 || step.totalRatio == 0 ||
-                        step.precedingRatio >= step.totalRatio ||
-                        step.sizeRatio > step.totalRatio - step.precedingRatio)
+                    if ((step.axis != LayoutAxis::LongSide && step.axis != LayoutAxis::ShortSide) || step.sizeRatio == 0 || step.sizeRatio > 1000 ||
+                        step.totalRatio == 0 || step.precedingRatio >= step.totalRatio || step.sizeRatio > step.totalRatio - step.precedingRatio)
                     {
                         return E_INVALIDARG;
                     }
@@ -1819,7 +1813,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
             for (uint32_t previousPage = 0; previousPage <= pageIndex; ++previousPage)
             {
                 const DashboardPageSettings& earlierPage = settings.dashboard.pages[previousPage];
-                const uint32_t limit = previousPage == pageIndex ? widgetIndex : earlierPage.widgetCount;
+                const uint32_t limit                     = previousPage == pageIndex ? widgetIndex : earlierPage.widgetCount;
                 for (uint32_t previousWidget = 0; previousWidget < limit; ++previousWidget)
                 {
                     if (SettingsIdEquals(earlierPage.widgets[previousWidget].id.View(), widget.id.View()))
@@ -1830,64 +1824,63 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
             }
 
             const PluginSettings* plugin = FindPluginSettings(settings, widget.pluginId.View());
-            if (!plugin || !plugin->enabled || !IsSupportedPluginType(widget.pluginId.View(), widget.typeId.View()))
+            if (! plugin || ! plugin->enabled || ! IsSupportedPluginType(widget.pluginId.View(), widget.typeId.View()))
             {
                 return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
             }
             if (SettingsIdEquals(widget.pluginId.View(), kMatrixPluginId))
             {
                 ++matrixCount;
-                if (!IsMatrixPrivate(widget.privateConfiguration))
+                if (! IsMatrixPrivate(widget.privateConfiguration))
                 {
                     return E_INVALIDARG;
                 }
             }
             else if (SettingsIdEquals(widget.pluginId.View(), kProcessViewerPluginId))
             {
-                if (!IsProcessViewerPrivate(widget.privateConfiguration))
+                if (! IsProcessViewerPrivate(widget.privateConfiguration))
                 {
                     return E_INVALIDARG;
                 }
             }
-            else if (SettingsIdEquals(widget.pluginId.View(), "builtin.network-meter") ||
-                     SettingsIdEquals(widget.pluginId.View(), "builtin.gpu-processes"))
+            else if (SettingsIdEquals(widget.pluginId.View(), "builtin.network-meter") || SettingsIdEquals(widget.pluginId.View(), "builtin.gpu-processes"))
             {
-                if (!IsRankedViewerPrivate(widget.privateConfiguration))
+                if (! IsRankedViewerPrivate(widget.privateConfiguration))
                 {
                     return E_INVALIDARG;
                 }
             }
             else if (SettingsIdEquals(widget.pluginId.View(), kStudioClockPluginId))
             {
-                if (!IsStudioClockPrivate(widget.privateConfiguration))
+                if (! IsStudioClockPrivate(widget.privateConfiguration))
                 {
                     return E_INVALIDARG;
                 }
             }
             else if (SettingsIdEquals(widget.pluginId.View(), kDeskClockPluginId))
             {
-                if (!IsDeskClockPrivate(widget.privateConfiguration))
+                if (! IsDeskClockPrivate(widget.privateConfiguration))
                 {
                     return E_INVALIDARG;
                 }
             }
             else if (SettingsIdEquals(widget.pluginId.View(), kShadersPluginId))
             {
-                if (!IsShadersPrivate(widget.privateConfiguration))
+                if (! IsShadersPrivate(widget.privateConfiguration))
                 {
                     return E_INVALIDARG;
                 }
             }
             else if (SettingsIdEquals(widget.pluginId.View(), kWeatherPluginId))
             {
-                if (!IsWeatherPrivate(widget.privateConfiguration))
+                if (! IsWeatherPrivate(widget.privateConfiguration))
                 {
                     return E_INVALIDARG;
                 }
             }
             else if (SettingsIdEquals(widget.pluginId.View(), kLauncherPluginId))
             {
-                if (!IsLauncherPrivate(widget.privateConfiguration))
+                if (! IsLauncherPrivate(widget.privateConfiguration))
                 {
                     return E_INVALIDARG;
                 }
@@ -1895,11 +1888,10 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
             else if (SettingsIdEquals(widget.pluginId.View(), kAvControlPluginId))
             {
                 AVControl::Configuration configuration;
-                if (FAILED(AVControl::ParseConfiguration(
-                        {widget.privateConfiguration.Data(), widget.privateConfiguration.Bytes()}, configuration)))
+                if (FAILED(AVControl::ParseConfiguration({widget.privateConfiguration.Data(), widget.privateConfiguration.Bytes()}, configuration)))
                     return E_INVALIDARG;
             }
-            else if (!IsEmptyPrivate(widget.privateConfiguration))
+            else if (! IsEmptyPrivate(widget.privateConfiguration))
             {
                 return E_INVALIDARG;
             }
@@ -1929,8 +1921,7 @@ HRESULT ValidateAppSettings(const AppSettings& settings) noexcept
     return activeFound ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
 
-[[nodiscard]] HRESULT ParseAppSettingsJsonCandidate(std::string_view json,
-                                                    std::unique_ptr<AppSettings>& settings) noexcept
+[[nodiscard]] HRESULT ParseAppSettingsJsonCandidate(std::string_view json, std::unique_ptr<AppSettings>& settings) noexcept
 {
     return ParseAppSettingsJsonV5(json, settings);
 }
@@ -1946,8 +1937,7 @@ HRESULT ParseAppSettingsJson(std::string_view json, AppSettings& settings) noexc
     return result;
 }
 
-HRESULT ParseAppSettingsJsonDetailed(std::string_view json, AppSettings& settings,
-                                     SettingsParseDiagnostic& diagnostic) noexcept
+HRESULT ParseAppSettingsJsonDetailed(std::string_view json, AppSettings& settings, SettingsParseDiagnostic& diagnostic) noexcept
 {
     std::unique_ptr<AppSettings> parsed;
     const HRESULT result = ParseAppSettingsJsonV5(json, parsed, &diagnostic);
@@ -1958,23 +1948,26 @@ HRESULT ParseAppSettingsJsonDetailed(std::string_view json, AppSettings& setting
     return result;
 }
 
-HRESULT SerializeFactoryConfigurationJson(const PluginSettings& plugin, const WidgetInstanceSettings& instance,
+HRESULT SerializeFactoryConfigurationJson(const PluginSettings& plugin,
+                                          const WidgetInstanceSettings& instance,
                                           std::array<char, kFactoryConfigurationCapacity>& json,
                                           uint32_t& jsonBytes) noexcept
 {
     json.fill('\0');
     jsonBytes = 0;
     if (plugin.privateConfiguration.Bytes() == 0 || instance.privateConfiguration.Bytes() == 0 ||
-        plugin.privateConfiguration.Bytes() > kPrivateConfigurationCapacity ||
-        instance.privateConfiguration.Bytes() > kPrivateConfigurationCapacity)
+        plugin.privateConfiguration.Bytes() > kPrivateConfigurationCapacity || instance.privateConfiguration.Bytes() > kPrivateConfigurationCapacity)
     {
         return E_INVALIDARG;
     }
 
-    const int written =
-        sprintf_s(json.data(), json.size(), "{\"plugin\":%.*s,\"instance\":%.*s}",
-                  static_cast<int>(plugin.privateConfiguration.Bytes()), plugin.privateConfiguration.Data(),
-                  static_cast<int>(instance.privateConfiguration.Bytes()), instance.privateConfiguration.Data());
+    const int written = sprintf_s(json.data(),
+                                  json.size(),
+                                  "{\"plugin\":%.*s,\"instance\":%.*s}",
+                                  static_cast<int>(plugin.privateConfiguration.Bytes()),
+                                  plugin.privateConfiguration.Data(),
+                                  static_cast<int>(instance.privateConfiguration.Bytes()),
+                                  instance.privateConfiguration.Data());
     if (written <= 0 || static_cast<size_t>(written) >= json.size())
     {
         json.fill('\0');
@@ -1984,20 +1977,19 @@ HRESULT SerializeFactoryConfigurationJson(const PluginSettings& plugin, const Wi
     return S_OK;
 }
 
-HRESULT SerializeServiceConfigurationJson(const ServiceSettings& service,
-                                          std::array<char, kFactoryConfigurationCapacity>& json,
-                                          uint32_t& jsonBytes) noexcept
+HRESULT SerializeServiceConfigurationJson(const ServiceSettings& service, std::array<char, kFactoryConfigurationCapacity>& json, uint32_t& jsonBytes) noexcept
 {
     json.fill('\0');
     jsonBytes = 0;
-    if (service.privateConfiguration.Bytes() == 0 ||
-        service.privateConfiguration.Bytes() > kPrivateConfigurationCapacity)
+    if (service.privateConfiguration.Bytes() == 0 || service.privateConfiguration.Bytes() > kPrivateConfigurationCapacity)
     {
         return E_INVALIDARG;
     }
-    const int written =
-        sprintf_s(json.data(), json.size(), "{\"plugin\":{},\"instance\":%.*s}",
-                  static_cast<int>(service.privateConfiguration.Bytes()), service.privateConfiguration.Data());
+    const int written = sprintf_s(json.data(),
+                                  json.size(),
+                                  "{\"plugin\":{},\"instance\":%.*s}",
+                                  static_cast<int>(service.privateConfiguration.Bytes()),
+                                  service.privateConfiguration.Data());
     if (written <= 0 || static_cast<size_t>(written) >= json.size())
     {
         json.fill('\0');
@@ -2019,16 +2011,15 @@ const ServiceSettings* FindServiceSettings(const AppSettings& settings, std::str
     return nullptr;
 }
 
-HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view instanceId,
-                                    std::string_view settingsJson) noexcept
+HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view instanceId, std::string_view settingsJson) noexcept
 {
     if (instanceId.empty() || settingsJson.empty() || settingsJson.size() > kPrivateConfigurationCapacity)
     {
         return E_INVALIDARG;
     }
     WidgetInstanceSettings* widget = FindWidgetInstance(settings, instanceId);
-    uint32_t targetIndex = 0;
-    if (!widget || !ParseWidgetInstanceIndex(instanceId, targetIndex))
+    uint32_t targetIndex           = 0;
+    if (! widget || ! ParseWidgetInstanceIndex(instanceId, targetIndex))
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
@@ -2049,7 +2040,7 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
         return E_FAIL;
     }
     yyjson_val* patchRoot = document ? yyjson_doc_get_root(document.get()) : nullptr;
-    if (!yyjson_is_obj(patchRoot))
+    if (! yyjson_is_obj(patchRoot))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -2079,15 +2070,17 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
     }
 
     unique_yyjson_doc merged = ParseStoredObject(widget->privateConfiguration);
-    yyjson_val* mergedRoot = merged ? yyjson_doc_get_root(merged.get()) : nullptr;
+    yyjson_val* mergedRoot   = merged ? yyjson_doc_get_root(merged.get()) : nullptr;
     unique_yyjson_doc source;
     try
     {
         std::vector<char> mutableSource(settings.sourceDocument.begin(), settings.sourceDocument.end());
         yyjson_read_err error{};
-        source.reset(yyjson_read_opts(
-            mutableSource.data(), mutableSource.size(),
-            YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS | YYJSON_READ_ALLOW_BOM, nullptr, &error));
+        source.reset(yyjson_read_opts(mutableSource.data(),
+                                      mutableSource.size(),
+                                      YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS | YYJSON_READ_ALLOW_BOM,
+                                      nullptr,
+                                      &error));
     }
     catch (const std::bad_alloc&)
     {
@@ -2100,48 +2093,44 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
         return E_FAIL;
     }
     unique_mut_doc mutableDocument{yyjson_mut_doc_new(nullptr)};
-    yyjson_mut_val* mutableRoot = mutableDocument && source
-                                      ? yyjson_val_mut_copy(mutableDocument.get(), yyjson_doc_get_root(source.get()))
-                                      : nullptr;
-    yyjson_mut_val* settingsCopy =
-        mutableDocument && mergedRoot ? yyjson_val_mut_copy(mutableDocument.get(), mergedRoot) : nullptr;
-    if (!mutableRoot || !settingsCopy)
+    yyjson_mut_val* mutableRoot  = mutableDocument && source ? yyjson_val_mut_copy(mutableDocument.get(), yyjson_doc_get_root(source.get())) : nullptr;
+    yyjson_mut_val* settingsCopy = mutableDocument && mergedRoot ? yyjson_val_mut_copy(mutableDocument.get(), mergedRoot) : nullptr;
+    if (! mutableRoot || ! settingsCopy)
     {
         widget->privateConfiguration = previousPrivate;
         return E_OUTOFMEMORY;
     }
     yyjson_mut_doc_set_root(mutableDocument.get(), mutableRoot);
     yyjson_mut_val* pages = yyjson_mut_obj_get(mutableRoot, "pages");
-    if (!yyjson_mut_is_arr(pages))
+    if (! yyjson_mut_is_arr(pages))
     {
         widget->privateConfiguration = previousPrivate;
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    uint32_t instanceIndex = 0;
-    bool patched = false;
+    uint32_t instanceIndex  = 0;
+    bool patched            = false;
     yyjson_mut_val* declare = yyjson_mut_obj_get(mutableRoot, "declare");
-    const size_t pageCount = yyjson_mut_arr_size(pages);
-    for (size_t pageIndex = 0; pageIndex < pageCount && !patched; ++pageIndex)
+    const size_t pageCount  = yyjson_mut_arr_size(pages);
+    for (size_t pageIndex = 0; pageIndex < pageCount && ! patched; ++pageIndex)
     {
         yyjson_mut_val* page = yyjson_mut_arr_get(pages, pageIndex);
-        patched = PatchMutablePage(mutableDocument.get(), page, instanceIndex, targetIndex, settingsCopy, declare);
+        patched              = PatchMutablePage(mutableDocument.get(), page, instanceIndex, targetIndex, settingsCopy, declare);
     }
-    if (!patched)
+    if (! patched)
     {
         widget->privateConfiguration = previousPrivate;
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
     size_t length = 0;
     unique_malloc_string written{yyjson_mut_write(mutableDocument.get(), YYJSON_WRITE_NOFLAG, &length)};
-    if (!written || length == 0)
+    if (! written || length == 0)
     {
         widget->privateConfiguration = previousPrivate;
         return E_OUTOFMEMORY;
     }
     // The rewritten document keeps a BOM the user's file starts with.
     result =
-        FormatCompactSettingsJson(std::string_view(written.get(), length),
-                                  settings.sourceDocument.starts_with(kUtf8ByteOrderMark), settings.sourceDocument);
+        FormatCompactSettingsJson(std::string_view(written.get(), length), settings.sourceDocument.starts_with(kUtf8ByteOrderMark), settings.sourceDocument);
     if (FAILED(result))
     {
         widget->privateConfiguration = previousPrivate;
@@ -2154,19 +2143,18 @@ namespace
 {
 struct SourceMember final
 {
-    size_t keyBegin = 0;
-    size_t valueBegin = 0;
-    size_t valueEnd = 0;
+    size_t keyBegin     = 0;
+    size_t valueBegin   = 0;
+    size_t valueEnd     = 0;
     size_t closingBrace = 0;
     // The object's last member, where a new member is appended.
     size_t lastKeyBegin = 0;
     size_t lastValueEnd = 0;
-    bool found = false;
-    bool hasMembers = false;
+    bool found          = false;
+    bool hasMembers     = false;
 };
 
-[[nodiscard]] bool SourceKeyEquals(std::string_view source, size_t begin, size_t end,
-                                   std::string_view expected) noexcept
+[[nodiscard]] bool SourceKeyEquals(std::string_view source, size_t begin, size_t end, std::string_view expected) noexcept
 {
     if (end <= begin + 1 || expected.size() < 2 || source[begin] != '"' || expected.front() != '"')
     {
@@ -2193,7 +2181,7 @@ struct SourceMember final
                 uint32_t codepoint = 0;
                 for (uint32_t digit = 0; digit < 4; ++digit)
                 {
-                    const char hex = source[actual++];
+                    const char hex       = source[actual++];
                     const uint32_t value = hex >= '0' && hex <= '9'   ? static_cast<uint32_t>(hex - '0')
                                            : hex >= 'a' && hex <= 'f' ? static_cast<uint32_t>(hex - 'a' + 10)
                                            : hex >= 'A' && hex <= 'F' ? static_cast<uint32_t>(hex - 'A' + 10)
@@ -2224,8 +2212,7 @@ struct SourceMember final
     return wanted + 1 == expected.size();
 }
 
-[[nodiscard]] bool FindSourceMember(std::string_view source, size_t objectBegin, std::string_view key,
-                                    SourceMember& found) noexcept
+[[nodiscard]] bool FindSourceMember(std::string_view source, size_t objectBegin, std::string_view key, SourceMember& found) noexcept
 {
     found = SourceMember{};
     if (objectBegin >= source.size() || source[objectBegin] != '{')
@@ -2246,30 +2233,30 @@ struct SourceMember final
             return true;
         }
         const size_t keyBegin = cursor.index;
-        if (!cursor.SkipString())
+        if (! cursor.SkipString())
         {
             return false;
         }
         const bool matching = SourceKeyEquals(source, keyBegin, cursor.index, key);
-        if (!cursor.Consume(':'))
+        if (! cursor.Consume(':'))
         {
             return false;
         }
         cursor.SkipSpaceAndComments();
         const size_t valueBegin = cursor.index;
-        if (!cursor.SkipValue())
+        if (! cursor.SkipValue())
         {
             return false;
         }
-        found.hasMembers = true;
+        found.hasMembers   = true;
         found.lastKeyBegin = keyBegin;
         found.lastValueEnd = cursor.index;
         if (matching)
         {
-            found.found = true;
-            found.keyBegin = keyBegin;
+            found.found      = true;
+            found.keyBegin   = keyBegin;
             found.valueBegin = valueBegin;
-            found.valueEnd = cursor.index;
+            found.valueEnd   = cursor.index;
         }
         cursor.SkipSpaceAndComments();
         if (cursor.index >= source.size())
@@ -2308,11 +2295,10 @@ struct SourceMember final
 // member's value (its trailing comma or comment then follows the new member), on a new line at that member's
 // indentation when the member starts its own line, otherwise on the same line. In an empty object whose closing brace
 // starts its own line, the member gets a line of its own one level deeper than the brace. Throws only std::bad_alloc.
-[[nodiscard]] bool PatchSourceMember(std::string& source, size_t objectBegin, std::string_view key,
-                                     std::string_view replacement)
+[[nodiscard]] bool PatchSourceMember(std::string& source, size_t objectBegin, std::string_view key, std::string_view replacement)
 {
     SourceMember member{};
-    if (!FindSourceMember(source, objectBegin, key, member))
+    if (! FindSourceMember(source, objectBegin, key, member))
     {
         return false;
     }
@@ -2322,10 +2308,10 @@ struct SourceMember final
         return true;
     }
     std::string addition;
-    size_t insertAt = member.closingBrace;
-    const size_t anchor = member.hasMembers ? member.lastKeyBegin : member.closingBrace;
+    size_t insertAt        = member.closingBrace;
+    const size_t anchor    = member.hasMembers ? member.lastKeyBegin : member.closingBrace;
     const size_t lineBegin = SourceLineBegin(source, anchor);
-    const bool ownLine = lineBegin > objectBegin + 1 && source.find_first_not_of(" \t", lineBegin) == anchor;
+    const bool ownLine     = lineBegin > objectBegin + 1 && source.find_first_not_of(" \t", lineBegin) == anchor;
     if (member.hasMembers)
     {
         insertAt = member.lastValueEnd;
@@ -2342,14 +2328,14 @@ struct SourceMember final
     }
     else if (ownLine)
     {
-        insertAt = lineBegin;
+        insertAt        = lineBegin;
         const bool tabs = source.find('\t', lineBegin) < anchor;
         addition.append(source, lineBegin, anchor - lineBegin).append(tabs ? "\t" : "  ");
         addition.append(key).append(": ").append(replacement).append(SourceLineBreak(source));
     }
     else
     {
-        if (!std::isspace(static_cast<unsigned char>(source[insertAt - 1])))
+        if (! std::isspace(static_cast<unsigned char>(source[insertAt - 1])))
         {
             addition.push_back(' ');
         }
@@ -2362,11 +2348,11 @@ struct SourceMember final
 // Preconditions shared by the dock source patches: the whole source is a valid v5 document, parsed into `validated`,
 // so its root is an object. `raiseMinor` reports a minor below `requiredMinor` (2 added `dock`, 3 the `secondary`
 // monitor selector); `rootBegin` is the root's '{', after a leading UTF-8 BOM, which the patch leaves in place.
-[[nodiscard]] HRESULT PrepareDockSourcePatch(std::string_view source, uint32_t requiredMinor, bool& raiseMinor,
-                                             size_t& rootBegin, std::unique_ptr<AppSettings>& validated) noexcept
+[[nodiscard]] HRESULT PrepareDockSourcePatch(
+    std::string_view source, uint32_t requiredMinor, bool& raiseMinor, size_t& rootBegin, std::unique_ptr<AppSettings>& validated) noexcept
 {
     raiseMinor = false;
-    rootBegin = 0;
+    rootBegin  = 0;
     if (const HRESULT result = ParseAppSettingsJsonV5(source, validated); FAILED(result))
     {
         return result;
@@ -2385,8 +2371,7 @@ struct SourceMember final
     const int length = std::snprintf(digits.data(), digits.size(), "%u", minor);
     SourceMember version{};
     return length > 0 && FindSourceMember(source, rootBegin, "\"version\"", version) && version.found &&
-           PatchSourceMember(source, version.valueBegin, "\"minor\"",
-                             std::string_view(digits.data(), static_cast<size_t>(length)));
+           PatchSourceMember(source, version.valueBegin, "\"minor\"", std::string_view(digits.data(), static_cast<size_t>(length)));
 }
 
 // The end of the line holding `position` when only spaces and comments follow it there, so a comment that ends the
@@ -2420,15 +2405,17 @@ struct SourceMember final
 // A new root member (`"key": value`) on its own line right after `version`, at that member's indentation and in the
 // file's own line breaks, below the given whole comment lines. A comment that ends version's line stays there.
 // Throws only std::bad_alloc.
-[[nodiscard]] bool InsertRootMemberAfterVersion(std::string& source, size_t rootBegin, std::string_view member,
+[[nodiscard]] bool InsertRootMemberAfterVersion(std::string& source,
+                                                size_t rootBegin,
+                                                std::string_view member,
                                                 std::initializer_list<std::string_view> comments)
 {
     SourceMember version{};
-    if (!FindSourceMember(source, rootBegin, "\"version\"", version) || !version.found)
+    if (! FindSourceMember(source, rootBegin, "\"version\"", version) || ! version.found)
     {
         return false;
     }
-    const size_t lineBegin = SourceLineBegin(source, version.keyBegin);
+    const size_t lineBegin  = SourceLineBegin(source, version.keyBegin);
     std::string indentation = source.substr(lineBegin, version.keyBegin - lineBegin);
     if (indentation.find_first_not_of(" \t") != std::string::npos)
     {
@@ -2468,16 +2455,16 @@ struct SourceMember final
 {
     size_t depth = 0;
     // The start of the line that begins the current run of root comment lines, and whether the line being read is one.
-    size_t runBegin = std::string::npos;
+    size_t runBegin  = std::string::npos;
     bool commentLine = false;
-    size_t position = 0;
+    size_t position  = 0;
     while (position < source.size())
     {
         const char character = source[position];
         if (character == '"')
         {
             JsonTextCursor text{source, position};
-            if (!text.SkipString())
+            if (! text.SkipString())
             {
                 return false;
             }
@@ -2500,14 +2487,14 @@ struct SourceMember final
         {
             // A line comment ends at CR or LF, exactly where the parser ends it.
             const size_t lineBegin = SourceLineBegin(source, position);
-            const size_t lineEnd = std::min(source.find_first_of("\r\n", position), source.size());
+            const size_t lineEnd   = std::min(source.find_first_of("\r\n", position), source.size());
             if (depth != 1 || source.find_first_not_of(" \t", lineBegin) != position)
             {
                 runBegin = std::string::npos;
                 position = lineEnd;
                 continue;
             }
-            runBegin = runBegin == std::string::npos ? lineBegin : runBegin;
+            runBegin    = runBegin == std::string::npos ? lineBegin : runBegin;
             commentLine = true;
             size_t text = source.find_first_not_of(" \t", position + 2);
             if (text < lineEnd && source.compare(text, key.size(), key) == 0)
@@ -2519,8 +2506,8 @@ struct SourceMember final
                     next += next < source.size() && source[next] == '\r' ? 1U : 0U;
                     next += next < source.size() && source[next] == '\n' ? 1U : 0U;
                     source.erase(runBegin, next - runBegin);
-                    position = runBegin;
-                    runBegin = std::string::npos;
+                    position    = runBegin;
+                    runBegin    = std::string::npos;
                     commentLine = false;
                     continue;
                 }
@@ -2533,11 +2520,11 @@ struct SourceMember final
             // CRLF is one line break.
             if (character == '\r' || position == 0 || source[position - 1] != '\r')
             {
-                runBegin = commentLine ? runBegin : std::string::npos;
+                runBegin    = commentLine ? runBegin : std::string::npos;
                 commentLine = false;
             }
         }
-        else if (!std::isspace(static_cast<unsigned char>(character)))
+        else if (! std::isspace(static_cast<unsigned char>(character)))
         {
             runBegin = std::string::npos;
             if (character == '{' || character == '[')
@@ -2575,17 +2562,15 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
     try
     {
         std::string updated = settings.sourceDocument;
-        bool raiseMinor = false;
-        size_t rootBegin = 0;
+        bool raiseMinor     = false;
+        size_t rootBegin    = 0;
         std::unique_ptr<AppSettings> original;
-        if (const HRESULT prepared =
-                PrepareDockSourcePatch(updated, kRedXeSettingsDockMinor, raiseMinor, rootBegin, original);
-            FAILED(prepared))
+        if (const HRESULT prepared = PrepareDockSourcePatch(updated, kRedXeSettingsDockMinor, raiseMinor, rootBegin, original); FAILED(prepared))
         {
             return prepared;
         }
         SourceMember dock{};
-        if (!FindSourceMember(updated, rootBegin, "\"dock\"", dock))
+        if (! FindSourceMember(updated, rootBegin, "\"dock\"", dock))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2594,17 +2579,16 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         const std::string thickness = std::to_string(thicknessDips);
         if (dock.found)
         {
-            if (!PatchSourceMember(updated, dock.valueBegin, "\"thickness\"", thickness))
+            if (! PatchSourceMember(updated, dock.valueBegin, "\"thickness\"", thickness))
             {
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
         }
-        else if (!InsertRootMemberAfterVersion(updated, rootBegin, "\"dock\": { \"thickness\": " + thickness + " }",
-                                               {}))
+        else if (! InsertRootMemberAfterVersion(updated, rootBegin, "\"dock\": { \"thickness\": " + thickness + " }", {}))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        if (raiseMinor && !RaiseDockSourceMinor(updated, rootBegin, kRedXeSettingsDockMinor))
+        if (raiseMinor && ! RaiseDockSourceMinor(updated, rootBegin, kRedXeSettingsDockMinor))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2616,14 +2600,14 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         // to the document it was made from with only that thickness and the raised minor changed. A scanner that read
         // the document differently from the parser would otherwise persist a file the next start rejects and resets,
         // or one that changes another member.
-        DockSettings expected = settings.dock;
+        DockSettings expected  = settings.dock;
         expected.thicknessDips = thicknessDips;
         std::unique_ptr<AppSettings> patched;
         if (const HRESULT validated = ParseAppSettingsJsonV5(updated, patched); FAILED(validated))
         {
             return validated;
         }
-        if (!patched || !original)
+        if (! patched || ! original)
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2638,7 +2622,7 @@ HRESULT PatchDockThickness(AppSettings& settings, uint32_t thicknessDips) noexce
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        settings.sourceDocument = std::move(updated);
+        settings.sourceDocument     = std::move(updated);
         settings.dock.thicknessDips = thicknessDips;
         // A raised source minor is the typed minor too, so the next comment-only reload still matches the runtime.
         settings.versionMinor = patched->versionMinor;
@@ -2658,16 +2642,13 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
 {
     // Only a dock the parser would accept back: one of the four edges, a known mode, a monitor selector of the shared
     // grammar (never `all`), and every number in its settings range.
-    const bool knownEdge = dock.edge == DockEdge::Top || dock.edge == DockEdge::Bottom || dock.edge == DockEdge::Left ||
-                           dock.edge == DockEdge::Right;
+    const bool knownEdge = dock.edge == DockEdge::Top || dock.edge == DockEdge::Bottom || dock.edge == DockEdge::Left || dock.edge == DockEdge::Right;
     const bool knownMode = dock.mode == DockMode::Fixed || dock.mode == DockMode::Autohide;
     RedXeActions::MonitorSelector selector{};
-    if (!knownEdge || !knownMode || dock.monitor.bytes == 0 || dock.monitor.bytes > kMaximumSettingsTextBytes ||
-        !RedXeActions::ParseMonitorSelector(dock.monitor.View(), false, selector) ||
-        dock.thicknessDips < kDockMinimumThicknessDips || dock.thicknessDips > kDockMaximumThicknessDips ||
-        dock.peekPixels < kDockMinimumPeekPixels || dock.peekPixels > kDockMaximumPeekPixels ||
-        dock.revealDelayMilliseconds > kDockMaximumRevealDelayMilliseconds ||
-        dock.hideDelayMilliseconds > kDockMaximumHideDelayMilliseconds ||
+    if (! knownEdge || ! knownMode || dock.monitor.bytes == 0 || dock.monitor.bytes > kMaximumSettingsTextBytes ||
+        ! RedXeActions::ParseMonitorSelector(dock.monitor.View(), false, selector) || dock.thicknessDips < kDockMinimumThicknessDips ||
+        dock.thicknessDips > kDockMaximumThicknessDips || dock.peekPixels < kDockMinimumPeekPixels || dock.peekPixels > kDockMaximumPeekPixels ||
+        dock.revealDelayMilliseconds > kDockMaximumRevealDelayMilliseconds || dock.hideDelayMilliseconds > kDockMaximumHideDelayMilliseconds ||
         dock.animationMilliseconds > kDockMaximumAnimationMilliseconds)
     {
         return E_INVALIDARG;
@@ -2693,7 +2674,7 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
         member += "\", \"mode\": \"";
         member += dock.mode == DockMode::Autohide ? "autohide" : "fixed";
         member += "\", \"thickness\": " + std::to_string(dock.thicknessDips);
-        if (!dock.reserveWorkArea)
+        if (! dock.reserveWorkArea)
         {
             member += ", \"reserveWorkArea\": false";
         }
@@ -2726,19 +2707,17 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
             requiredMinor = std::max(requiredMinor, kRedXeSettingsDockAnimationMinor);
         }
         std::string updated = source;
-        bool raiseMinor = false;
-        size_t rootBegin = 0;
+        bool raiseMinor     = false;
+        size_t rootBegin    = 0;
         std::unique_ptr<AppSettings> validated;
-        if (const HRESULT prepared = PrepareDockSourcePatch(updated, requiredMinor, raiseMinor, rootBegin, validated);
-            FAILED(prepared))
+        if (const HRESULT prepared = PrepareDockSourcePatch(updated, requiredMinor, raiseMinor, rootBegin, validated); FAILED(prepared))
         {
             return prepared;
         }
         // The template's commented-out `dock` example goes with the comment that says to uncomment it: the file then
         // defines the bar once, and following its comments cannot add a second, duplicate `dock` member.
         SourceMember existing{};
-        if (!RemoveCommentedRootExamples(updated, "\"dock\"") ||
-            !FindSourceMember(updated, rootBegin, "\"dock\"", existing))
+        if (! RemoveCommentedRootExamples(updated, "\"dock\"") || ! FindSourceMember(updated, rootBegin, "\"dock\"", existing))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2749,16 +2728,17 @@ HRESULT PatchFirstRunDock(std::string& source, const DockSettings& dock) noexcep
         {
             updated.replace(existing.valueBegin, existing.valueEnd - existing.valueBegin, member);
         }
-        else if (!InsertRootMemberAfterVersion(
-                     updated, rootBegin, "\"dock\": " + member,
-                     {"// No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on "
-                      "a screen edge;",
-                      "// set \"edge\" to \"none\" to use the standard window instead. See docs/usage.md \"Dock\" for "
-                      "the other members."}))
+        else if (! InsertRootMemberAfterVersion(updated,
+                                                rootBegin,
+                                                "\"dock\": " + member,
+                                                {"// No XENEON display was found when RedXe installed this file, so this dock runs it as a bar on "
+                                                 "a screen edge;",
+                                                 "// set \"edge\" to \"none\" to use the standard window instead. See docs/usage.md \"Dock\" for "
+                                                 "the other members."}))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        if (raiseMinor && !RaiseDockSourceMinor(updated, rootBegin, requiredMinor))
+        if (raiseMinor && ! RaiseDockSourceMinor(updated, rootBegin, requiredMinor))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2786,16 +2766,15 @@ HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexc
     return SUCCEEDED(result) ? ParseAppSettingsJson(std::string_view(bytes.data(), bytes.size()), settings) : result;
 }
 
-[[nodiscard]] HRESULT LoadAppSettingsFileCandidate(std::wstring_view path, std::unique_ptr<AppSettings>& settings,
+[[nodiscard]] HRESULT LoadAppSettingsFileCandidate(std::wstring_view path,
+                                                   std::unique_ptr<AppSettings>& settings,
                                                    SettingsParseDiagnostic* diagnostic = nullptr) noexcept
 {
     std::vector<char> bytes;
     const HRESULT result = ReadFileBytes(path, bytes);
-    return SUCCEEDED(result)
-               ? (diagnostic
-                      ? ParseAppSettingsJsonV5(std::string_view(bytes.data(), bytes.size()), settings, diagnostic)
-                      : ParseAppSettingsJsonCandidate(std::string_view(bytes.data(), bytes.size()), settings))
-               : result;
+    return SUCCEEDED(result) ? (diagnostic ? ParseAppSettingsJsonV5(std::string_view(bytes.data(), bytes.size()), settings, diagnostic)
+                                           : ParseAppSettingsJsonCandidate(std::string_view(bytes.data(), bytes.size()), settings))
+                             : result;
 }
 
 [[nodiscard]] std::wstring FormatDiagnostic(const SettingsParseDiagnostic& diagnostic) noexcept
@@ -2807,19 +2786,16 @@ HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexc
         {
             if (text.empty())
                 return;
-            const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                                                  static_cast<int>(text.size()), nullptr, 0);
+            const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0);
             if (count <= 0)
                 return;
             const size_t offset = message.size();
             message.resize(offset + static_cast<size_t>(count));
-            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()),
-                                message.data() + offset, count);
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), message.data() + offset, count);
         };
         if (diagnostic.hasLocation)
         {
-            message += L"Line " + std::to_wstring(diagnostic.line) + L", column " + std::to_wstring(diagnostic.column) +
-                       L"\r\n";
+            message += L"Line " + std::to_wstring(diagnostic.line) + L", column " + std::to_wstring(diagnostic.column) + L"\r\n";
         }
         message += L"Path: ";
         appendUtf8(diagnostic.path.empty() ? "$" : diagnostic.path);
@@ -2845,10 +2821,14 @@ HRESULT QuerySettingsFileStamp(std::wstring_view path, SettingsFileStamp& stamp)
     try
     {
         const std::wstring pathText(path);
-        wil::unique_hfile file{CreateFileW(pathText.c_str(), FILE_READ_ATTRIBUTES,
-                                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
-        if (!file)
+        wil::unique_hfile file{CreateFileW(pathText.c_str(),
+                                           FILE_READ_ATTRIBUTES,
+                                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                           nullptr,
+                                           OPEN_EXISTING,
+                                           FILE_ATTRIBUTE_NORMAL,
+                                           nullptr)};
+        if (! file)
         {
             const DWORD error = GetLastError();
             return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? S_FALSE : HRESULT_FROM_WIN32(error);
@@ -2878,7 +2858,8 @@ namespace
 // then written with the same atomic same-directory write as a plain install. Only a missing target is installed: an
 // existing one wins (S_FALSE), exactly as InstallIfMissing, and the dock is made only once the target is known to be
 // missing. A dock that is not made fails this install as an unpatchable template does; the caller installs plainly.
-[[nodiscard]] HRESULT InstallTemplateWithDock(const std::filesystem::path& source, const std::filesystem::path& target,
+[[nodiscard]] HRESULT InstallTemplateWithDock(const std::filesystem::path& source,
+                                              const std::filesystem::path& target,
                                               const FirstRunDockProvider& firstRunDock) noexcept
 {
     if (const HRESULT probe = ProbeInstallTarget(target); probe != S_OK)
@@ -2886,7 +2867,7 @@ namespace
         return probe;
     }
     DockSettings dock{};
-    if (!firstRunDock.make(firstRunDock.context, dock))
+    if (! firstRunDock.make(firstRunDock.context, dock))
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
@@ -2907,7 +2888,7 @@ namespace
         }
         // The written file must hold exactly the dock that was made, every member included. The monitor compares as a
         // whole SettingsText, bytes past its text too, which the provider and the parser both leave zero.
-        if (SUCCEEDED(result) && (!validated || validated->dock != dock))
+        if (SUCCEEDED(result) && (! validated || validated->dock != dock))
         {
             result = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -2928,13 +2909,16 @@ namespace
 }
 } // namespace
 
-HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath, std::unique_ptr<AppSettings>& settings,
-                                  std::wstring_view localAppDataOverride, FirstRunDockProvider firstRunDock) noexcept
+HRESULT SettingsStore::Initialize(bool selfTest,
+                                  std::wstring_view selectedPath,
+                                  std::unique_ptr<AppSettings>& settings,
+                                  std::wstring_view localAppDataOverride,
+                                  FirstRunDockProvider firstRunDock) noexcept
 {
     settings.reset();
-    _usedInitialFallback = false;
-    _installedFirstRunDock = false;
-    _selfTest = selfTest;
+    _usedInitialFallback    = false;
+    _installedFirstRunDock  = false;
+    _selfTest               = selfTest;
     _suppressDocumentWrites = false;
     _initialNotice.clear();
     // Only a document this call loads from the selected path may be written over later (PersistPatchedDocument).
@@ -2953,14 +2937,14 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
 
         const std::filesystem::path deployedSettings = moduleDirectory / L"Settings";
         const std::filesystem::path selectedTemplate = deployedSettings / kSelectedSettingsFileName;
-        const std::filesystem::path deployedSchema = deployedSettings / kRedXeSettingsSchemaFileName;
+        const std::filesystem::path deployedSchema   = deployedSettings / kRedXeSettingsSchemaFileName;
         if (selfTest)
         {
-            _settingsPath = selectedTemplate.wstring();
+            _settingsPath      = selectedTemplate.wstring();
             _settingsDirectory = deployedSettings.wstring();
-            _logsDirectory = MakeLogsDirectory(_settingsDirectory);
-            _schemaPath = deployedSchema.wstring();
-            result = LoadAppSettingsFileCandidate(_settingsPath, settings);
+            _logsDirectory     = MakeLogsDirectory(_settingsDirectory);
+            _schemaPath        = deployedSchema.wstring();
+            result             = LoadAppSettingsFileCandidate(_settingsPath, settings);
             if (FAILED(result))
             {
                 return result;
@@ -2973,28 +2957,28 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
             return S_OK;
         }
 
-        if (!selectedPath.empty())
+        if (! selectedPath.empty())
         {
             const std::filesystem::path externalPath = std::filesystem::absolute(std::filesystem::path(selectedPath));
-            _settingsPath = externalPath.wstring();
-            _settingsDirectory = externalPath.parent_path().wstring();
-            _logsDirectory = MakeLogsDirectory(_settingsDirectory);
-            _schemaPath = deployedSchema.wstring();
+            _settingsPath                            = externalPath.wstring();
+            _settingsDirectory                       = externalPath.parent_path().wstring();
+            _logsDirectory                           = MakeLogsDirectory(_settingsDirectory);
+            _schemaPath                              = deployedSchema.wstring();
 
             result = LoadAppSettingsFileCandidate(_settingsPath, settings);
             if (FAILED(result))
             {
                 _usedInitialFallback = true;
-                _initialNotice = L"The selected settings file could not be loaded. RedXe is running with its "
-                                 L"default configuration; the selected file was not changed.";
-                result = LoadAppSettingsFileCandidate(selectedTemplate.wstring(), settings);
+                _initialNotice       = L"The selected settings file could not be loaded. RedXe is running with its "
+                                       L"default configuration; the selected file was not changed.";
+                result               = LoadAppSettingsFileCandidate(selectedTemplate.wstring(), settings);
             }
             if (FAILED(result))
             {
                 return result;
             }
             SettingsFileStamp stamp{};
-            if (QuerySettingsFileStamp(_settingsPath, stamp) == S_OK && !_usedInitialFallback)
+            if (QuerySettingsFileStamp(_settingsPath, stamp) == S_OK && ! _usedInitialFallback)
             {
                 _lastAppliedStamp = stamp;
             }
@@ -3012,8 +2996,7 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
         }
 
         const std::filesystem::path settingsDirectory =
-            std::filesystem::path(localAppDataOverride.empty() ? localAppData.get() : localAppDataOverride) / L"RedXe" /
-            L"Settings";
+            std::filesystem::path(localAppDataOverride.empty() ? localAppData.get() : localAppDataOverride) / L"RedXe" / L"Settings";
         result = EnsureDirectory(settingsDirectory);
         if (FAILED(result))
         {
@@ -3021,11 +3004,11 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
         }
 
         const std::filesystem::path settingsPath = settingsDirectory / kSelectedSettingsFileName;
-        const std::filesystem::path schemaPath = settingsDirectory / kRedXeSettingsSchemaFileName;
-        _settingsPath = settingsPath.wstring();
-        _settingsDirectory = settingsDirectory.wstring();
-        _logsDirectory = MakeLogsDirectory(_settingsDirectory);
-        _schemaPath = schemaPath.wstring();
+        const std::filesystem::path schemaPath   = settingsDirectory / kRedXeSettingsSchemaFileName;
+        _settingsPath                            = settingsPath.wstring();
+        _settingsDirectory                       = settingsDirectory.wstring();
+        _logsDirectory                           = MakeLogsDirectory(_settingsDirectory);
+        _schemaPath                              = schemaPath.wstring();
 
         result = CopyFileAtomically(deployedSchema, schemaPath, true);
         if (FAILED(result))
@@ -3034,7 +3017,7 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
         }
 
         std::filesystem::path initialSource = selectedTemplate;
-#if !defined(_DEBUG)
+#if ! defined(_DEBUG)
         result = MigrateLegacyReleaseSettingsName(settingsDirectory, settingsPath);
         if (FAILED(result))
         {
@@ -3045,8 +3028,7 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
         // (on the second screen when there is more than one display) instead of asking about the missing display. The
         // dock is a convenience: no dock, or a template it cannot patch, still installs plainly.
         const bool offersDock = firstRunDock.make != nullptr;
-        result = offersDock ? InstallTemplateWithDock(initialSource, settingsPath, firstRunDock)
-                            : InstallIfMissing(initialSource, settingsPath);
+        result                = offersDock ? InstallTemplateWithDock(initialSource, settingsPath, firstRunDock) : InstallIfMissing(initialSource, settingsPath);
         _installedFirstRunDock = offersDock && result == S_OK;
         if (FAILED(result) && offersDock)
         {
@@ -3069,7 +3051,7 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
             // Recovery installs the plain template even without a XENEON: only a missing file gets the first-run dock,
             // so a file that failed validation never turns the user's XENEON or window configuration into a bar.
             _installedFirstRunDock = false;
-            result = InstallTemplateFile(selectedTemplate, settingsPath, true);
+            result                 = InstallTemplateFile(selectedTemplate, settingsPath, true);
             if (SUCCEEDED(result))
             {
                 result = LoadAppSettingsFileCandidate(_settingsPath, settings);
@@ -3077,8 +3059,8 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
             if (SUCCEEDED(result))
             {
                 _usedInitialFallback = true;
-                _initialNotice = L"The default settings file was incompatible or invalid. It was preserved as:\n" +
-                                 backupPath.wstring() + L"\n\nA fresh default configuration was installed.";
+                _initialNotice       = L"The default settings file was incompatible or invalid. It was preserved as:\n" + backupPath.wstring() +
+                                       L"\n\nA fresh default configuration was installed.";
             }
         }
         if (FAILED(result))
@@ -3107,8 +3089,7 @@ HRESULT SettingsStore::Initialize(bool selfTest, std::wstring_view selectedPath,
     }
 }
 
-HRESULT SettingsStore::TryLoadChanged(std::unique_ptr<AppSettings>& settings, SettingsFileStamp& stamp,
-                                      SettingsReloadStatus& status) noexcept
+HRESULT SettingsStore::TryLoadChanged(std::unique_ptr<AppSettings>& settings, SettingsFileStamp& stamp, SettingsReloadStatus& status) noexcept
 {
     settings.reset();
     status = SettingsReloadStatus::Unchanged;
@@ -3116,10 +3097,10 @@ HRESULT SettingsStore::TryLoadChanged(std::unique_ptr<AppSettings>& settings, Se
     const HRESULT stampResult = QuerySettingsFileStamp(_settingsPath, currentStamp);
     if (stampResult == S_FALSE)
     {
-        if (!_missingObserved)
+        if (! _missingObserved)
         {
             _missingObserved = true;
-            status = SettingsReloadStatus::Missing;
+            status           = SettingsReloadStatus::Missing;
         }
         return S_OK;
     }
@@ -3129,8 +3110,7 @@ HRESULT SettingsStore::TryLoadChanged(std::unique_ptr<AppSettings>& settings, Se
     }
     _missingObserved = false;
 
-    if ((_lastAppliedStamp && *_lastAppliedStamp == currentStamp) ||
-        (_lastRejectedStamp && *_lastRejectedStamp == currentStamp))
+    if ((_lastAppliedStamp && *_lastAppliedStamp == currentStamp) || (_lastRejectedStamp && *_lastRejectedStamp == currentStamp))
     {
         return S_OK;
     }
@@ -3140,10 +3120,10 @@ HRESULT SettingsStore::TryLoadChanged(std::unique_ptr<AppSettings>& settings, Se
     const HRESULT loadResult = LoadAppSettingsFileCandidate(_settingsPath, candidate, &diagnostic);
     if (loadResult == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || loadResult == HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE))
     {
-        _lastRejectedStamp = currentStamp;
+        _lastRejectedStamp  = currentStamp;
         _lastDiagnosticText = FormatDiagnostic(diagnostic);
-        stamp = currentStamp;
-        status = SettingsReloadStatus::Invalid;
+        stamp               = currentStamp;
+        status              = SettingsReloadStatus::Invalid;
         return S_OK;
     }
     if (FAILED(loadResult))
@@ -3153,7 +3133,7 @@ HRESULT SettingsStore::TryLoadChanged(std::unique_ptr<AppSettings>& settings, Se
 
     settings = std::move(candidate);
     _lastDiagnosticText.clear();
-    stamp = currentStamp;
+    stamp  = currentStamp;
     status = SettingsReloadStatus::Loaded;
     return S_OK;
 }
@@ -3252,9 +3232,9 @@ HRESULT SettingsStore::PersistPatchedDocument(const AppSettings& settings) noexc
     if (result == S_FALSE)
     {
         const SettingsFileStamp observed = stamp.value_or(SettingsFileStamp{});
-        if (!_deferredStamp || *_deferredStamp != observed)
+        if (! _deferredStamp || *_deferredStamp != observed)
         {
-            _deferredStamp = observed;
+            _deferredStamp         = observed;
             _deferredNoticePending = true;
         }
         return S_FALSE;
@@ -3275,22 +3255,22 @@ HRESULT SettingsStore::PersistPatchedDocument(const AppSettings& settings) noexc
 HRESULT SettingsStore::PersistDockThickness(AppSettings& settings, uint32_t thicknessDips) noexcept
 {
     const uint32_t previousThickness = settings.dock.thicknessDips;
-    const uint32_t previousMinor = settings.versionMinor;
+    const uint32_t previousMinor     = settings.versionMinor;
     try
     {
         std::string previousSource = settings.sourceDocument;
         // S_FALSE from the patch: the thickness is unchanged, so nothing is written, unless an earlier deferred write
         // still holds changes in memory.
         HRESULT result = PatchDockThickness(settings, thicknessDips);
-        if ((result == S_OK || (result == S_FALSE && _deferredStamp)) && !_selfTest && !_suppressDocumentWrites)
+        if ((result == S_OK || (result == S_FALSE && _deferredStamp)) && ! _selfTest && ! _suppressDocumentWrites)
         {
             result = PersistPatchedDocument(settings);
         }
         if (FAILED(result))
         {
             settings.dock.thicknessDips = previousThickness;
-            settings.versionMinor = previousMinor;
-            settings.sourceDocument = std::move(previousSource);
+            settings.versionMinor       = previousMinor;
+            settings.sourceDocument     = std::move(previousSource);
         }
         return result;
     }
@@ -3300,11 +3280,10 @@ HRESULT SettingsStore::PersistDockThickness(AppSettings& settings, uint32_t thic
     }
 }
 
-HRESULT SettingsStore::PersistWidgetSettings(AppSettings& settings, std::string_view instanceId,
-                                             std::string_view settingsJson) noexcept
+HRESULT SettingsStore::PersistWidgetSettings(AppSettings& settings, std::string_view instanceId, std::string_view settingsJson) noexcept
 {
     WidgetInstanceSettings* widget = FindWidgetInstance(settings, instanceId);
-    if (!widget)
+    if (! widget)
     {
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
@@ -3315,14 +3294,14 @@ HRESULT SettingsStore::PersistWidgetSettings(AppSettings& settings, std::string_
         // S_FALSE from the patch: nothing changed, so the file is neither rewritten nor reformatted, unless an earlier
         // deferred write still holds changes in memory.
         HRESULT result = PatchWidgetInstanceSettings(settings, instanceId, settingsJson);
-        if ((result == S_OK || (result == S_FALSE && _deferredStamp)) && !_selfTest && !_suppressDocumentWrites)
+        if ((result == S_OK || (result == S_FALSE && _deferredStamp)) && ! _selfTest && ! _suppressDocumentWrites)
         {
             result = PersistPatchedDocument(settings);
         }
         if (FAILED(result))
         {
             widget->privateConfiguration = previousPrivate;
-            settings.sourceDocument = std::move(previousSource);
+            settings.sourceDocument      = std::move(previousSource);
         }
         return result;
     }

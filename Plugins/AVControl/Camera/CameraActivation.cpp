@@ -28,7 +28,7 @@ struct Counted
 #pragma warning(disable : 4625 4626)
 class Activation final : public RedXeComObject<Activation, IMFActivate>, private Counted
 {
-  public:
+public:
     HRESULT Initialize() noexcept
     {
         return MFCreateAttributes(_attributes.put(), 1);
@@ -43,15 +43,14 @@ class Activation final : public RedXeComObject<Activation, IMFActivate>, private
     }
     HRESULT STDMETHODCALLTYPE ActivateObject(REFIID iid, void** result) noexcept override
     {
-        if (!result)
+        if (! result)
             return E_POINTER;
-        *result = nullptr;
+        *result         = nullptr;
         const auto lock = wil::AcquireSRWLockExclusive(&_lock);
-        if (!_source)
+        if (! _source)
         {
             std::array<wchar_t, 192> owner{};
-            RETURN_IF_FAILED(_attributes->GetString(CameraOwnerSidAttribute, owner.data(),
-                                                    static_cast<UINT32>(owner.size()), nullptr));
+            RETURN_IF_FAILED(_attributes->GetString(CameraOwnerSidAttribute, owner.data(), static_cast<UINT32>(owner.size()), nullptr));
             BridgeIdentity identity;
             RETURN_IF_FAILED(MakeBridgeIdentity(owner.data(), identity));
             try
@@ -68,7 +67,7 @@ class Activation final : public RedXeComObject<Activation, IMFActivate>, private
     }
     HRESULT STDMETHODCALLTYPE ShutdownObject() noexcept override
     {
-        const auto lock = wil::AcquireSRWLockExclusive(&_lock);
+        const auto lock      = wil::AcquireSRWLockExclusive(&_lock);
         const HRESULT result = _source ? _source->Shutdown() : S_OK;
         _source.reset();
         return result;
@@ -94,8 +93,7 @@ class Activation final : public RedXeComObject<Activation, IMFActivate>, private
     {
         return _attributes->CompareItem(key, value, equal);
     }
-    HRESULT STDMETHODCALLTYPE Compare(IMFAttributes* other, MF_ATTRIBUTES_MATCH_TYPE match,
-                                      BOOL* equal) noexcept override
+    HRESULT STDMETHODCALLTYPE Compare(IMFAttributes* other, MF_ATTRIBUTES_MATCH_TYPE match, BOOL* equal) noexcept override
     {
         return _attributes->Compare(other, match, equal);
     }
@@ -204,7 +202,7 @@ class Activation final : public RedXeComObject<Activation, IMFActivate>, private
         return _attributes->CopyAllItems(destination);
     }
 
-  private:
+private:
     SRWLOCK _lock = SRWLOCK_INIT;
     wil::com_ptr_nothrow<IMFAttributes> _attributes;
     wil::com_ptr_nothrow<IMFMediaSource> _source;
@@ -217,17 +215,17 @@ class Activation final : public RedXeComObject<Activation, IMFActivate>, private
 #pragma warning(disable : 4625 4626 5026 5027)
 class Factory final : public RedXeComObject<Factory, IClassFactory>, private Counted
 {
-  public:
+public:
     HRESULT STDMETHODCALLTYPE CreateInstance(IUnknown* outer, REFIID iid, void** result) noexcept override
     {
-        if (!result)
+        if (! result)
             return E_POINTER;
         *result = nullptr;
         if (outer)
             return CLASS_E_NOAGGREGATION;
         wil::com_ptr_nothrow<Activation> activation;
         activation.attach(new (std::nothrow) Activation());
-        if (!activation)
+        if (! activation)
             return E_OUTOFMEMORY;
         RETURN_IF_FAILED(activation->Initialize());
         return activation->QueryInterface(iid, result);
@@ -251,7 +249,7 @@ class Factory final : public RedXeComObject<Factory, IClassFactory>, private Cou
 } // namespace
 HRESULT CreateCameraClassFactory(REFIID iid, void** result) noexcept
 {
-    if (!result)
+    if (! result)
         return E_POINTER;
     *result = nullptr;
     wil::com_ptr_nothrow<Factory> factory;

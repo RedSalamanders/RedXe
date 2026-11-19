@@ -57,22 +57,23 @@ namespace
 #pragma warning(disable : 4625 4626 5026 5027)
 class VisibilityFaultWidget final : public RedXeComObject<VisibilityFaultWidget, IRedXeWidget>
 {
-  public:
-    explicit VisibilityFaultWidget(IRedXeWidget* inner) noexcept : _inner(inner) {}
+public:
+    explicit VisibilityFaultWidget(IRedXeWidget* inner) noexcept : _inner(inner)
+    {
+    }
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
     {
         const HRESULT failure = visible ? showFailure : hideFailure;
         return FAILED(failure) ? failure : _inner->SetVisible(visible);
     }
-    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* json, uint32_t capacity,
-                                                        uint32_t* bytes) noexcept override
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* json, uint32_t capacity, uint32_t* bytes) noexcept override
     {
         return _inner->CollectPersistentSettings(json, capacity, bytes);
     }
     HRESULT showFailure = S_OK;
     HRESULT hideFailure = S_OK;
 
-  private:
+private:
     wil::com_ptr_nothrow<IRedXeWidget> _inner;
 };
 #pragma warning(pop)
@@ -85,8 +86,10 @@ class VisibilityFaultWidget final : public RedXeComObject<VisibilityFaultWidget,
 #pragma warning(disable : 4625 4626 5026 5027)
 class CaptureGpuWidget final : public RedXeComObject<CaptureGpuWidget, IRedXeGpuWidget>
 {
-  public:
-    CaptureGpuWidget(IRedXeGpuWidget* inner, ID3D11Texture2D* staging) noexcept : _inner(inner), _staging(staging) {}
+public:
+    CaptureGpuWidget(IRedXeGpuWidget* inner, ID3D11Texture2D* staging) noexcept : _inner(inner), _staging(staging)
+    {
+    }
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
         return _inner->OnDeviceCreated(context);
@@ -104,7 +107,7 @@ class CaptureGpuWidget final : public RedXeComObject<CaptureGpuWidget, IRedXeGpu
         RETURN_IF_FAILED(_inner->Render(context));
         wil::com_ptr_nothrow<ID3D11RenderTargetView> target;
         context->deviceContext->OMGetRenderTargets(1, target.put(), nullptr);
-        if (!target)
+        if (! target)
             return E_UNEXPECTED;
         wil::com_ptr_nothrow<ID3D11Resource> resource;
         target->GetResource(resource.put());
@@ -112,14 +115,14 @@ class CaptureGpuWidget final : public RedXeComObject<CaptureGpuWidget, IRedXeGpu
         return S_OK;
     }
 
-  private:
+private:
     wil::com_ptr_nothrow<IRedXeGpuWidget> _inner;
     wil::com_ptr_nothrow<ID3D11Texture2D> _staging;
 };
 #pragma warning(pop)
 
-constexpr UINT kWidth = 640;
-constexpr UINT kHeight = 360;
+constexpr UINT kWidth            = 640;
+constexpr UINT kHeight           = 360;
 constexpr GUID kResourceLifetime = {0x3b778e03, 0xe7e6, 0x4315, {0xa9, 0xe4, 0x35, 0xeb, 0x83, 0x47, 0x92, 0xa1}};
 
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
@@ -128,14 +131,16 @@ constexpr GUID kResourceLifetime = {0x3b778e03, 0xe7e6, 0x4315, {0xa9, 0xe4, 0x3
 #pragma warning(disable : 4625 4626)
 class ResourceLifetime final : public RedXeComObject<ResourceLifetime, IUnknown>
 {
-  public:
-    explicit ResourceLifetime(std::atomic<UINT>& destructions) noexcept : _destructions(destructions) {}
+public:
+    explicit ResourceLifetime(std::atomic<UINT>& destructions) noexcept : _destructions(destructions)
+    {
+    }
     ~ResourceLifetime()
     {
         ++_destructions;
     }
 
-  private:
+private:
     std::atomic<UINT>& _destructions;
 };
 #pragma warning(pop)
@@ -144,14 +149,13 @@ class ResourceLifetime final : public RedXeComObject<ResourceLifetime, IUnknown>
 // immediate context retains them. A single private-data identity dies only after every resource is released.
 HRESULT BindRetiringResources(Renderer& renderer, std::atomic<UINT>& destructions) noexcept
 {
-    ID3D11Device* const device = RendererResourceTestAccess::Device(renderer);
+    ID3D11Device* const device         = RendererResourceTestAccess::Device(renderer);
     ID3D11DeviceContext* const context = RendererResourceTestAccess::Context(renderer);
     wil::com_ptr_nothrow<ResourceLifetime> lifetime;
     lifetime.attach(new (std::nothrow) ResourceLifetime(destructions));
-    if (!lifetime)
+    if (! lifetime)
         return E_OUTOFMEMORY;
-    const D3D11_TEXTURE2D_DESC textureDescription{
-        32, 32, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, {1, 0}, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, 0};
+    const D3D11_TEXTURE2D_DESC textureDescription{32, 32, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, {1, 0}, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, 0};
     wil::com_ptr_nothrow<ID3D11Texture2D> texture;
     RETURN_IF_FAILED(device->CreateTexture2D(&textureDescription, nullptr, texture.put()));
     RETURN_IF_FAILED(texture->SetPrivateDataInterface(kResourceLifetime, lifetime.get()));
@@ -167,8 +171,8 @@ HRESULT BindRetiringResources(Renderer& renderer, std::atomic<UINT>& destruction
     RETURN_IF_FAILED(device->CreateBuffer(&bufferDescription, nullptr, vertex.put()));
     RETURN_IF_FAILED(vertex->SetPrivateDataInterface(kResourceLifetime, lifetime.get()));
     ID3D11Buffer* buffers[] = {vertex.get()};
-    const UINT stride = 16;
-    const UINT offset = 0;
+    const UINT stride       = 16;
+    const UINT offset       = 0;
     context->IASetVertexBuffers(31, 1, buffers, &stride, &offset);
     bufferDescription.BindFlags = D3D11_BIND_INDEX_BUFFER;
     wil::com_ptr_nothrow<ID3D11Buffer> index;
@@ -203,7 +207,7 @@ bool RetiringBindingsAreClear(const Renderer& renderer) noexcept
     context->VSGetConstantBuffers(13, 1, vsConstants.put());
     context->PSGetConstantBuffers(13, 1, psConstants.put());
     context->CSGetConstantBuffers(13, 1, csConstants.put());
-    return !vs && !gs && !ps && !cs && !vertex && !index && !vsConstants && !psConstants && !csConstants;
+    return ! vs && ! gs && ! ps && ! cs && ! vertex && ! index && ! vsConstants && ! psConstants && ! csConstants;
 }
 
 HRESULT CreateFrameCapture(const Renderer& renderer, wil::com_ptr_nothrow<ID3D11Texture2D>& staging) noexcept
@@ -214,24 +218,23 @@ HRESULT CreateFrameCapture(const Renderer& renderer, wil::com_ptr_nothrow<ID3D11
     RETURN_IF_FAILED(resource.query_to(target.put()));
     D3D11_TEXTURE2D_DESC description{};
     target->GetDesc(&description);
-    description.Usage = D3D11_USAGE_STAGING;
-    description.BindFlags = 0;
+    description.Usage          = D3D11_USAGE_STAGING;
+    description.BindFlags      = 0;
     description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    description.MiscFlags = 0;
+    description.MiscFlags      = 0;
     return RendererResourceTestAccess::Device(renderer)->CreateTexture2D(&description, nullptr, staging.put());
 }
 
-HRESULT FrameFingerprint(const Renderer& renderer, ID3D11Texture2D* staging, uint64_t& fingerprint,
-                         UINT& changedPixels) noexcept
+HRESULT FrameFingerprint(const Renderer& renderer, ID3D11Texture2D* staging, uint64_t& fingerprint, UINT& changedPixels) noexcept
 {
     D3D11_TEXTURE2D_DESC description{};
     staging->GetDesc(&description);
     ID3D11DeviceContext* const context = RendererResourceTestAccess::Context(renderer);
     D3D11_MAPPED_SUBRESOURCE mapped{};
     RETURN_IF_FAILED(context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped));
-    const auto unmap = wil::scope_exit([&] { context->Unmap(staging, 0); });
-    fingerprint = 14695981039346656037ULL;
-    changedPixels = 0;
+    const auto unmap             = wil::scope_exit([&] { context->Unmap(staging, 0); });
+    fingerprint                  = 14695981039346656037ULL;
+    changedPixels                = 0;
     const auto* const background = static_cast<const uint8_t*>(mapped.pData);
     for (UINT y = 0; y < description.Height; ++y)
     {
@@ -253,7 +256,7 @@ void TestGpuResourceRetirement(bool& success) noexcept
     std::wcout << L"[ RUN      ] production context releases retired page bindings without a device rebuild\n";
     const auto check = [&](bool condition, const wchar_t* name)
     {
-        if (!condition)
+        if (! condition)
         {
             success = false;
             std::wcerr << L"FAIL GPU resource retirement: " << name << L'\n';
@@ -263,13 +266,22 @@ void TestGpuResourceRetirement(bool& success) noexcept
     check(SUCCEEDED(com), L"COM initialization");
     if (FAILED(com))
         return;
-    const auto uninitialize = wil::scope_exit([] { OleUninitialize(); });
+    const auto uninitialize        = wil::scope_exit([] { OleUninitialize(); });
     std::atomic<UINT> destructions = 0;
-    wil::unique_hwnd window(CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, L"STATIC", L"RedXe GPU retirement test",
-                                            WS_POPUP, -32000, -32000, kWidth, kHeight, nullptr, nullptr,
-                                            GetModuleHandleW(nullptr), nullptr));
-    check(!!window, L"hidden owned window");
-    if (!window)
+    wil::unique_hwnd window(CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP,
+                                            L"STATIC",
+                                            L"RedXe GPU retirement test",
+                                            WS_POPUP,
+                                            -32000,
+                                            -32000,
+                                            kWidth,
+                                            kHeight,
+                                            nullptr,
+                                            nullptr,
+                                            GetModuleHandleW(nullptr),
+                                            nullptr));
+    check(! ! window, L"hidden owned window");
+    if (! window)
         return;
     AppSettings settings{};
     HRESULT result = ParseAppSettingsJson(
@@ -280,13 +292,12 @@ void TestGpuResourceRetirement(bool& success) noexcept
     DashboardHost primary;
     DashboardHost staged;
     Renderer renderer;
-    const auto cleanup = wil::scope_exit(
-        [&]
-        {
-            renderer.Shutdown();
-            staged.Shutdown();
-            primary.Shutdown();
-        });
+    const auto cleanup = wil::scope_exit([&]
+    {
+        renderer.Shutdown();
+        staged.Shutdown();
+        primary.Shutdown();
+    });
     if (SUCCEEDED(result))
         result = primaryPlugins.Initialize(settings);
     if (SUCCEEDED(result))
@@ -310,7 +321,7 @@ void TestGpuResourceRetirement(bool& success) noexcept
     {
         primaryCapture.attach(new (std::nothrow) CaptureGpuWidget(primaryPlugins.GpuWidgetAt(0), capture.get()));
         stagedCapture.attach(new (std::nothrow) CaptureGpuWidget(stagedPlugins.GpuWidgetAt(0), capture.get()));
-        if (!primaryCapture || !stagedCapture)
+        if (! primaryCapture || ! stagedCapture)
             result = E_OUTOFMEMORY;
         else
         {
@@ -324,12 +335,12 @@ void TestGpuResourceRetirement(bool& success) noexcept
     if (FAILED(result))
         return;
     ID3D11DeviceContext* const originalContext = RendererResourceTestAccess::Context(renderer);
-    const uint64_t originalGeneration = renderer.QueryProbeGraphics().generation;
-    uint64_t originalPixels = 0;
-    uint64_t incomingPixels = 0;
-    uint64_t currentPixels = 0;
-    UINT changedPixels = 0;
-    result = renderer.Render(0.1f, 0.0f);
+    const uint64_t originalGeneration          = renderer.QueryProbeGraphics().generation;
+    uint64_t originalPixels                    = 0;
+    uint64_t incomingPixels                    = 0;
+    uint64_t currentPixels                     = 0;
+    UINT changedPixels                         = 0;
+    result                                     = renderer.Render(0.1f, 0.0f);
     if (SUCCEEDED(result))
         result = FrameFingerprint(renderer, capture.get(), originalPixels, changedPixels);
     check(SUCCEEDED(result) && changedPixels > 1000, L"control frame contains actual triangle pixels");
@@ -337,7 +348,7 @@ void TestGpuResourceRetirement(bool& success) noexcept
         return;
 
     result = BindRetiringResources(renderer, destructions);
-    check(SUCCEEDED(result) && destructions == 0 && !RetiringBindingsAreClear(renderer),
+    check(SUCCEEDED(result) && destructions == 0 && ! RetiringBindingsAreClear(renderer),
           L"unused bindings retain resources after their plugin owners release");
     result = renderer.SetTransitionDashboard(nullptr);
     // The driver's command buffer may defer final destruction. Drain it only in the test; production uses the next
@@ -357,8 +368,7 @@ void TestGpuResourceRetirement(bool& success) noexcept
     if (SUCCEEDED(result))
         result = renderer.SetTransitionDashboard(&staged);
     RendererResourceTestAccess::Context(renderer)->Flush();
-    check(SUCCEEDED(result) && RetiringBindingsAreClear(renderer) && destructions == 2,
-          L"replacing a staged page releases the previous staged GPU bindings");
+    check(SUCCEEDED(result) && RetiringBindingsAreClear(renderer) && destructions == 2, L"replacing a staged page releases the previous staged GPU bindings");
     result = primary.SetHorizontalOffset(-static_cast<LONG>(kWidth));
     if (SUCCEEDED(result))
         result = staged.SetHorizontalOffset(0);
@@ -374,8 +384,7 @@ void TestGpuResourceRetirement(bool& success) noexcept
     if (SUCCEEDED(result))
         result = renderer.AdoptPrimaryDashboard(staged);
     RendererResourceTestAccess::Context(renderer)->Flush();
-    check(SUCCEEDED(result) && RetiringBindingsAreClear(renderer) && destructions == 3 &&
-              RendererResourceTestAccess::Context(renderer) == originalContext &&
+    check(SUCCEEDED(result) && RetiringBindingsAreClear(renderer) && destructions == 3 && RendererResourceTestAccess::Context(renderer) == originalContext &&
               renderer.QueryProbeGraphics().generation == originalGeneration,
           L"promotion clears bindings and retains the device, swap chain and incoming resources");
     result = renderer.Render(0.1f, 0.0f);
@@ -393,7 +402,7 @@ void TestGpuResourceRetirement(bool& success) noexcept
     if (FAILED(result))
         return;
     result = renderer.AdoptPrimaryDashboard(primary);
-    check(FAILED(result) && destructions == 3 && !RetiringBindingsAreClear(renderer),
+    check(FAILED(result) && destructions == 3 && ! RetiringBindingsAreClear(renderer),
           L"failed promotion retains the existing pages and does not retire their bindings");
     result = renderer.SetTransitionDashboard(nullptr);
     if (SUCCEEDED(result))
@@ -402,21 +411,20 @@ void TestGpuResourceRetirement(bool& success) noexcept
         result = renderer.Render(0.1f, 0.0f);
     if (SUCCEEDED(result))
         result = FrameFingerprint(renderer, capture.get(), currentPixels, changedPixels);
-    check(SUCCEEDED(result) && destructions == 4 && renderer.LastFrameSuccessfulWidgetCount() == 1 &&
-              currentPixels == incomingPixels,
+    check(SUCCEEDED(result) && destructions == 4 && renderer.LastFrameSuccessfulWidgetCount() == 1 && currentPixels == incomingPixels,
           L"failed-promotion recovery cancels the neighbor and preserves primary pixels");
 
     wil::com_ptr_nothrow<VisibilityFaultWidget> visibility;
     visibility.attach(new (std::nothrow) VisibilityFaultWidget(primaryPlugins.WidgetAt(0)));
     check(bool(visibility), L"the visibility fault wrapper is available");
-    if (!visibility)
+    if (! visibility)
         return;
     PluginManagerGpuResourceTestAccess::ReplaceVisibility(primaryPlugins, visibility.get());
-    result = primary.SetWidgetsVisible(true);
+    result                  = primary.SetWidgetsVisible(true);
     visibility->showFailure = E_ACCESSDENIED;
     if (SUCCEEDED(result))
         result = renderer.SetTransitionDashboard(&primary);
-    check(result == E_ACCESSDENIED && !RendererResourceTestAccess::HasTransition(renderer),
+    check(result == E_ACCESSDENIED && ! RendererResourceTestAccess::HasTransition(renderer),
           L"failed staged visibility drops the renderer's borrowed page before its owner can destroy it");
     visibility->showFailure = S_OK;
     (void)renderer.SetTransitionDashboard(nullptr);
@@ -429,8 +437,7 @@ void TestGpuResourceRetirement(bool& success) noexcept
     if (SUCCEEDED(result))
         result = renderer.SetTransitionDashboard(nullptr);
     RendererResourceTestAccess::Context(renderer)->Flush();
-    check(result == E_ABORT && !RendererResourceTestAccess::HasTransition(renderer) &&
-              RetiringBindingsAreClear(renderer) && destructions == 5,
+    check(result == E_ABORT && ! RendererResourceTestAccess::HasTransition(renderer) && RetiringBindingsAreClear(renderer) && destructions == 5,
           L"failed staged hide reports its error but still detaches and releases retiring bindings");
     visibility->hideFailure = S_OK;
     (void)renderer.SetTransitionDashboard(nullptr);

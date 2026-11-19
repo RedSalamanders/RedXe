@@ -42,8 +42,7 @@ constexpr DWORD kFrameTimeoutMilliseconds = 5000;
 [[nodiscard]] HRESULT WritePng(const wchar_t* path, const BYTE* pixels, UINT width, UINT height, UINT stride) noexcept
 {
     wil::com_ptr_nothrow<IWICImagingFactory> factory;
-    HRESULT result =
-        CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
+    HRESULT result = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
     if (FAILED(result))
     {
         return result;
@@ -79,7 +78,7 @@ constexpr DWORD kFrameTimeoutMilliseconds = 5000;
     if (SUCCEEDED(result))
     {
         WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
-        result = frame->SetPixelFormat(&format);
+        result                    = frame->SetPixelFormat(&format);
         if (SUCCEEDED(result) && format != GUID_WICPixelFormat32bppBGRA)
         {
             result = WINCODEC_ERR_UNSUPPORTEDPIXELFORMAT;
@@ -89,7 +88,7 @@ constexpr DWORD kFrameTimeoutMilliseconds = 5000;
     {
         // The last row of a cropped region ends before its full stride; size the buffer to what is really there.
         const UINT bytes = stride * (height - 1) + width * 4U;
-        result = frame->WritePixels(height, stride, bytes, const_cast<BYTE*>(pixels));
+        result           = frame->WritePixels(height, stride, bytes, const_cast<BYTE*>(pixels));
     }
     if (SUCCEEDED(result))
     {
@@ -114,41 +113,46 @@ struct CaptureSource
 
 [[nodiscard]] CaptureSource OpenCaptureSource(HWND window)
 {
-    namespace Capture = winrt::Windows::Graphics::Capture;
+    namespace Capture  = winrt::Windows::Graphics::Capture;
     namespace Direct3D = winrt::Windows::Graphics::DirectX::Direct3D11;
     CaptureSource source;
-    winrt::check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                                           nullptr, 0, D3D11_SDK_VERSION, source.device.put(), nullptr,
+    winrt::check_hresult(D3D11CreateDevice(nullptr,
+                                           D3D_DRIVER_TYPE_HARDWARE,
+                                           nullptr,
+                                           D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                           nullptr,
+                                           0,
+                                           D3D11_SDK_VERSION,
+                                           source.device.put(),
+                                           nullptr,
                                            source.context.put()));
     wil::com_ptr_nothrow<IDXGIDevice> dxgiDevice;
     winrt::check_hresult(source.device->QueryInterface(IID_PPV_ARGS(dxgiDevice.put())));
     wil::com_ptr_nothrow<IInspectable> inspectable;
     winrt::check_hresult(CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice.get(), inspectable.put()));
-    winrt::check_hresult(
-        inspectable->QueryInterface(winrt::guid_of<Direct3D::IDirect3DDevice>(), winrt::put_abi(source.projected)));
+    winrt::check_hresult(inspectable->QueryInterface(winrt::guid_of<Direct3D::IDirect3DDevice>(), winrt::put_abi(source.projected)));
     const auto interop = winrt::get_activation_factory<Capture::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
-    winrt::check_hresult(
-        interop->CreateForWindow(window, winrt::guid_of<Capture::GraphicsCaptureItem>(), winrt::put_abi(source.item)));
+    winrt::check_hresult(interop->CreateForWindow(window, winrt::guid_of<Capture::GraphicsCaptureItem>(), winrt::put_abi(source.item)));
     return source;
 }
 } // namespace
 
 HRESULT QueryWindowCaptureSupport(HWND window, SIZE* surfaceSize) noexcept
 {
-    if (!window || !surfaceSize)
+    if (! window || ! surfaceSize)
     {
         return E_POINTER;
     }
     *surfaceSize = SIZE{};
     try
     {
-        if (!winrt::Windows::Graphics::Capture::GraphicsCaptureSession::IsSupported())
+        if (! winrt::Windows::Graphics::Capture::GraphicsCaptureSession::IsSupported())
         {
             return E_NOTIMPL;
         }
         const CaptureSource source = OpenCaptureSource(window);
-        const auto size = source.item.Size();
-        *surfaceSize = SIZE{size.Width, size.Height};
+        const auto size            = source.item.Size();
+        *surfaceSize               = SIZE{size.Width, size.Height};
         return S_OK;
     }
     catch (const std::bad_alloc&)
@@ -167,13 +171,13 @@ HRESULT QueryWindowCaptureSupport(HWND window, SIZE* surfaceSize) noexcept
 
 HRESULT SaveWindowScreenshot(HWND window, const wchar_t* pngPath, const RECT* clientCrop) noexcept
 {
-    if (!window || !pngPath || pngPath[0] == L'\0')
+    if (! window || ! pngPath || pngPath[0] == L'\0')
     {
         return E_POINTER;
     }
     DWORD processId = 0;
     GetWindowThreadProcessId(window, &processId);
-    if (processId != GetCurrentProcessId() || !IsWindowVisible(window) || IsIconic(window))
+    if (processId != GetCurrentProcessId() || ! IsWindowVisible(window) || IsIconic(window))
     {
         return E_INVALIDARG;
     }
@@ -186,18 +190,20 @@ HRESULT SaveWindowScreenshot(HWND window, const wchar_t* pngPath, const RECT* cl
         RECT client{};
         RECT frame{};
         POINT origin{};
-        if (!GetClientRect(window, &client) || !ClientToScreen(window, &origin) ||
+        if (! GetClientRect(window, &client) || ! ClientToScreen(window, &origin) ||
             FAILED(DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, &frame, sizeof(frame))))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
         RECT clipped{};
-        if (!IntersectRect(&clipped, clientCrop, &client))
+        if (! IntersectRect(&clipped, clientCrop, &client))
         {
             return E_INVALIDARG;
         }
-        crop = RECT{clipped.left + origin.x - frame.left, clipped.top + origin.y - frame.top,
-                    clipped.right + origin.x - frame.left, clipped.bottom + origin.y - frame.top};
+        crop     = RECT{clipped.left + origin.x - frame.left,
+                        clipped.top + origin.y - frame.top,
+                        clipped.right + origin.x - frame.left,
+                        clipped.bottom + origin.y - frame.top};
         cropping = true;
     }
     // C++/WinRT reports failures as exceptions; this boundary turns them back into an HRESULT and never
@@ -205,28 +211,25 @@ HRESULT SaveWindowScreenshot(HWND window, const wchar_t* pngPath, const RECT* cl
     try
     {
         namespace Capture = winrt::Windows::Graphics::Capture;
-        if (!Capture::GraphicsCaptureSession::IsSupported())
+        if (! Capture::GraphicsCaptureSession::IsSupported())
         {
             return E_NOTIMPL;
         }
         const CaptureSource source = OpenCaptureSource(window);
-        const auto& device = source.device;
-        const auto& context = source.context;
-        const auto& item = source.item;
+        const auto& device         = source.device;
+        const auto& context        = source.context;
+        const auto& item           = source.item;
         wil::unique_event_nothrow frameArrived;
         winrt::check_hresult(frameArrived.create(wil::EventOptions::ManualReset));
         auto pool = Capture::Direct3D11CaptureFramePool::CreateFreeThreaded(
-            source.projected, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 2,
-            item.Size());
-        auto session = pool.CreateCaptureSession(item);
-        const auto close = wil::scope_exit(
-            [&]() noexcept
-            {
-                session.Close();
-                pool.Close();
-            });
-        const auto revoke = pool.FrameArrived(
-            winrt::auto_revoke, [event = frameArrived.get()](const auto&, const auto&) noexcept { SetEvent(event); });
+            source.projected, winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, item.Size());
+        auto session      = pool.CreateCaptureSession(item);
+        const auto close  = wil::scope_exit([&]() noexcept
+        {
+            session.Close();
+            pool.Close();
+        });
+        const auto revoke = pool.FrameArrived(winrt::auto_revoke, [event = frameArrived.get()](const auto&, const auto&) noexcept { SetEvent(event); });
         session.IsCursorCaptureEnabled(false);
         session.StartCapture();
         if (WaitForSingleObject(frameArrived.get(), kFrameTimeoutMilliseconds) != WAIT_OBJECT_0)
@@ -234,20 +237,19 @@ HRESULT SaveWindowScreenshot(HWND window, const wchar_t* pngPath, const RECT* cl
             return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
         }
         auto frame = pool.TryGetNextFrame();
-        if (!frame)
+        if (! frame)
         {
             return E_UNEXPECTED;
         }
         const auto closeFrame = wil::scope_exit([&]() noexcept { frame.Close(); });
-        const auto access =
-            frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
+        const auto access     = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
         wil::com_ptr_nothrow<ID3D11Texture2D> texture;
         winrt::check_hresult(access->GetInterface(IID_PPV_ARGS(texture.put())));
         D3D11_TEXTURE2D_DESC description{};
         texture->GetDesc(&description);
-        description.Usage = D3D11_USAGE_STAGING;
-        description.BindFlags = 0;
-        description.MiscFlags = 0;
+        description.Usage          = D3D11_USAGE_STAGING;
+        description.BindFlags      = 0;
+        description.MiscFlags      = 0;
         description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         wil::com_ptr_nothrow<ID3D11Texture2D> staging;
         winrt::check_hresult(device->CreateTexture2D(&description, nullptr, staging.put()));
@@ -255,28 +257,24 @@ HRESULT SaveWindowScreenshot(HWND window, const wchar_t* pngPath, const RECT* cl
         D3D11_MAPPED_SUBRESOURCE mapped{};
         winrt::check_hresult(context->Map(staging.get(), 0, D3D11_MAP_READ, 0, &mapped));
         const auto unmap = wil::scope_exit([&]() noexcept { context->Unmap(staging.get(), 0); });
-        const auto size = frame.ContentSize();
-        if (size.Width <= 0 || size.Height <= 0 || static_cast<UINT>(size.Width) > description.Width ||
-            static_cast<UINT>(size.Height) > description.Height ||
+        const auto size  = frame.ContentSize();
+        if (size.Width <= 0 || size.Height <= 0 || static_cast<UINT>(size.Width) > description.Width || static_cast<UINT>(size.Height) > description.Height ||
             mapped.RowPitch > std::numeric_limits<UINT>::max() / static_cast<UINT>(size.Height))
         {
             return E_UNEXPECTED;
         }
-        if (!cropping)
+        if (! cropping)
         {
-            return WritePng(pngPath, static_cast<const BYTE*>(mapped.pData), static_cast<UINT>(size.Width),
-                            static_cast<UINT>(size.Height), mapped.RowPitch);
+            return WritePng(pngPath, static_cast<const BYTE*>(mapped.pData), static_cast<UINT>(size.Width), static_cast<UINT>(size.Height), mapped.RowPitch);
         }
         const RECT content{0, 0, size.Width, size.Height};
         RECT region{};
-        if (!IntersectRect(&region, &crop, &content))
+        if (! IntersectRect(&region, &crop, &content))
         {
             return E_INVALIDARG;
         }
-        const BYTE* first = static_cast<const BYTE*>(mapped.pData) + static_cast<size_t>(region.top) * mapped.RowPitch +
-                            static_cast<size_t>(region.left) * 4U;
-        return WritePng(pngPath, first, static_cast<UINT>(region.right - region.left),
-                        static_cast<UINT>(region.bottom - region.top), mapped.RowPitch);
+        const BYTE* first = static_cast<const BYTE*>(mapped.pData) + static_cast<size_t>(region.top) * mapped.RowPitch + static_cast<size_t>(region.left) * 4U;
+        return WritePng(pngPath, first, static_cast<UINT>(region.right - region.left), static_cast<UINT>(region.bottom - region.top), mapped.RowPitch);
     }
     catch (const std::bad_alloc&)
     {

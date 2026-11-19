@@ -12,8 +12,8 @@
 struct JsonTextCursor final
 {
     std::string_view json;
-    size_t index = 0;
-    uint32_t line = 1;
+    size_t index    = 0;
+    uint32_t line   = 1;
     uint32_t column = 1;
 
     void SkipSpaceAndComments() noexcept
@@ -54,7 +54,7 @@ struct JsonTextCursor final
             {
                 index += 2;
                 column += 2;
-                while (index + 1 < json.size() && !(json[index] == '*' && json[index + 1] == '/'))
+                while (index + 1 < json.size() && ! (json[index] == '*' && json[index + 1] == '/'))
                 {
                     if (json[index] == '\n')
                     {
@@ -193,7 +193,7 @@ struct JsonTextCursor final
             }
             for (;;)
             {
-                if (!SkipString() || !Consume(':') || !SkipValue())
+                if (! SkipString() || ! Consume(':') || ! SkipValue())
                 {
                     return false;
                 }
@@ -223,7 +223,7 @@ struct JsonTextCursor final
             }
             for (;;)
             {
-                if (!SkipValue())
+                if (! SkipValue())
                 {
                     return false;
                 }
@@ -247,8 +247,7 @@ struct JsonTextCursor final
             while (index < json.size())
             {
                 const char digit = json[index];
-                if ((digit >= '0' && digit <= '9') || digit == '-' || digit == '+' || digit == '.' || digit == 'e' ||
-                    digit == 'E')
+                if ((digit >= '0' && digit <= '9') || digit == '-' || digit == '+' || digit == '.' || digit == 'e' || digit == 'E')
                 {
                     Advance();
                     continue;
@@ -257,10 +256,10 @@ struct JsonTextCursor final
             }
             return true;
         }
-        static constexpr std::string_view kTrue = "true";
+        static constexpr std::string_view kTrue  = "true";
         static constexpr std::string_view kFalse = "false";
-        static constexpr std::string_view kNull = "null";
-        const std::string_view word = json.substr(index);
+        static constexpr std::string_view kNull  = "null";
+        const std::string_view word              = json.substr(index);
         if (word.starts_with(kTrue))
         {
             for (size_t n = 0; n < kTrue.size(); ++n)

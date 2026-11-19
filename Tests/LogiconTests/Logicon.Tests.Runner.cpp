@@ -44,14 +44,14 @@ namespace
 {
 constexpr HRESULT kTestFailure = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-#define LOGICON_CHECK(condition, message)                                                                              \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if (!(condition))                                                                                              \
-        {                                                                                                              \
-            std::wprintf(L"FAIL %S (%S:%d)\n", message, __FILE__, __LINE__);                                           \
-            return kTestFailure;                                                                                       \
-        }                                                                                                              \
+#define LOGICON_CHECK(condition, message)                                                                                                                      \
+    do                                                                                                                                                         \
+    {                                                                                                                                                          \
+        if (! (condition))                                                                                                                                     \
+        {                                                                                                                                                      \
+            std::wprintf(L"FAIL %S (%S:%d)\n", message, __FILE__, __LINE__);                                                                                   \
+            return kTestFailure;                                                                                                                               \
+        }                                                                                                                                                      \
     } while (false)
 
 template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, const char* name) noexcept
@@ -70,7 +70,7 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         return HRESULT_FROM_WIN32(length == 0 ? GetLastError() : ERROR_INSUFFICIENT_BUFFER);
     }
     wchar_t* separator = std::wcsrchr(path.data(), L'\\');
-    if (!separator)
+    if (! separator)
     {
         return E_UNEXPECTED;
     }
@@ -93,51 +93,43 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 {
     using namespace Logicon;
     std::array<uint8_t, 64> report{};
-    LOGICON_CHECK(BuildGetFeatureReport(kDeviceIndexWired, kFeatureContextualDisplay, report.data(),
-                                        static_cast<uint32_t>(report.size())) == kLongReportBytes,
+    LOGICON_CHECK(BuildGetFeatureReport(kDeviceIndexWired, kFeatureContextualDisplay, report.data(), static_cast<uint32_t>(report.size())) == kLongReportBytes,
                   "getFeature report length");
     const uint8_t expectedGetFeature[] = {0x11, 0xFF, 0x00, 0x0B, 0x19, 0xA1, 0x00};
-    LOGICON_CHECK(std::memcmp(report.data(), expectedGetFeature, sizeof(expectedGetFeature)) == 0,
-                  "getFeature(0x19A1) bytes");
+    LOGICON_CHECK(std::memcmp(report.data(), expectedGetFeature, sizeof(expectedGetFeature)) == 0, "getFeature(0x19A1) bytes");
     for (uint32_t index = 7; index < kLongReportBytes; ++index)
     {
         LOGICON_CHECK(report[index] == 0, "long report zero padding");
     }
 
-    LOGICON_CHECK(BuildSetCidReportingReport(kDeviceIndexWired, 0x0B, kControlPagePrevious, 0x03, 0, 0, report.data(),
-                                             static_cast<uint32_t>(report.size())) == kLongReportBytes,
+    LOGICON_CHECK(BuildSetCidReportingReport(kDeviceIndexWired, 0x0B, kControlPagePrevious, 0x03, 0, 0, report.data(), static_cast<uint32_t>(report.size())) ==
+                      kLongReportBytes,
                   "setCidReporting length");
     const uint8_t expectedDivert[] = {0x11, 0xFF, 0x0B, 0x3B, 0x01, 0xA1, 0x03, 0x00, 0x00, 0x00};
-    LOGICON_CHECK(std::memcmp(report.data(), expectedDivert, sizeof(expectedDivert)) == 0,
-                  "setCidReporting matches the reference init write");
+    LOGICON_CHECK(std::memcmp(report.data(), expectedDivert, sizeof(expectedDivert)) == 0, "setCidReporting matches the reference init write");
 
-    LOGICON_CHECK(BuildSetBrightnessReport(kDeviceIndexWired, 0x0F, 70, report.data(),
-                                           static_cast<uint32_t>(report.size())) == kLongReportBytes,
+    LOGICON_CHECK(BuildSetBrightnessReport(kDeviceIndexWired, 0x0F, 70, report.data(), static_cast<uint32_t>(report.size())) == kLongReportBytes,
                   "brightness length");
     const uint8_t expectedBrightness[] = {0x11, 0xFF, 0x0F, 0x2B, 0x00, 0x46};
-    LOGICON_CHECK(std::memcmp(report.data(), expectedBrightness, sizeof(expectedBrightness)) == 0,
-                  "brightness matches the reference write");
-    LOGICON_CHECK(BuildSetBrightnessReport(kDeviceIndexWired, 0x0F, 0, report.data(),
-                                           static_cast<uint32_t>(report.size())) == kLongReportBytes &&
+    LOGICON_CHECK(std::memcmp(report.data(), expectedBrightness, sizeof(expectedBrightness)) == 0, "brightness matches the reference write");
+    LOGICON_CHECK(BuildSetBrightnessReport(kDeviceIndexWired, 0x0F, 0, report.data(), static_cast<uint32_t>(report.size())) == kLongReportBytes &&
                       report[5] == 1,
                   "brightness 0 clamps to 1 (0 resets the device)");
-    LOGICON_CHECK(BuildLongReport(kDeviceIndexWired, 0x02, 0x10, nullptr, 0, report.data(),
-                                  static_cast<uint32_t>(report.size())) == 0,
+    LOGICON_CHECK(BuildLongReport(kDeviceIndexWired, 0x02, 0x10, nullptr, 0, report.data(), static_cast<uint32_t>(report.size())) == 0,
                   "function above 15 is rejected");
 
     // Responses, errors, and acks.
     const uint8_t response[] = {0x11, 0xFF, 0x00, 0x0B, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     HidppFrame frame{};
-    LOGICON_CHECK(ParseHidppFrame(response, sizeof(response), frame) && !frame.error && frame.featureIndex == 0 &&
-                      frame.function == 0 && frame.softwareId == kSoftwareId && frame.params[0] == 0x02,
+    LOGICON_CHECK(ParseHidppFrame(response, sizeof(response), frame) && ! frame.error && frame.featureIndex == 0 && frame.function == 0 &&
+                      frame.softwareId == kSoftwareId && frame.params[0] == 0x02,
                   "root response parses");
     LOGICON_CHECK(FrameAnswers(frame, 0x00, 0), "response answers getFeature");
     const uint8_t error[] = {0x11, 0xFF, 0xFF, 0x0B, 0x3B, 0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    LOGICON_CHECK(ParseHidppFrame(error, sizeof(error), frame) && frame.error && frame.featureIndex == 0x0B &&
-                      frame.function == 3 && frame.errorCode == 5,
+    LOGICON_CHECK(ParseHidppFrame(error, sizeof(error), frame) && frame.error && frame.featureIndex == 0x0B && frame.function == 3 && frame.errorCode == 5,
                   "error frame parses");
     LOGICON_CHECK(FrameAnswers(frame, 0x0B, 3), "error answers the failing command");
-    LOGICON_CHECK(!FrameAnswers(frame, 0x02, 3), "error does not answer another feature");
+    LOGICON_CHECK(! FrameAnswers(frame, 0x02, 3), "error does not answer another feature");
 
     // 0x19A1 key event: keys 1, 5 and 9 held.
     uint8_t keys[kVlpControlReportBytes]{};
@@ -150,13 +142,13 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     keys[7] = 5;
     keys[8] = 9;
     InputEvent event{};
-    LOGICON_CHECK(ParseInputEvent(keys, sizeof(keys), 0x02, 0x0B, event) && event.kind == InputKind::DisplayKeys &&
-                      event.keyCount == 3 && event.mask == ((1U << 0) | (1U << 4) | (1U << 8)),
+    LOGICON_CHECK(ParseInputEvent(keys, sizeof(keys), 0x02, 0x0B, event) && event.kind == InputKind::DisplayKeys && event.keyCount == 3 &&
+                      event.mask == ((1U << 0) | (1U << 4) | (1U << 8)),
                   "display key event parses");
     keys[3] = 0x2B; // an ack for a set-image command, not an event
-    LOGICON_CHECK(!ParseInputEvent(keys, sizeof(keys), 0x02, 0x0B, event), "display ack is not an input event");
+    LOGICON_CHECK(! ParseInputEvent(keys, sizeof(keys), 0x02, 0x0B, event), "display ack is not an input event");
     keys[3] = 0x00;
-    LOGICON_CHECK(!ParseInputEvent(keys, sizeof(keys), 0x07, 0x0B, event), "wrong feature index is ignored");
+    LOGICON_CHECK(! ParseInputEvent(keys, sizeof(keys), 0x07, 0x0B, event), "wrong feature index is ignored");
 
     // 0x1B04 diverted buttons: next page held.
     uint8_t buttons[kLongReportBytes]{};
@@ -166,23 +158,19 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     buttons[3] = 0x00;
     buttons[4] = 0x01;
     buttons[5] = 0xA2;
-    LOGICON_CHECK(ParseInputEvent(buttons, sizeof(buttons), 0x02, 0x0B, event) &&
-                      event.kind == InputKind::DivertedButtons && event.controlCount == 1 &&
+    LOGICON_CHECK(ParseInputEvent(buttons, sizeof(buttons), 0x02, 0x0B, event) && event.kind == InputKind::DivertedButtons && event.controlCount == 1 &&
                       event.controls[0] == kControlPageNext && event.mask == 2U,
                   "diverted page button parses");
     buttons[4] = 0;
     buttons[5] = 0;
-    LOGICON_CHECK(ParseInputEvent(buttons, sizeof(buttons), 0x02, 0x0B, event) && event.controlCount == 0 &&
-                      event.mask == 0,
+    LOGICON_CHECK(ParseInputEvent(buttons, sizeof(buttons), 0x02, 0x0B, event) && event.controlCount == 0 && event.mask == 0,
                   "release parses as an empty list");
 
     // 0x1B04 getCidReporting response.
-    const uint8_t reportingResponse[] = {0x11, 0xFF, 0x0B, 0x2B, 0x01, 0xA1, 0x00, 0x00, 0x00, 0x00,
-                                         0,    0,    0,    0,    0,    0,    0,    0,    0,    0};
+    const uint8_t reportingResponse[] = {0x11, 0xFF, 0x0B, 0x2B, 0x01, 0xA1, 0x00, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     CidReporting reporting{};
-    LOGICON_CHECK(ParseHidppFrame(reportingResponse, sizeof(reportingResponse), frame) &&
-                      ParseCidReporting(frame, reporting) && reporting.controlId == kControlPagePrevious &&
-                      reporting.flags == 0,
+    LOGICON_CHECK(ParseHidppFrame(reportingResponse, sizeof(reportingResponse), frame) && ParseCidReporting(frame, reporting) &&
+                      reporting.controlId == kControlPagePrevious && reporting.flags == 0,
                   "cid reporting parses");
     return S_OK;
 }
@@ -191,14 +179,11 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 {
     using namespace Logicon;
     const ImageRegion keyFirst = KeyRegion(0);
-    const ImageRegion center = KeyRegion(4);
-    const ImageRegion keyLast = KeyRegion(8);
-    LOGICON_CHECK(keyFirst.x == 23 && keyFirst.y == 6 && keyFirst.width == 118 && keyFirst.height == 118,
-                  "key 0 region");
+    const ImageRegion center   = KeyRegion(4);
+    const ImageRegion keyLast  = KeyRegion(8);
+    LOGICON_CHECK(keyFirst.x == 23 && keyFirst.y == 6 && keyFirst.width == 118 && keyFirst.height == 118, "key 0 region");
     LOGICON_CHECK(center.x == 181 && center.y == 164, "key 4 region");
-    LOGICON_CHECK(keyLast.x == 339 && keyLast.y == 322 && keyLast.x + keyLast.width == 457 &&
-                      keyLast.y + keyLast.height == 440,
-                  "key 8 region");
+    LOGICON_CHECK(keyLast.x == 339 && keyLast.y == 322 && keyLast.x + keyLast.width == 457 && keyLast.y + keyLast.height == 440, "key 8 region");
     const ImageRegion grid = GridRegion();
     LOGICON_CHECK(grid.x == 23 && grid.y == 6 && grid.width == 434 && grid.height == 434, "grid region");
 
@@ -223,15 +208,14 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     VlpImageStream stream{};
     LOGICON_CHECK(BeginVlpImageStream(0x02, KeyRegion(0), false, image.get(), 20000, stream), "stream begins");
     std::array<uint8_t, kVlpImageReportBytes> packet{};
-    uint32_t packets = 0;
+    uint32_t packets  = 0;
     uint32_t consumed = 0;
     while (NextVlpPacket(stream, packet.data(), static_cast<uint32_t>(packet.size())))
     {
         ++packets;
-        LOGICON_CHECK(packet[0] == 0x14 && packet[1] == 0xFF && packet[2] == 0x02 && packet[3] == 0x2B,
-                      "packet prefix");
+        LOGICON_CHECK(packet[0] == 0x14 && packet[1] == 0xFF && packet[2] == 0x02 && packet[3] == 0x2B, "packet prefix");
         const bool first = packets == 1;
-        const bool last = packets == 5;
+        const bool last  = packets == 5;
         LOGICON_CHECK(packet[4] == VlpSequenceByte(packets, first, last), "packet sequence byte");
         const uint32_t header = first ? kVlpFirstHeaderBytes : kVlpContinuationHeaderBytes;
         if (first)
@@ -246,20 +230,18 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         consumed += payload;
     }
     LOGICON_CHECK(packets == 5 && consumed == 20000, "five packets carry the whole image");
-    LOGICON_CHECK(!NextVlpPacket(stream, packet.data(), static_cast<uint32_t>(packet.size())), "stream ends");
+    LOGICON_CHECK(! NextVlpPacket(stream, packet.data(), static_cast<uint32_t>(packet.size())), "stream ends");
 
     // Deferred update and a region that leaves the panel.
     LOGICON_CHECK(BeginVlpImageStream(0x02, GridRegion(), true, image.get(), 10, stream) &&
-                      NextVlpPacket(stream, packet.data(), static_cast<uint32_t>(packet.size())) && packet[6] == 1 &&
-                      packet[4] == 0xE1,
+                      NextVlpPacket(stream, packet.data(), static_cast<uint32_t>(packet.size())) && packet[6] == 1 && packet[4] == 0xE1,
                   "defer flag and single packet");
     ImageRegion outside{};
-    outside.x = 400;
-    outside.y = 0;
-    outside.width = 118;
+    outside.x      = 400;
+    outside.y      = 0;
+    outside.width  = 118;
     outside.height = 118;
-    LOGICON_CHECK(!BeginVlpImageStream(0x02, outside, false, image.get(), 10, stream),
-                  "a region past the panel is rejected");
+    LOGICON_CHECK(! BeginVlpImageStream(0x02, outside, false, image.get(), 10, stream), "a region past the panel is rejected");
     return S_OK;
 }
 
@@ -272,10 +254,9 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     using namespace Logicon;
     Settings settings{};
     std::array<char, 160> diagnostic{};
-    LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(kSettingsDefaults, settings, diagnostic.data(), diagnostic.size())),
-                  "defaults parse");
-    LOGICON_CHECK(settings.brightness == 70 && settings.restoreLogoOnExit && settings.keyCount == 0 &&
-                      settings.pageButtons == PageButtons::KeyPages && settings.KeyPageCount() == 1,
+    LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(kSettingsDefaults, settings, diagnostic.data(), diagnostic.size())), "defaults parse");
+    LOGICON_CHECK(settings.brightness == 70 && settings.restoreLogoOnExit && settings.keyCount == 0 && settings.pageButtons == PageButtons::KeyPages &&
+                      settings.KeyPageCount() == 1,
                   "default values");
 
     constexpr std::string_view authored =
@@ -289,37 +270,31 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         {"slot":7,"action":"keys.media","target":"mute","label":"Mute","icon":"Mute"},
         {"slot":6,"action":"logicon.keyPage.next","label":"More"}
       ]})json";
-    LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(authored, settings, diagnostic.data(), diagnostic.size())),
-                  "authored settings parse");
-    LOGICON_CHECK(settings.brightness == 40 && !settings.restoreLogoOnExit &&
-                      settings.pageButtons == PageButtons::DashboardPages && settings.keyCount == 7 &&
+    LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(authored, settings, diagnostic.data(), diagnostic.size())), "authored settings parse");
+    LOGICON_CHECK(settings.brightness == 40 && ! settings.restoreLogoOnExit && settings.pageButtons == PageButtons::DashboardPages && settings.keyCount == 7 &&
                       settings.KeyPageCount() == 4,
                   "authored scalar values and page count");
     const KeyBinding* next = settings.Find(0, 1);
-    LOGICON_CHECK(next && next->Action() == "page.next" && next->hasColor && next->colorRgb == 0x1E88E5 &&
-                      next->Label() == "Next" && next->Icon() == "ChevronRight" && next->valid && !next->IsLocal(),
+    LOGICON_CHECK(next && next->Action() == "page.next" && next->hasColor && next->colorRgb == 0x1E88E5 && next->Label() == "Next" &&
+                      next->Icon() == "ChevronRight" && next->valid && ! next->IsLocal(),
                   "binding fields");
     const KeyBinding* toggle = settings.Find(1, 4);
     LOGICON_CHECK(toggle && toggle->Action() == "widget.toggle" && toggle->Target() == "System/2", "widget target");
     std::string_view pageId;
     uint32_t ordinal = 0;
-    LOGICON_CHECK(ParseWidgetTarget(toggle->Target(), pageId, ordinal) && pageId == "System" && ordinal == 2,
-                  "widget target parse");
+    LOGICON_CHECK(ParseWidgetTarget(toggle->Target(), pageId, ordinal) && pageId == "System" && ordinal == 2, "widget target parse");
     LOGICON_CHECK(ParseWidgetTarget("3", pageId, ordinal) && pageId.empty() && ordinal == 3, "bare ordinal");
-    LOGICON_CHECK(!ParseWidgetTarget("/3", pageId, ordinal) && !ParseWidgetTarget("a/b", pageId, ordinal) &&
-                      !ParseWidgetTarget("1000", pageId, ordinal),
+    LOGICON_CHECK(! ParseWidgetTarget("/3", pageId, ordinal) && ! ParseWidgetTarget("a/b", pageId, ordinal) && ! ParseWidgetTarget("1000", pageId, ordinal),
                   "invalid widget targets");
     const KeyBinding* launch = settings.Find(1, 5);
     LOGICON_CHECK(launch && launch->Action() == "system.launch" && launch->Icon().starts_with("png:"), "launch target");
     const KeyBinding* mute = settings.Find(0, 7);
-    LOGICON_CHECK(mute && mute->page == 0 && mute->Action() == "keys.media" && mute->Target() == "mute",
-                  "omitted page defaults to 0");
+    LOGICON_CHECK(mute && mute->page == 0 && mute->Action() == "keys.media" && mute->Target() == "mute", "omitted page defaults to 0");
     const KeyBinding* local = settings.Find(0, 6);
-    LOGICON_CHECK(local && local->IsLocal() && local->Action() == "logicon.keyPage.next",
-                  "the published logicon namespace is local to the service");
+    LOGICON_CHECK(local && local->IsLocal() && local->Action() == "logicon.keyPage.next", "the published logicon namespace is local to the service");
     LOGICON_CHECK(settings.Find(2, 0) == nullptr, "blank slot");
-    LOGICON_CHECK(!settings.UsesSystemFaces() && settings.dialpad.turnCount == 0 && settings.dialpad.buttonCount == 0 &&
-                      !settings.dialpad.Turn(kControlDial, kDirectionForward),
+    LOGICON_CHECK(! settings.UsesSystemFaces() && settings.dialpad.turnCount == 0 && settings.dialpad.buttonCount == 0 &&
+                      ! settings.dialpad.Turn(kControlDial, kDirectionForward),
                   "no system faces and an unbound dialpad when the document has neither");
 
     // System faces and the dialpad object.
@@ -333,107 +308,82 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
       "buttons":[
         {"button":0,"action":"page.previous"},{"button":3,"action":"system.launch","target":"https://example.org"},
         {"button":2}]}})json";
-    LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(dialpadAuthored, settings, diagnostic.data(), diagnostic.size())),
-                  "system faces and dialpad parse");
-    LOGICON_CHECK(settings.UsesSystemFaces() && settings.Find(0, 0)->face == KeyFace::Cpu &&
-                      settings.Find(0, 1)->face == KeyFace::Memory && settings.Find(0, 2)->face == KeyFace::Gpu &&
-                      IsSystemFace(KeyFace::Gpu) && !IsSystemFace(KeyFace::Clock),
+    LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(dialpadAuthored, settings, diagnostic.data(), diagnostic.size())), "system faces and dialpad parse");
+    LOGICON_CHECK(settings.UsesSystemFaces() && settings.Find(0, 0)->face == KeyFace::Cpu && settings.Find(0, 1)->face == KeyFace::Memory &&
+                      settings.Find(0, 2)->face == KeyFace::Gpu && IsSystemFace(KeyFace::Gpu) && ! IsSystemFace(KeyFace::Clock),
                   "system face names");
-    const KeyBinding* clockwise = settings.dialpad.Turn(kControlDial, kDirectionForward);
+    const KeyBinding* clockwise  = settings.dialpad.Turn(kControlDial, kDirectionForward);
     const KeyBinding* rollerDown = settings.dialpad.Turn(kControlRoller, kDirectionBackward);
     LOGICON_CHECK(settings.dialpad.turnCount == 4 && clockwise && clockwise->Action() == "page.next" && rollerDown &&
-                      rollerDown->Action() == "logicon.brightness" && rollerDown->Target() == "-5" &&
-                      rollerDown->IsLocal() && settings.dialpad.buttonCount == 3,
+                      rollerDown->Action() == "logicon.brightness" && rollerDown->Target() == "-5" && rollerDown->IsLocal() &&
+                      settings.dialpad.buttonCount == 3,
                   "turn bindings by control and direction");
-    const KeyBinding* back = settings.dialpad.Button(0);
+    const KeyBinding* back    = settings.dialpad.Button(0);
     const KeyBinding* button7 = settings.dialpad.Button(3);
-    LOGICON_CHECK(back && back->Action() == "page.previous" && button7 && button7->Action() == "system.launch" &&
-                      settings.dialpad.Button(2) && !settings.dialpad.Button(2)->HasAction() &&
-                      !settings.dialpad.Button(1),
+    LOGICON_CHECK(back && back->Action() == "page.previous" && button7 && button7->Action() == "system.launch" && settings.dialpad.Button(2) &&
+                      ! settings.dialpad.Button(2)->HasAction() && ! settings.dialpad.Button(1),
                   "dial button bindings by button index");
-    LOGICON_CHECK(std::string_view(ControlName(kControlRoller)) == "roller" &&
-                      std::string_view(DirectionName(kControlDial, kDirectionBackward)) == "ccw" &&
-                      std::string_view(DirectionName(kControlRoller, kDirectionForward)) == "up" &&
-                      std::string_view(FaceName(KeyFace::Memory)) == "memory",
+    LOGICON_CHECK(std::string_view(ControlName(kControlRoller)) == "roller" && std::string_view(DirectionName(kControlDial, kDirectionBackward)) == "ccw" &&
+                      std::string_view(DirectionName(kControlRoller, kDirectionForward)) == "up" && std::string_view(FaceName(KeyFace::Memory)) == "memory",
                   "enum names round-trip");
 
     // Target grammars are the host's shared parsers; the model only checks the action-name grammar.
-    LOGICON_CHECK(RedXeActions::IsPathOrUri("https://example.org") &&
-                      RedXeActions::IsPathOrUri("\\\\server\\share\\x") && !RedXeActions::IsPathOrUri("notepad.exe"),
+    LOGICON_CHECK(RedXeActions::IsPathOrUri("https://example.org") && RedXeActions::IsPathOrUri("\\\\server\\share\\x") &&
+                      ! RedXeActions::IsPathOrUri("notepad.exe"),
                   "shared launch target grammar");
-    LOGICON_CHECK(RedXeIsActionNameSyntax("zoom.mute") && RedXeIsActionNameSyntax("logicon.keyPage.goto") &&
-                      !RedXeIsActionNameSyntax("launch") && !RedXeIsActionNameSyntax("Page.next") &&
-                      !RedXeIsActionNameSyntax("page..next") && !RedXeIsActionNameSyntax("page.next."),
+    LOGICON_CHECK(RedXeIsActionNameSyntax("zoom.mute") && RedXeIsActionNameSyntax("logicon.keyPage.goto") && ! RedXeIsActionNameSyntax("launch") &&
+                      ! RedXeIsActionNameSyntax("Page.next") && ! RedXeIsActionNameSyntax("page..next") && ! RedXeIsActionNameSyntax("page.next."),
                   "action-name grammar");
 
     // keys.down and mouse.down are valid names, so a document that binds them loads (v1.0.102 accepted them); the
     // binding reports that it holds input, and the service makes it invalid (TestShippedModule).
-    LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"keys.down","target":"A"}]})json",
-                                              settings, diagnostic.data(), diagnostic.size())) &&
-                      settings.Find(0, 0) && settings.Find(0, 0)->HoldsInput() && settings.Find(0, 0)->valid,
-                  "a key bound to keys.down loads and holds input");
-    LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(
-                      R"json({"dialpad":{"buttons":[{"button":1,"action":"mouse.down","target":"left"}],)json"
-                      R"json("turns":[{"control":"dial","direction":"cw","action":"keys.up","target":"A"}]}})json",
-                      settings, diagnostic.data(), diagnostic.size())) &&
-                      settings.dialpad.Button(1) && settings.dialpad.Button(1)->HoldsInput() &&
-                      settings.dialpad.Turn(kControlDial, kDirectionForward) &&
-                      !settings.dialpad.Turn(kControlDial, kDirectionForward)->HoldsInput(),
+    LOGICON_CHECK(
+        SUCCEEDED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"keys.down","target":"A"}]})json", settings, diagnostic.data(), diagnostic.size())) &&
+            settings.Find(0, 0) && settings.Find(0, 0)->HoldsInput() && settings.Find(0, 0)->valid,
+        "a key bound to keys.down loads and holds input");
+    LOGICON_CHECK(SUCCEEDED(ParseSettingsJson(R"json({"dialpad":{"buttons":[{"button":1,"action":"mouse.down","target":"left"}],)json"
+                                              R"json("turns":[{"control":"dial","direction":"cw","action":"keys.up","target":"A"}]}})json",
+                                              settings,
+                                              diagnostic.data(),
+                                              diagnostic.size())) &&
+                      settings.dialpad.Button(1) && settings.dialpad.Button(1)->HoldsInput() && settings.dialpad.Turn(kControlDial, kDirectionForward) &&
+                      ! settings.dialpad.Turn(kControlDial, kDirectionForward)->HoldsInput(),
                   "a dialpad button bound to mouse.down loads and holds input; keys.up does not");
 
     // Rejections.
-    LOGICON_CHECK(
-        FAILED(ParseSettingsJson(R"json({"brightness":0})json", settings, diagnostic.data(), diagnostic.size())),
-        "brightness 0 rejected");
-    LOGICON_CHECK(
-        FAILED(ParseSettingsJson(R"json({"keys":[{"slot":9}]})json", settings, diagnostic.data(), diagnostic.size())),
-        "slot 9 rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"page":4,"slot":0}]})json", settings, diagnostic.data(),
-                                           diagnostic.size())),
-                  "page 4 rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0},{"slot":0}]})json", settings, diagnostic.data(),
-                                           diagnostic.size())),
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"brightness":0})json", settings, diagnostic.data(), diagnostic.size())), "brightness 0 rejected");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":9}]})json", settings, diagnostic.data(), diagnostic.size())), "slot 9 rejected");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"page":4,"slot":0}]})json", settings, diagnostic.data(), diagnostic.size())), "page 4 rejected");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0},{"slot":0}]})json", settings, diagnostic.data(), diagnostic.size())),
                   "duplicate slot rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"turns":[{"control":"dial","direction":"up"}]}})json",
-                                           settings, diagnostic.data(), diagnostic.size())),
-                  "a roller direction on the dial is rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"dial":"page"}})json", settings, diagnostic.data(),
-                                           diagnostic.size())),
+    LOGICON_CHECK(
+        FAILED(ParseSettingsJson(R"json({"dialpad":{"turns":[{"control":"dial","direction":"up"}]}})json", settings, diagnostic.data(), diagnostic.size())),
+        "a roller direction on the dial is rejected");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"dial":"page"}})json", settings, diagnostic.data(), diagnostic.size())),
                   "the dial preset member no longer exists");
-    LOGICON_CHECK(
-        FAILED(ParseSettingsJson(
-            R"json({"dialpad":{"turns":[{"control":"dial","direction":"cw"},{"control":"dial","direction":"cw"}]}})json",
-            settings, diagnostic.data(), diagnostic.size())),
-        "duplicate turn rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"launch"}]})json", settings,
-                                           diagnostic.data(), diagnostic.size())),
-                  "the former launch name is not an action name");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"buttons":[{"button":4}]}})json", settings,
-                                           diagnostic.data(), diagnostic.size())),
-                  "dial button 4 rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"buttons":[{"button":1},{"button":1}]}})json", settings,
-                                           diagnostic.data(), diagnostic.size())),
-                  "duplicate dial button rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"buttons":[{"button":1,"label":"x"}]}})json", settings,
-                                           diagnostic.data(), diagnostic.size())),
-                  "dial button label rejected (no display)");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"wheel":"page"}})json", settings, diagnostic.data(),
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"turns":[{"control":"dial","direction":"cw"},{"control":"dial","direction":"cw"}]}})json",
+                                           settings,
+                                           diagnostic.data(),
                                            diagnostic.size())),
+                  "duplicate turn rejected");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"launch"}]})json", settings, diagnostic.data(), diagnostic.size())),
+                  "the former launch name is not an action name");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"buttons":[{"button":4}]}})json", settings, diagnostic.data(), diagnostic.size())),
+                  "dial button 4 rejected");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"buttons":[{"button":1},{"button":1}]}})json", settings, diagnostic.data(), diagnostic.size())),
+                  "duplicate dial button rejected");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"buttons":[{"button":1,"label":"x"}]}})json", settings, diagnostic.data(), diagnostic.size())),
+                  "dial button label rejected (no display)");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"dialpad":{"wheel":"page"}})json", settings, diagnostic.data(), diagnostic.size())),
                   "unknown dialpad member rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"reboot"}]})json", settings,
-                                           diagnostic.data(), diagnostic.size())),
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"action":"reboot"}]})json", settings, diagnostic.data(), diagnostic.size())),
                   "unknown action rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"color":"red"}]})json", settings,
-                                           diagnostic.data(), diagnostic.size())),
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"color":"red"}]})json", settings, diagnostic.data(), diagnostic.size())),
                   "malformed color rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"label":"0123456789ABCDEFG"}]})json", settings,
-                                           diagnostic.data(), diagnostic.size())),
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"slot":0,"label":"0123456789ABCDEFG"}]})json", settings, diagnostic.data(), diagnostic.size())),
                   "17-code-point label rejected");
-    LOGICON_CHECK(
-        FAILED(ParseSettingsJson(R"json({"keys":[{"page":0}]})json", settings, diagnostic.data(), diagnostic.size())),
-        "missing slot rejected");
-    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"extra":1})json", settings, diagnostic.data(), diagnostic.size())),
-                  "unknown member rejected");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"keys":[{"page":0}]})json", settings, diagnostic.data(), diagnostic.size())), "missing slot rejected");
+    LOGICON_CHECK(FAILED(ParseSettingsJson(R"json({"extra":1})json", settings, diagnostic.data(), diagnostic.size())), "unknown member rejected");
     std::string many = R"json({"keys":[)json";
     for (uint32_t index = 0; index < 37; ++index)
     {
@@ -443,8 +393,7 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     }
     many += "]}";
     LOGICON_CHECK(FAILED(ParseSettingsJson(many, settings, diagnostic.data(), diagnostic.size())), "37 keys rejected");
-    LOGICON_CHECK(std::strlen(kSettingsSchema) < 4096 && std::strlen(kSettingsDefaults) < 4096,
-                  "published contract stays under the 4096-byte cap");
+    LOGICON_CHECK(std::strlen(kSettingsSchema) < 4096 && std::strlen(kSettingsDefaults) < 4096, "published contract stays under the 4096-byte cap");
     return S_OK;
 }
 
@@ -452,10 +401,9 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 // Faces
 // ---------------------------------------------------------------------------------------------------------------
 
-[[nodiscard]] HRESULT DecodeJpegSize(IWICImagingFactory* factory, const uint8_t* jpeg, uint32_t bytes, uint32_t& width,
-                                     uint32_t& height) noexcept
+[[nodiscard]] HRESULT DecodeJpegSize(IWICImagingFactory* factory, const uint8_t* jpeg, uint32_t bytes, uint32_t& width, uint32_t& height) noexcept
 {
-    width = 0;
+    width  = 0;
     height = 0;
     wil::com_ptr_nothrow<IWICStream> stream;
     HRESULT result = factory->CreateStream(stream.put());
@@ -473,13 +421,13 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     {
         result = decoder->GetFrame(0, frame.put());
     }
-    UINT decodedWidth = 0;
+    UINT decodedWidth  = 0;
     UINT decodedHeight = 0;
     if (SUCCEEDED(result))
     {
         result = frame->GetSize(&decodedWidth, &decodedHeight);
     }
-    width = decodedWidth;
+    width  = decodedWidth;
     height = decodedHeight;
     return result;
 }
@@ -500,10 +448,10 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     FaceSpec spec{};
     spec.backgroundRgb = 0x102030;
     spec.foregroundRgb = 0xFFFFFF;
-    spec.icon = FluentGlyphFromName("Home", 4);
-    spec.label = L"Home page";
-    spec.labelLength = 9;
-    result = renderer.ComposeKey(spec, tile.get());
+    spec.icon          = FluentGlyphFromName("Home", 4);
+    spec.label         = L"Home page";
+    spec.labelLength   = 9;
+    result             = renderer.ComposeKey(spec, tile.get());
     LOGICON_CHECK(SUCCEEDED(result), "compose icon and label");
     LOGICON_CHECK(tile[0] == 0xFF102030, "corner keeps the background");
     uint32_t inked = 0;
@@ -514,16 +462,15 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     LOGICON_CHECK(inked > 100, "label and icon left ink on the face");
 
     FaceSpec longLabel{};
-    longLabel.label = L"ABCDEFGHIJKLMNOP";
+    longLabel.label       = L"ABCDEFGHIJKLMNOP";
     longLabel.labelLength = 16;
     LOGICON_CHECK(SUCCEEDED(renderer.ComposeKey(longLabel, tile.get())), "16-character label ellipsizes");
     FaceSpec ring{};
     ring.accentRing = true;
-    ring.accentRgb = 0xFF0000;
-    ring.big = L"2/3";
-    ring.bigLength = 3;
-    LOGICON_CHECK(SUCCEEDED(renderer.ComposeKey(ring, tile.get())) && tile[1] == 0xFFFF0000,
-                  "accent ring paints the border");
+    ring.accentRgb  = 0xFF0000;
+    ring.big        = L"2/3";
+    ring.bigLength  = 3;
+    LOGICON_CHECK(SUCCEEDED(renderer.ComposeKey(ring, tile.get())) && tile[1] == 0xFFFF0000, "accent ring paints the border");
     FaceSpec invalid{};
     invalid.invalid = true;
     LOGICON_CHECK(SUCCEEDED(renderer.ComposeKey(invalid, tile.get())) && tile[0] == 0xFF8B1A1A, "invalid face is red");
@@ -531,18 +478,15 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     std::unique_ptr<uint8_t[]> jpeg{new (std::nothrow) uint8_t[kMaximumJpegBytes]};
     LOGICON_CHECK(jpeg != nullptr, "jpeg allocation");
     uint32_t bytes = 0;
-    result = renderer.EncodeJpeg(tile.get(), kFaceSize, kFaceSize, kFaceSize, jpeg.get(), kMaximumJpegBytes, bytes);
+    result         = renderer.EncodeJpeg(tile.get(), kFaceSize, kFaceSize, kFaceSize, jpeg.get(), kMaximumJpegBytes, bytes);
     LOGICON_CHECK(SUCCEEDED(result) && bytes > 100 && bytes < kMaximumJpegBytes, "tile encodes");
-    LOGICON_CHECK(jpeg[0] == 0xFF && jpeg[1] == 0xD8 && jpeg[bytes - 2] == 0xFF && jpeg[bytes - 1] == 0xD9,
-                  "JPEG SOI/EOI markers");
+    LOGICON_CHECK(jpeg[0] == 0xFF && jpeg[1] == 0xD8 && jpeg[bytes - 2] == 0xFF && jpeg[bytes - 1] == 0xD9, "JPEG SOI/EOI markers");
     wil::com_ptr_nothrow<IWICImagingFactory> wic;
-    LOGICON_CHECK(
-        SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.put()))),
-        "WIC factory for the round trip");
-    uint32_t width = 0;
+    LOGICON_CHECK(SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.put()))),
+                  "WIC factory for the round trip");
+    uint32_t width  = 0;
     uint32_t height = 0;
-    LOGICON_CHECK(SUCCEEDED(DecodeJpegSize(wic.get(), jpeg.get(), bytes, width, height)) && width == kFaceSize &&
-                      height == kFaceSize,
+    LOGICON_CHECK(SUCCEEDED(DecodeJpegSize(wic.get(), jpeg.get(), bytes, width, height)) && width == kFaceSize && height == kFaceSize,
                   "tile JPEG decodes at 118x118");
 
     // A 434x434 grid composed of nine tiles encodes and decodes at full size.
@@ -555,7 +499,7 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         face.backgroundRgb = 0x202020 + slot * 0x101010;
         wchar_t label[4]{};
         (void)swprintf_s(label, L"K%u", slot + 1U);
-        face.label = label;
+        face.label       = label;
         face.labelLength = 2;
         LOGICON_CHECK(SUCCEEDED(renderer.ComposeKey(face, tile.get())), "grid tile compose");
         const uint32_t originX = KeyColumn(slot) * (kKeySize + kKeyGap);
@@ -563,22 +507,19 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         for (uint32_t y = 0; y < kKeySize; ++y)
         {
             std::memcpy(grid.get() + static_cast<size_t>(originY + y) * kGridSize + originX,
-                        tile.get() + static_cast<size_t>(y) * kKeySize, kKeySize * sizeof(uint32_t));
+                        tile.get() + static_cast<size_t>(y) * kKeySize,
+                        kKeySize * sizeof(uint32_t));
         }
     }
     result = renderer.EncodeJpeg(grid.get(), kGridSize, kGridSize, kGridSize, jpeg.get(), kMaximumJpegBytes, bytes);
     LOGICON_CHECK(SUCCEEDED(result) && bytes < kMaximumJpegBytes, "grid encodes within the JPEG budget");
-    LOGICON_CHECK(SUCCEEDED(DecodeJpegSize(wic.get(), jpeg.get(), bytes, width, height)) && width == kGridSize &&
-                      height == kGridSize,
+    LOGICON_CHECK(SUCCEEDED(DecodeJpegSize(wic.get(), jpeg.get(), bytes, width, height)) && width == kGridSize && height == kGridSize,
                   "grid JPEG decodes at 434x434");
     // Encoding a sub-rectangle of the grid with the grid stride yields a key-sized image.
-    result = renderer.EncodeJpeg(grid.get() + static_cast<size_t>(158) * kGridSize + 158, kKeySize, kKeySize, kGridSize,
-                                 jpeg.get(), kMaximumJpegBytes, bytes);
-    LOGICON_CHECK(SUCCEEDED(result) && SUCCEEDED(DecodeJpegSize(wic.get(), jpeg.get(), bytes, width, height)) &&
-                      width == kKeySize && height == kKeySize,
+    result = renderer.EncodeJpeg(grid.get() + static_cast<size_t>(158) * kGridSize + 158, kKeySize, kKeySize, kGridSize, jpeg.get(), kMaximumJpegBytes, bytes);
+    LOGICON_CHECK(SUCCEEDED(result) && SUCCEEDED(DecodeJpegSize(wic.get(), jpeg.get(), bytes, width, height)) && width == kKeySize && height == kKeySize,
                   "strided sub-rectangle encodes at 118x118");
-    LOGICON_CHECK(renderer.EncodeJpeg(tile.get(), kFaceSize, kFaceSize, kFaceSize, jpeg.get(), 64, bytes) ==
-                          STG_E_MEDIUMFULL ||
+    LOGICON_CHECK(renderer.EncodeJpeg(tile.get(), kFaceSize, kFaceSize, kFaceSize, jpeg.get(), 64, bytes) == STG_E_MEDIUMFULL ||
                       FAILED(renderer.EncodeJpeg(tile.get(), kFaceSize, kFaceSize, kFaceSize, jpeg.get(), 64, bytes)),
                   "a too-small buffer fails cleanly");
     return S_OK;
@@ -596,14 +537,14 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     DeviceSession session;
     std::unique_ptr<HidPort> port{new (std::nothrow) SyntheticHidPort(keypad)};
     LOGICON_CHECK(port != nullptr && SUCCEEDED(session.AttachPort(std::move(port))), "port attaches");
-    LOGICON_CHECK(session.HasPorts() && !session.Connected(), "attached but not connected");
+    LOGICON_CHECK(session.HasPorts() && ! session.Connected(), "attached but not connected");
     wil::unique_event_nothrow stop;
     LOGICON_CHECK(SUCCEEDED(stop.create(wil::EventOptions::ManualReset)), "stop event");
 
     HRESULT result = session.Connect(stop.get());
     LOGICON_CHECK(SUCCEEDED(result), "connect resolves features and diverts page buttons");
-    LOGICON_CHECK(session.Connected() && session.Features().display == 0x02 &&
-                      session.Features().reprogControls == 0x0B && session.Features().brightness == 0x0F,
+    LOGICON_CHECK(session.Connected() && session.Features().display == 0x02 && session.Features().reprogControls == 0x0B &&
+                      session.Features().brightness == 0x0F,
                   "feature indexes resolved through root lookups");
     LOGICON_CHECK(keypad.PageButtonsDiverted(), "page buttons diverted with flags 0x03");
     LOGICON_CHECK(keypad.CommandsReceived() >= 7, "root lookups and reporting commands were sent");
@@ -614,15 +555,11 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     std::array<uint8_t, 9000> jpeg{};
     jpeg[0] = 0xFF;
     jpeg[1] = 0xD8;
-    LOGICON_CHECK(
-        SUCCEEDED(session.WriteImage(KeyRegion(4), jpeg.data(), static_cast<uint32_t>(jpeg.size()), false, stop.get())),
-        "image write");
-    LOGICON_CHECK(session.Counters().imagePackets == 3 && session.Counters().imagesWritten == 1,
-                  "9000 bytes stream as three packets");
+    LOGICON_CHECK(SUCCEEDED(session.WriteImage(KeyRegion(4), jpeg.data(), static_cast<uint32_t>(jpeg.size()), false, stop.get())), "image write");
+    LOGICON_CHECK(session.Counters().imagePackets == 3 && session.Counters().imagesWritten == 1, "9000 bytes stream as three packets");
     SyntheticImageRecord records[4]{};
-    LOGICON_CHECK(keypad.CopyImageRecords(records, 4) == 1 && records[0].region.x == 181 &&
-                      records[0].region.y == 164 && records[0].region.width == 118 && records[0].bytes == 9000 &&
-                      !records[0].deferUpdate && records[0].head[0] == 0xFF && records[0].head[1] == 0xD8,
+    LOGICON_CHECK(keypad.CopyImageRecords(records, 4) == 1 && records[0].region.x == 181 && records[0].region.y == 164 && records[0].region.width == 118 &&
+                      records[0].bytes == 9000 && ! records[0].deferUpdate && records[0].head[0] == 0xFF && records[0].head[1] == 0xD8,
                   "synthetic keypad reassembled the image record");
 
     // Key events arrive through Pump.
@@ -630,39 +567,34 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     ControlEdges edges{};
     LOGICON_CHECK(SUCCEEDED(keypad.InjectKeys((1U << 2) | (1U << 6))), "inject keys");
     LOGICON_CHECK(WaitForSingleObject(keypad.ReadEvent(), 100) == WAIT_OBJECT_0, "read event signaled");
-    LOGICON_CHECK(SUCCEEDED(session.Pump(changed, edges)) && changed &&
-                      session.Controls().keys == ((1U << 2) | (1U << 6)) && edges.keysDown == ((1U << 2) | (1U << 6)),
+    LOGICON_CHECK(SUCCEEDED(session.Pump(changed, edges)) && changed && session.Controls().keys == ((1U << 2) | (1U << 6)) &&
+                      edges.keysDown == ((1U << 2) | (1U << 6)),
                   "pump applies pressed keys and reports their edges");
-    LOGICON_CHECK(SUCCEEDED(keypad.InjectKeys(0)) && SUCCEEDED(session.Pump(changed, edges)) && changed &&
-                      session.Controls().keys == 0 && edges.keysDown == 0,
+    LOGICON_CHECK(SUCCEEDED(keypad.InjectKeys(0)) && SUCCEEDED(session.Pump(changed, edges)) && changed && session.Controls().keys == 0 && edges.keysDown == 0,
                   "release clears the mask without an edge");
-    LOGICON_CHECK(SUCCEEDED(keypad.InjectPageButtons(2U)) && SUCCEEDED(session.Pump(changed, edges)) && changed &&
-                      session.Controls().pageButtons == 2U && edges.pageButtonsDown == 2U,
+    LOGICON_CHECK(SUCCEEDED(keypad.InjectPageButtons(2U)) && SUCCEEDED(session.Pump(changed, edges)) && changed && session.Controls().pageButtons == 2U &&
+                      edges.pageButtonsDown == 2U,
                   "page button event");
-    LOGICON_CHECK(SUCCEEDED(session.Pump(changed, edges)) && !changed && edges.keysDown == 0 &&
-                      edges.pageButtonsDown == 0,
-                  "an idle pump reports no change");
+    LOGICON_CHECK(SUCCEEDED(session.Pump(changed, edges)) && ! changed && edges.keysDown == 0 && edges.pageButtonsDown == 0, "an idle pump reports no change");
     // A tap whose press and release are both buffered before one pump still yields a press edge.
-    LOGICON_CHECK(SUCCEEDED(keypad.InjectKeys(1U << 8)) && SUCCEEDED(keypad.InjectKeys(0)) &&
-                      SUCCEEDED(session.Pump(changed, edges)) && session.Controls().keys == 0 &&
-                      edges.keysDown == (1U << 8),
+    LOGICON_CHECK(SUCCEEDED(keypad.InjectKeys(1U << 8)) && SUCCEEDED(keypad.InjectKeys(0)) && SUCCEEDED(session.Pump(changed, edges)) &&
+                      session.Controls().keys == 0 && edges.keysDown == (1U << 8),
                   "press and release in one drain report the press edge");
     TraceEntry trace[kTraceSlots]{};
     LOGICON_CHECK(session.CopyTrace(trace, kTraceSlots) > 0, "trace records frames");
 
     LOGICON_CHECK(SUCCEEDED(session.Restore(stop.get(), true)), "restore");
-    LOGICON_CHECK(!keypad.PageButtonsDiverted() && keypad.ResetToLogoSeen(), "flags restored and splash reset sent");
+    LOGICON_CHECK(! keypad.PageButtonsDiverted() && keypad.ResetToLogoSeen(), "flags restored and splash reset sent");
     LOGICON_CHECK(SUCCEEDED(session.Restore(stop.get(), true)), "restore is idempotent");
     session.Detach();
-    LOGICON_CHECK(!session.HasPorts() && session.Disconnected(), "detached");
+    LOGICON_CHECK(! session.HasPorts() && session.Disconnected(), "detached");
 
     // Shipping firmware hides 0x19A1 from the root; the feature-set walk still finds it at its real index.
     keypad.Reset();
     keypad.HideDisplayFromRoot(true);
     std::unique_ptr<HidPort> hiddenPort{new (std::nothrow) SyntheticHidPort(keypad)};
     LOGICON_CHECK(hiddenPort != nullptr && SUCCEEDED(session.AttachPort(std::move(hiddenPort))), "port re-attaches");
-    LOGICON_CHECK(SUCCEEDED(session.Connect(stop.get())) && session.Features().display == 0x02 &&
-                      !session.Features().displayAssumed,
+    LOGICON_CHECK(SUCCEEDED(session.Connect(stop.get())) && session.Features().display == 0x02 && ! session.Features().displayAssumed,
                   "a root-hidden display feature is resolved through the feature set");
     LOGICON_CHECK(SUCCEEDED(session.Restore(stop.get(), false)), "restore after the hidden lookup");
     session.Detach();
@@ -672,13 +604,12 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     // are skipped, so a stopping lane stays inside the host's drain budget.
     keypad.Reset();
     std::unique_ptr<HidPort> silentPort{new (std::nothrow) SyntheticHidPort(keypad)};
-    LOGICON_CHECK(silentPort != nullptr && SUCCEEDED(session.AttachPort(std::move(silentPort))) &&
-                      SUCCEEDED(session.Connect(stop.get())),
+    LOGICON_CHECK(silentPort != nullptr && SUCCEEDED(session.AttachPort(std::move(silentPort))) && SUCCEEDED(session.Connect(stop.get())),
                   "connect before the keypad goes silent");
     keypad.Unresponsive(true);
     const uint32_t commandsBeforeRestore = keypad.CommandsReceived();
-    LOGICON_CHECK(session.Restore(stop.get(), true) == HRESULT_FROM_WIN32(ERROR_TIMEOUT) &&
-                      keypad.CommandsReceived() == commandsBeforeRestore + 1 && !keypad.ResetToLogoSeen(),
+    LOGICON_CHECK(session.Restore(stop.get(), true) == HRESULT_FROM_WIN32(ERROR_TIMEOUT) && keypad.CommandsReceived() == commandsBeforeRestore + 1 &&
+                      ! keypad.ResetToLogoSeen(),
                   "restore stops at the first unanswered command and skips the splash reset");
     keypad.Unresponsive(false);
     session.Detach();
@@ -696,45 +627,38 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
     // reports; a pipe refuses HID IOCTLs at once.
     HidCollectionInfo info{};
     (void)swprintf_s(info.path.data(), info.path.size(), L"\\\\.\\pipe\\RedXe.LogiconTests.%lu", GetCurrentProcessId());
-    info.inputReportBytes = kLongReportBytes;
-    info.outputReportBytes = kLongReportBytes;
+    info.inputReportBytes   = kLongReportBytes;
+    info.outputReportBytes  = kLongReportBytes;
     info.featureReportBytes = kFeatureResetReportBytes;
-    wil::unique_hfile device{CreateNamedPipeW(info.path.data(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                                              PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 0, 0, 0, nullptr)};
+    wil::unique_hfile device{
+        CreateNamedPipeW(info.path.data(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 0, 0, 0, nullptr)};
     LOGICON_CHECK(device.is_valid(), "the stand-in device pipe is created");
     WindowsHidPort port;
     HidIoBudget& budget = HidIoBudget::Process();
-    LOGICON_CHECK(budget.Held() == 0 && SUCCEEDED(port.Open(info)) && !port.Disconnected() && budget.Held() == 1,
+    LOGICON_CHECK(budget.Held() == 0 && SUCCEEDED(port.Open(info)) && ! port.Disconnected() && budget.Held() == 1,
                   "the port opens the pipe and its I/O block holds one unit of the process budget");
     wil::unique_event_nothrow stop;
     wil::unique_event_nothrow readDone;
-    LOGICON_CHECK(SUCCEEDED(stop.create(wil::EventOptions::ManualReset)) &&
-                      SUCCEEDED(readDone.create(wil::EventOptions::ManualReset)),
-                  "events");
+    LOGICON_CHECK(SUCCEEDED(stop.create(wil::EventOptions::ManualReset)) && SUCCEEDED(readDone.create(wil::EventOptions::ManualReset)), "events");
     const uint8_t report[3] = {kReportLong, kDeviceIndexWired, 0x00};
-    LOGICON_CHECK(port.Write(report, sizeof(report), stop.get(), 100) == HRESULT_FROM_WIN32(ERROR_TIMEOUT) &&
-                      !port.Disconnected(),
+    LOGICON_CHECK(port.Write(report, sizeof(report), stop.get(), 100) == HRESULT_FROM_WIN32(ERROR_TIMEOUT) && ! port.Disconnected(),
                   "an unread write times out, is canceled and drained, and leaves the port open");
 
     std::array<uint8_t, 64> received{};
     OVERLAPPED overlapped{};
     overlapped.hEvent = readDone.get();
-    const BOOL read =
-        ReadFile(device.get(), received.data(), static_cast<DWORD>(received.size()), nullptr, &overlapped);
+    const BOOL read   = ReadFile(device.get(), received.data(), static_cast<DWORD>(received.size()), nullptr, &overlapped);
     LOGICON_CHECK(read || GetLastError() == ERROR_IO_PENDING, "the other end starts reading");
     DWORD readBytes = 0;
-    LOGICON_CHECK(SUCCEEDED(port.Write(report, sizeof(report), stop.get(), 1000)) &&
-                      GetOverlappedResult(device.get(), &overlapped, &readBytes, TRUE) &&
+    LOGICON_CHECK(SUCCEEDED(port.Write(report, sizeof(report), stop.get(), 1000)) && GetOverlappedResult(device.get(), &overlapped, &readBytes, TRUE) &&
                       readBytes == kLongReportBytes && received[0] == kReportLong && received[3] == 0,
                   "the next write completes, zero padded to the output length");
 
     const uint8_t feature[2] = {0x03, 0x02};
-    const HRESULT refused = port.SetFeature(feature, sizeof(feature), stop.get(), 1000);
-    LOGICON_CHECK(refused == HRESULT_FROM_WIN32(ERROR_INVALID_FUNCTION) && !port.Disconnected(),
+    const HRESULT refused    = port.SetFeature(feature, sizeof(feature), stop.get(), 1000);
+    LOGICON_CHECK(refused == HRESULT_FROM_WIN32(ERROR_INVALID_FUNCTION) && ! port.Disconnected(),
                   "a feature report is an overlapped request whose refusal returns at once");
-    LOGICON_CHECK(SetEvent(stop.get()) &&
-                      port.Write(report, sizeof(report), stop.get(), 1000) == HRESULT_FROM_WIN32(ERROR_CANCELLED) &&
-                      !port.Disconnected(),
+    LOGICON_CHECK(SetEvent(stop.get()) && port.Write(report, sizeof(report), stop.get(), 1000) == HRESULT_FROM_WIN32(ERROR_CANCELLED) && ! port.Disconnected(),
                   "the stop event cancels a held write");
     port.Close();
     LOGICON_CHECK(port.Disconnected() && budget.Held() == 0, "a close whose canceled I/O drained returns the unit");
@@ -749,25 +673,23 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 {
     using namespace Logicon;
     HidIoBudget accounting{2};
-    LOGICON_CHECK(accounting.Reserve() && accounting.Reserve() && !accounting.Reserve() && accounting.Held() == 2,
+    LOGICON_CHECK(accounting.Reserve() && accounting.Reserve() && ! accounting.Reserve() && accounting.Held() == 2,
                   "a budget hands out its capacity and then refuses");
     accounting.Release();
-    LOGICON_CHECK(accounting.Held() == 1 && accounting.Reserve() && !accounting.Reserve(),
-                  "a released unit is reserved again");
+    LOGICON_CHECK(accounting.Held() == 1 && accounting.Reserve() && ! accounting.Reserve(), "a released unit is reserved again");
 
     // Stand-in collections: one pipe instance per open (a closed client does not free its instance), and a pipe
     // completes canceled I/O at once, so every close below is clean.
     constexpr uint32_t kInstances = kMaximumHidIoBlocks + 4;
     HidCollectionInfo info{};
-    (void)swprintf_s(info.path.data(), info.path.size(), L"\\\\.\\pipe\\RedXe.LogiconTests.Budget.%lu",
-                     GetCurrentProcessId());
-    info.inputReportBytes = kLongReportBytes;
+    (void)swprintf_s(info.path.data(), info.path.size(), L"\\\\.\\pipe\\RedXe.LogiconTests.Budget.%lu", GetCurrentProcessId());
+    info.inputReportBytes  = kLongReportBytes;
     info.outputReportBytes = kLongReportBytes;
     std::array<wil::unique_hfile, kInstances> instances{};
     for (wil::unique_hfile& instance : instances)
     {
-        instance.reset(CreateNamedPipeW(info.path.data(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                                        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, kInstances, 0, 0, 0, nullptr));
+        instance.reset(CreateNamedPipeW(
+            info.path.data(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, kInstances, 0, 0, 0, nullptr));
         LOGICON_CHECK(instance.is_valid(), "a stand-in collection pipe instance is created");
     }
 
@@ -779,7 +701,7 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         LOGICON_CHECK(budget.Reserve(), "a retired block keeps its unit");
     }
     std::array<std::unique_ptr<WindowsHidPort>, kMaximumHidCollections> ports{};
-    uint32_t opened = 0;
+    uint32_t opened  = 0;
     uint32_t refused = 0;
     for (std::unique_ptr<WindowsHidPort>& port : ports)
     {
@@ -789,15 +711,13 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
         opened += SUCCEEDED(result) ? 1U : 0U;
         refused += result == HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES) ? 1U : 0U;
     }
-    LOGICON_CHECK(opened == 1 && refused == kMaximumHidCollections - 1 && budget.Held() == kMaximumHidCollections &&
-                      !ports[0]->Disconnected() && ports[1]->Disconnected(),
+    LOGICON_CHECK(opened == 1 && refused == kMaximumHidCollections - 1 && budget.Held() == kMaximumHidCollections && ! ports[0]->Disconnected() &&
+                      ports[1]->Disconnected(),
                   "with three units kept by retired blocks only one of four collections opens");
     ports[0]->Close();
-    LOGICON_CHECK(budget.Held() == kMaximumHidCollections - 1 && SUCCEEDED(ports[1]->Open(info)) &&
-                      budget.Held() == kMaximumHidCollections,
+    LOGICON_CHECK(budget.Held() == kMaximumHidCollections - 1 && SUCCEEDED(ports[1]->Open(info)) && budget.Held() == kMaximumHidCollections,
                   "a clean close returns its unit and the next open takes it");
-    LOGICON_CHECK(ports[2]->Open(info) == HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES) &&
-                      budget.Held() == kMaximumHidCollections,
+    LOGICON_CHECK(ports[2]->Open(info) == HRESULT_FROM_WIN32(ERROR_TOO_MANY_OPEN_FILES) && budget.Held() == kMaximumHidCollections,
                   "a refused open holds no unit");
     for (std::unique_ptr<WindowsHidPort>& port : ports)
     {
@@ -839,8 +759,8 @@ template <typename Function> [[nodiscard]] Function Resolve(HMODULE module, cons
 // ---------------------------------------------------------------------------------------------------------------
 
 // The raw-input listener's window procedure, wrapped so the test counts what reaches it.
-WNDPROC g_listenerProcedure = nullptr;
-uint32_t g_listenerMessages = 0;
+WNDPROC g_listenerProcedure          = nullptr;
+uint32_t g_listenerMessages          = 0;
 constexpr UINT kListenerProbeMessage = WM_APP + 1;
 
 LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
@@ -859,20 +779,18 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
 [[nodiscard]] HWND FindListenerWindow() noexcept
 {
     HWND found = nullptr;
-    (void)EnumThreadWindows(
-        GetCurrentThreadId(),
-        [](HWND window, LPARAM context) noexcept -> BOOL
+    (void)EnumThreadWindows(GetCurrentThreadId(),
+                            [](HWND window, LPARAM context) noexcept -> BOOL
+    {
+        std::array<wchar_t, 64> name{};
+        if (GetClassNameW(window, name.data(), static_cast<int>(name.size())) != 0 && std::wcscmp(name.data(), L"RedXe.Logicon.RawInput") == 0)
         {
-            std::array<wchar_t, 64> name{};
-            if (GetClassNameW(window, name.data(), static_cast<int>(name.size())) != 0 &&
-                std::wcscmp(name.data(), L"RedXe.Logicon.RawInput") == 0)
-            {
-                *reinterpret_cast<HWND*>(context) = window;
-                return FALSE;
-            }
-            return TRUE;
-        },
-        reinterpret_cast<LPARAM>(&found));
+            *reinterpret_cast<HWND*>(context) = window;
+            return FALSE;
+        }
+        return TRUE;
+    },
+                            reinterpret_cast<LPARAM>(&found));
     return found;
 }
 
@@ -883,29 +801,28 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
     const uint8_t held[kLongReportBytes] = {0x11, 0xFF, 0x0A, 0x00, 0x00, 0x59, 0x00, 0x53, 0x00, 0x00,
                                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     InputEvent event{};
-    LOGICON_CHECK(ParseInputEvent(held, sizeof(held), 0x00, 0x0A, event) && event.kind == InputKind::DivertedButtons &&
-                      event.controlCount == 2 && event.mask == 0,
+    LOGICON_CHECK(ParseInputEvent(held, sizeof(held), 0x00, 0x0A, event) && event.kind == InputKind::DivertedButtons && event.controlCount == 2 &&
+                      event.mask == 0,
                   "dialpad button event parses as diverted buttons without page bits");
     LOGICON_CHECK(DialpadButtonMask(event) == ((1U << 2) | (1U << 0)), "dial button mask follows kDialpadControls");
     InputEvent none{};
     LOGICON_CHECK(DialpadButtonMask(none) == 0, "no event, no buttons");
 
     // Raw-input device names in the Bluetooth and USB spellings.
-    LOGICON_CHECK(RawWheelListener::DeviceNameMatches(
-                      L"\\\\?\\HID#{00001812-0000-1000-8000-00805f9b34fb}_Dev_VID&02046d_PID&bc00_REV&0016_"
-                      L"d31f4fa36724&Col01#e&27bf0ac3&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
-                      kVendorId, kDialpadProductId),
+    LOGICON_CHECK(RawWheelListener::DeviceNameMatches(L"\\\\?\\HID#{00001812-0000-1000-8000-00805f9b34fb}_Dev_VID&02046d_PID&bc00_REV&0016_"
+                                                      L"d31f4fa36724&Col01#e&27bf0ac3&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+                                                      kVendorId,
+                                                      kDialpadProductId),
                   "the dialpad's Bluetooth mouse collection matches");
-    LOGICON_CHECK(RawWheelListener::DeviceNameMatches(L"\\\\?\\HID#VID_046D&PID_BC00&MI_01&Col01#7&1&0&0000#{...}",
-                                                      kVendorId, kDialpadProductId),
+    LOGICON_CHECK(RawWheelListener::DeviceNameMatches(L"\\\\?\\HID#VID_046D&PID_BC00&MI_01&Col01#7&1&0&0000#{...}", kVendorId, kDialpadProductId),
                   "a USB spelling matches");
-    LOGICON_CHECK(!RawWheelListener::DeviceNameMatches(
-                      L"\\\\?\\HID#{00001812-0000-1000-8000-00805f9b34fb}_Dev_VID&02046d_PID&b034&REV&0016_"
-                      L"aabbcc&Col01#e&1&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
-                      kVendorId, kDialpadProductId),
+    LOGICON_CHECK(! RawWheelListener::DeviceNameMatches(L"\\\\?\\HID#{00001812-0000-1000-8000-00805f9b34fb}_Dev_VID&02046d_PID&b034&REV&0016_"
+                                                        L"aabbcc&Col01#e&1&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+                                                        kVendorId,
+                                                        kDialpadProductId),
                   "another Logitech PID does not match");
-    LOGICON_CHECK(!RawWheelListener::DeviceNameMatches(nullptr, kVendorId, kDialpadProductId) &&
-                      !RawWheelListener::DeviceNameMatches(L"", kVendorId, kDialpadProductId),
+    LOGICON_CHECK(! RawWheelListener::DeviceNameMatches(nullptr, kVendorId, kDialpadProductId) &&
+                      ! RawWheelListener::DeviceNameMatches(L"", kVendorId, kDialpadProductId),
                   "empty names never match");
 
     // Raw mouse packets fold into the wheel state: horizontal wheel = dial, vertical wheel = roller, buttons 4/5.
@@ -913,31 +830,30 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
     WheelDeltas pending{};
     RAWMOUSE mouse{};
     mouse.usButtonFlags = RI_MOUSE_HWHEEL;
-    mouse.usButtonData = static_cast<USHORT>(static_cast<int16_t>(-120));
+    mouse.usButtonData  = static_cast<USHORT>(static_cast<int16_t>(-120));
     RawWheelListener::FoldMouse(mouse, state, pending);
     mouse.usButtonFlags = RI_MOUSE_WHEEL;
-    mouse.usButtonData = 120;
+    mouse.usButtonData  = 120;
     RawWheelListener::FoldMouse(mouse, state, pending);
     RawWheelListener::FoldMouse(mouse, state, pending);
-    LOGICON_CHECK(state.dialRaw == -120 && state.dialEvents == 1 && state.rollerRaw == 240 && state.rollerEvents == 2 &&
-                      state.reports == 3 && state.motionEvents == 0 && pending.dial == -120 && pending.roller == 240,
+    LOGICON_CHECK(state.dialRaw == -120 && state.dialEvents == 1 && state.rollerRaw == 240 && state.rollerEvents == 2 && state.reports == 3 &&
+                      state.motionEvents == 0 && pending.dial == -120 && pending.roller == 240,
                   "wheel deltas accumulate per axis");
-    mouse = RAWMOUSE{};
+    mouse               = RAWMOUSE{};
     mouse.usButtonFlags = RI_MOUSE_BUTTON_4_DOWN;
     RawWheelListener::FoldMouse(mouse, state, pending);
     LOGICON_CHECK(state.buttonMask == (1U << 3), "button 4 down sets bit 3");
     mouse.usButtonFlags = RI_MOUSE_BUTTON_4_UP | RI_MOUSE_BUTTON_5_DOWN;
-    mouse.lLastX = 3;
+    mouse.lLastX        = 3;
     RawWheelListener::FoldMouse(mouse, state, pending);
     LOGICON_CHECK(state.buttonMask == (1U << 4) && state.motionEvents == 1, "button 4 up, 5 down, motion counted");
 
     // The listener itself needs a thread with a window; Start/Stop must succeed in a plain process.
     RawWheelListener listener;
-    LOGICON_CHECK(SUCCEEDED(listener.Start(kVendorId, kDialpadProductId)) && listener.Running(),
-                  "raw input listener starts");
+    LOGICON_CHECK(SUCCEEDED(listener.Start(kVendorId, kDialpadProductId)) && listener.Running(), "raw input listener starts");
     (void)listener.Pump();
     listener.Stop();
-    LOGICON_CHECK(!listener.Running(), "raw input listener stops");
+    LOGICON_CHECK(! listener.Running(), "raw input listener stops");
     LOGICON_CHECK(SUCCEEDED(listener.Start(kVendorId, kDialpadProductId)), "raw input listener restarts");
     listener.Stop();
 
@@ -949,35 +865,31 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
     const HANDLE waitHandles[1] = {never.get()};
     MSG queued{};
     LOGICON_CHECK(SUCCEEDED(listener.Start(0xFFFF, 0xFFFF)) && PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0) &&
-                      listener.Wait(1, waitHandles, 50) == WAIT_TIMEOUT &&
-                      !PeekMessageW(&queued, nullptr, WM_APP, WM_APP, PM_NOREMOVE),
+                      listener.Wait(1, waitHandles, 50) == WAIT_TIMEOUT && ! PeekMessageW(&queued, nullptr, WM_APP, WM_APP, PM_NOREMOVE),
                   "an unrelated message is drained inside the wait and never ends it");
     LOGICON_CHECK(PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0), "a message is queued when the sink stops");
     listener.Stop();
-    LOGICON_CHECK(!PeekMessageW(&queued, nullptr, WM_APP, WM_APP, PM_NOREMOVE), "stop drains the thread's queue");
+    LOGICON_CHECK(! PeekMessageW(&queued, nullptr, WM_APP, WM_APP, PM_NOREMOVE), "stop drains the thread's queue");
 
     // More than one pump's worth is queued when the sink stops: stop dispatches the window's messages to its procedure
     // before destroying it, and drains the thread's queue to the end rather than one 256-message batch.
     LOGICON_CHECK(SUCCEEDED(listener.Start(0xFFFF, 0xFFFF)), "the listener restarts for the stop drain");
     const HWND sinkWindow = FindListenerWindow();
     LOGICON_CHECK(sinkWindow != nullptr, "the listener's window belongs to this thread");
-    g_listenerMessages = 0;
-    g_listenerProcedure = reinterpret_cast<WNDPROC>(
-        SetWindowLongPtrW(sinkWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&CountingListenerProcedure)));
+    g_listenerMessages  = 0;
+    g_listenerProcedure = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(sinkWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&CountingListenerProcedure)));
     LOGICON_CHECK(g_listenerProcedure != nullptr, "the listener's window procedure is wrapped");
     constexpr uint32_t kQueuedPerTarget = 300;
-    bool posted = true;
+    bool posted                         = true;
     for (uint32_t index = 0; posted && index < kQueuedPerTarget; ++index)
     {
-        posted = PostMessageW(sinkWindow, kListenerProbeMessage, 0, 0) &&
-                 PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0);
+        posted = PostMessageW(sinkWindow, kListenerProbeMessage, 0, 0) && PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0);
     }
     LOGICON_CHECK(posted, "600 messages wait in the queue, half of them for the listener's window");
     listener.Stop();
-    LOGICON_CHECK(g_listenerMessages == kQueuedPerTarget && !IsWindow(sinkWindow),
+    LOGICON_CHECK(g_listenerMessages == kQueuedPerTarget && ! IsWindow(sinkWindow),
                   "every message queued for the window reached its procedure before the window was destroyed");
-    LOGICON_CHECK(!PeekMessageW(&queued, nullptr, WM_APP, kListenerProbeMessage, PM_NOREMOVE),
-                  "stop leaves nothing queued past 256 messages");
+    LOGICON_CHECK(! PeekMessageW(&queued, nullptr, WM_APP, kListenerProbeMessage, PM_NOREMOVE), "stop leaves nothing queued past 256 messages");
     LOGICON_CHECK(PostThreadMessageW(GetCurrentThreadId(), WM_APP, 0, 0), "a message arrives while stopped");
     uint32_t wakes = 0;
     for (uint32_t turn = 0; turn < 5; ++turn)
@@ -989,8 +901,7 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
     while (PeekMessageW(&queued, nullptr, 0, 0, PM_REMOVE))
     {
     }
-    LOGICON_CHECK(SetEvent(never.get()) && listener.Wait(1, waitHandles, INFINITE) == WAIT_OBJECT_0,
-                  "a signaled handle still ends the wait");
+    LOGICON_CHECK(SetEvent(never.get()) && listener.Wait(1, waitHandles, INFINITE) == WAIT_OBJECT_0, "a signaled handle still ends the wait");
 
     // The dialpad session over the synthetic vendor collection: 0x1B04 resolved at 0x0A, four controls diverted.
     SyntheticKeypad dialpad;
@@ -998,15 +909,13 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
     LOGICON_CHECK(SUCCEEDED(dialpad.Initialize()), "synthetic dialpad initializes");
     DeviceSession session;
     std::unique_ptr<HidPort> port{new (std::nothrow) SyntheticHidPort(dialpad)};
-    LOGICON_CHECK(port != nullptr && port->Info().productId == kDialpadProductId &&
-                      port->Info().outputReportBytes == kLongReportBytes,
+    LOGICON_CHECK(port != nullptr && port->Info().productId == kDialpadProductId && port->Info().outputReportBytes == kLongReportBytes,
                   "synthetic dialpad port describes a 20-byte 0x11 collection");
     LOGICON_CHECK(SUCCEEDED(session.AttachPort(std::move(port))), "dialpad port attaches");
     wil::unique_event_nothrow stop;
     LOGICON_CHECK(SUCCEEDED(stop.create(wil::EventOptions::ManualReset)), "stop event");
-    LOGICON_CHECK(SUCCEEDED(session.ConnectDialpad(stop.get(), 0x0F)) && session.Connected() &&
-                      session.Role() == DeviceRole::Dialpad && session.Features().reprogControls == 0x0A &&
-                      session.Features().display == 0 && session.DivertedDialButtons() == 0x0F,
+    LOGICON_CHECK(SUCCEEDED(session.ConnectDialpad(stop.get(), 0x0F)) && session.Connected() && session.Role() == DeviceRole::Dialpad &&
+                      session.Features().reprogControls == 0x0A && session.Features().display == 0 && session.DivertedDialButtons() == 0x0F,
                   "dialpad connect resolves 0x1B04 only");
     LOGICON_CHECK(dialpad.DialButtonsDiverted(), "all four dial controls diverted with flags 0x03");
     LOGICON_CHECK(dialpad.CommandsReceived() == 9, "one root lookup and four get/set reporting pairs");
@@ -1014,23 +923,20 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
     bool changed = false;
     ControlEdges edges{};
     LOGICON_CHECK(SUCCEEDED(dialpad.InjectDialButtons(1U << 3)) && SUCCEEDED(session.Pump(changed, edges)) && changed &&
-                      session.Controls().dialButtons == (1U << 3) && edges.dialButtonsDown == (1U << 3) &&
-                      edges.pageButtonsDown == 0 && session.Controls().pageButtons == 0,
+                      session.Controls().dialButtons == (1U << 3) && edges.dialButtonsDown == (1U << 3) && edges.pageButtonsDown == 0 &&
+                      session.Controls().pageButtons == 0,
                   "button 7 press reaches the dial buttons, not the page buttons");
-    LOGICON_CHECK(SUCCEEDED(dialpad.InjectDialButtons(0)) && SUCCEEDED(dialpad.InjectDialButtons(1U << 1)) &&
-                      SUCCEEDED(dialpad.InjectDialButtons(0)) && SUCCEEDED(session.Pump(changed, edges)) &&
-                      session.Controls().dialButtons == 0 && edges.dialButtonsDown == (1U << 1),
+    LOGICON_CHECK(SUCCEEDED(dialpad.InjectDialButtons(0)) && SUCCEEDED(dialpad.InjectDialButtons(1U << 1)) && SUCCEEDED(dialpad.InjectDialButtons(0)) &&
+                      SUCCEEDED(session.Pump(changed, edges)) && session.Controls().dialButtons == 0 && edges.dialButtonsDown == (1U << 1),
                   "a tap drained in one pump still reports its press edge");
-    LOGICON_CHECK(SUCCEEDED(session.Restore(stop.get(), false)) && !dialpad.DialButtonsDiverted(),
-                  "restore puts the four controls back");
+    LOGICON_CHECK(SUCCEEDED(session.Restore(stop.get(), false)) && ! dialpad.DialButtonsDiverted(), "restore puts the four controls back");
     session.Detach();
 
     // Only bound buttons are diverted: Forward alone leaves Back and the two others native.
     dialpad.Reset();
     std::unique_ptr<HidPort> partialPort{new (std::nothrow) SyntheticHidPort(dialpad)};
     LOGICON_CHECK(partialPort != nullptr && SUCCEEDED(session.AttachPort(std::move(partialPort))), "port re-attaches");
-    LOGICON_CHECK(SUCCEEDED(session.ConnectDialpad(stop.get(), 1U << 1)) &&
-                      session.DivertedDialButtons() == (1U << 1) && !dialpad.DialButtonsDiverted() &&
+    LOGICON_CHECK(SUCCEEDED(session.ConnectDialpad(stop.get(), 1U << 1)) && session.DivertedDialButtons() == (1U << 1) && ! dialpad.DialButtonsDiverted() &&
                       dialpad.CommandsReceived() == 3,
                   "one bound button means one get/set pair");
     LOGICON_CHECK(SUCCEEDED(session.Restore(stop.get(), false)), "partial restore");
@@ -1040,9 +946,8 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
     dialpad.Reset();
     std::unique_ptr<HidPort> idlePort{new (std::nothrow) SyntheticHidPort(dialpad)};
     LOGICON_CHECK(idlePort != nullptr && SUCCEEDED(session.AttachPort(std::move(idlePort))), "port re-attaches");
-    LOGICON_CHECK(SUCCEEDED(session.ConnectDialpad(stop.get(), 0)) && session.Connected() &&
-                      session.DivertedDialButtons() == 0 && dialpad.CommandsReceived() == 0 &&
-                      SUCCEEDED(session.Restore(stop.get(), false)) && dialpad.CommandsReceived() == 0,
+    LOGICON_CHECK(SUCCEEDED(session.ConnectDialpad(stop.get(), 0)) && session.Connected() && session.DivertedDialButtons() == 0 &&
+                      dialpad.CommandsReceived() == 0 && SUCCEEDED(session.Restore(stop.get(), false)) && dialpad.CommandsReceived() == 0,
                   "no bound button means no 0x1B04 lookup and nothing to restore");
     session.Detach();
 
@@ -1051,10 +956,9 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
     LOGICON_CHECK(SUCCEEDED(keypad.Initialize()), "synthetic keypad initializes");
     std::unique_ptr<HidPort> keypadPort{new (std::nothrow) SyntheticHidPort(keypad)};
     LOGICON_CHECK(keypadPort != nullptr && SUCCEEDED(session.AttachPort(std::move(keypadPort))), "keypad attaches");
-    LOGICON_CHECK(SUCCEEDED(session.Connect(stop.get())) && session.Role() == DeviceRole::Keypad,
-                  "keypad connect keeps the keypad role");
-    LOGICON_CHECK(SUCCEEDED(keypad.InjectPageButtons(1U)) && SUCCEEDED(session.Pump(changed, edges)) &&
-                      session.Controls().pageButtons == 1U && session.Controls().dialButtons == 0,
+    LOGICON_CHECK(SUCCEEDED(session.Connect(stop.get())) && session.Role() == DeviceRole::Keypad, "keypad connect keeps the keypad role");
+    LOGICON_CHECK(SUCCEEDED(keypad.InjectPageButtons(1U)) && SUCCEEDED(session.Pump(changed, edges)) && session.Controls().pageButtons == 1U &&
+                      session.Controls().dialButtons == 0,
                   "page buttons still land in the page mask on the keypad");
     LOGICON_CHECK(SUCCEEDED(session.Restore(stop.get(), false)), "keypad restore");
     session.Detach();
@@ -1073,10 +977,10 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
     cpuValue.float64Value = 37.49;
     RedXeDataRow cpuRow{sizeof(RedXeDataRow), &cpuValue, 1};
     RedXeDataSnapshot cpu{};
-    cpu.sizeBytes = sizeof(cpu);
-    cpu.dataSetId = "cpu.summary";
-    cpu.rows = &cpuRow;
-    cpu.rowCount = 1;
+    cpu.sizeBytes   = sizeof(cpu);
+    cpu.dataSetId   = "cpu.summary";
+    cpu.rows        = &cpuRow;
+    cpu.rowCount    = 1;
     cpu.columnCount = 1;
     SystemDataFeed::Reduce(cpu, columns, values);
     LOGICON_CHECK(values.cpuPercent == 37 && values.memoryPercent == -1, "cpu percent rounds down from 37.49");
@@ -1089,40 +993,36 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
     memoryValues[2].uint64Value = 12ULL << 30U;
     RedXeDataRow memoryRow{sizeof(RedXeDataRow), memoryValues, 3};
     RedXeDataSnapshot memory = cpu;
-    memory.dataSetId = "memory.summary";
-    memory.rows = &memoryRow;
-    memory.columnCount = 3;
+    memory.dataSetId         = "memory.summary";
+    memory.rows              = &memoryRow;
+    memory.columnCount       = 3;
     SystemDataFeed::Reduce(memory, columns, values);
     LOGICON_CHECK(values.memoryPercent == 38 && values.cpuPercent == 37, "memory percent is used over total");
     // Two adapters: an integrated one at 80% and a discrete one at 15%; the discrete one wins.
     RedXeDataValue gpuValues[2][4]{};
     for (uint32_t row = 0; row < 2; ++row)
     {
-        gpuValues[row][0] =
-            RedXeDataValue{sizeof(RedXeDataValue), RedXeDataValueTypeUtf16, RedXeDataQualityGood, {}, 0};
-        gpuValues[row][1] =
-            RedXeDataValue{sizeof(RedXeDataValue), RedXeDataValueTypeUInt64, RedXeDataQualityGood, {}, 0};
-        gpuValues[row][2] =
-            RedXeDataValue{sizeof(RedXeDataValue), RedXeDataValueTypeUInt64, RedXeDataQualityGood, {}, 0};
-        gpuValues[row][3] =
-            RedXeDataValue{sizeof(RedXeDataValue), RedXeDataValueTypeFloat64, RedXeDataQualityGood, {}, 0};
+        gpuValues[row][0] = RedXeDataValue{sizeof(RedXeDataValue), RedXeDataValueTypeUtf16, RedXeDataQualityGood, {}, 0};
+        gpuValues[row][1] = RedXeDataValue{sizeof(RedXeDataValue), RedXeDataValueTypeUInt64, RedXeDataQualityGood, {}, 0};
+        gpuValues[row][2] = RedXeDataValue{sizeof(RedXeDataValue), RedXeDataValueTypeUInt64, RedXeDataQualityGood, {}, 0};
+        gpuValues[row][3] = RedXeDataValue{sizeof(RedXeDataValue), RedXeDataValueTypeFloat64, RedXeDataQualityGood, {}, 0};
     }
-    gpuValues[0][2].uint64Value = 1;
+    gpuValues[0][2].uint64Value  = 1;
     gpuValues[0][3].float64Value = 80.0;
     gpuValues[1][3].float64Value = 15.2;
-    RedXeDataRow gpuRows[2] = {{sizeof(RedXeDataRow), gpuValues[0], 4}, {sizeof(RedXeDataRow), gpuValues[1], 4}};
-    RedXeDataSnapshot gpu = cpu;
-    gpu.dataSetId = "gpu.adapter";
-    gpu.rows = gpuRows;
-    gpu.rowCount = 2;
-    gpu.columnCount = 4;
+    RedXeDataRow gpuRows[2]      = {{sizeof(RedXeDataRow), gpuValues[0], 4}, {sizeof(RedXeDataRow), gpuValues[1], 4}};
+    RedXeDataSnapshot gpu        = cpu;
+    gpu.dataSetId                = "gpu.adapter";
+    gpu.rows                     = gpuRows;
+    gpu.rowCount                 = 2;
+    gpu.columnCount              = 4;
     SystemDataFeed::Reduce(gpu, columns, values);
     LOGICON_CHECK(values.gpuPercent == 15, "the discrete adapter's utilization is chosen");
     cpuValue.quality = RedXeDataQualityUnavailable;
     SystemDataFeed::Reduce(cpu, columns, values);
     LOGICON_CHECK(values.cpuPercent == -1, "an unavailable value reads as unknown");
     RedXeDataSnapshot unknown = cpu;
-    unknown.dataSetId = "thread.list";
+    unknown.dataSetId         = "thread.list";
     SystemDataFeed::Reduce(unknown, columns, values);
     LOGICON_CHECK(values.memoryPercent == 38 && values.gpuPercent == 15, "unknown data sets are ignored");
     return S_OK;
@@ -1134,15 +1034,15 @@ LRESULT CALLBACK CountingListenerProcedure(HWND window, UINT message, WPARAM wPa
 // ---------------------------------------------------------------------------------------------------------------
 
 constexpr USHORT kGenericDesktopPage = 0x01;
-constexpr USHORT kMouseUsage = 0x02;
+constexpr USHORT kMouseUsage         = 0x02;
 
 // Where this process's mouse raw input goes; registered is false while nothing in the process registered it.
 [[nodiscard]] bool MouseRawInputTarget(HWND& target, bool& registered) noexcept
 {
-    target = nullptr;
+    target     = nullptr;
     registered = false;
     std::array<RAWINPUTDEVICE, 32> devices{};
-    UINT count = static_cast<UINT>(devices.size());
+    UINT count        = static_cast<UINT>(devices.size());
     const UINT listed = GetRegisteredRawInputDevices(devices.data(), &count, sizeof(RAWINPUTDEVICE));
     if (listed == static_cast<UINT>(-1))
     {
@@ -1152,7 +1052,7 @@ constexpr USHORT kMouseUsage = 0x02;
     {
         if (devices[index].usUsagePage == kGenericDesktopPage && devices[index].usUsage == kMouseUsage)
         {
-            target = devices[index].hwndTarget;
+            target     = devices[index].hwndTarget;
             registered = true;
         }
     }
@@ -1164,9 +1064,9 @@ constexpr USHORT kMouseUsage = 0x02;
 {
     RAWINPUTDEVICE device{};
     device.usUsagePage = kGenericDesktopPage;
-    device.usUsage = kMouseUsage;
-    device.dwFlags = window ? RIDEV_INPUTSINK : RIDEV_REMOVE;
-    device.hwndTarget = window;
+    device.usUsage     = kMouseUsage;
+    device.dwFlags     = window ? RIDEV_INPUTSINK : RIDEV_REMOVE;
+    device.hwndTarget  = window;
     return RegisterRawInputDevices(&device, 1, sizeof(device)) != FALSE;
 }
 
@@ -1174,38 +1074,32 @@ constexpr USHORT kMouseUsage = 0x02;
 {
     using namespace Logicon;
     // The other owner: a hidden, never-shown top-level window on this thread, like the listener's own.
-    const wil::unique_hwnd owner{CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"raw input owner",
-                                                 WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr),
-                                                 nullptr)};
+    const wil::unique_hwnd owner{CreateWindowExW(
+        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"STATIC", L"raw input owner", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr)};
     LOGICON_CHECK(owner.is_valid(), "the other owner's window is created");
     // Whichever check fails, the cases after this one find no registration left behind.
     const auto removeRegistration = wil::scope_exit([]() noexcept { (void)RegisterMouseRawInput(nullptr); });
     RawWheelListener listener;
-    HWND target = nullptr;
+    HWND target     = nullptr;
     bool registered = false;
-    LOGICON_CHECK(RegisterMouseRawInput(owner.get()) &&
-                      listener.Start(kVendorId, kDialpadProductId) == HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) &&
-                      !listener.Running() && FindListenerWindow() == nullptr,
+    LOGICON_CHECK(RegisterMouseRawInput(owner.get()) && listener.Start(kVendorId, kDialpadProductId) == HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) &&
+                      ! listener.Running() && FindListenerWindow() == nullptr,
                   "the listener refuses to start over a prior owner's registration and creates no window");
-    LOGICON_CHECK(MouseRawInputTarget(target, registered) && registered && target == owner.get(),
-                  "the prior owner keeps its registration");
+    LOGICON_CHECK(MouseRawInputTarget(target, registered) && registered && target == owner.get(), "the prior owner keeps its registration");
 
-    LOGICON_CHECK(RegisterMouseRawInput(nullptr) && SUCCEEDED(listener.Start(kVendorId, kDialpadProductId)) &&
-                      MouseRawInputTarget(target, registered) && registered && target != nullptr &&
-                      target == FindListenerWindow(),
+    LOGICON_CHECK(RegisterMouseRawInput(nullptr) && SUCCEEDED(listener.Start(kVendorId, kDialpadProductId)) && MouseRawInputTarget(target, registered) &&
+                      registered && target != nullptr && target == FindListenerWindow(),
                   "without a prior owner the listener registers its own window");
-    LOGICON_CHECK(RegisterMouseRawInput(owner.get()) && MouseRawInputTarget(target, registered) && registered &&
-                      target == owner.get(),
+    LOGICON_CHECK(RegisterMouseRawInput(owner.get()) && MouseRawInputTarget(target, registered) && registered && target == owner.get(),
                   "a later owner replaces the listener's registration");
     listener.Stop();
-    LOGICON_CHECK(!listener.Running() && MouseRawInputTarget(target, registered) && registered && target == owner.get(),
+    LOGICON_CHECK(! listener.Running() && MouseRawInputTarget(target, registered) && registered && target == owner.get(),
                   "stopping the listener leaves the later owner's registration in place");
 
     LOGICON_CHECK(RegisterMouseRawInput(nullptr) && SUCCEEDED(listener.Start(kVendorId, kDialpadProductId)),
                   "the listener starts again once the other owner is gone");
     listener.Stop();
-    LOGICON_CHECK(MouseRawInputTarget(target, registered) && !registered,
-                  "stopping the listener removes its own registration");
+    LOGICON_CHECK(MouseRawInputTarget(target, registered) && ! registered, "stopping the listener removes its own registration");
     return S_OK;
 }
 
@@ -1222,10 +1116,10 @@ constexpr USHORT kMouseUsage = 0x02;
 #pragma warning(disable : 4625 4626 5026 5027)
 class FakeSystemData final : public IRedXeDataProvider
 {
-  public:
+public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
     {
-        if (!result)
+        if (! result)
         {
             return E_POINTER;
         }
@@ -1247,18 +1141,19 @@ class FakeSystemData final : public IRedXeDataProvider
     }
     HRESULT STDMETHODCALLTYPE GetDataSets(const RedXeDataSetDescriptor** descriptors, uint32_t* count) noexcept override
     {
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
         {
             return E_POINTER;
         }
         *descriptors = kDataSets;
-        *count = 3;
+        *count       = 3;
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE Subscribe(const RedXeDataSubscriptionOptions* options, IRedXeDataSink* sink,
+    HRESULT STDMETHODCALLTYPE Subscribe(const RedXeDataSubscriptionOptions* options,
+                                        IRedXeDataSink* sink,
                                         IRedXeDataSubscription** subscription) noexcept override
     {
-        if (!options || !sink || !subscription || options->sizeBytes != sizeof(RedXeDataSubscriptionOptions))
+        if (! options || ! sink || ! subscription || options->sizeBytes != sizeof(RedXeDataSubscriptionOptions))
         {
             return E_INVALIDARG;
         }
@@ -1270,7 +1165,7 @@ class FakeSystemData final : public IRedXeDataProvider
                 slots[index].sink = sink;
                 sink->AddRef();
                 slots[index].interval = options->requestedIntervalMilliseconds;
-                *subscription = &slots[index];
+                *subscription         = &slots[index];
                 subscribed.fetch_add(1, std::memory_order_relaxed);
                 return S_OK;
             }
@@ -1282,17 +1177,17 @@ class FakeSystemData final : public IRedXeDataProvider
     [[nodiscard]] HRESULT Push(uint32_t dataSet, const RedXeDataValue* values, uint32_t valueCount) noexcept
     {
         Slot& slot = slots[dataSet];
-        if (!slot.sink || !slot.active)
+        if (! slot.sink || ! slot.active)
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_READY);
         }
         RedXeDataRow row{sizeof(RedXeDataRow), values, valueCount};
         RedXeDataSnapshot snapshot{};
-        snapshot.sizeBytes = sizeof(snapshot);
-        snapshot.dataSetId = kDataSets[dataSet].dataSetId;
-        snapshot.sequence = ++sequence;
-        snapshot.rows = &row;
-        snapshot.rowCount = 1;
+        snapshot.sizeBytes   = sizeof(snapshot);
+        snapshot.dataSetId   = kDataSets[dataSet].dataSetId;
+        snapshot.sequence    = ++sequence;
+        snapshot.rows        = &row;
+        snapshot.rowCount    = 1;
         snapshot.columnCount = valueCount;
         return slot.sink->OnDataSnapshot(&snapshot);
     }
@@ -1314,7 +1209,7 @@ class FakeSystemData final : public IRedXeDataProvider
     {
         HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
         {
-            if (!result)
+            if (! result)
             {
                 return E_POINTER;
             }
@@ -1350,9 +1245,9 @@ class FakeSystemData final : public IRedXeDataProvider
         }
 
         IRedXeDataSink* sink = nullptr;
-        ULONG references = 1;
-        uint32_t interval = 0;
-        bool active = false;
+        ULONG references     = 1;
+        uint32_t interval    = 0;
+        bool active          = false;
     };
 
     static constexpr RedXeDataColumnDescriptor kCpuColumns[] = {
@@ -1367,8 +1262,7 @@ class FakeSystemData final : public IRedXeDataProvider
         {sizeof(RedXeDataColumnDescriptor), "displayName", L"Name", nullptr, RedXeDataValueTypeUtf16},
         {sizeof(RedXeDataColumnDescriptor), "software", L"Software", nullptr, RedXeDataValueTypeUInt64},
         {sizeof(RedXeDataColumnDescriptor), "integrated", L"Integrated", nullptr, RedXeDataValueTypeUInt64},
-        {sizeof(RedXeDataColumnDescriptor), "utilizationPercent", L"Utilization", L"percent",
-         RedXeDataValueTypeFloat64},
+        {sizeof(RedXeDataColumnDescriptor), "utilizationPercent", L"Utilization", L"percent", RedXeDataValueTypeFloat64},
     };
     static constexpr RedXeDataSetDescriptor kDataSets[] = {
         {sizeof(RedXeDataSetDescriptor), "cpu.summary", L"CPU", L"", kCpuColumns, 1, 1, 1000, 0},
@@ -1388,10 +1282,10 @@ class FakeSystemData final : public IRedXeDataProvider
 #pragma warning(disable : 4625 4626 5026 5027)
 class TestHost final : public IRedXeHost
 {
-  public:
+public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interfaceId, void** result) noexcept override
     {
-        if (!result)
+        if (! result)
         {
             return E_POINTER;
         }
@@ -1414,12 +1308,12 @@ class TestHost final : public IRedXeHost
     }
     HRESULT STDMETHODCALLTYPE GetDataProvider(const char* providerId, IRedXeDataProvider** provider) noexcept override
     {
-        if (!provider)
+        if (! provider)
         {
             return E_POINTER;
         }
         *provider = nullptr;
-        if (!providerId || std::strcmp(providerId, "builtin.system-data") != 0)
+        if (! providerId || std::strcmp(providerId, "builtin.system-data") != 0)
         {
             return E_NOINTERFACE;
         }
@@ -1442,13 +1336,12 @@ class TestHost final : public IRedXeHost
     }
     HRESULT STDMETHODCALLTYPE Log(const RedXeLogRecord* record) noexcept override
     {
-        if (!record || record->sizeBytes != sizeof(RedXeLogRecord))
+        if (! record || record->sizeBytes != sizeof(RedXeLogRecord))
         {
             return E_INVALIDARG;
         }
         logs.fetch_add(1, std::memory_order_relaxed);
-        if (record->level == RedXeLogLevelWarning && record->eventId && record->messageUtf8 &&
-            std::strcmp(record->eventId, "binding-invalid") == 0)
+        if (record->level == RedXeLogLevelWarning && record->eventId && record->messageUtf8 && std::strcmp(record->eventId, "binding-invalid") == 0)
         {
             const auto guard = wil::AcquireSRWLockExclusive(&actionLock);
             strncpy_s(lastInvalidBinding, record->messageUtf8, _TRUNCATE);
@@ -1466,7 +1359,7 @@ class TestHost final : public IRedXeHost
     }
     HRESULT STDMETHODCALLTYPE RequestAction(const RedXeActionRequest* request) noexcept override
     {
-        if (!request || request->sizeBytes != sizeof(RedXeActionRequest) || !request->actionUtf8)
+        if (! request || request->sizeBytes != sizeof(RedXeActionRequest) || ! request->actionUtf8)
         {
             return E_INVALIDARG;
         }
@@ -1487,14 +1380,13 @@ class TestHost final : public IRedXeHost
         return RequestAction(request);
     }
     // Every name resolves and every target is accepted, except the one name tests use to prove the invalid face.
-    HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request,
-                                             const RedXeActionDescriptor** descriptor) noexcept override
+    HRESULT STDMETHODCALLTYPE ValidateAction(const RedXeActionRequest* request, const RedXeActionDescriptor** descriptor) noexcept override
     {
         if (descriptor)
         {
             *descriptor = nullptr;
         }
-        if (!request || request->sizeBytes != sizeof(RedXeActionRequest) || !request->actionUtf8)
+        if (! request || request->sizeBytes != sizeof(RedXeActionRequest) || ! request->actionUtf8)
         {
             return E_INVALIDARG;
         }
@@ -1548,7 +1440,9 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
 }
 
 #if defined(_DEBUG)
-[[nodiscard]] HRESULT TestMonitorPreparedDrawing(RedXeCreateFn create, TestHost& host, IRedXeService& service,
+[[nodiscard]] HRESULT TestMonitorPreparedDrawing(RedXeCreateFn create,
+                                                 TestHost& host,
+                                                 IRedXeService& service,
                                                  RedXeLogiconGetTestDiagnosticsFn diagnostics,
                                                  RedXeLogiconGetMonitorTestDiagnosticsFn monitorDiagnostics,
                                                  RedXeLogiconFailNextMonitorGlyphPreparationFn failGlyphs,
@@ -1563,53 +1457,46 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     LOGICON_CHECK(createDevice != nullptr, "monitor WARP entrypoint resolves");
     wil::com_ptr_nothrow<ID3D11Device> device;
     wil::com_ptr_nothrow<ID3D11DeviceContext> context;
-    LOGICON_CHECK(SUCCEEDED(createDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
-                                         device.put(), nullptr, context.put())),
+    LOGICON_CHECK(SUCCEEDED(createDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, device.put(), nullptr, context.put())),
                   "monitor WARP device creates");
     constexpr uint32_t width = 1280, height = 720;
     D3D11_TEXTURE2D_DESC description{};
-    description.Width = width;
-    description.Height = height;
+    description.Width     = width;
+    description.Height    = height;
     description.MipLevels = description.ArraySize = description.SampleDesc.Count = 1;
-    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    description.BindFlags = D3D11_BIND_RENDER_TARGET;
+    description.Format                                                           = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.BindFlags                                                        = D3D11_BIND_RENDER_TARGET;
     wil::com_ptr_nothrow<ID3D11Texture2D> texture, readback;
     wil::com_ptr_nothrow<ID3D11RenderTargetView> target;
     LOGICON_CHECK(SUCCEEDED(device->CreateTexture2D(&description, nullptr, texture.put())) &&
                       SUCCEEDED(device->CreateRenderTargetView(texture.get(), nullptr, target.put())),
                   "monitor WARP target creates");
-    description.BindFlags = 0;
-    description.Usage = D3D11_USAGE_STAGING;
+    description.BindFlags      = 0;
+    description.Usage          = D3D11_USAGE_STAGING;
     description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    LOGICON_CHECK(SUCCEEDED(device->CreateTexture2D(&description, nullptr, readback.put())),
-                  "monitor readback creates");
+    LOGICON_CHECK(SUCCEEDED(device->CreateTexture2D(&description, nullptr, readback.put())), "monitor readback creates");
     RedXeFactoryOptions options{sizeof(options)};
     void* object = nullptr;
-    LOGICON_CHECK(
-        SUCCEEDED(create(__uuidof(IRedXeWidgetProvider), &options, &host, Logicon::kMonitorPluginId, &object)),
-        "monitor drawing provider creates");
+    LOGICON_CHECK(SUCCEEDED(create(__uuidof(IRedXeWidgetProvider), &options, &host, Logicon::kMonitorPluginId, &object)), "monitor drawing provider creates");
     wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
     provider.attach(static_cast<IRedXeWidgetProvider*>(object));
     wil::com_ptr_nothrow<IRedXeWidget> widget;
     wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
     wil::com_ptr_nothrow<IRedXePreparedGpuWidget> prepared;
     wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
-    LOGICON_CHECK(SUCCEEDED(provider->CreateWidget(Logicon::kMonitorWidgetTypeId, "monitor.draw", widget.put())) &&
-                      SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(prepared.put())) &&
-                      SUCCEEDED(widget.query_to(interactive.put())),
+    LOGICON_CHECK(SUCCEEDED(provider->CreateWidget(Logicon::kMonitorWidgetTypeId, "monitor.draw", widget.put())) && SUCCEEDED(widget.query_to(gpu.put())) &&
+                      SUCCEEDED(widget.query_to(prepared.put())) && SUCCEEDED(widget.query_to(interactive.put())),
                   "monitor drawing interfaces create");
-    const auto cleanup = wil::scope_exit(
-        [&]() noexcept
-        {
-            const RedXePointerEvent cancel{sizeof(cancel), 1, RedXePointerKindMouse, RedXePointerPhaseCancel};
-            (void)interactive->OnPointer(&cancel);
-            (void)widget->SetVisible(FALSE);
-            gpu->OnDeviceLost();
-            (void)service.OnHostState(&original);
-        });
+    const auto cleanup = wil::scope_exit([&]() noexcept
+    {
+        const RedXePointerEvent cancel{sizeof(cancel), 1, RedXePointerKindMouse, RedXePointerPhaseCancel};
+        (void)interactive->OnPointer(&cancel);
+        (void)widget->SetVisible(FALSE);
+        gpu->OnDeviceLost();
+        (void)service.OnHostState(&original);
+    });
     const RedXeGpuDeviceContext setup{sizeof(setup), device.get(), description.Format, D3D_FEATURE_LEVEL_11_0};
-    LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK && widget->SetVisible(TRUE) == S_OK,
-                  "monitor GPU and visibility initialize");
+    LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK && widget->SetVisible(TRUE) == S_OK, "monitor GPU and visibility initialize");
     const RedXeGpuPreparationContext preparation{sizeof(preparation), 96, width, height, 0, 0, {}};
     LOGICON_CHECK(prepared->Prepare(&preparation) == S_OK, "monitor snapshot and faces prepare");
     const auto draw = [&](uint64_t& hash, uint8_t* pixels = nullptr) noexcept -> HRESULT
@@ -1619,8 +1506,7 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
         const float black[4] = {0, 0, 0, 1};
         context->ClearRenderTargetView(view, black);
         const RedXeWidgetFrameContext frame{sizeof(frame), width, height, 96, 1, 0};
-        const RedXeGpuFrameContext drawContext{
-            sizeof(drawContext), &frame, context.get(), {0, 0, float(width), float(height), 0, 1}, 0};
+        const RedXeGpuFrameContext drawContext{sizeof(drawContext), &frame, context.get(), {0, 0, float(width), float(height), 0, 1}, 0};
         context->RSSetViewports(1, &drawContext.viewport);
         HRESULT result = gpu->Render(&drawContext);
         if (result != S_OK)
@@ -1651,27 +1537,24 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
         LOGICON_CHECK(diagnostics(&cold) == S_OK && cold.serviceStarted == 0 && cold.rendererReady == 0,
                       "cold face fixture must have no composed service surface");
         const std::unique_ptr<uint8_t[]> pixels(new (std::nothrow) uint8_t[static_cast<size_t>(width) * height * 4]);
-        LOGICON_CHECK(pixels && draw(late, pixels.get()) == S_OK && late == before,
-                      "cold monitor pixels read back consistently");
-        const auto key = Logicon::KeyRegion(0);
-        const float scale = 640.0f / static_cast<float>(Logicon::kPanelSize);
-        const uint32_t x = static_cast<uint32_t>(12 + (key.x + key.width * 0.5f) * scale);
-        const uint32_t y = static_cast<uint32_t>(12 + (key.y + key.height * 0.5f) * scale);
+        LOGICON_CHECK(pixels && draw(late, pixels.get()) == S_OK && late == before, "cold monitor pixels read back consistently");
+        const auto key      = Logicon::KeyRegion(0);
+        const float scale   = 640.0f / static_cast<float>(Logicon::kPanelSize);
+        const uint32_t x    = static_cast<uint32_t>(12 + (key.x + key.width * 0.5f) * scale);
+        const uint32_t y    = static_cast<uint32_t>(12 + (key.y + key.height * 0.5f) * scale);
         const size_t offset = (static_cast<size_t>(y) * width + x) * 4;
-        LOGICON_CHECK(pixels[offset] == 0 && pixels[offset + 1] == 0 && pixels[offset + 2] == 0 &&
-                          pixels[offset + 3] == 255,
+        LOGICON_CHECK(pixels[offset] == 0 && pixels[offset + 1] == 0 && pixels[offset + 2] == 0 && pixels[offset + 3] == 255,
                       "cold monitor did not initialize the absent face surface to opaque black");
         gpu->OnDeviceLost();
         RedXeLogiconMonitorTestDiagnostics released{sizeof(released)};
-        LOGICON_CHECK(monitorDiagnostics(&released) == S_OK && released.faceCopyBytes == 0 &&
-                          released.cpuAtlasBytes == 0 && released.livePreparationFonts == 0 &&
-                          released.resourceSets == 0,
+        LOGICON_CHECK(monitorDiagnostics(&released) == S_OK && released.faceCopyBytes == 0 && released.cpuAtlasBytes == 0 &&
+                          released.livePreparationFonts == 0 && released.resourceSets == 0,
                       "cold monitor device loss retained face/atlas/font resources");
         return S_OK;
     }
     RedXeHostState updated = original;
-    updated.pageIndex = 2;
-    updated.pageName = L"Caf\u00e9 - M\u00fcnchen";
+    updated.pageIndex      = 2;
+    updated.pageName       = L"Caf\u00e9 - M\u00fcnchen";
     LOGICON_CHECK(service.OnHostState(&updated) == S_OK, "monitor Unicode update accepted");
     RedXeLogiconTestDiagnostics report{sizeof(report)};
     LOGICON_CHECK(WaitUntil([&]() noexcept { return diagnostics(&report) == S_OK && report.hostPageIndex == 2; }, 2000),
@@ -1680,137 +1563,116 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     LOGICON_CHECK(prepared->Prepare(&preparation) == S_OK && draw(after) == S_OK && after != before,
                   "next monitor preparation draws the changed state and Unicode name");
     gpu->OnDeviceLost();
-    LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK && prepared->Prepare(&preparation) == S_OK &&
-                      draw(late) == S_OK && late == after,
+    LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK && prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK && late == after,
                   "monitor device recovery changed prepared pixels");
     RedXeLogiconMonitorTestDiagnostics glyphs{sizeof(glyphs)};
     constexpr uint32_t kFaceCopyBytes = Logicon::kGridSize * Logicon::kGridSize * sizeof(uint32_t);
-    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.livePreparationFonts == 0 &&
-                      glyphs.faceCopyBytes == kFaceCopyBytes,
+    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.livePreparationFonts == 0 && glyphs.faceCopyBytes == kFaceCopyBytes,
                   "monitor retains no preparation fonts");
     const auto unchanged = glyphs;
-    LOGICON_CHECK(prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK && late == after &&
-                      monitorDiagnostics(&glyphs) == S_OK && glyphs.fontSessions == unchanged.fontSessions &&
-                      glyphs.glyphUploadBytes == unchanged.glyphUploadBytes &&
+    LOGICON_CHECK(prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK && late == after && monitorDiagnostics(&glyphs) == S_OK &&
+                      glyphs.fontSessions == unchanged.fontSessions && glyphs.glyphUploadBytes == unchanged.glyphUploadBytes &&
                       glyphs.faceAllocations == unchanged.faceAllocations,
                   "clean monitor preparation/drawing did font or upload work");
     for (uint32_t repeat = 0; repeat < 100; ++repeat)
         LOGICON_CHECK(prepared->Prepare(&preparation) == S_OK, "clean face preparation failed");
-    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.faceAllocations == unchanged.faceAllocations &&
-                      glyphs.fontSessions == unchanged.fontSessions &&
+    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.faceAllocations == unchanged.faceAllocations && glyphs.fontSessions == unchanged.fontSessions &&
                       glyphs.glyphUploadBytes == unchanged.glyphUploadBytes,
                   "clean monitor face preparation repeated allocation/font/upload work");
 
     // At 1280x720 the Color chip is a real control in the status column (x=816.5..963, y=215.32..260.62).
-    RedXePointerEvent pointer{sizeof(pointer), 1,     RedXePointerKindMouse, RedXePointerPhaseDown, 870, 240, 0,
-                              width,           height};
-    LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK && draw(late) == S_OK && late != after,
-                  "monitor control-hit reference did not change Color mode");
+    RedXePointerEvent pointer{sizeof(pointer), 1, RedXePointerKindMouse, RedXePointerPhaseDown, 870, 240, 0, width, height};
+    LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK && draw(late) == S_OK && late != after, "monitor control-hit reference did not change Color mode");
     pointer.x = 700; // Press mode: restore the exact original pixels without injecting a device control.
     LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK && draw(late) == S_OK && late == after,
                   "monitor control reference did not restore Press mode pixels");
     pointer.x = 870;
 
     updated.pageIndex = 3;
-    updated.pageName = L"Failure \u0101";
-    LOGICON_CHECK(
-        service.OnHostState(&updated) == S_OK &&
-            WaitUntil([&]() noexcept { return diagnostics(&report) == S_OK && report.hostPageIndex == 3; }, 2000),
-        "monitor failure snapshot arrives");
+    updated.pageName  = L"Failure \u0101";
+    LOGICON_CHECK(service.OnHostState(&updated) == S_OK &&
+                      WaitUntil([&]() noexcept { return diagnostics(&report) == S_OK && report.hostPageIndex == 3; }, 2000),
+                  "monitor failure snapshot arrives");
     failGlyphs();
-    LOGICON_CHECK(prepared->Prepare(&preparation) == E_OUTOFMEMORY && draw(late) == S_FALSE &&
-                      monitorDiagnostics(&glyphs) == S_OK && glyphs.livePreparationFonts == 0 &&
-                      glyphs.fontSessions == unchanged.fontSessions + 1 &&
+    LOGICON_CHECK(prepared->Prepare(&preparation) == E_OUTOFMEMORY && draw(late) == S_FALSE && monitorDiagnostics(&glyphs) == S_OK &&
+                      glyphs.livePreparationFonts == 0 && glyphs.fontSessions == unchanged.fontSessions + 1 &&
                       glyphs.glyphUploadBytes == unchanged.glyphUploadBytes,
                   "failed monitor preparation did not release acquired fonts or suppress drawing");
     const auto failed = glyphs;
     for (uint32_t repeat = 0; repeat < 100; ++repeat)
-        LOGICON_CHECK(prepared->Prepare(&preparation) == S_FALSE,
-                      "unchanged failed monitor preparation retried automatically");
-    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.fontSessions == failed.fontSessions &&
-                      glyphs.glyphUploadBytes == failed.glyphUploadBytes,
+        LOGICON_CHECK(prepared->Prepare(&preparation) == S_FALSE, "unchanged failed monitor preparation retried automatically");
+    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.fontSessions == failed.fontSessions && glyphs.glyphUploadBytes == failed.glyphUploadBytes,
                   "failed monitor retry loop did font/upload work");
 
     LOGICON_CHECK(interactive->OnPointer(&pointer) == S_FALSE, "unprepared monitor accepted a control tap");
     auto resized = preparation;
     --resized.tileWidthPixels;
     LOGICON_CHECK(prepared->Prepare(&resized) == S_OK && draw(after) == S_OK && monitorDiagnostics(&glyphs) == S_OK &&
-                      glyphs.glyphUploadCells == failed.glyphUploadCells + 1 &&
-                      glyphs.glyphUploadBytes == failed.glyphUploadBytes + 2304 && glyphs.livePreparationFonts == 0,
+                      glyphs.glyphUploadCells == failed.glyphUploadCells + 1 && glyphs.glyphUploadBytes == failed.glyphUploadBytes + 2304 &&
+                      glyphs.livePreparationFonts == 0,
                   "monitor extent recovery did not upload exactly the missing cell");
 
     const uint32_t framesBeforeRename = host.frames.load(std::memory_order_relaxed);
-    updated.pageName = L"Name only \u0179";
+    updated.pageName                  = L"Name only \u0179";
     LOGICON_CHECK(service.OnHostState(&updated) == S_OK &&
-                      WaitUntil([&]() noexcept
-                                { return host.frames.load(std::memory_order_relaxed) > framesBeforeRename; }, 2000),
+                      WaitUntil([&]() noexcept { return host.frames.load(std::memory_order_relaxed) > framesBeforeRename; }, 2000),
                   "name-only host update did not publish a monitor frame");
     failGlyphs();
-    LOGICON_CHECK(prepared->Prepare(&resized) == E_OUTOFMEMORY && prepared->Prepare(&resized) == S_FALSE,
-                  "monitor name-only failure was not latched");
-    updated.pageName = L"New snapshot \u017b";
+    LOGICON_CHECK(prepared->Prepare(&resized) == E_OUTOFMEMORY && prepared->Prepare(&resized) == S_FALSE, "monitor name-only failure was not latched");
+    updated.pageName                    = L"New snapshot \u017b";
     const uint32_t framesBeforeRecovery = host.frames.load(std::memory_order_relaxed);
     LOGICON_CHECK(service.OnHostState(&updated) == S_OK &&
-                      WaitUntil([&]() noexcept
-                                { return host.frames.load(std::memory_order_relaxed) > framesBeforeRecovery; }, 2000) &&
+                      WaitUntil([&]() noexcept { return host.frames.load(std::memory_order_relaxed) > framesBeforeRecovery; }, 2000) &&
                       prepared->Prepare(&resized) == S_OK && draw(after) == S_OK,
                   "new monitor snapshot did not recover failed preparation");
     ProcessMemorySnapshot beforeHide{}, afterHide{};
     LOGICON_CHECK(QueryProcessMemorySnapshot(beforeHide) == S_OK, "monitor visible process memory samples");
-    LOGICON_CHECK(widget->SetVisible(FALSE) == S_OK && prepared->Prepare(&preparation) == S_FALSE &&
-                      draw(late) == S_FALSE && interactive->OnPointer(&pointer) == S_FALSE,
+    LOGICON_CHECK(widget->SetVisible(FALSE) == S_OK && prepared->Prepare(&preparation) == S_FALSE && draw(late) == S_FALSE &&
+                      interactive->OnPointer(&pointer) == S_FALSE,
                   "hidden monitor prepared, drew or accepted input");
-    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == 0,
-                  "hidden monitor retained its CPU face copy");
-    LOGICON_CHECK(QueryProcessMemorySnapshot(afterHide) == S_OK &&
-                      beforeHide.privateBytes >= afterHide.privateBytes + kFaceCopyBytes,
+    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == 0, "hidden monitor retained its CPU face copy");
+    LOGICON_CHECK(QueryProcessMemorySnapshot(afterHide) == S_OK && beforeHide.privateBytes >= afterHide.privateBytes + kFaceCopyBytes,
                   "hidden monitor did not return its face copy's private commit");
-    std::printf("monitor_face_copy_release payload_bytes=%u private_commit_delta=%llu\n", kFaceCopyBytes,
+    std::printf("monitor_face_copy_release payload_bytes=%u private_commit_delta=%llu\n",
+                kFaceCopyBytes,
                 static_cast<unsigned long long>(beforeHide.privateBytes - afterHide.privateBytes));
     const uint32_t allocationsBeforeReshow = glyphs.faceAllocations;
-    LOGICON_CHECK(widget->SetVisible(FALSE) == S_OK && monitorDiagnostics(&glyphs) == S_OK &&
-                      glyphs.faceCopyBytes == 0 && glyphs.faceAllocations == allocationsBeforeReshow,
+    LOGICON_CHECK(widget->SetVisible(FALSE) == S_OK && monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == 0 &&
+                      glyphs.faceAllocations == allocationsBeforeReshow,
                   "repeated hide changed face ownership or allocation count");
     LOGICON_CHECK(widget->SetVisible(TRUE) == S_OK, "face-allocation failure fixture becomes visible");
     const uint32_t fontsBeforeFaceFailure = glyphs.fontSessions;
     failFaces();
-    LOGICON_CHECK(prepared->Prepare(&preparation) == E_OUTOFMEMORY && draw(late) == S_FALSE &&
-                      monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == 0 &&
-                      glyphs.faceAllocations == allocationsBeforeReshow &&
-                      glyphs.fontSessions == fontsBeforeFaceFailure,
+    LOGICON_CHECK(prepared->Prepare(&preparation) == E_OUTOFMEMORY && draw(late) == S_FALSE && monitorDiagnostics(&glyphs) == S_OK &&
+                      glyphs.faceCopyBytes == 0 && glyphs.faceAllocations == allocationsBeforeReshow && glyphs.fontSessions == fontsBeforeFaceFailure,
                   "failed face allocation retained an owner or performed font/draw work");
     for (uint32_t repeat = 0; repeat < 100; ++repeat)
-        LOGICON_CHECK(prepared->Prepare(&preparation) == S_FALSE,
-                      "unchanged failed face allocation retried automatically");
+        LOGICON_CHECK(prepared->Prepare(&preparation) == S_FALSE, "unchanged failed face allocation retried automatically");
     auto faceRecovery = preparation;
     --faceRecovery.tileHeightPixels;
-    LOGICON_CHECK(prepared->Prepare(&faceRecovery) == S_OK && draw(late) == S_OK && late == after &&
-                      monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == kFaceCopyBytes &&
-                      glyphs.faceAllocations == allocationsBeforeReshow + 1,
+    LOGICON_CHECK(prepared->Prepare(&faceRecovery) == S_OK && draw(late) == S_OK && late == after && monitorDiagnostics(&glyphs) == S_OK &&
+                      glyphs.faceCopyBytes == kFaceCopyBytes && glyphs.faceAllocations == allocationsBeforeReshow + 1,
                   "face allocation extent recovery did not reconstruct identical pixels exactly once");
     LOGICON_CHECK(widget->SetVisible(FALSE) == S_OK && monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == 0,
                   "recovered monitor face copy did not release on hide");
-    LOGICON_CHECK(widget->SetVisible(TRUE) == S_OK && interactive->OnPointer(&pointer) == S_FALSE &&
-                      prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK && late == after,
+    LOGICON_CHECK(widget->SetVisible(TRUE) == S_OK && interactive->OnPointer(&pointer) == S_FALSE && prepared->Prepare(&preparation) == S_OK &&
+                      draw(late) == S_OK && late == after,
                   "monitor reshow did not require preparation or preserve pixels");
     const std::unique_ptr<uint8_t[]> oldPixels(new (std::nothrow) uint8_t[static_cast<size_t>(width) * height * 4]);
     const std::unique_ptr<uint8_t[]> newPixels(new (std::nothrow) uint8_t[static_cast<size_t>(width) * height * 4]);
     LOGICON_CHECK(oldPixels && newPixels, "monitor comparison buffers allocate");
     LOGICON_CHECK(draw(after, oldPixels.get()) == S_OK, "monitor pixel reference captures");
     gpu->OnDeviceLost();
-    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == 0,
-                  "monitor device loss retained its CPU face copy");
+    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == 0, "monitor device loss retained its CPU face copy");
     gpu->OnDeviceLost();
     const uint32_t allocationsBeforeRecreate = glyphs.faceAllocations;
     LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK, "monitor recreated device setup failed");
-    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == 0 &&
-                      glyphs.faceAllocations == allocationsBeforeRecreate,
+    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == 0 && glyphs.faceAllocations == allocationsBeforeRecreate,
                   "device setup eagerly allocated a monitor face copy");
     LOGICON_CHECK(draw(late) == S_FALSE, "monitor recreated device drew before preparation");
     LOGICON_CHECK(interactive->OnPointer(&pointer) == S_FALSE, "monitor recreated device accepted unprepared input");
     LOGICON_CHECK(prepared->Prepare(&preparation) == S_OK, "monitor recreated device preparation failed");
-    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == kFaceCopyBytes &&
-                      glyphs.faceAllocations == allocationsBeforeRecreate + 1,
+    LOGICON_CHECK(monitorDiagnostics(&glyphs) == S_OK && glyphs.faceCopyBytes == kFaceCopyBytes && glyphs.faceAllocations == allocationsBeforeRecreate + 1,
                   "recreated monitor did not allocate exactly one face copy in preparation");
     LOGICON_CHECK(draw(late, newPixels.get()) == S_OK, "monitor recreated device draw failed");
     if (late != after)
@@ -1825,7 +1687,7 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
                     const size_t offset = (static_cast<size_t>(y) * width + x) * 4 + channel;
                     const auto oldValue = uint32_t(oldPixels[offset]), newValue = uint32_t(newPixels[offset]);
                     const uint32_t delta = oldValue > newValue ? oldValue - newValue : newValue - oldValue;
-                    maximumDelta = std::max(maximumDelta, delta);
+                    maximumDelta         = std::max(maximumDelta, delta);
                     changedPixel |= delta != 0;
                 }
                 if (changedPixel)
@@ -1837,46 +1699,38 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
                     maxY = std::max(maxY, y);
                 }
             }
-        std::printf("monitor_recreation before_hash=%llu after_hash=%llu\n", static_cast<unsigned long long>(after),
-                    static_cast<unsigned long long>(late));
-        std::printf("monitor_pixel_difference count=%u max_channel_delta=%u bounds=%u,%u-%u,%u\n", changedPixels,
-                    maximumDelta, minX, minY, maxX, maxY);
+        std::printf("monitor_recreation before_hash=%llu after_hash=%llu\n", static_cast<unsigned long long>(after), static_cast<unsigned long long>(late));
+        std::printf("monitor_pixel_difference count=%u max_channel_delta=%u bounds=%u,%u-%u,%u\n", changedPixels, maximumDelta, minX, minY, maxX, maxY);
     }
     LOGICON_CHECK(late == after, "monitor recreated device changed prepared pixels");
 
     // A control already held before failure must still receive Cancel while new input is suppressed.
-    const auto key = Logicon::KeyRegion(1); // The fake host receives page.next; no real action executes.
-    const float panelScale = 640.0f / static_cast<float>(Logicon::kPanelSize);
-    pointer.x = 12 + (static_cast<float>(key.x) + static_cast<float>(key.width) * 0.5f) * panelScale;
-    pointer.y = 12 + (static_cast<float>(key.y) + static_cast<float>(key.height) * 0.5f) * panelScale;
+    const auto key                    = Logicon::KeyRegion(1); // The fake host receives page.next; no real action executes.
+    const float panelScale            = 640.0f / static_cast<float>(Logicon::kPanelSize);
+    pointer.x                         = 12 + (static_cast<float>(key.x) + static_cast<float>(key.width) * 0.5f) * panelScale;
+    pointer.y                         = 12 + (static_cast<float>(key.y) + static_cast<float>(key.height) * 0.5f) * panelScale;
     const uint32_t actionsBeforePress = host.actions.load(std::memory_order_relaxed);
     LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK &&
-                      WaitUntil([&]() noexcept
-                                { return host.actions.load(std::memory_order_relaxed) == actionsBeforePress + 1; },
-                                2000) &&
+                      WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) == actionsBeforePress + 1; }, 2000) &&
                       host.LastActionIs("page.next"),
                   "monitor held-control fixture did not deliver its virtual press edge");
     updated.pageIndex = 4;
-    updated.pageName = L"Held failure \u04e2";
-    LOGICON_CHECK(
-        service.OnHostState(&updated) == S_OK &&
-            WaitUntil([&]() noexcept { return diagnostics(&report) == S_OK && report.hostPageIndex == 4; }, 2000),
-        "held-control failure snapshot arrives");
+    updated.pageName  = L"Held failure \u04e2";
+    LOGICON_CHECK(service.OnHostState(&updated) == S_OK &&
+                      WaitUntil([&]() noexcept { return diagnostics(&report) == S_OK && report.hostPageIndex == 4; }, 2000),
+                  "held-control failure snapshot arrives");
     failGlyphs();
-    LOGICON_CHECK(prepared->Prepare(&preparation) == E_OUTOFMEMORY && draw(late) == S_FALSE,
-                  "held-control fixture did not fail preparation");
+    LOGICON_CHECK(prepared->Prepare(&preparation) == E_OUTOFMEMORY && draw(late) == S_FALSE, "held-control fixture did not fail preparation");
     pointer.phase = RedXePointerPhaseCancel;
     LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK && interactive->OnPointer(&pointer) == S_FALSE,
                   "unprepared monitor did not cancel and clear its held control");
     gpu->OnDeviceLost();
-    LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK && prepared->Prepare(&preparation) == S_OK &&
-                      draw(late) == S_OK && monitorDiagnostics(&glyphs) == S_OK && glyphs.livePreparationFonts == 0,
+    LOGICON_CHECK(gpu->OnDeviceCreated(&setup) == S_OK && prepared->Prepare(&preparation) == S_OK && draw(late) == S_OK &&
+                      monitorDiagnostics(&glyphs) == S_OK && glyphs.livePreparationFonts == 0,
                   "device recreation did not recover a latched failure or release fonts");
     pointer.phase = RedXePointerPhaseDown;
     LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK &&
-                      WaitUntil([&]() noexcept
-                                { return host.actions.load(std::memory_order_relaxed) == actionsBeforePress + 2; },
-                                2000) &&
+                      WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) == actionsBeforePress + 2; }, 2000) &&
                       host.LastActionIs("page.next"),
                   "Cancel did not release the lane's virtual control before the next press");
     LOGICON_CHECK(widget->SetVisible(FALSE) == S_OK, "held monitor hides");
@@ -1884,9 +1738,7 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     LOGICON_CHECK(interactive->OnPointer(&pointer) == S_OK && interactive->OnPointer(&pointer) == S_FALSE,
                   "hidden monitor did not release and clear its held control on Up");
     LOGICON_CHECK(service.OnHostState(&original) == S_OK &&
-                      WaitUntil([&]() noexcept
-                                { return diagnostics(&report) == S_OK && report.hostPageIndex == original.pageIndex; },
-                                2000),
+                      WaitUntil([&]() noexcept { return diagnostics(&report) == S_OK && report.hostPageIndex == original.pageIndex; }, 2000),
                   "monitor drawing restores the synthetic host state");
     return S_OK;
 }
@@ -1897,29 +1749,21 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     std::array<wchar_t, 1024> path{};
     HRESULT result = BuildSiblingPath(L"Plugins\\Logicon.dll", path);
     LOGICON_CHECK(SUCCEEDED(result), "plugin path");
-    wil::unique_hmodule module{
-        LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+    wil::unique_hmodule module{LoadLibraryExW(path.data(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
     LOGICON_CHECK(module != nullptr, "Logicon.dll maps");
-    const auto create = Resolve<RedXeCreateFn>(module.get(), kRedXeCreateExport);
-    const auto enumerate = Resolve<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
-    const auto contract =
-        Resolve<RedXeGetPluginSettingsContractFn>(module.get(), kRedXeGetPluginSettingsContractExport);
-    const auto diagnostics =
-        Resolve<RedXeLogiconGetTestDiagnosticsFn>(module.get(), kRedXeLogiconGetTestDiagnosticsExport);
-    const auto useSynthetic =
-        Resolve<RedXeLogiconUseSyntheticDeviceFn>(module.get(), kRedXeLogiconUseSyntheticDeviceExport);
-    const auto inject = Resolve<RedXeLogiconInjectControlFn>(module.get(), kRedXeLogiconInjectControlExport);
-    const auto setOverride = Resolve<RedXeLogiconSetFaceOverrideFn>(module.get(), kRedXeLogiconSetFaceOverrideExport);
+    const auto create        = Resolve<RedXeCreateFn>(module.get(), kRedXeCreateExport);
+    const auto enumerate     = Resolve<RedXeEnumeratePluginsFn>(module.get(), kRedXeEnumeratePluginsExport);
+    const auto contract      = Resolve<RedXeGetPluginSettingsContractFn>(module.get(), kRedXeGetPluginSettingsContractExport);
+    const auto diagnostics   = Resolve<RedXeLogiconGetTestDiagnosticsFn>(module.get(), kRedXeLogiconGetTestDiagnosticsExport);
+    const auto useSynthetic  = Resolve<RedXeLogiconUseSyntheticDeviceFn>(module.get(), kRedXeLogiconUseSyntheticDeviceExport);
+    const auto inject        = Resolve<RedXeLogiconInjectControlFn>(module.get(), kRedXeLogiconInjectControlExport);
+    const auto setOverride   = Resolve<RedXeLogiconSetFaceOverrideFn>(module.get(), kRedXeLogiconSetFaceOverrideExport);
     const auto setBrightness = Resolve<RedXeLogiconSetBrightnessFn>(module.get(), kRedXeLogiconSetBrightnessExport);
-    LOGICON_CHECK(create && enumerate && contract && diagnostics && useSynthetic && inject && setOverride &&
-                      setBrightness,
+    LOGICON_CHECK(create && enumerate && contract && diagnostics && useSynthetic && inject && setOverride && setBrightness,
                   "required and test exports resolve");
-    const auto monitorDiagnostics =
-        Resolve<RedXeLogiconGetMonitorTestDiagnosticsFn>(module.get(), kRedXeLogiconGetMonitorTestDiagnosticsExport);
-    const auto failGlyphs = Resolve<RedXeLogiconFailNextMonitorGlyphPreparationFn>(
-        module.get(), kRedXeLogiconFailNextMonitorGlyphPreparationExport);
-    const auto failFaces = Resolve<RedXeLogiconFailNextMonitorFacePreparationFn>(
-        module.get(), kRedXeLogiconFailNextMonitorFacePreparationExport);
+    const auto monitorDiagnostics = Resolve<RedXeLogiconGetMonitorTestDiagnosticsFn>(module.get(), kRedXeLogiconGetMonitorTestDiagnosticsExport);
+    const auto failGlyphs         = Resolve<RedXeLogiconFailNextMonitorGlyphPreparationFn>(module.get(), kRedXeLogiconFailNextMonitorGlyphPreparationExport);
+    const auto failFaces          = Resolve<RedXeLogiconFailNextMonitorFacePreparationFn>(module.get(), kRedXeLogiconFailNextMonitorFacePreparationExport);
     LOGICON_CHECK(monitorDiagnostics && failGlyphs && failFaces, "monitor accounting/fault exports resolve");
     RedXeLogiconMonitorTestDiagnostics monitorReport{sizeof(monitorReport)};
     LOGICON_CHECK(monitorDiagnostics(nullptr) == E_POINTER, "monitor diagnostic pointer validation");
@@ -1927,21 +1771,18 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     LOGICON_CHECK(monitorDiagnostics(&monitorReport) == E_INVALIDARG, "monitor diagnostic exact-size validation");
     monitorReport.sizeBytes = sizeof(monitorReport);
 #if defined(_DEBUG)
-    LOGICON_CHECK(monitorDiagnostics(&monitorReport) == S_OK && monitorReport.livePreparationFonts == 0 &&
-                      monitorReport.cpuAtlasBytes == 0 && monitorReport.resourceSets == 0 &&
-                      monitorReport.faceCopyBytes == 0,
+    LOGICON_CHECK(monitorDiagnostics(&monitorReport) == S_OK && monitorReport.livePreparationFonts == 0 && monitorReport.cpuAtlasBytes == 0 &&
+                      monitorReport.resourceSets == 0 && monitorReport.faceCopyBytes == 0,
                   "cold Debug monitor owns no GPU/atlas/font resources");
 #else
-    LOGICON_CHECK(monitorDiagnostics(&monitorReport) == E_NOTIMPL && monitorReport.fontSessions == 0 &&
-                      monitorReport.livePreparationFonts == 0 && monitorReport.cpuAtlasBytes == 0 &&
-                      monitorReport.resourceSets == 0 && monitorReport.glyphUploadCells == 0 &&
-                      monitorReport.glyphUploadBytes == 0 && monitorReport.faceCopyBytes == 0 &&
-                      monitorReport.faceAllocations == 0,
+    LOGICON_CHECK(monitorDiagnostics(&monitorReport) == E_NOTIMPL && monitorReport.fontSessions == 0 && monitorReport.livePreparationFonts == 0 &&
+                      monitorReport.cpuAtlasBytes == 0 && monitorReport.resourceSets == 0 && monitorReport.glyphUploadCells == 0 &&
+                      monitorReport.glyphUploadBytes == 0 && monitorReport.faceCopyBytes == 0 && monitorReport.faceAllocations == 0,
                   "Release monitor diagnostic stub owns no resources");
 #endif
 
     const RedXePluginMetadata* metadata = nullptr;
-    uint32_t count = 0;
+    uint32_t count                      = 0;
     LOGICON_CHECK(SUCCEEDED(enumerate(&metadata, &count)) && metadata && count >= 1, "metadata enumerates");
     LOGICON_CHECK(RedXeAsciiEqualsIgnoreCase(metadata[0].id, Logicon::kPluginId) &&
                       metadata[0].capabilities == (RedXePluginCapabilityService | RedXePluginCapabilityActions),
@@ -1953,21 +1794,20 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
         // Debug builds construct the monitor; Release builds list the type and refuse the instance so the host
         // draws a placeholder instead of a tile.
         RedXeFactoryOptions monitorOptions{};
-        monitorOptions.sizeBytes = sizeof(monitorOptions);
-        constexpr char monitorEnvelope[] = R"json({"plugin":{},"instance":{}})json";
+        monitorOptions.sizeBytes             = sizeof(monitorOptions);
+        constexpr char monitorEnvelope[]     = R"json({"plugin":{},"instance":{}})json";
         monitorOptions.configurationJsonUtf8 = monitorEnvelope;
-        monitorOptions.configurationBytes = static_cast<uint32_t>(sizeof(monitorEnvelope) - 1);
-        monitorOptions.backgroundColor = kRedXeDefaultBackgroundColor;
-        void* providerObject = nullptr;
+        monitorOptions.configurationBytes    = static_cast<uint32_t>(sizeof(monitorEnvelope) - 1);
+        monitorOptions.backgroundColor       = kRedXeDefaultBackgroundColor;
+        void* providerObject                 = nullptr;
         TestHost monitorHost;
-        LOGICON_CHECK(SUCCEEDED(create(__uuidof(IRedXeWidgetProvider), &monitorOptions, &monitorHost,
-                                       Logicon::kMonitorPluginId, &providerObject)) &&
+        LOGICON_CHECK(SUCCEEDED(create(__uuidof(IRedXeWidgetProvider), &monitorOptions, &monitorHost, Logicon::kMonitorPluginId, &providerObject)) &&
                           providerObject,
                       "monitor provider creates");
         wil::com_ptr_nothrow<IRedXeWidgetProvider> provider;
         provider.attach(static_cast<IRedXeWidgetProvider*>(providerObject));
         const RedXeWidgetTypeDescriptor* types = nullptr;
-        uint32_t typeCount = 0;
+        uint32_t typeCount                     = 0;
         LOGICON_CHECK(SUCCEEDED(provider->GetWidgetTypes(&types, &typeCount)) && typeCount == 1 &&
                           RedXeAsciiEqualsIgnoreCase(types[0].typeId, Logicon::kMonitorWidgetTypeId),
                       "monitor provider lists its type");
@@ -1977,16 +1817,13 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
         LOGICON_CHECK(SUCCEEDED(created) && widget, "Debug builds construct the monitor tile");
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpu;
         wil::com_ptr_nothrow<IRedXeInteractiveWidget> interactive;
-        LOGICON_CHECK(SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(interactive.put())),
-                      "the monitor is a GPU and interactive widget");
+        LOGICON_CHECK(SUCCEEDED(widget.query_to(gpu.put())) && SUCCEEDED(widget.query_to(interactive.put())), "the monitor is a GPU and interactive widget");
 #else
-        LOGICON_CHECK(created == HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) && !widget,
-                      "Release builds refuse the monitor instance");
+        LOGICON_CHECK(created == HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) && ! widget, "Release builds refuse the monitor instance");
 #endif
     }
     const RedXePluginSettingsContract* published = nullptr;
-    LOGICON_CHECK(SUCCEEDED(contract(Logicon::kPluginId, &published)) && published &&
-                      published->schemaBytes == std::strlen(Logicon::kSettingsSchema),
+    LOGICON_CHECK(SUCCEEDED(contract(Logicon::kPluginId, &published)) && published && published->schemaBytes == std::strlen(Logicon::kSettingsSchema),
                   "service contract publishes");
     LOGICON_CHECK(contract("builtin.nope", &published) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND), "unknown contract id");
 
@@ -1995,155 +1832,127 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     LOGICON_CHECK(diagnostics(&report) == HRESULT_FROM_WIN32(ERROR_NOT_READY), "no service yet");
 
     TestHost host;
-    constexpr char envelope[] =
-        R"json({"plugin":{},"instance":{"brightness":60,"restoreLogoOnExit":true,"pageButtons":"keyPages","keys":[)json"
-        R"json({"page":0,"slot":0,"action":"page.next","label":"Next","icon":"ChevronRight"},)json"
-        R"json({"page":0,"slot":1,"action":"system.launch","target":"https://example.org","label":"Web"},)json"
-        R"json({"page":0,"slot":2,"action":"logicon.keyPage.next","label":"More"},)json"
-        R"json({"page":1,"slot":0,"action":"widget.toggle","target":"0","label":"Toggle"},)json"
-        R"json({"page":0,"slot":8,"face":"pageIndicator"}]}})json";
+    constexpr char envelope[] = R"json({"plugin":{},"instance":{"brightness":60,"restoreLogoOnExit":true,"pageButtons":"keyPages","keys":[)json"
+                                R"json({"page":0,"slot":0,"action":"page.next","label":"Next","icon":"ChevronRight"},)json"
+                                R"json({"page":0,"slot":1,"action":"system.launch","target":"https://example.org","label":"Web"},)json"
+                                R"json({"page":0,"slot":2,"action":"logicon.keyPage.next","label":"More"},)json"
+                                R"json({"page":1,"slot":0,"action":"widget.toggle","target":"0","label":"Toggle"},)json"
+                                R"json({"page":0,"slot":8,"face":"pageIndicator"}]}})json";
     RedXeFactoryOptions options{};
-    options.sizeBytes = sizeof(options);
+    options.sizeBytes             = sizeof(options);
     options.configurationJsonUtf8 = envelope;
-    options.configurationBytes = static_cast<uint32_t>(sizeof(envelope) - 1);
-    options.backgroundColor = kRedXeDefaultBackgroundColor;
-    void* object = nullptr;
+    options.configurationBytes    = static_cast<uint32_t>(sizeof(envelope) - 1);
+    options.backgroundColor       = kRedXeDefaultBackgroundColor;
+    void* object                  = nullptr;
     LOGICON_CHECK(create(__uuidof(IRedXeWidgetProvider), &options, &host, Logicon::kPluginId, &object) == E_NOINTERFACE,
                   "the service plugin is not a widget provider");
-    LOGICON_CHECK(SUCCEEDED(create(__uuidof(IRedXeService), &options, &host, Logicon::kPluginId, &object)) && object,
-                  "service creates");
+    LOGICON_CHECK(SUCCEEDED(create(__uuidof(IRedXeService), &options, &host, Logicon::kPluginId, &object)) && object, "service creates");
     wil::com_ptr_nothrow<IRedXeService> service;
     service.attach(static_cast<IRedXeService*>(object));
     wil::com_ptr_nothrow<IRedXeDeviceWorker> worker;
     LOGICON_CHECK(SUCCEEDED(service.query_to(worker.put())) && worker, "service exposes the device worker");
     wil::com_ptr_nothrow<IUnknown> identityA;
     wil::com_ptr_nothrow<IUnknown> identityB;
-    LOGICON_CHECK(SUCCEEDED(service.query_to(identityA.put())) && SUCCEEDED(worker.query_to(identityB.put())) &&
-                      identityA.get() == identityB.get(),
+    LOGICON_CHECK(SUCCEEDED(service.query_to(identityA.put())) && SUCCEEDED(worker.query_to(identityB.put())) && identityA.get() == identityB.get(),
                   "one controlling IUnknown");
 
-    RedXeFactoryOptions bad = options;
+    RedXeFactoryOptions bad      = options;
     constexpr char badEnvelope[] = R"json({"plugin":{},"instance":{"brightness":500}})json";
-    bad.configurationJsonUtf8 = badEnvelope;
-    bad.configurationBytes = static_cast<uint32_t>(sizeof(badEnvelope) - 1);
-    void* rejected = nullptr;
-    LOGICON_CHECK(FAILED(create(__uuidof(IRedXeService), &bad, &host, Logicon::kPluginId, &rejected)) && !rejected,
+    bad.configurationJsonUtf8    = badEnvelope;
+    bad.configurationBytes       = static_cast<uint32_t>(sizeof(badEnvelope) - 1);
+    void* rejected               = nullptr;
+    LOGICON_CHECK(FAILED(create(__uuidof(IRedXeService), &bad, &host, Logicon::kPluginId, &rejected)) && ! rejected,
                   "an invalid envelope is rejected at create");
 
-    LOGICON_CHECK(SUCCEEDED(diagnostics(&report)) && report.serviceStarted == 0 && report.laneRunning == 0,
-                  "diagnostics before start");
+    LOGICON_CHECK(SUCCEEDED(diagnostics(&report)) && report.serviceStarted == 0 && report.laneRunning == 0, "diagnostics before start");
 #if defined(_DEBUG)
     TestHost coldMonitorHost;
     const RedXeHostState coldState{sizeof(coldState)};
-    LOGICON_CHECK(TestMonitorPreparedDrawing(create, coldMonitorHost, *service, diagnostics, monitorDiagnostics,
-                                             failGlyphs, coldState, failFaces, true) == S_OK,
+    LOGICON_CHECK(TestMonitorPreparedDrawing(create, coldMonitorHost, *service, diagnostics, monitorDiagnostics, failGlyphs, coldState, failFaces, true) ==
+                      S_OK,
                   "cold monitor initializes absent faces and releases its preparation storage");
 #endif
     RedXeServiceStartContext start{};
     start.sizeBytes = sizeof(start);
-    start.flags = RedXeServiceFlagDeviceAccessDisabled;
+    start.flags     = RedXeServiceFlagDeviceAccessDisabled;
     LOGICON_CHECK(SUCCEEDED(service->Start(&start)), "service starts without device access");
-    LOGICON_CHECK(SUCCEEDED(diagnostics(&report)) && report.serviceStarted == 1 && report.deviceAccess == 0,
-                  "diagnostics after start");
+    LOGICON_CHECK(SUCCEEDED(diagnostics(&report)) && report.serviceStarted == 1 && report.deviceAccess == 0, "diagnostics after start");
 
     // Drive the lane the way the host does: one thread, host-owned stop and wake events.
     wil::unique_event_nothrow stop;
     wil::unique_event_nothrow wake;
     LOGICON_CHECK(SUCCEEDED(stop.create(wil::EventOptions::ManualReset)) && SUCCEEDED(wake.create()), "lane events");
     std::atomic<HRESULT> laneResult{E_PENDING};
-    std::thread lane(
-        [&]() noexcept
-        {
-            (void)CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-            laneResult.store(worker->RunDeviceWork(stop.get(), wake.get()), std::memory_order_release);
-            CoUninitialize();
-        });
+    std::thread lane([&]() noexcept
+    {
+        (void)CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        laneResult.store(worker->RunDeviceWork(stop.get(), wake.get()), std::memory_order_release);
+        CoUninitialize();
+    });
     // A failed check returns early; the lane must still be stopped and joined before the service is released.
-    const auto stopLane = wil::scope_exit(
-        [&]() noexcept
+    const auto stopLane = wil::scope_exit([&]() noexcept
+    {
+        SetEvent(stop.get());
+        if (lane.joinable())
         {
-            SetEvent(stop.get());
-            if (lane.joinable())
-            {
-                lane.join();
-            }
-        });
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.laneRunning == 1; }, 3000),
-        "lane reports running");
+            lane.join();
+        }
+    });
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.laneRunning == 1; }, 3000), "lane reports running");
     LOGICON_CHECK(report.connected == 0, "no device without device access");
 
     // Host state feeds the page indicator face.
     const wchar_t pageName[] = L"Development";
     RedXeHostState state{};
-    state.sizeBytes = sizeof(state);
-    state.pageIndex = 1;
-    state.pageCount = 3;
-    state.pageId = "system";
-    state.pageName = pageName;
+    state.sizeBytes   = sizeof(state);
+    state.pageIndex   = 1;
+    state.pageCount   = 3;
+    state.pageId      = "system";
+    state.pageName    = pageName;
     state.widgetCount = 4;
-    state.flags = RedXeHostStateVisible;
+    state.flags       = RedXeHostStateVisible;
     LOGICON_CHECK(SUCCEEDED(service->OnHostState(&state)), "host state accepted");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept
-                  { return SUCCEEDED(diagnostics(&report)) && report.hostPageIndex == 1 && report.hostPageCount == 3; },
-                  2000),
-        "lane picked up the host state");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.hostPageIndex == 1 && report.hostPageCount == 3; }, 2000),
+                  "lane picked up the host state");
 
     // Synthetic keypad: connect, faces, key presses, actions.
     LOGICON_CHECK(SUCCEEDED(useSynthetic(TRUE)), "synthetic device enabled");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept
-                  { return SUCCEEDED(diagnostics(&report)) && report.connected == 1 && report.synthetic == 1; }, 5000),
-        "lane connected to the synthetic keypad");
-    LOGICON_CHECK(
-        WaitUntil(
-            [&]() noexcept
-            { return SUCCEEDED(diagnostics(&report)) && report.facesWritten >= 1 && report.syntheticImages >= 1; },
-            5000),
-        "faces were written after connect");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.connected == 1 && report.synthetic == 1; }, 5000),
+                  "lane connected to the synthetic keypad");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.facesWritten >= 1 && report.syntheticImages >= 1; }, 5000),
+                  "faces were written after connect");
     LOGICON_CHECK(report.syntheticPageButtonsDiverted == 1, "page buttons diverted on the synthetic keypad");
     LOGICON_CHECK(report.syntheticBrightness == 60, "configured brightness applied");
     LOGICON_CHECK(report.rendererReady == 1, "renderer ready on the lane");
 
     const uint32_t actionsBefore = host.actions.load(std::memory_order_relaxed);
     LOGICON_CHECK(SUCCEEDED(inject(0, 0, TRUE)) && SUCCEEDED(inject(0, 0, FALSE)), "inject key 1 press");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBefore; }, 2000) &&
-            host.LastActionIs("page.next"),
-        "key 1 requested page.next");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBefore; }, 2000) && host.LastActionIs("page.next"),
+                  "key 1 requested page.next");
     LOGICON_CHECK(SUCCEEDED(inject(0, 1, TRUE)) && SUCCEEDED(inject(0, 1, FALSE)), "inject key 2 press");
-    LOGICON_CHECK(WaitUntil([&]() noexcept { return host.LastActionIs("system.launch"); }, 2000) &&
-                      host.LastTargetIs("https://example.org"),
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return host.LastActionIs("system.launch"); }, 2000) && host.LastTargetIs("https://example.org"),
                   "key 2 requested launch with its target");
     LOGICON_CHECK(SUCCEEDED(inject(0, 2, TRUE)) && SUCCEEDED(inject(0, 2, FALSE)), "inject key 3 press");
-    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.keyPage == 1; }, 2000),
-                  "key 3 switched to key page 2");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.keyPage == 1; }, 2000), "key 3 switched to key page 2");
     const uint32_t imagesBefore = report.syntheticImages;
     LOGICON_CHECK(SUCCEEDED(inject(1, 0, TRUE)) && SUCCEEDED(inject(1, 0, FALSE)), "inject previous page button");
-    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.keyPage == 0; }, 2000),
-                  "page button went back to key page 1");
-    LOGICON_CHECK(WaitUntil([&]() noexcept
-                            { return SUCCEEDED(diagnostics(&report)) && report.syntheticImages > imagesBefore; }, 2000),
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.keyPage == 0; }, 2000), "page button went back to key page 1");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.syntheticImages > imagesBefore; }, 2000),
                   "the key page change repainted the faces");
 
     // Dialpad buttons are counted (no bindings yet); without device access neither the dialpad nor raw input opens.
-    LOGICON_CHECK(SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 0 && report.wheelsListening == 0 &&
-                      report.dialRaw == 0 && report.rollerRaw == 0,
+    LOGICON_CHECK(SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 0 && report.wheelsListening == 0 && report.dialRaw == 0 &&
+                      report.rollerRaw == 0,
                   "no dialpad and no raw input without device access");
     const uint32_t dialPressesBefore = report.dialButtonPresses;
     LOGICON_CHECK(FAILED(inject(2, 4, TRUE)), "dial button index 4 is rejected");
     LOGICON_CHECK(SUCCEEDED(inject(2, 2, TRUE)) && SUCCEEDED(inject(2, 2, FALSE)), "inject dialpad button 6");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept
-                  { return SUCCEEDED(diagnostics(&report)) && report.dialButtonPresses == dialPressesBefore + 1; },
-                  2000),
-        "the dialpad press was counted once");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.dialButtonPresses == dialPressesBefore + 1; }, 2000),
+                  "the dialpad press was counted once");
 
     // Raw synthetic input reports drive the same path as injected controls.
     const uint32_t actionsBeforeRaw = host.actions.load(std::memory_order_relaxed);
-    const auto injectRaw =
-        Resolve<RedXeLogiconInjectSyntheticReportFn>(module.get(), kRedXeLogiconInjectSyntheticReportExport);
+    const auto injectRaw            = Resolve<RedXeLogiconInjectSyntheticReportFn>(module.get(), kRedXeLogiconInjectSyntheticReportExport);
     LOGICON_CHECK(injectRaw != nullptr, "raw inject export");
     uint8_t rawDown[Logicon::kVlpControlReportBytes]{};
     rawDown[0] = Logicon::kReportVlpControl;
@@ -2153,181 +1962,131 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     rawDown[6] = 1;
     uint8_t rawUp[Logicon::kVlpControlReportBytes]{};
     std::memcpy(rawUp, rawDown, 6);
-    LOGICON_CHECK(SUCCEEDED(injectRaw(rawDown, sizeof(rawDown))) && SUCCEEDED(injectRaw(rawUp, sizeof(rawUp))),
-                  "raw reports queued");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBeforeRaw; }, 2000) &&
-            host.LastActionIs("page.next"),
-        "raw key 1 report requested page.next");
+    LOGICON_CHECK(SUCCEEDED(injectRaw(rawDown, sizeof(rawDown))) && SUCCEEDED(injectRaw(rawUp, sizeof(rawUp))), "raw reports queued");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBeforeRaw; }, 2000) && host.LastActionIs("page.next"),
+                  "raw key 1 report requested page.next");
 
     // Face overrides and brightness from the monitor/test surface.
     LOGICON_CHECK(SUCCEEDED(diagnostics(&report)), "diagnostics before override");
     const uint32_t generationBefore = report.faceGeneration;
     LOGICON_CHECK(SUCCEEDED(setOverride(4, 1, 0x00FF00)), "color override");
-    LOGICON_CHECK(WaitUntil([&]() noexcept
-                            { return SUCCEEDED(diagnostics(&report)) && report.faceGeneration > generationBefore; },
-                            2000),
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.faceGeneration > generationBefore; }, 2000),
                   "override recomposed the faces");
     LOGICON_CHECK(SUCCEEDED(setOverride(4, 2, 0)) && SUCCEEDED(setOverride(4, 0, 0)), "picture and clear overrides");
     LOGICON_CHECK(setOverride(9, 1, 0) == E_INVALIDARG && setOverride(0, 3, 0) == E_INVALIDARG, "override bounds");
     LOGICON_CHECK(SUCCEEDED(setBrightness(25)), "brightness request");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.syntheticBrightness == 25; }, 2000),
-        "brightness reached the synthetic keypad");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.syntheticBrightness == 25; }, 2000),
+                  "brightness reached the synthetic keypad");
     LOGICON_CHECK(setBrightness(0) == E_INVALIDARG && setBrightness(101) == E_INVALIDARG, "brightness bounds");
 
     // Live settings apply: a new object re-parses and recomposes.
-    constexpr char applied[] =
-        R"json({"brightness":90,"keys":[{"slot":0,"action":"page.previous","label":"Back"}]})json";
-    LOGICON_CHECK(SUCCEEDED(service->ApplySettings(applied, static_cast<uint32_t>(sizeof(applied) - 1))),
-                  "settings apply");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.syntheticBrightness == 90; }, 2000),
-        "applied brightness reached the keypad");
+    constexpr char applied[] = R"json({"brightness":90,"keys":[{"slot":0,"action":"page.previous","label":"Back"}]})json";
+    LOGICON_CHECK(SUCCEEDED(service->ApplySettings(applied, static_cast<uint32_t>(sizeof(applied) - 1))), "settings apply");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.syntheticBrightness == 90; }, 2000),
+                  "applied brightness reached the keypad");
     constexpr char invalidApply[] = R"json({"keys":[{"slot":42}]})json";
     LOGICON_CHECK(FAILED(service->ApplySettings(invalidApply, static_cast<uint32_t>(sizeof(invalidApply) - 1))),
                   "invalid settings are rejected without stopping the service");
 
     // keys.down and mouse.down need a release no Logicon control sends: the object applies, each such binding is
     // logged as invalid with its control and never reaches ValidateAction, and pressing it requests nothing.
-    constexpr char heldApply[] =
-        R"json({"keys":[{"slot":0,"action":"keys.down","target":"Ctrl+K"},{"slot":1,"action":"page.next"}],)json"
-        R"json("dialpad":{"buttons":[{"button":1,"action":"mouse.down","target":"left"}],)json"
-        R"json("turns":[{"control":"roller","direction":"down","action":"mouse.down","target":"left"}]}})json";
+    constexpr char heldApply[]           = R"json({"keys":[{"slot":0,"action":"keys.down","target":"Ctrl+K"},{"slot":1,"action":"page.next"}],)json"
+                                           R"json("dialpad":{"buttons":[{"button":1,"action":"mouse.down","target":"left"}],)json"
+                                           R"json("turns":[{"control":"roller","direction":"down","action":"mouse.down","target":"left"}]}})json";
     const uint32_t validationsBeforeHeld = host.validations.load(std::memory_order_relaxed);
-    const uint32_t invalidBeforeHeld = host.invalidBindings.load(std::memory_order_relaxed);
-    LOGICON_CHECK(SUCCEEDED(service->ApplySettings(heldApply, static_cast<uint32_t>(sizeof(heldApply) - 1))),
-                  "held bindings apply");
+    const uint32_t invalidBeforeHeld     = host.invalidBindings.load(std::memory_order_relaxed);
+    LOGICON_CHECK(SUCCEEDED(service->ApplySettings(heldApply, static_cast<uint32_t>(sizeof(heldApply) - 1))), "held bindings apply");
     std::array<char, kRedXeMaximumLogMessageBytes> heldMessage{};
-    (void)sprintf_s(heldMessage.data(), heldMessage.size(), "dialpad.turns[] roller down: %s",
-                    Logicon::kHeldInputReason);
-    LOGICON_CHECK(host.invalidBindings.load(std::memory_order_relaxed) == invalidBeforeHeld + 3 &&
-                      host.LastInvalidBindingIs(heldMessage.data()) &&
+    (void)sprintf_s(heldMessage.data(), heldMessage.size(), "dialpad.turns[] roller down: %s", Logicon::kHeldInputReason);
+    LOGICON_CHECK(host.invalidBindings.load(std::memory_order_relaxed) == invalidBeforeHeld + 3 && host.LastInvalidBindingIs(heldMessage.data()) &&
                       host.validations.load(std::memory_order_relaxed) == validationsBeforeHeld + 1,
                   "each held binding is logged as invalid and only page.next is validated by the host");
     LOGICON_CHECK(SUCCEEDED(diagnostics(&report)), "diagnostics before the held presses");
-    const uint32_t actionsBeforeHeld = host.actions.load(std::memory_order_relaxed);
+    const uint32_t actionsBeforeHeld     = host.actions.load(std::memory_order_relaxed);
     const uint32_t dialPressesBeforeHeld = report.dialButtonPresses;
-    LOGICON_CHECK(SUCCEEDED(inject(0, 0, TRUE)) && SUCCEEDED(inject(0, 0, FALSE)) && SUCCEEDED(inject(2, 1, TRUE)) &&
-                      SUCCEEDED(inject(2, 1, FALSE)) && SUCCEEDED(inject(0, 1, TRUE)) && SUCCEEDED(inject(0, 1, FALSE)),
+    LOGICON_CHECK(SUCCEEDED(inject(0, 0, TRUE)) && SUCCEEDED(inject(0, 0, FALSE)) && SUCCEEDED(inject(2, 1, TRUE)) && SUCCEEDED(inject(2, 1, FALSE)) &&
+                      SUCCEEDED(inject(0, 1, TRUE)) && SUCCEEDED(inject(0, 1, FALSE)),
                   "inject the held key, the held dialpad button, then the page.next key");
     // Injected controls dispatch in order, so once page.next arrives both held bindings were already pressed.
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBeforeHeld; }, 2000) &&
-            host.LastActionIs("page.next") && host.actions.load(std::memory_order_relaxed) == actionsBeforeHeld + 1,
-        "the held key and dialpad button requested nothing");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept
-                  { return SUCCEEDED(diagnostics(&report)) && report.dialButtonPresses == dialPressesBeforeHeld + 1; },
-                  2000),
-        "the held dialpad button press was seen");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBeforeHeld; }, 2000) &&
+                      host.LastActionIs("page.next") && host.actions.load(std::memory_order_relaxed) == actionsBeforeHeld + 1,
+                  "the held key and dialpad button requested nothing");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.dialButtonPresses == dialPressesBeforeHeld + 1; }, 2000),
+                  "the held dialpad button press was seen");
     LOGICON_CHECK(host.frames.load(std::memory_order_relaxed) == 0, "no frame requests without a monitor tile");
 #if defined(_DEBUG)
-    LOGICON_CHECK(TestMonitorPreparedDrawing(create, host, *service, diagnostics, monitorDiagnostics, failGlyphs, state,
-                                             failFaces) == S_OK,
+    LOGICON_CHECK(TestMonitorPreparedDrawing(create, host, *service, diagnostics, monitorDiagnostics, failGlyphs, state, failFaces) == S_OK,
                   "Debug monitor prepares glyphs/faces, freezes late state and recovers identical pixels");
-    LOGICON_CHECK(monitorDiagnostics(&monitorReport) == S_OK && monitorReport.faceCopyBytes == 0 &&
-                      monitorReport.cpuAtlasBytes == 0 && monitorReport.livePreparationFonts == 0 &&
-                      monitorReport.resourceSets == 0,
+    LOGICON_CHECK(monitorDiagnostics(&monitorReport) == S_OK && monitorReport.faceCopyBytes == 0 && monitorReport.cpuAtlasBytes == 0 &&
+                      monitorReport.livePreparationFonts == 0 && monitorReport.resourceSets == 0,
                   "last monitor destruction retained face/atlas/font resources");
 #endif
 
     // System Data faces: the feed subscribes only once a system face is bound, values reach the faces, and an
     // object without such faces pauses the subscriptions.
-    LOGICON_CHECK(host.providerLookups.load(std::memory_order_relaxed) == 0 && !host.systemData.AnySink() &&
-                      SUCCEEDED(diagnostics(&report)) && report.systemFeed == 0 && report.cpuPercent == -1,
+    LOGICON_CHECK(host.providerLookups.load(std::memory_order_relaxed) == 0 && ! host.systemData.AnySink() && SUCCEEDED(diagnostics(&report)) &&
+                      report.systemFeed == 0 && report.cpuPercent == -1,
                   "no provider lookup before a system face is bound");
     constexpr char systemApply[] =
         R"json({"keys":[{"slot":0,"face":"cpu"},{"slot":1,"face":"memory"},{"slot":2,"face":"gpu"}],
       "dialpad":{"turns":[{"control":"dial","direction":"cw","action":"page.next"}],"buttons":[{"button":1,"action":"page.next"}]}})json";
-    LOGICON_CHECK(SUCCEEDED(service->ApplySettings(systemApply, static_cast<uint32_t>(sizeof(systemApply) - 1))),
-                  "system faces apply");
-    LOGICON_CHECK(host.providerLookups.load(std::memory_order_relaxed) == 1 &&
-                      host.systemData.subscribed.load(std::memory_order_relaxed) == 3 && host.systemData.AllActive() &&
-                      host.systemData.slots[0].interval == 1000,
+    LOGICON_CHECK(SUCCEEDED(service->ApplySettings(systemApply, static_cast<uint32_t>(sizeof(systemApply) - 1))), "system faces apply");
+    LOGICON_CHECK(host.providerLookups.load(std::memory_order_relaxed) == 1 && host.systemData.subscribed.load(std::memory_order_relaxed) == 3 &&
+                      host.systemData.AllActive() && host.systemData.slots[0].interval == 1000,
                   "three subscriptions at one second, active");
-    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.systemFeed == 1; }, 2000),
-                  "diagnostics report the feed");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.systemFeed == 1; }, 2000), "diagnostics report the feed");
     const uint32_t imagesBeforeSystem = report.syntheticImages;
     RedXeDataValue cpuValue{sizeof(RedXeDataValue), RedXeDataValueTypeFloat64, RedXeDataQualityGood, {}, 0};
     cpuValue.float64Value = 42.0;
     LOGICON_CHECK(SUCCEEDED(host.systemData.Push(0, &cpuValue, 1)), "cpu snapshot delivered to the sink");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.cpuPercent == 42; }, 2000),
-        "cpu value reached the service");
-    LOGICON_CHECK(WaitUntil([&]() noexcept
-                            { return SUCCEEDED(diagnostics(&report)) && report.syntheticImages > imagesBeforeSystem; },
-                            2000),
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.cpuPercent == 42; }, 2000), "cpu value reached the service");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.syntheticImages > imagesBeforeSystem; }, 2000),
                   "the cpu face repainted");
     LOGICON_CHECK(SUCCEEDED(host.systemData.Push(0, &cpuValue, 1)), "same value again");
-    LOGICON_CHECK(SUCCEEDED(diagnostics(&report)) && report.memoryPercent == -1 && report.gpuPercent == -1,
-                  "other metrics stay unknown");
+    LOGICON_CHECK(SUCCEEDED(diagnostics(&report)) && report.memoryPercent == -1 && report.gpuPercent == -1, "other metrics stay unknown");
     // A dialpad button press runs its binding like a key.
     const uint32_t actionsBeforeDial = host.actions.load(std::memory_order_relaxed);
     LOGICON_CHECK(SUCCEEDED(inject(2, 1, TRUE)) && SUCCEEDED(inject(2, 1, FALSE)), "inject dialpad Forward");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBeforeDial; }, 2000) &&
-            host.LastActionIs("page.next"),
-        "dialpad Forward requested page.next");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return host.actions.load(std::memory_order_relaxed) > actionsBeforeDial; }, 2000) &&
+                      host.LastActionIs("page.next"),
+                  "dialpad Forward requested page.next");
 
     // The wheels follow the dialpad's presence and the turn bindings, never its HID++ session: a dialpad that
     // answers no HID++ command keeps them read across failed connects and retries; no dialpad or no bound turn
     // stops them. The bound button above makes every connect send HID++ commands.
-    const auto useSyntheticDialpad =
-        Resolve<RedXeLogiconUseSyntheticDialpadFn>(module.get(), kRedXeLogiconUseSyntheticDialpadExport);
-    LOGICON_CHECK(useSyntheticDialpad != nullptr && useSyntheticDialpad(3) == E_INVALIDARG &&
-                      SUCCEEDED(diagnostics(&report)) && report.wheelsWanted == 0 && report.wheelsListening == 0,
+    const auto useSyntheticDialpad = Resolve<RedXeLogiconUseSyntheticDialpadFn>(module.get(), kRedXeLogiconUseSyntheticDialpadExport);
+    LOGICON_CHECK(useSyntheticDialpad != nullptr && useSyntheticDialpad(3) == E_INVALIDARG && SUCCEEDED(diagnostics(&report)) && report.wheelsWanted == 0 &&
+                      report.wheelsListening == 0,
                   "synthetic dialpad export, wheels idle without a dialpad");
     const uint32_t dialpadAttemptsBefore = report.dialpadAttempts;
     LOGICON_CHECK(SUCCEEDED(useSyntheticDialpad(2)), "a dialpad that answers no HID++ command appears");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept
-                  { return SUCCEEDED(diagnostics(&report)) && report.dialpadAttempts >= dialpadAttemptsBefore + 2; },
-                  8000),
-        "its HID++ connect failed and was retried");
-    LOGICON_CHECK(report.dialpadConnected == 0 &&
-                      report.dialpadLastFailure == static_cast<int32_t>(HRESULT_FROM_WIN32(ERROR_TIMEOUT)) &&
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.dialpadAttempts >= dialpadAttemptsBefore + 2; }, 8000),
+                  "its HID++ connect failed and was retried");
+    LOGICON_CHECK(report.dialpadConnected == 0 && report.dialpadLastFailure == static_cast<int32_t>(HRESULT_FROM_WIN32(ERROR_TIMEOUT)) &&
                       report.wheelsWanted == 1 && report.wheelsListening == 1,
                   "the wheels are read although the dialpad's HID++ session failed");
     LOGICON_CHECK(SUCCEEDED(useSyntheticDialpad(1)), "the dialpad answers");
-    LOGICON_CHECK(
-        WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 1; }, 5000) &&
-            report.wheelsListening == 1,
-        "the dialpad connects and its wheels stay read");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 1; }, 5000) && report.wheelsListening == 1,
+                  "the dialpad connects and its wheels stay read");
     LOGICON_CHECK(SUCCEEDED(useSyntheticDialpad(0)), "the dialpad goes away");
-    LOGICON_CHECK(WaitUntil(
-                      [&]() noexcept
-                      {
-                          return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 0 &&
-                                 report.wheelsWanted == 0 && report.wheelsListening == 0;
-                      },
-                      5000),
+    LOGICON_CHECK(WaitUntil([&]() noexcept
+    { return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 0 && report.wheelsWanted == 0 && report.wheelsListening == 0; },
+                            5000),
                   "without the dialpad the wheels stop");
     LOGICON_CHECK(SUCCEEDED(useSyntheticDialpad(1)), "the dialpad is back");
-    LOGICON_CHECK(
-        WaitUntil(
-            [&]() noexcept
-            { return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 1 && report.wheelsListening == 1; },
-            5000),
-        "the dialpad reconnects with its wheels read");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 1 && report.wheelsListening == 1; }, 5000),
+                  "the dialpad reconnects with its wheels read");
 
-    LOGICON_CHECK(SUCCEEDED(service->ApplySettings(applied, static_cast<uint32_t>(sizeof(applied) - 1))),
-                  "settings without system faces apply");
-    LOGICON_CHECK(!host.systemData.AnyActive() && host.systemData.AnySink(), "feed paused, subscriptions kept");
-    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.systemFeed == 0; }, 2000),
-                  "diagnostics report the paused feed");
-    LOGICON_CHECK(WaitUntil(
-                      [&]() noexcept
-                      {
-                          return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 1 &&
-                                 report.wheelsWanted == 0 && report.wheelsListening == 0;
-                      },
-                      5000),
+    LOGICON_CHECK(SUCCEEDED(service->ApplySettings(applied, static_cast<uint32_t>(sizeof(applied) - 1))), "settings without system faces apply");
+    LOGICON_CHECK(! host.systemData.AnyActive() && host.systemData.AnySink(), "feed paused, subscriptions kept");
+    LOGICON_CHECK(WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.systemFeed == 0; }, 2000), "diagnostics report the paused feed");
+    LOGICON_CHECK(WaitUntil([&]() noexcept
+    { return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 1 && report.wheelsWanted == 0 && report.wheelsListening == 0; },
+                            5000),
                   "without a bound turn the wheels stop while the dialpad stays connected");
-    LOGICON_CHECK(
-        SUCCEEDED(useSyntheticDialpad(0)) &&
-            WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 0; }, 5000),
-        "the synthetic dialpad is closed again");
+    LOGICON_CHECK(SUCCEEDED(useSyntheticDialpad(0)) &&
+                      WaitUntil([&]() noexcept { return SUCCEEDED(diagnostics(&report)) && report.dialpadConnected == 0; }, 5000),
+                  "the synthetic dialpad is closed again");
 
     // Stop: the lane drains well inside the host's 3 s budget and restores the device.
     const ULONGLONG stopStarted = GetTickCount64();
@@ -2336,11 +2095,11 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
     const ULONGLONG stopElapsed = GetTickCount64() - stopStarted;
     LOGICON_CHECK(SUCCEEDED(laneResult.load(std::memory_order_acquire)), "lane returned success");
     LOGICON_CHECK(stopElapsed < 1500, "lane drained within 1.5 s");
-    LOGICON_CHECK(SUCCEEDED(diagnostics(&report)) && report.laneRunning == 0 && report.connected == 0 &&
-                      report.syntheticResetSeen == 1 && report.syntheticPageButtonsDiverted == 0,
+    LOGICON_CHECK(SUCCEEDED(diagnostics(&report)) && report.laneRunning == 0 && report.connected == 0 && report.syntheticResetSeen == 1 &&
+                      report.syntheticPageButtonsDiverted == 0,
                   "lane stopped, flags restored, splash reset sent");
     LOGICON_CHECK(SUCCEEDED(service->Stop()) && SUCCEEDED(service->Stop()), "stop is idempotent");
-    LOGICON_CHECK(!host.systemData.AnySink(), "stop released every System Data subscription");
+    LOGICON_CHECK(! host.systemData.AnySink(), "stop released every System Data subscription");
     LOGICON_CHECK(host.logs.load(std::memory_order_relaxed) > 0, "the service logged lifetime events");
     identityA.reset();
     identityB.reset();
@@ -2363,11 +2122,16 @@ template <typename Predicate> [[nodiscard]] bool WaitUntil(Predicate predicate, 
         HRESULT (*function)() noexcept;
     };
     const Case cases[] = {
-        {"protocol framing", TestProtocolFraming}, {"geometry and VLP stream", TestGeometryAndVlp},
-        {"settings model", TestSettings},          {"key faces", TestFaces},
-        {"device session", TestDeviceSession},     {"HID port", TestHidPort},
-        {"HID I/O budget", TestHidIoBudget},       {"dialpad", TestDialpad},
-        {"raw-input owners", TestRawInputOwners},  {"shipped module", TestShippedModule},
+        {"protocol framing", TestProtocolFraming},
+        {"geometry and VLP stream", TestGeometryAndVlp},
+        {"settings model", TestSettings},
+        {"key faces", TestFaces},
+        {"device session", TestDeviceSession},
+        {"HID port", TestHidPort},
+        {"HID I/O budget", TestHidIoBudget},
+        {"dialpad", TestDialpad},
+        {"raw-input owners", TestRawInputOwners},
+        {"shipped module", TestShippedModule},
     };
     HRESULT result = S_OK;
     for (const Case& test : cases)

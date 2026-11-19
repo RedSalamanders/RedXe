@@ -24,7 +24,7 @@
 // DrainCompletions, and Stop are UI-thread operations.
 class LaunchWorker final
 {
-  public:
+public:
     static constexpr size_t kSlots = 8;
     // A UTF-8 action target of kRedXeMaximumActionTargetBytes never needs more UTF-16 units than it has bytes.
     static constexpr size_t kTextCharacters = kRedXeMaximumActionTargetBytes + 1;
@@ -73,12 +73,14 @@ class LaunchWorker final
         LaunchInProgress,
     };
 
-    LaunchWorker(Notify notify, void* context) noexcept : _notify(notify), _context(context) {}
+    LaunchWorker(Notify notify, void* context) noexcept : _notify(notify), _context(context)
+    {
+    }
     ~LaunchWorker();
-    LaunchWorker(const LaunchWorker&) = delete;
+    LaunchWorker(const LaunchWorker&)            = delete;
     LaunchWorker& operator=(const LaunchWorker&) = delete;
-    LaunchWorker(LaunchWorker&&) = delete;
-    LaunchWorker& operator=(LaunchWorker&&) = delete;
+    LaunchWorker(LaunchWorker&&)                 = delete;
+    LaunchWorker& operator=(LaunchWorker&&)      = delete;
 
     // Copies the request into a free slot, starts the thread on first use, and wakes it. S_OK when queued, ERROR_BUSY
     // when every slot holds a launch that is queued, running, or not yet drained, E_UNEXPECTED while a stopped thread
@@ -97,7 +99,7 @@ class LaunchWorker final
         return _thread.joinable();
     }
 
-  private:
+private:
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct PluginHostTestAccess;
 #endif
@@ -111,7 +113,7 @@ class LaunchWorker final
     struct Slot final
     {
         Request request;
-        State state = State::Empty;
+        State state    = State::Empty;
         HRESULT result = S_OK;
     };
     using Perform = HRESULT (*)(Request& request) noexcept;
@@ -123,15 +125,15 @@ class LaunchWorker final
     // Complete ones at the head.
     SRWLOCK _lock = SRWLOCK_INIT;
     std::array<Slot, kSlots> _slots{};
-    size_t _head = 0;
+    size_t _head  = 0;
     size_t _count = 0;
     wil::unique_event_nothrow _stop;
     wil::unique_event_nothrow _wake;
     std::thread _thread;
     // A Stop's wait ran out after waiting (or on a launch in progress); later Stops do not wait again. UI thread only.
     bool _waitedOut = false;
-    Notify _notify = nullptr;
-    void* _context = nullptr;
+    Notify _notify  = nullptr;
+    void* _context  = nullptr;
     // The worker's launch call; tests substitute a probe that never reaches the shell.
     Perform _perform = &LaunchWorker::Launch;
 };

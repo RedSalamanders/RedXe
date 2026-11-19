@@ -14,12 +14,12 @@ namespace Logicon
 {
 namespace
 {
-SRWLOCK g_currentLock = SRWLOCK_INIT;
+SRWLOCK g_currentLock     = SRWLOCK_INIT;
 LogiconService* g_current = nullptr;
 
 constexpr uint32_t kBatchPauseMilliseconds = 10;
-constexpr uint64_t kFnvOffset = 14695981039346656037ULL;
-constexpr uint64_t kFnvPrime = 1099511628211ULL;
+constexpr uint64_t kFnvOffset              = 14695981039346656037ULL;
+constexpr uint64_t kFnvPrime               = 1099511628211ULL;
 
 void Hash(uint64_t& hash, const void* data, size_t bytes) noexcept
 {
@@ -81,14 +81,14 @@ enum class BindingSite : uint8_t
 
 [[nodiscard]] bool IsDeviceGone(HRESULT result) noexcept
 {
-    return result == HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED) ||
-           result == HRESULT_FROM_WIN32(ERROR_GEN_FAILURE) || result == HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED) ||
-           result == HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE) || result == HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+    return result == HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED) || result == HRESULT_FROM_WIN32(ERROR_GEN_FAILURE) ||
+           result == HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED) || result == HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE) ||
+           result == HRESULT_FROM_WIN32(ERROR_TIMEOUT);
 }
 
 [[nodiscard]] uint32_t Utf8ToWide(std::string_view utf8, wchar_t* wide, uint32_t capacity) noexcept
 {
-    if (!wide || capacity == 0)
+    if (! wide || capacity == 0)
     {
         return 0;
     }
@@ -97,8 +97,7 @@ enum class BindingSite : uint8_t
     {
         return 0;
     }
-    const int converted = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), wide,
-                                              static_cast<int>(capacity - 1));
+    const int converted = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), wide, static_cast<int>(capacity - 1));
     if (converted <= 0)
     {
         wide[0] = L'\0';
@@ -115,12 +114,11 @@ LogiconService* LogiconService::Current() noexcept
     return g_current;
 }
 
-LogiconService::LogiconService(IRedXeHost* host, uint32_t backgroundRgb) noexcept
-    : _host(host), _backgroundRgb(backgroundRgb & 0x00FFFFFFU)
+LogiconService::LogiconService(IRedXeHost* host, uint32_t backgroundRgb) noexcept : _host(host), _backgroundRgb(backgroundRgb & 0x00FFFFFFU)
 {
     _syntheticDialpad.ActAsDialpad(true);
     const auto guard = wil::AcquireSRWLockExclusive(&g_currentLock);
-    if (!g_current)
+    if (! g_current)
     {
         g_current = this;
     }
@@ -147,35 +145,33 @@ void LogiconService::Log(uint32_t level, const char* eventId, const char* messag
 
 HRESULT LogiconService::ParseConfiguration(const char* jsonUtf8, uint32_t bytes) noexcept
 {
-    if (!jsonUtf8 || bytes == 0)
+    if (! jsonUtf8 || bytes == 0)
     {
         // No configuration selects the defaults.
         Settings defaults{};
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _settings = defaults;
+        _settings        = defaults;
         return S_OK;
     }
     yyjson_doc* document = yyjson_read(jsonUtf8, bytes, YYJSON_READ_NOFLAG);
-    if (!document)
+    if (! document)
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    yyjson_val* root = yyjson_doc_get_root(document);
+    yyjson_val* root     = yyjson_doc_get_root(document);
     yyjson_val* instance = yyjson_is_obj(root) ? yyjson_obj_get(root, "instance") : nullptr;
     Settings parsed{};
     std::array<char, 160> diagnostic{};
-    const HRESULT result = instance ? ParseSettings(instance, parsed, diagnostic.data(), diagnostic.size())
-                                    : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    const HRESULT result = instance ? ParseSettings(instance, parsed, diagnostic.data(), diagnostic.size()) : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     yyjson_doc_free(document);
     if (FAILED(result))
     {
-        Log(RedXeLogLevelError, "settings-rejected", diagnostic[0] != '\0' ? diagnostic.data() : "invalid envelope.",
-            result);
+        Log(RedXeLogLevelError, "settings-rejected", diagnostic[0] != '\0' ? diagnostic.data() : "invalid envelope.", result);
         return result;
     }
     ValidateBindings(parsed);
     const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-    _settings = parsed;
+    _settings        = parsed;
     ++_settingsGeneration;
     return S_OK;
 }
@@ -186,7 +182,7 @@ void LogiconService::ValidateBindings(Settings& settings) noexcept
     // on first use) and checks the target against its descriptor; the lane only reads the result.
     const auto validate = [this](KeyBinding& binding, BindingSite site) noexcept
     {
-        if (!binding.HasAction())
+        if (! binding.HasAction())
         {
             binding.valid = true;
             return;
@@ -199,30 +195,35 @@ void LogiconService::ValidateBindings(Settings& settings) noexcept
             std::array<char, kRedXeMaximumLogMessageBytes> message{};
             if (site == BindingSite::Key)
             {
-                (void)sprintf_s(message.data(), message.size(), "keys[] page %u slot %u: %s",
-                                static_cast<unsigned>(binding.page), static_cast<unsigned>(binding.slot),
+                (void)sprintf_s(message.data(),
+                                message.size(),
+                                "keys[] page %u slot %u: %s",
+                                static_cast<unsigned>(binding.page),
+                                static_cast<unsigned>(binding.slot),
                                 kHeldInputReason);
             }
             else if (site == BindingSite::DialButton)
             {
-                (void)sprintf_s(message.data(), message.size(), "dialpad.buttons[] button %u: %s",
-                                static_cast<unsigned>(binding.slot), kHeldInputReason);
+                (void)sprintf_s(message.data(), message.size(), "dialpad.buttons[] button %u: %s", static_cast<unsigned>(binding.slot), kHeldInputReason);
             }
             else
             {
-                (void)sprintf_s(message.data(), message.size(), "dialpad.turns[] %s %s: %s",
-                                ControlName(binding.control), DirectionName(binding.control, binding.direction),
+                (void)sprintf_s(message.data(),
+                                message.size(),
+                                "dialpad.turns[] %s %s: %s",
+                                ControlName(binding.control),
+                                DirectionName(binding.control, binding.direction),
                                 kHeldInputReason);
             }
             Log(RedXeLogLevelWarning, "binding-invalid", message.data());
             return;
         }
         RedXeActionRequest request{};
-        request.sizeBytes = sizeof(request);
-        request.actionUtf8 = binding.action.data();
-        request.targetUtf8 = binding.targetBytes != 0 ? binding.target.data() : nullptr;
+        request.sizeBytes      = sizeof(request);
+        request.actionUtf8     = binding.action.data();
+        request.targetUtf8     = binding.targetBytes != 0 ? binding.target.data() : nullptr;
         request.sourcePluginId = kPluginId;
-        binding.valid = _host && SUCCEEDED(_host->ValidateAction(&request, nullptr));
+        binding.valid          = _host && SUCCEEDED(_host->ValidateAction(&request, nullptr));
     };
     for (uint32_t index = 0; index < settings.keyCount; ++index)
     {
@@ -240,7 +241,7 @@ void LogiconService::ValidateBindings(Settings& settings) noexcept
 
 HRESULT LogiconService::Start(const RedXeServiceStartContext* context) noexcept
 {
-    if (!context)
+    if (! context)
     {
         return E_POINTER;
     }
@@ -260,29 +261,28 @@ void LogiconService::UpdateSystemFeed() noexcept
     bool wanted = false;
     {
         const auto guard = wil::AcquireSRWLockShared(&_lock);
-        wanted = _settings.UsesSystemFaces();
+        wanted           = _settings.UsesSystemFaces();
     }
-    if (!wanted)
+    if (! wanted)
     {
         if (_systemFeed)
         {
             _systemFeed->SetActive(false);
         }
-        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        const auto guard  = wil::AcquireSRWLockExclusive(&_lock);
         _systemFeedActive = false;
         return;
     }
-    if (!_systemFeed)
+    if (! _systemFeed)
     {
         wil::com_ptr_nothrow<SystemDataFeed> feed;
         feed.attach(new (std::nothrow) SystemDataFeed(*this));
         const HRESULT started = feed ? feed->Start(_host) : E_OUTOFMEMORY;
         if (FAILED(started))
         {
-            if (!_systemFeedFailureLogged)
+            if (! _systemFeedFailureLogged)
             {
-                Log(RedXeLogLevelWarning, "system-data-unavailable",
-                    "builtin.system-data is unavailable; cpu, memory, and gpu faces show no value.", started);
+                Log(RedXeLogLevelWarning, "system-data-unavailable", "builtin.system-data is unavailable; cpu, memory, and gpu faces show no value.", started);
                 _systemFeedFailureLogged = true;
             }
             return;
@@ -290,7 +290,7 @@ void LogiconService::UpdateSystemFeed() noexcept
         _systemFeed = std::move(feed);
     }
     _systemFeed->SetActive(true);
-    const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+    const auto guard  = wil::AcquireSRWLockExclusive(&_lock);
     _systemFeedActive = true;
 }
 
@@ -310,7 +310,7 @@ void LogiconService::OnSystemValues(const SystemValues& values) noexcept
 
 HRESULT LogiconService::ApplySettings(const char* settingsJsonUtf8, uint32_t settingsBytes) noexcept
 {
-    if (!settingsJsonUtf8)
+    if (! settingsJsonUtf8)
     {
         return E_POINTER;
     }
@@ -320,8 +320,7 @@ HRESULT LogiconService::ApplySettings(const char* settingsJsonUtf8, uint32_t set
     }
     Settings parsed{};
     std::array<char, 160> diagnostic{};
-    const HRESULT result = ParseSettingsJson(std::string_view(settingsJsonUtf8, settingsBytes), parsed,
-                                             diagnostic.data(), diagnostic.size());
+    const HRESULT result = ParseSettingsJson(std::string_view(settingsJsonUtf8, settingsBytes), parsed, diagnostic.data(), diagnostic.size());
     if (FAILED(result))
     {
         Log(RedXeLogLevelWarning, "settings-rejected", diagnostic.data(), result);
@@ -330,9 +329,9 @@ HRESULT LogiconService::ApplySettings(const char* settingsJsonUtf8, uint32_t set
     ValidateBindings(parsed);
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _settings = parsed;
+        _settings        = parsed;
         ++_settingsGeneration;
-        _keyPage = std::min(_keyPage, parsed.KeyPageCount() - 1U);
+        _keyPage   = std::min(_keyPage, parsed.KeyPageCount() - 1U);
         _overrides = {};
         ++_overrideGeneration;
     }
@@ -346,7 +345,7 @@ HRESULT LogiconService::ApplySettings(const char* settingsJsonUtf8, uint32_t set
 
 HRESULT LogiconService::OnHostState(const RedXeHostState* state) noexcept
 {
-    if (!state)
+    if (! state)
     {
         return E_POINTER;
     }
@@ -355,10 +354,10 @@ HRESULT LogiconService::OnHostState(const RedXeHostState* state) noexcept
         return E_INVALIDARG;
     }
     HostStateCopy copy{};
-    copy.flags = state->flags;
-    copy.pageIndex = state->pageIndex;
-    copy.pageCount = state->pageCount;
-    copy.widgetCount = state->widgetCount;
+    copy.flags               = state->flags;
+    copy.pageIndex           = state->pageIndex;
+    copy.pageCount           = state->pageCount;
+    copy.widgetCount         = state->widgetCount;
     copy.raisedWidgetOrdinal = state->raisedWidgetOrdinal;
     if (state->pageId)
     {
@@ -371,7 +370,7 @@ HRESULT LogiconService::OnHostState(const RedXeHostState* state) noexcept
     }
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _hostState = copy;
+        _hostState       = copy;
         ++_hostGeneration;
     }
     WakeLane();
@@ -388,7 +387,7 @@ HRESULT LogiconService::Stop() noexcept
         _systemFeed.reset();
     }
     {
-        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        const auto guard  = wil::AcquireSRWLockExclusive(&_lock);
         _systemFeedActive = false;
     }
     PublishSnapshot();
@@ -425,19 +424,19 @@ void LogiconService::AttachMonitor(bool attached) noexcept
 void LogiconService::CopyMonitorSnapshot(MonitorSnapshot& snapshot, uint64_t* visibleStamp) const noexcept
 {
     const auto guard = wil::AcquireSRWLockShared(&_lock);
-    snapshot = _snapshot;
+    snapshot         = _snapshot;
     if (visibleStamp)
         *visibleStamp = _publishedHash;
 }
 
 bool LogiconService::CopyFaceSurface(uint32_t* bgra, uint32_t capacityPixels, uint32_t& generation) const noexcept
 {
-    if (!bgra || capacityPixels < kGridPixels)
+    if (! bgra || capacityPixels < kGridPixels)
     {
         return false;
     }
     const auto guard = wil::AcquireSRWLockShared(&_lock);
-    if (!_grid || _faceGeneration == generation)
+    if (! _grid || _faceGeneration == generation)
     {
         return false;
     }
@@ -448,8 +447,7 @@ bool LogiconService::CopyFaceSurface(uint32_t* bgra, uint32_t capacityPixels, ui
 
 HRESULT LogiconService::InjectControl(uint32_t kind, uint32_t index, bool down) noexcept
 {
-    if (kind > kInjectKindDialButton || (kind == kInjectKindKey && index >= kKeyCount) ||
-        (kind == kInjectKindPageButton && index >= 2) ||
+    if (kind > kInjectKindDialButton || (kind == kInjectKindKey && index >= kKeyCount) || (kind == kInjectKindPageButton && index >= 2) ||
         (kind == kInjectKindDialButton && index >= kDialpadButtonCount))
     {
         return E_INVALIDARG;
@@ -461,9 +459,9 @@ HRESULT LogiconService::InjectControl(uint32_t kind, uint32_t index, bool down) 
             return HRESULT_FROM_WIN32(ERROR_BUSY);
         }
         InjectedControl& control = _injected[_injectedCount++];
-        control.kind = static_cast<uint8_t>(kind);
-        control.index = static_cast<uint8_t>(index);
-        control.down = down;
+        control.kind             = static_cast<uint8_t>(kind);
+        control.index            = static_cast<uint8_t>(index);
+        control.down             = down;
     }
     WakeLane();
     return S_OK;
@@ -476,8 +474,8 @@ HRESULT LogiconService::SetFaceOverride(uint32_t slot, OverrideKind kind, uint32
         return E_INVALIDARG;
     }
     {
-        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _overrides[slot].kind = kind;
+        const auto guard          = wil::AcquireSRWLockExclusive(&_lock);
+        _overrides[slot].kind     = kind;
         _overrides[slot].colorRgb = colorRgb & 0x00FFFFFFU;
         ++_overrideGeneration;
     }
@@ -492,7 +490,7 @@ HRESULT LogiconService::SetBrightness(uint32_t percent) noexcept
         return E_INVALIDARG;
     }
     {
-        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        const auto guard   = wil::AcquireSRWLockExclusive(&_lock);
         _brightnessRequest = percent;
     }
     WakeLane();
@@ -502,7 +500,7 @@ HRESULT LogiconService::SetBrightness(uint32_t percent) noexcept
 HRESULT LogiconService::SetSynthetic(bool enabled) noexcept
 {
     {
-        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        const auto guard    = wil::AcquireSRWLockExclusive(&_lock);
         _syntheticRequested = enabled;
     }
     WakeLane();
@@ -516,7 +514,7 @@ HRESULT LogiconService::SetSyntheticDialpad(uint32_t mode) noexcept
         return E_INVALIDARG;
     }
     {
-        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        const auto guard           = wil::AcquireSRWLockExclusive(&_lock);
         _syntheticDialpadRequested = mode;
     }
     WakeLane();
@@ -531,12 +529,12 @@ HRESULT LogiconService::InjectSyntheticReport(const uint8_t* report, uint32_t by
 void LogiconService::RequestNamed(const char* action, const char* target) noexcept
 {
     RedXeActionRequest request{};
-    request.sizeBytes = sizeof(request);
-    request.actionUtf8 = action;
-    request.targetUtf8 = target && target[0] != '\0' ? target : nullptr;
+    request.sizeBytes      = sizeof(request);
+    request.actionUtf8     = action;
+    request.targetUtf8     = target && target[0] != '\0' ? target : nullptr;
     request.sourcePluginId = kPluginId;
-    const HRESULT result = _host ? _host->RequestAction(&request) : E_POINTER;
-    const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+    const HRESULT result   = _host ? _host->RequestAction(&request) : E_POINTER;
+    const auto guard       = wil::AcquireSRWLockExclusive(&_lock);
     if (SUCCEEDED(result))
     {
         ++_actionsRequested;
@@ -552,14 +550,14 @@ void LogiconService::RequestAction(const KeyBinding& binding) noexcept
 void LogiconService::ChangeKeyPage(int direction) noexcept
 {
     const uint32_t count = std::max(1U, _laneSettings.KeyPageCount());
-    const uint32_t next = (_laneKeyPage + count + static_cast<uint32_t>(direction < 0 ? count - 1 : 1)) % count;
+    const uint32_t next  = (_laneKeyPage + count + static_cast<uint32_t>(direction < 0 ? count - 1 : 1)) % count;
     if (next == _laneKeyPage)
     {
         return;
     }
-    _laneKeyPage = next;
+    _laneKeyPage     = next;
     const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-    _keyPage = next;
+    _keyPage         = next;
 }
 
 void LogiconService::ExecuteLocal(std::string_view verb, std::string_view target) noexcept
@@ -584,22 +582,20 @@ void LogiconService::ExecuteLocal(std::string_view verb, std::string_view target
             const uint32_t next = std::min(static_cast<uint32_t>(page), _laneSettings.KeyPageCount() - 1U);
             if (next != _laneKeyPage)
             {
-                _laneKeyPage = next;
+                _laneKeyPage     = next;
                 const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-                _keyPage = next;
+                _keyPage         = next;
             }
         }
     }
     else if (verb == "brightness")
     {
         RedXeActions::Delta delta{};
-        if (RedXeActions::ParseDelta(target, static_cast<int32_t>(kMinimumBrightness),
-                                     static_cast<int32_t>(kMaximumBrightness), delta))
+        if (RedXeActions::ParseDelta(target, static_cast<int32_t>(kMinimumBrightness), static_cast<int32_t>(kMaximumBrightness), delta))
         {
             const uint32_t current = _brightnessOverride != 0 ? _brightnessOverride : _laneSettings.brightness;
             const int next =
-                delta.relative ? std::clamp(static_cast<int>(current) + delta.value,
-                                            static_cast<int>(kMinimumBrightness), static_cast<int>(kMaximumBrightness))
+                delta.relative ? std::clamp(static_cast<int>(current) + delta.value, static_cast<int>(kMinimumBrightness), static_cast<int>(kMaximumBrightness))
                                : delta.value;
             _brightnessOverride = static_cast<uint32_t>(next);
         }
@@ -619,7 +615,7 @@ void LogiconService::DispatchDialButton(uint32_t button) noexcept
 
 void LogiconService::DispatchBinding(const KeyBinding* binding) noexcept
 {
-    if (!binding || !binding->HasAction() || !binding->valid)
+    if (! binding || ! binding->HasAction() || ! binding->valid)
     {
         return;
     }
@@ -672,8 +668,7 @@ void LogiconService::DispatchWheel(uint8_t control, int32_t& accumulator, int32_
 {
     accumulator += deltaRaw;
     // One step per detent in either direction; the remainder carries over to the next packet.
-    while (accumulator >= static_cast<int32_t>(kWheelDetentUnits) ||
-           accumulator <= -static_cast<int32_t>(kWheelDetentUnits))
+    while (accumulator >= static_cast<int32_t>(kWheelDetentUnits) || accumulator <= -static_cast<int32_t>(kWheelDetentUnits))
     {
         const int direction = accumulator > 0 ? 1 : -1;
         accumulator -= direction * static_cast<int32_t>(kWheelDetentUnits);
@@ -684,12 +679,11 @@ void LogiconService::DispatchWheel(uint8_t control, int32_t& accumulator, int32_
 
 HRESULT LogiconService::Execute(const RedXeActionRequest* request) noexcept
 {
-    if (!request)
+    if (! request)
     {
         return E_POINTER;
     }
-    if (request->sizeBytes != sizeof(RedXeActionRequest) || !request->actionUtf8 ||
-        !RedXeActionInNamespace(request->actionUtf8, kActionNamespace))
+    if (request->sizeBytes != sizeof(RedXeActionRequest) || ! request->actionUtf8 || ! RedXeActionInNamespace(request->actionUtf8, kActionNamespace))
     {
         return E_INVALIDARG;
     }
@@ -700,7 +694,7 @@ HRESULT LogiconService::Execute(const RedXeActionRequest* request) noexcept
             return HRESULT_FROM_WIN32(ERROR_BUSY);
         }
         LocalRequest& pending = _pendingLocal[_pendingLocalCount++];
-        pending = LocalRequest{};
+        pending               = LocalRequest{};
         strncpy_s(pending.action.data(), pending.action.size(), request->actionUtf8, _TRUNCATE);
         if (request->targetUtf8)
         {
@@ -728,21 +722,20 @@ void LogiconService::DetectCompetingWriter() noexcept
 {
     _competingWriter = false;
     wil::unique_handle snapshot{CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)};
-    if (!snapshot || snapshot.get() == INVALID_HANDLE_VALUE)
+    if (! snapshot || snapshot.get() == INVALID_HANDLE_VALUE)
     {
         (void)snapshot.release();
         return;
     }
     PROCESSENTRY32W entry{};
     entry.dwSize = sizeof(entry);
-    if (!Process32FirstW(snapshot.get(), &entry))
+    if (! Process32FirstW(snapshot.get(), &entry))
     {
         return;
     }
     do
     {
-        if (_wcsicmp(entry.szExeFile, L"logioptionsplus_agent.exe") == 0 ||
-            _wcsicmp(entry.szExeFile, L"logioptionsplus.exe") == 0 ||
+        if (_wcsicmp(entry.szExeFile, L"logioptionsplus_agent.exe") == 0 || _wcsicmp(entry.szExeFile, L"logioptionsplus.exe") == 0 ||
             _wcsicmp(entry.szExeFile, L"logipluginservice.exe") == 0)
         {
             _competingWriter = true;
@@ -751,8 +744,7 @@ void LogiconService::DetectCompetingWriter() noexcept
     } while (Process32NextW(snapshot.get(), &entry));
     if (_competingWriter)
     {
-        Log(RedXeLogLevelWarning, "service-degraded",
-            "Logi Options+ is running and may repaint the keypad; quit it or remove the keypad from its profile.");
+        Log(RedXeLogLevelWarning, "service-degraded", "Logi Options+ is running and may repaint the keypad; quit it or remove the keypad from its profile.");
     }
 }
 
@@ -781,11 +773,18 @@ HRESULT LogiconService::TryOpenDevice(HANDLE stopEvent) noexcept
         {
             const HidCollectionInfo& info = collections.items[index];
             std::array<char, 200> line{};
-            (void)sprintf_s(line.data(), line.size(),
+            (void)sprintf_s(line.data(),
+                            line.size(),
                             "collection %u: usage 0x%04X in %u out %u feature %u in-ids 0x%08X out-ids 0x%08X "
                             "feature-ids 0x%08X.",
-                            index, info.usage, info.inputReportBytes, info.outputReportBytes, info.featureReportBytes,
-                            info.inputReportMask, info.outputReportMask, info.featureReportMask);
+                            index,
+                            info.usage,
+                            info.inputReportBytes,
+                            info.outputReportBytes,
+                            info.featureReportBytes,
+                            info.inputReportMask,
+                            info.outputReportMask,
+                            info.featureReportMask);
             Log(RedXeLogLevelDebug, "device-collection", line.data());
             std::unique_ptr<WindowsHidPort> port{new (std::nothrow) WindowsHidPort()};
             result = port ? port->Open(info) : E_OUTOFMEMORY;
@@ -806,34 +805,44 @@ HRESULT LogiconService::TryOpenDevice(HANDLE stopEvent) noexcept
         {
             const LookupRecord& lookup = _session.LastLookup();
             std::array<char, 200> message{};
-            (void)sprintf_s(message.data(), message.size(),
+            (void)sprintf_s(message.data(),
+                            message.size(),
                             "the keypad could not be opened or initialized (last root lookup 0x%04X -> hr 0x%08X, "
                             "%u bytes: %02X %02X %02X %02X).",
-                            lookup.featureId, static_cast<unsigned>(lookup.result), lookup.paramBytes, lookup.params[0],
-                            lookup.params[1], lookup.params[2], lookup.params[3]);
+                            lookup.featureId,
+                            static_cast<unsigned>(lookup.result),
+                            lookup.paramBytes,
+                            lookup.params[0],
+                            lookup.params[1],
+                            lookup.params[2],
+                            lookup.params[3]);
             Log(RedXeLogLevelWarning, "connect-failed", message.data(), result);
             _lastLoggedConnectFailure = result;
         }
         _session.Detach();
         return result;
     }
-    _lastConnectFailure = S_OK;
+    _lastConnectFailure       = S_OK;
     _lastLoggedConnectFailure = S_OK;
-    _appliedBrightness = 0;
+    _appliedBrightness        = 0;
     for (SlotState& slot : _slots)
     {
         slot.composed = false;
     }
-    if (!_syntheticActive)
+    if (! _syntheticActive)
     {
         DetectCompetingWriter();
     }
     std::array<char, 160> message{};
-    (void)sprintf_s(message.data(), message.size(),
+    (void)sprintf_s(message.data(),
+                    message.size(),
                     "keypad connected (%s): display 0x%02X%s, controls 0x%02X, brightness 0x%02X, %u collection(s).",
-                    _syntheticActive ? "synthetic" : "usb", _session.Features().display,
-                    _session.Features().displayAssumed ? " (assumed)" : "", _session.Features().reprogControls,
-                    _session.Features().brightness, _session.PortCount());
+                    _syntheticActive ? "synthetic" : "usb",
+                    _session.Features().display,
+                    _session.Features().displayAssumed ? " (assumed)" : "",
+                    _session.Features().reprogControls,
+                    _session.Features().brightness,
+                    _session.PortCount());
     Log(RedXeLogLevelInfo, "device-connected", message.data());
     return S_OK;
 }
@@ -854,7 +863,7 @@ HRESULT LogiconService::TryOpenDialpad(HANDLE stopEvent) noexcept
     HRESULT result = S_OK;
     if (_syntheticDialpadMode != kSyntheticDialpadNone)
     {
-        result = _syntheticDialpad.Initialize();
+        result          = _syntheticDialpad.Initialize();
         _dialpadPresent = SUCCEEDED(result);
         UpdateWheels();
         if (SUCCEEDED(result))
@@ -881,9 +890,14 @@ HRESULT LogiconService::TryOpenDialpad(HANDLE stopEvent) noexcept
         {
             const HidCollectionInfo& info = collections.items[index];
             std::array<char, 200> line{};
-            (void)sprintf_s(line.data(), line.size(),
-                            "dialpad collection %u: usage 0x%04X in %u out %u in-ids 0x%08X out-ids 0x%08X.", index,
-                            info.usage, info.inputReportBytes, info.outputReportBytes, info.inputReportMask,
+            (void)sprintf_s(line.data(),
+                            line.size(),
+                            "dialpad collection %u: usage 0x%04X in %u out %u in-ids 0x%08X out-ids 0x%08X.",
+                            index,
+                            info.usage,
+                            info.inputReportBytes,
+                            info.outputReportBytes,
+                            info.inputReportMask,
                             info.outputReportMask);
             Log(RedXeLogLevelDebug, "device-collection", line.data());
             std::unique_ptr<WindowsHidPort> port{new (std::nothrow) WindowsHidPort()};
@@ -905,24 +919,28 @@ HRESULT LogiconService::TryOpenDialpad(HANDLE stopEvent) noexcept
         {
             const LookupRecord& lookup = _dialpad.LastLookup();
             std::array<char, 200> message{};
-            (void)sprintf_s(message.data(), message.size(),
+            (void)sprintf_s(message.data(),
+                            message.size(),
                             "the dialpad could not be opened or initialized (last root lookup 0x%04X -> hr 0x%08X).",
-                            lookup.featureId, static_cast<unsigned>(lookup.result));
+                            lookup.featureId,
+                            static_cast<unsigned>(lookup.result));
             Log(RedXeLogLevelWarning, "dialpad-connect-failed", message.data(), result);
             _lastLoggedDialpadFailure = result;
         }
         _dialpad.Detach();
         return result;
     }
-    _lastDialpadFailure = S_OK;
+    _lastDialpadFailure       = S_OK;
     _lastLoggedDialpadFailure = S_OK;
     std::array<char, 160> message{};
-    (void)sprintf_s(message.data(), message.size(),
+    (void)sprintf_s(message.data(),
+                    message.size(),
                     "dialpad connected (%s): controls 0x%02X, %u collection(s), buttons diverted 0x%X; wheels %s.",
                     _syntheticDialpadMode != kSyntheticDialpadNone ? "synthetic" : "bluetooth",
-                    _dialpad.Features().reprogControls, _dialpad.PortCount(), _dialpad.DivertedDialButtons(),
-                    _wheels.Running() ? "through raw input"
-                                      : (_wheelsWanted ? "unavailable" : "not read (no turn bound)"));
+                    _dialpad.Features().reprogControls,
+                    _dialpad.PortCount(),
+                    _dialpad.DivertedDialButtons(),
+                    _wheels.Running() ? "through raw input" : (_wheelsWanted ? "unavailable" : "not read (no turn bound)"));
     Log(RedXeLogLevelInfo, "dialpad-connected", message.data());
     return S_OK;
 }
@@ -946,7 +964,7 @@ void LogiconService::UpdateWheels() noexcept
         return;
     }
     _wheelsWanted = wanted;
-    if (!wanted)
+    if (! wanted)
     {
         _wheels.Stop();
         return;
@@ -954,13 +972,12 @@ void LogiconService::UpdateWheels() noexcept
     const HRESULT listening = _wheels.Start(kVendorId, kDialpadProductId);
     if (FAILED(listening))
     {
-        Log(RedXeLogLevelWarning, "rawinput-unavailable", "the dialpad's wheels cannot be read (raw input).",
-            listening);
+        Log(RedXeLogLevelWarning, "rawinput-unavailable", "the dialpad's wheels cannot be read (raw input).", listening);
     }
 }
 
-uint64_t LogiconService::SlotSignature(uint32_t slot, const KeyBinding* binding, const FaceOverride& override,
-                                       const HostStateCopy& host, uint32_t minuteOfDay) noexcept
+uint64_t LogiconService::SlotSignature(
+    uint32_t slot, const KeyBinding* binding, const FaceOverride& override, const HostStateCopy& host, uint32_t minuteOfDay) noexcept
 {
     uint64_t hash = kFnvOffset;
     HashValue(hash, slot);
@@ -970,7 +987,7 @@ uint64_t LogiconService::SlotSignature(uint32_t slot, const KeyBinding* binding,
     HashValue(hash, override.colorRgb);
     const bool iconFont = _renderer.HasIconFont();
     HashValue(hash, iconFont);
-    if (!binding)
+    if (! binding)
     {
         return hash;
     }
@@ -1014,8 +1031,7 @@ uint64_t LogiconService::SlotSignature(uint32_t slot, const KeyBinding* binding,
     return hash;
 }
 
-HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, const FaceOverride& override,
-                                    const HostStateCopy& host, uint32_t* tile) noexcept
+HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, const FaceOverride& override, const HostStateCopy& host, uint32_t* tile) noexcept
 {
     if (override.kind == OverrideKind::Picture)
     {
@@ -1024,9 +1040,9 @@ HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, co
         {
             for (uint32_t x = 0; x < kFaceSize; ++x)
             {
-                const uint32_t red = x * 255U / (kFaceSize - 1);
-                const uint32_t green = y * 255U / (kFaceSize - 1);
-                const uint32_t blue = (slot * 28U) & 0xFFU;
+                const uint32_t red      = x * 255U / (kFaceSize - 1);
+                const uint32_t green    = y * 255U / (kFaceSize - 1);
+                const uint32_t blue     = (slot * 28U) & 0xFFU;
                 tile[y * kFaceSize + x] = 0xFF000000U | (red << 16U) | (green << 8U) | blue;
             }
         }
@@ -1048,21 +1064,21 @@ HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, co
         {
             spec.backgroundRgb = binding->colorRgb;
         }
-        spec.invalid = binding->HasAction() && !binding->valid;
-        spec.labelLength = Utf8ToWide(binding->Label(), label.data(), static_cast<uint32_t>(label.size()));
-        spec.label = label.data();
+        spec.invalid                = binding->HasAction() && ! binding->valid;
+        spec.labelLength            = Utf8ToWide(binding->Label(), label.data(), static_cast<uint32_t>(label.size()));
+        spec.label                  = label.data();
         const std::string_view icon = binding->Icon();
         if (icon.starts_with("png:"))
         {
             if (Utf8ToWide(icon.substr(4), iconPath.data(), static_cast<uint32_t>(iconPath.size())) != 0)
             {
-                uint32_t width = 0;
+                uint32_t width  = 0;
                 uint32_t height = 0;
-                if (SUCCEEDED(_renderer.DecodeImage(iconPath.data(), kFaceIconPixels, _iconScratch.data(),
-                                                    static_cast<uint32_t>(_iconScratch.size()), width, height)))
+                if (SUCCEEDED(_renderer.DecodeImage(
+                        iconPath.data(), kFaceIconPixels, _iconScratch.data(), static_cast<uint32_t>(_iconScratch.size()), width, height)))
                 {
-                    spec.image = _iconScratch.data();
-                    spec.imageWidth = width;
+                    spec.image       = _iconScratch.data();
+                    spec.imageWidth  = width;
                     spec.imageHeight = height;
                 }
                 else
@@ -1071,7 +1087,7 @@ HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, co
                 }
             }
         }
-        else if (!icon.empty())
+        else if (! icon.empty())
         {
             spec.icon = FluentGlyphFromName(icon.data(), static_cast<uint32_t>(icon.size()));
             if (spec.icon == 0)
@@ -1083,20 +1099,18 @@ HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, co
         {
             SYSTEMTIME local{};
             GetLocalTime(&local);
-            const int written = swprintf_s(big.data(), big.size(), L"%02u:%02u", static_cast<unsigned>(local.wHour),
-                                           static_cast<unsigned>(local.wMinute));
-            spec.big = big.data();
-            spec.bigLength = written > 0 ? static_cast<uint32_t>(written) : 0;
+            const int written = swprintf_s(big.data(), big.size(), L"%02u:%02u", static_cast<unsigned>(local.wHour), static_cast<unsigned>(local.wMinute));
+            spec.big          = big.data();
+            spec.bigLength    = written > 0 ? static_cast<uint32_t>(written) : 0;
         }
         else if (binding->face == KeyFace::PageIndicator)
         {
-            const int written =
-                swprintf_s(big.data(), big.size(), L"%u/%u", host.pageIndex + 1U, std::max(host.pageCount, 1U));
-            spec.big = big.data();
-            spec.bigLength = written > 0 ? static_cast<uint32_t>(written) : 0;
+            const int written = swprintf_s(big.data(), big.size(), L"%u/%u", host.pageIndex + 1U, std::max(host.pageCount, 1U));
+            spec.big          = big.data();
+            spec.bigLength    = written > 0 ? static_cast<uint32_t>(written) : 0;
             if (spec.labelLength == 0 && host.pageNameLength != 0)
             {
-                spec.label = host.pageName.data();
+                spec.label       = host.pageName.data();
                 spec.labelLength = std::min(host.pageNameLength, kMaximumLabelCodePoints);
             }
         }
@@ -1106,28 +1120,24 @@ HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, co
             const int32_t percent = binding->face == KeyFace::Cpu      ? _laneSystem.cpuPercent
                                     : binding->face == KeyFace::Memory ? _laneSystem.memoryPercent
                                                                        : _laneSystem.gpuPercent;
-            const int written = percent >= 0 ? swprintf_s(big.data(), big.size(), L"%d%%", percent)
-                                             : swprintf_s(big.data(), big.size(), L"--");
-            spec.big = big.data();
-            spec.bigLength = written > 0 ? static_cast<uint32_t>(written) : 0;
+            const int written     = percent >= 0 ? swprintf_s(big.data(), big.size(), L"%d%%", percent) : swprintf_s(big.data(), big.size(), L"--");
+            spec.big              = big.data();
+            spec.bigLength        = written > 0 ? static_cast<uint32_t>(written) : 0;
             if (spec.labelLength == 0)
             {
-                const wchar_t* name = binding->face == KeyFace::Cpu      ? L"CPU"
-                                      : binding->face == KeyFace::Memory ? L"MEM"
-                                                                         : L"GPU";
-                spec.label = name;
-                spec.labelLength = 3;
+                const wchar_t* name = binding->face == KeyFace::Cpu ? L"CPU" : binding->face == KeyFace::Memory ? L"MEM" : L"GPU";
+                spec.label          = name;
+                spec.labelLength    = 3;
             }
         }
-        if (!spec.invalid)
+        if (! spec.invalid)
         {
             const std::string_view actionName = binding->Action();
             if (actionName == "widget.raise" || actionName == "widget.toggle")
             {
                 std::string_view pageId;
                 uint32_t ordinal = 0;
-                if (ParseWidgetTarget(binding->Target(), pageId, ordinal) && (host.flags & RedXeHostStateRaised) != 0 &&
-                    host.raisedWidgetOrdinal == ordinal &&
+                if (ParseWidgetTarget(binding->Target(), pageId, ordinal) && (host.flags & RedXeHostStateRaised) != 0 && host.raisedWidgetOrdinal == ordinal &&
                     (pageId.empty() || pageId == std::string_view(host.pageId.data())))
                 {
                     spec.accentRing = true;
@@ -1139,7 +1149,7 @@ HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, co
             }
         }
     }
-    if (!_renderer.Ready())
+    if (! _renderer.Ready())
     {
         const uint32_t packed = 0xFF000000U | (spec.backgroundRgb & 0x00FFFFFFU);
         std::fill_n(tile, kFacePixels, packed);
@@ -1150,10 +1160,10 @@ HRESULT LogiconService::ComposeSlot(uint32_t slot, const KeyBinding* binding, co
 
 HRESULT LogiconService::ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcept
 {
-    if (!_grid)
+    if (! _grid)
     {
         _grid.reset(new (std::nothrow) uint32_t[kGridPixels]);
-        if (!_grid)
+        if (! _grid)
         {
             return E_OUTOFMEMORY;
         }
@@ -1161,10 +1171,10 @@ HRESULT LogiconService::ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcep
         std::fill_n(_grid.get(), kGridPixels, packed);
         forceAll = true;
     }
-    if (!_jpeg)
+    if (! _jpeg)
     {
         _jpeg.reset(new (std::nothrow) uint8_t[kMaximumJpegBytes]);
-        if (!_jpeg)
+        if (! _jpeg)
         {
             return E_OUTOFMEMORY;
         }
@@ -1172,7 +1182,7 @@ HRESULT LogiconService::ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcep
     std::array<FaceOverride, kKeyCount> overrides{};
     {
         const auto guard = wil::AcquireSRWLockShared(&_lock);
-        overrides = _overrides;
+        overrides        = _overrides;
     }
     const uint32_t minute = MinuteOfDay();
     std::array<bool, kKeyCount> dirty{};
@@ -1180,8 +1190,8 @@ HRESULT LogiconService::ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcep
     for (uint32_t slot = 0; slot < kKeyCount; ++slot)
     {
         const KeyBinding* binding = _laneSettings.Find(_laneKeyPage, slot);
-        const uint64_t signature = SlotSignature(slot, binding, overrides[slot], _laneHost, minute);
-        if (forceAll || !_slots[slot].composed || _slots[slot].signature != signature)
+        const uint64_t signature  = SlotSignature(slot, binding, overrides[slot], _laneHost, minute);
+        if (forceAll || ! _slots[slot].composed || _slots[slot].signature != signature)
         {
             dirty[slot] = true;
             ++dirtyCount;
@@ -1194,7 +1204,7 @@ HRESULT LogiconService::ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcep
     }
     for (uint32_t slot = 0; slot < kKeyCount; ++slot)
     {
-        if (!dirty[slot])
+        if (! dirty[slot])
         {
             continue;
         }
@@ -1202,11 +1212,12 @@ HRESULT LogiconService::ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcep
         (void)ComposeSlot(slot, binding, overrides[slot], _laneHost, _tile.data());
         const uint32_t originX = KeyColumn(slot) * (kKeySize + kKeyGap);
         const uint32_t originY = KeyRow(slot) * (kKeySize + kKeyGap);
-        const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+        const auto guard       = wil::AcquireSRWLockExclusive(&_lock);
         for (uint32_t y = 0; y < kKeySize; ++y)
         {
             std::memcpy(_grid.get() + static_cast<size_t>(originY + y) * kGridSize + originX,
-                        _tile.data() + static_cast<size_t>(y) * kKeySize, kKeySize * sizeof(uint32_t));
+                        _tile.data() + static_cast<size_t>(y) * kKeySize,
+                        kKeySize * sizeof(uint32_t));
         }
         _slots[slot].composed = true;
     }
@@ -1214,7 +1225,7 @@ HRESULT LogiconService::ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcep
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
         ++_faceGeneration;
     }
-    if (!_session.Connected() || !_renderer.Ready())
+    if (! _session.Connected() || ! _renderer.Ready())
     {
         return S_OK;
     }
@@ -1223,8 +1234,7 @@ HRESULT LogiconService::ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcep
     if (forceAll || dirtyCount >= 3)
     {
         uint32_t bytes = 0;
-        result =
-            _renderer.EncodeJpeg(_grid.get(), kGridSize, kGridSize, kGridSize, _jpeg.get(), kMaximumJpegBytes, bytes);
+        result         = _renderer.EncodeJpeg(_grid.get(), kGridSize, kGridSize, kGridSize, _jpeg.get(), kMaximumJpegBytes, bytes);
         if (SUCCEEDED(result))
         {
             result = _session.WriteImage(GridRegion(), _jpeg.get(), bytes, false, stopEvent);
@@ -1235,16 +1245,16 @@ HRESULT LogiconService::ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcep
         uint32_t remaining = dirtyCount;
         for (uint32_t slot = 0; SUCCEEDED(result) && slot < kKeyCount; ++slot)
         {
-            if (!dirty[slot])
+            if (! dirty[slot])
             {
                 continue;
             }
             --remaining;
             const uint32_t originX = KeyColumn(slot) * (kKeySize + kKeyGap);
             const uint32_t originY = KeyRow(slot) * (kKeySize + kKeyGap);
-            uint32_t bytes = 0;
-            result = _renderer.EncodeJpeg(_grid.get() + static_cast<size_t>(originY) * kGridSize + originX, kKeySize,
-                                          kKeySize, kGridSize, _jpeg.get(), kMaximumJpegBytes, bytes);
+            uint32_t bytes         = 0;
+            result                 = _renderer.EncodeJpeg(
+                _grid.get() + static_cast<size_t>(originY) * kGridSize + originX, kKeySize, kKeySize, kGridSize, _jpeg.get(), kMaximumJpegBytes, bytes);
             if (SUCCEEDED(result))
             {
                 result = _session.WriteImage(KeyRegion(slot), _jpeg.get(), bytes, remaining != 0, stopEvent);
@@ -1276,7 +1286,7 @@ HRESULT LogiconService::ComposeAndWrite(HANDLE stopEvent, bool forceAll) noexcep
 void LogiconService::PublishSnapshot() noexcept
 {
     uint64_t visibleHash = kFnvOffset;
-    bool changed = false;
+    bool changed         = false;
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
         FillSnapshot();
@@ -1344,7 +1354,7 @@ void LogiconService::PublishSnapshot() noexcept
         HashValue(visibleHash, snapshot.dialpad.wheelSteps);
         HashValue(visibleHash, snapshot.systemFeed);
         HashValue(visibleHash, snapshot.system);
-        changed = visibleHash != _publishedHash;
+        changed        = visibleHash != _publishedHash;
         _publishedHash = visibleHash;
     }
     // A monitor tile redraws only when something it shows changed; RequestFrame is any-thread and coalescing.
@@ -1360,85 +1370,83 @@ void LogiconService::PublishSnapshot() noexcept
 void LogiconService::FillSnapshot() noexcept
 {
     MonitorSnapshot& snapshot = _snapshot;
-    snapshot.laneRunning = _laneRunning.load(std::memory_order_acquire);
-    snapshot.deviceAccess = _deviceAccess.load(std::memory_order_acquire);
-    snapshot.connected = _session.Connected();
-    snapshot.synthetic = _syntheticActive;
-    snapshot.rendererReady = _renderer.Ready();
-    snapshot.iconFont = _renderer.HasIconFont();
-    snapshot.competingWriter = _competingWriter;
-    snapshot.keys = _session.Controls().keys;
-    snapshot.pageButtons = _session.Controls().pageButtons;
-    snapshot.keyPage = _laneKeyPage;
-    snapshot.keyPageCount = _laneSettings.KeyPageCount();
-    snapshot.brightness = _appliedBrightness != 0 ? _appliedBrightness : _laneSettings.brightness;
-    snapshot.portCount = _session.PortCount();
-    snapshot.faceGeneration = _faceGeneration;
-    snapshot.facesWritten = _facesWritten;
+    snapshot.laneRunning      = _laneRunning.load(std::memory_order_acquire);
+    snapshot.deviceAccess     = _deviceAccess.load(std::memory_order_acquire);
+    snapshot.connected        = _session.Connected();
+    snapshot.synthetic        = _syntheticActive;
+    snapshot.rendererReady    = _renderer.Ready();
+    snapshot.iconFont         = _renderer.HasIconFont();
+    snapshot.competingWriter  = _competingWriter;
+    snapshot.keys             = _session.Controls().keys;
+    snapshot.pageButtons      = _session.Controls().pageButtons;
+    snapshot.keyPage          = _laneKeyPage;
+    snapshot.keyPageCount     = _laneSettings.KeyPageCount();
+    snapshot.brightness       = _appliedBrightness != 0 ? _appliedBrightness : _laneSettings.brightness;
+    snapshot.portCount        = _session.PortCount();
+    snapshot.faceGeneration   = _faceGeneration;
+    snapshot.facesWritten     = _facesWritten;
     snapshot.actionsRequested = _actionsRequested;
-    snapshot.localExecuted = _localExecuted;
-    snapshot.lastAction = _lastAction;
-    snapshot.connectAttempts = _connectAttempts;
-    snapshot.lastFailure = _lastConnectFailure;
-    snapshot.features = _session.Features();
-    snapshot.counters = _session.Counters();
-    snapshot.host = _laneHost;
-    snapshot.overrides = _overrides;
+    snapshot.localExecuted    = _localExecuted;
+    snapshot.lastAction       = _lastAction;
+    snapshot.connectAttempts  = _connectAttempts;
+    snapshot.lastFailure      = _lastConnectFailure;
+    snapshot.features         = _session.Features();
+    snapshot.counters         = _session.Counters();
+    snapshot.host             = _laneHost;
+    snapshot.overrides        = _overrides;
     for (uint32_t slot = 0; slot < kKeyCount; ++slot)
     {
         const KeyBinding* binding = _laneSettings.Find(_laneKeyPage, slot);
-        snapshot.bound[slot] = binding != nullptr;
-        snapshot.actions[slot] = binding ? binding->action : ActionName{};
-        snapshot.faces[slot] = binding ? binding->face : KeyFace::None;
-        snapshot.invalid[slot] = binding && binding->HasAction() && !binding->valid;
+        snapshot.bound[slot]      = binding != nullptr;
+        snapshot.actions[slot]    = binding ? binding->action : ActionName{};
+        snapshot.faces[slot]      = binding ? binding->face : KeyFace::None;
+        snapshot.invalid[slot]    = binding && binding->HasAction() && ! binding->valid;
     }
-    snapshot.traceCount = _session.CopyTrace(snapshot.trace.data(), static_cast<uint32_t>(snapshot.trace.size()));
+    snapshot.traceCount      = _session.CopyTrace(snapshot.trace.data(), static_cast<uint32_t>(snapshot.trace.size()));
     DialpadSnapshot& dialpad = snapshot.dialpad;
-    dialpad.connected = _dialpad.Connected();
-    dialpad.wheelsWanted = _wheelsWanted;
-    dialpad.wheelsListening = _wheels.Running();
-    dialpad.buttons = _dialpad.Controls().dialButtons;
-    dialpad.divertedButtons = _dialpad.DivertedDialButtons();
-    dialpad.portCount = _dialpad.PortCount();
-    dialpad.connectAttempts = _dialpadAttempts;
-    dialpad.buttonPresses = _dialButtonPresses;
-    dialpad.wheelSteps = _wheelSteps;
-    dialpad.lastFailure = _lastDialpadFailure;
-    dialpad.features = _dialpad.Features();
-    dialpad.counters = _dialpad.Counters();
-    dialpad.wheels = _wheels.State();
+    dialpad.connected        = _dialpad.Connected();
+    dialpad.wheelsWanted     = _wheelsWanted;
+    dialpad.wheelsListening  = _wheels.Running();
+    dialpad.buttons          = _dialpad.Controls().dialButtons;
+    dialpad.divertedButtons  = _dialpad.DivertedDialButtons();
+    dialpad.portCount        = _dialpad.PortCount();
+    dialpad.connectAttempts  = _dialpadAttempts;
+    dialpad.buttonPresses    = _dialButtonPresses;
+    dialpad.wheelSteps       = _wheelSteps;
+    dialpad.lastFailure      = _lastDialpadFailure;
+    dialpad.features         = _dialpad.Features();
+    dialpad.counters         = _dialpad.Counters();
+    dialpad.wheels           = _wheels.State();
     for (uint8_t control = 0; control < 2; ++control)
     {
         for (uint8_t direction = 0; direction < 2; ++direction)
         {
-            const KeyBinding* turn = _laneSettings.dialpad.Turn(control, direction);
+            const KeyBinding* turn                  = _laneSettings.dialpad.Turn(control, direction);
             dialpad.turns[control * 2U + direction] = turn ? turn->action : ActionName{};
         }
     }
-    dialpad.traceCount = _dialpad.CopyTrace(dialpad.trace.data(), static_cast<uint32_t>(dialpad.trace.size()));
+    dialpad.traceCount  = _dialpad.CopyTrace(dialpad.trace.data(), static_cast<uint32_t>(dialpad.trace.size()));
     snapshot.systemFeed = _systemFeedActive;
-    snapshot.system = _systemValues;
+    snapshot.system     = _systemValues;
 }
 
 HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexcept
 {
-    if (!stopEvent || !wakeEvent)
+    if (! stopEvent || ! wakeEvent)
     {
         return E_POINTER;
     }
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _wakeEvent = wakeEvent;
+        _wakeEvent       = wakeEvent;
     }
     _laneRunning.store(true, std::memory_order_release);
     const bool deviceAccess = _deviceAccess.load(std::memory_order_acquire);
-    Log(RedXeLogLevelInfo, "lane-started",
-        deviceAccess ? "device lane running." : "device lane running (no device access).");
+    Log(RedXeLogLevelInfo, "lane-started", deviceAccess ? "device lane running." : "device lane running (no device access).");
     const HRESULT rendererResult = _renderer.Initialize();
     if (FAILED(rendererResult))
     {
-        Log(RedXeLogLevelWarning, "faces-unavailable", "DirectWrite or WIC is unavailable; key faces are disabled.",
-            rendererResult);
+        Log(RedXeLogLevelWarning, "faces-unavailable", "DirectWrite or WIC is unavailable; key faces are disabled.", rendererResult);
     }
     HotplugWatcher hotplug;
     if (deviceAccess)
@@ -1453,15 +1461,15 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
     // Discovery state per device: pending until the device is found or absent, then again on every hotplug change.
     struct Link final
     {
-        bool discoverPending = false;
-        uint64_t retryDue = 0;
+        bool discoverPending   = false;
+        uint64_t retryDue      = 0;
         uint32_t reconnectStep = 0;
 
         void Rediscover() noexcept
         {
             discoverPending = true;
-            retryDue = 0;
-            reconnectStep = 0;
+            retryDue        = 0;
+            reconnectStep   = 0;
         }
 
         // Applies an open attempt's outcome: found, absent (wait for arrival), or failed (bounded backoff).
@@ -1470,11 +1478,10 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
             if (SUCCEEDED(opened))
             {
                 discoverPending = false;
-                reconnectStep = 0;
-                retryDue = 0;
+                reconnectStep   = 0;
+                retryDue        = 0;
             }
-            else if (opened == HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED) ||
-                     opened == HRESULT_FROM_WIN32(ERROR_CANCELLED))
+            else if (opened == HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED) || opened == HRESULT_FROM_WIN32(ERROR_CANCELLED))
             {
                 // Not present: wait for a hotplug notification rather than polling.
                 discoverPending = false;
@@ -1492,19 +1499,19 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
     };
     Link keypadLink{};
     Link dialpadLink{};
-    keypadLink.discoverPending = deviceAccess;
+    keypadLink.discoverPending  = deviceAccess;
     dialpadLink.discoverPending = deviceAccess;
-    bool forceAll = false;
-    bool laneFacesDirty = true;
+    bool forceAll               = false;
+    bool laneFacesDirty         = true;
     ControlState virtualControls{};
     std::array<HANDLE, 2 + 2 * kMaximumHidCollections> handles{};
     for (;;)
     {
-        bool syntheticWanted = false;
+        bool syntheticWanted            = false;
         uint32_t syntheticDialpadWanted = kSyntheticDialpadNone;
         {
-            const auto guard = wil::AcquireSRWLockShared(&_lock);
-            syntheticWanted = _syntheticRequested;
+            const auto guard       = wil::AcquireSRWLockShared(&_lock);
+            syntheticWanted        = _syntheticRequested;
             syntheticDialpadWanted = _syntheticDialpadRequested;
         }
         if (syntheticWanted != _syntheticActive)
@@ -1527,7 +1534,7 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
 
         // Adopt new settings and requests first so discovery below connects with the current bindings.
         std::array<InjectedControl, kMaximumInjectedControls> injected{};
-        uint32_t injectedCount = 0;
+        uint32_t injectedCount     = 0;
         uint32_t brightnessRequest = 0;
         std::array<LocalRequest, kMaximumLocalRequests> pendingLocal{};
         uint32_t pendingLocalCount = 0;
@@ -1535,56 +1542,56 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
             const auto guard = wil::AcquireSRWLockExclusive(&_lock);
             if (_laneSettingsGeneration != _settingsGeneration)
             {
-                _laneSettings = _settings;
+                _laneSettings           = _settings;
                 _laneSettingsGeneration = _settingsGeneration;
-                _laneKeyPage = std::min(_laneKeyPage, _laneSettings.KeyPageCount() - 1U);
+                _laneKeyPage            = std::min(_laneKeyPage, _laneSettings.KeyPageCount() - 1U);
                 // A new document wins over a monitor/test brightness override, and restarts detent folding.
                 _brightnessOverride = 0;
-                _dialAccumulator = 0;
-                _rollerAccumulator = 0;
-                laneFacesDirty = true;
+                _dialAccumulator    = 0;
+                _rollerAccumulator  = 0;
+                laneFacesDirty      = true;
             }
             if (_laneHostGeneration != _hostGeneration)
             {
-                _laneHost = _hostState;
+                _laneHost           = _hostState;
                 _laneHostGeneration = _hostGeneration;
-                laneFacesDirty = true;
+                laneFacesDirty      = true;
             }
             if (_laneOverrideGeneration != _overrideGeneration)
             {
                 _laneOverrideGeneration = _overrideGeneration;
-                laneFacesDirty = true;
+                laneFacesDirty          = true;
             }
             if (_laneSystemGeneration != _systemGeneration)
             {
-                _laneSystem = _systemValues;
+                _laneSystem           = _systemValues;
                 _laneSystemGeneration = _systemGeneration;
-                laneFacesDirty = true;
+                laneFacesDirty        = true;
             }
             if (_laneKeyPage != _keyPage)
             {
-                _laneKeyPage = std::min(_keyPage, _laneSettings.KeyPageCount() - 1U);
-                _keyPage = _laneKeyPage;
+                _laneKeyPage   = std::min(_keyPage, _laneSettings.KeyPageCount() - 1U);
+                _keyPage       = _laneKeyPage;
                 laneFacesDirty = true;
             }
-            injected = _injected;
-            injectedCount = _injectedCount;
-            _injectedCount = 0;
-            brightnessRequest = _brightnessRequest;
+            injected           = _injected;
+            injectedCount      = _injectedCount;
+            _injectedCount     = 0;
+            brightnessRequest  = _brightnessRequest;
             _brightnessRequest = 0;
-            pendingLocal = _pendingLocal;
-            pendingLocalCount = _pendingLocalCount;
+            pendingLocal       = _pendingLocal;
+            pendingLocalCount  = _pendingLocalCount;
             _pendingLocalCount = 0;
         }
 
         if (hotplug.TakeChange())
         {
             // An interface came or went: look again for whatever is not open, and re-resolve raw-input handles.
-            if (!_session.HasPorts())
+            if (! _session.HasPorts())
             {
                 keypadLink.Rediscover();
             }
-            if (!_dialpad.HasPorts())
+            if (! _dialpad.HasPorts())
             {
                 dialpadLink.Rediscover();
             }
@@ -1605,15 +1612,14 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
         // A backoff counts from the end of the failed attempt, which can spend a whole 1 s command timeout; the
         // clock is read after the attempt returns.
         uint64_t now = GetTickCount64();
-        if (!_session.HasPorts() && keypadLink.discoverPending && now >= keypadLink.retryDue &&
-            (deviceAccess || _syntheticActive))
+        if (! _session.HasPorts() && keypadLink.discoverPending && now >= keypadLink.retryDue && (deviceAccess || _syntheticActive))
         {
             const HRESULT opened = TryOpenDevice(stopEvent);
-            forceAll = forceAll || SUCCEEDED(opened);
+            forceAll             = forceAll || SUCCEEDED(opened);
             keypadLink.Note(opened, GetTickCount64());
         }
         const bool dialpadAccess = deviceAccess || _syntheticDialpadMode != kSyntheticDialpadNone;
-        if (!_dialpad.HasPorts() && dialpadLink.discoverPending && now >= dialpadLink.retryDue && dialpadAccess)
+        if (! _dialpad.HasPorts() && dialpadLink.discoverPending && now >= dialpadLink.retryDue && dialpadAccess)
         {
             const HRESULT opened = TryOpenDialpad(stopEvent);
             dialpadLink.Note(opened, GetTickCount64());
@@ -1657,26 +1663,24 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
         for (uint32_t index = 0; index < injectedCount; ++index)
         {
             const InjectedControl& control = injected[index];
-            ControlState next = virtualControls;
-            const uint32_t bit = 1U << control.index;
-            uint32_t& mask = control.kind == kInjectKindKey          ? next.keys
-                             : control.kind == kInjectKindPageButton ? next.pageButtons
-                                                                     : next.dialButtons;
-            mask = control.down ? (mask | bit) : (mask & ~bit);
+            ControlState next              = virtualControls;
+            const uint32_t bit             = 1U << control.index;
+            uint32_t& mask = control.kind == kInjectKindKey ? next.keys : control.kind == kInjectKindPageButton ? next.pageButtons : next.dialButtons;
+            mask           = control.down ? (mask | bit) : (mask & ~bit);
             ControlEdges edges{};
-            edges.keysDown = next.keys & ~virtualControls.keys;
-            edges.pageButtonsDown = next.pageButtons & ~virtualControls.pageButtons;
-            edges.dialButtonsDown = next.dialButtons & ~virtualControls.dialButtons;
+            edges.keysDown              = next.keys & ~virtualControls.keys;
+            edges.pageButtonsDown       = next.pageButtons & ~virtualControls.pageButtons;
+            edges.dialButtonsDown       = next.dialButtons & ~virtualControls.dialButtons;
             const uint32_t previousPage = _laneKeyPage;
             DispatchEdges(edges);
             virtualControls = next;
-            laneFacesDirty = laneFacesDirty || previousPage != _laneKeyPage;
+            laneFacesDirty  = laneFacesDirty || previousPage != _laneKeyPage;
         }
 
         const uint32_t minute = MinuteOfDay();
         if (minute != _laneMinute)
         {
-            _laneMinute = minute;
+            _laneMinute    = minute;
             laneFacesDirty = laneFacesDirty || ClockFaceVisible();
         }
 
@@ -1684,12 +1688,12 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
         if (wantFaces && (laneFacesDirty || forceAll))
         {
             (void)ComposeAndWrite(stopEvent, forceAll);
-            forceAll = false;
+            forceAll       = false;
             laneFacesDirty = false;
         }
         PublishSnapshot();
 
-        now = GetTickCount64();
+        now           = GetTickCount64();
         DWORD timeout = INFINITE;
         for (const Link* link : {&keypadLink, &dialpadLink})
         {
@@ -1698,7 +1702,7 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
             if (link->discoverPending && link->retryDue != 0)
             {
                 const uint64_t remaining = link->retryDue > now ? link->retryDue - now : 0;
-                timeout = std::min(timeout, static_cast<DWORD>(std::min<uint64_t>(remaining, 60'000ULL)));
+                timeout                  = std::min(timeout, static_cast<DWORD>(std::min<uint64_t>(remaining, 60'000ULL)));
             }
         }
         if (wantFaces && ClockFaceVisible())
@@ -1706,15 +1710,13 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
             SYSTEMTIME local{};
             GetLocalTime(&local);
             const DWORD untilMinute = (60U - local.wSecond) * 1000U - local.wMilliseconds + 50U;
-            timeout = std::min(timeout, untilMinute);
+            timeout                 = std::min(timeout, untilMinute);
         }
-        uint32_t handleCount = 0;
+        uint32_t handleCount   = 0;
         handles[handleCount++] = stopEvent;
         handles[handleCount++] = wakeEvent;
-        handleCount +=
-            _session.ReadEvents(handles.data() + handleCount, static_cast<uint32_t>(handles.size()) - handleCount);
-        handleCount +=
-            _dialpad.ReadEvents(handles.data() + handleCount, static_cast<uint32_t>(handles.size()) - handleCount);
+        handleCount += _session.ReadEvents(handles.data() + handleCount, static_cast<uint32_t>(handles.size()) - handleCount);
+        handleCount += _dialpad.ReadEvents(handles.data() + handleCount, static_cast<uint32_t>(handles.size()) - handleCount);
         // Message-aware only while the wheel sink runs; packets from other mice are drained inside the wait and
         // never cost a lane turn.
         const DWORD waited = _wheels.Wait(handleCount, handles.data(), timeout);
@@ -1724,15 +1726,14 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
         }
         if (waited == WAIT_FAILED)
         {
-            Log(RedXeLogLevelError, "lane-wait-failed", "the device lane wait failed.",
-                HRESULT_FROM_WIN32(GetLastError()));
+            Log(RedXeLogLevelError, "lane-wait-failed", "the device lane wait failed.", HRESULT_FROM_WIN32(GetLastError()));
             break;
         }
         if (waited == WAIT_OBJECT_0 + handleCount)
         {
             // Dialpad packets folded into the wheel state: run the dial and roller actions per detent; the snapshot
             // publishes on the next turn.
-            const WheelDeltas deltas = _wheels.TakeDeltas();
+            const WheelDeltas deltas    = _wheels.TakeDeltas();
             const uint32_t previousPage = _laneKeyPage;
             DispatchWheel(kControlDial, _dialAccumulator, deltas.dial);
             DispatchWheel(kControlRoller, _rollerAccumulator, deltas.roller);
@@ -1743,7 +1744,7 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
             bool changed = false;
             ControlEdges edges{};
             HRESULT pumped = _session.Pump(changed, edges);
-            if (FAILED(pumped) && !IsDeviceGone(pumped))
+            if (FAILED(pumped) && ! IsDeviceGone(pumped))
             {
                 Log(RedXeLogLevelWarning, "input-read-failed", "reading the keypad failed.", pumped);
             }
@@ -1752,7 +1753,7 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
                 bool dialChanged = false;
                 ControlEdges dialEdges{};
                 pumped = _dialpad.Pump(dialChanged, dialEdges);
-                if (FAILED(pumped) && !IsDeviceGone(pumped))
+                if (FAILED(pumped) && ! IsDeviceGone(pumped))
                 {
                     Log(RedXeLogLevelWarning, "input-read-failed", "reading the dialpad failed.", pumped);
                 }
@@ -1771,13 +1772,13 @@ HRESULT LogiconService::RunDeviceWork(HANDLE stopEvent, HANDLE wakeEvent) noexce
     CloseDevice(nullptr, true);
     CloseDialpad(nullptr, true);
     _dialpadPresent = false;
-    _wheelsWanted = false;
+    _wheelsWanted   = false;
     _wheels.Stop();
     hotplug.Stop();
     _renderer.Reset();
     {
         const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-        _wakeEvent = nullptr;
+        _wakeEvent       = nullptr;
         _grid.reset();
         _jpeg.reset();
     }

@@ -22,26 +22,19 @@ constexpr RedXePluginMetadata Metadata{sizeof(RedXePluginMetadata),
                                        L"RedSalamanders",
                                        L"0.1.0",
                                        RedXePluginCapabilityWidgetProvider};
-constexpr RedXeWidgetTypeDescriptor WidgetType{sizeof(RedXeWidgetTypeDescriptor),
-                                               TypeId,
-                                               L"AV Control",
-                                               L"Live output, microphone and camera controls",
-                                               640,
-                                               360,
-                                               160,
-                                               180,
-                                               RedXeWidgetFlagNone};
+constexpr RedXeWidgetTypeDescriptor WidgetType{
+    sizeof(RedXeWidgetTypeDescriptor), TypeId, L"AV Control", L"Live output, microphone and camera controls", 640, 360, 160, 180, RedXeWidgetFlagNone};
 wil::com_ptr_nothrow<Coordinator> coordinator;
 std::weak_ptr<DxUi::GraphicsDevice> graphics;
-bool syntheticBackend = false;
+bool syntheticBackend           = false;
 bool failNextProviderAllocation = false;
-uint32_t providerCount = 0;
+uint32_t providerCount          = 0;
 class Widget;
 Widget* probeWidgets = nullptr;
 
 void ReleaseUnusedCoordinator() noexcept
 {
-    if (!providerCount)
+    if (! providerCount)
     {
         // Widgets retain their provider. Host-owned control work may retain the retiring coordinator until its
         // synchronized completion drains; a revisit must not reuse that coordinator or its borrowed host.
@@ -58,16 +51,15 @@ HRESULT KeepAccessibilityCodeMapped() noexcept
     if (pinned)
         return S_OK;
     HMODULE image = nullptr;
-    RETURN_IF_WIN32_BOOL_FALSE(
-        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-                           reinterpret_cast<LPCWSTR>(&KeepAccessibilityCodeMapped), &image));
+    RETURN_IF_WIN32_BOOL_FALSE(GetModuleHandleExW(
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN, reinterpret_cast<LPCWSTR>(&KeepAccessibilityCodeMapped), &image));
     pinned = true;
     return S_OK;
 }
 
 HRESULT GetCoordinator(IRedXeHost* host, wil::com_ptr_nothrow<Coordinator>& result) noexcept
 {
-    if (!host)
+    if (! host)
         return E_POINTER;
     if (coordinator)
     {
@@ -79,12 +71,11 @@ HRESULT GetCoordinator(IRedXeHost* host, wil::com_ptr_nothrow<Coordinator>& resu
     try
     {
         HMODULE module = nullptr;
-        RETURN_IF_WIN32_BOOL_FALSE(
-            GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                               reinterpret_cast<LPCWSTR>(&GetCoordinator), &module));
+        RETURN_IF_WIN32_BOOL_FALSE(GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCWSTR>(&GetCoordinator), &module));
         std::wstring path(32768, L'\0');
         const DWORD count = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
-        if (!count || count == path.size())
+        if (! count || count == path.size())
             return HRESULT_FROM_WIN32(ERROR_BAD_PATHNAME);
         path.resize(count);
         auto helper = std::filesystem::path(path).parent_path() / L"AVControlBroker.exe";
@@ -92,7 +83,7 @@ HRESULT GetCoordinator(IRedXeHost* host, wil::com_ptr_nothrow<Coordinator>& resu
         created.attach(new Coordinator(host, helper.native(), syntheticBackend));
         RETURN_IF_FAILED(created->Initialize());
         coordinator = created;
-        result = created;
+        result      = created;
         return S_OK;
     }
     catch (const std::bad_alloc&)
@@ -106,24 +97,23 @@ HRESULT GetCoordinator(IRedXeHost* host, wil::com_ptr_nothrow<Coordinator>& resu
 }
 HRESULT ReadConfiguration(const RedXeFactoryOptions* options, Configuration& configuration) noexcept
 {
-    if (!options || (!options->configurationJsonUtf8 && !options->configurationBytes))
+    if (! options || (! options->configurationJsonUtf8 && ! options->configurationBytes))
         return S_OK;
-    if (options->sizeBytes != sizeof(RedXeFactoryOptions) || !options->configurationJsonUtf8 ||
-        !options->configurationBytes || options->configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
+    if (options->sizeBytes != sizeof(RedXeFactoryOptions) || ! options->configurationJsonUtf8 || ! options->configurationBytes ||
+        options->configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
         return E_INVALIDARG;
     using Document = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
     Document document(yyjson_read(options->configurationJsonUtf8, options->configurationBytes, 0));
-    auto* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
-    auto* plugin = yyjson_obj_get(root, "plugin");
+    auto* root     = document ? yyjson_doc_get_root(document.get()) : nullptr;
+    auto* plugin   = yyjson_obj_get(root, "plugin");
     auto* instance = yyjson_obj_get(root, "instance");
-    if (!yyjson_is_obj(root) || yyjson_obj_size(root) != 2 || !yyjson_is_obj(plugin) || yyjson_obj_size(plugin) != 0 ||
-        !yyjson_is_obj(instance))
+    if (! yyjson_is_obj(root) || yyjson_obj_size(root) != 2 || ! yyjson_is_obj(plugin) || yyjson_obj_size(plugin) != 0 || ! yyjson_is_obj(instance))
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     if (yyjson_obj_size(instance) == 0)
         return S_OK;
     size_t length = 0;
     wil::unique_any<char*, decltype(&free), free> serialized(yyjson_val_write(instance, 0, &length));
-    if (!serialized)
+    if (! serialized)
         return E_OUTOFMEMORY;
     return ParseConfiguration({serialized.get(), length}, configuration);
 }
@@ -132,18 +122,30 @@ HRESULT ReadConfiguration(const RedXeFactoryOptions* options, Configuration& con
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
 #pragma warning(disable : 4625 4626)
-class Widget final
-    : public RedXeComObject<Widget, IRedXeWidget, IRedXeGpuWidget, IRedXePreparedGpuWidget, IRedXeInteractiveWidget,
-                            IRedXeRaisedWidget, IRedXeKeyboardWidget, IRedXeTextInputWidget, IRedXeAccessibilityWidget>
+class Widget final : public RedXeComObject<Widget,
+                                           IRedXeWidget,
+                                           IRedXeGpuWidget,
+                                           IRedXePreparedGpuWidget,
+                                           IRedXeInteractiveWidget,
+                                           IRedXeRaisedWidget,
+                                           IRedXeKeyboardWidget,
+                                           IRedXeTextInputWidget,
+                                           IRedXeAccessibilityWidget>
 {
-  public:
-    Widget(wil::com_ptr_nothrow<IRedXeWidgetProvider> owner, wil::com_ptr_nothrow<Coordinator> runtime,
-           const Configuration& configuration, const char* instance, uint32_t backgroundRgb)
-        : _provider(std::move(owner)), _runtime(std::move(runtime)), _configuration(configuration), _instance(instance)
+public:
+    Widget(wil::com_ptr_nothrow<IRedXeWidgetProvider> owner,
+           wil::com_ptr_nothrow<Coordinator> runtime,
+           const Configuration& configuration,
+           const char* instance,
+           uint32_t backgroundRgb)
+        : _provider(std::move(owner)),
+          _runtime(std::move(runtime)),
+          _configuration(configuration),
+          _instance(instance)
     {
         _tile.SetBackground(backgroundRgb);
         _overlay.SetBackground(backgroundRgb);
-        _probeNext = probeWidgets;
+        _probeNext   = probeWidgets;
         probeWidgets = this;
     }
     ~Widget()
@@ -193,24 +195,23 @@ class Widget final
         _runtime->SetSubscriberVisible(value);
         _tile.SetVisible(value);
         _overlay.SetVisible(value && _raised);
-        if (!value)
+        if (! value)
         {
             _tile.Cancel();
             _overlay.Cancel();
         }
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* json, uint32_t capacity,
-                                                        uint32_t* written) noexcept override
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* json, uint32_t capacity, uint32_t* written) noexcept override
     {
-        if (!written)
+        if (! written)
             return E_POINTER;
         *written = 0;
         return SerializeConfiguration(_configuration, json, capacity, *written);
     }
     HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
     {
-        if (!extent)
+        if (! extent)
             return E_POINTER;
         *extent = RedXeRaisedExtentHalf;
         return S_OK;
@@ -229,7 +230,7 @@ class Widget final
             _overlay.ShowProfiles();
             _openProfilesOnRaise = false;
         }
-        if (!_raised)
+        if (! _raised)
         {
             _overlay.CloseProfiles();
             _tile.CloseProfiles();
@@ -238,24 +239,23 @@ class Widget final
     }
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
             return E_POINTER;
-        if (context->sizeBytes != sizeof(*context) || !context->device)
+        if (context->sizeBytes != sizeof(*context) || ! context->device)
             return E_INVALIDARG;
         if (_pool && _pool->GetDevice() == context->device)
             return S_OK;
         OnDeviceLost();
         auto pool = graphics.lock();
-        if (!pool || pool->GetDevice() != context->device)
+        if (! pool || pool->GetDevice() != context->device)
         {
             RETURN_IF_FAILED(DxUi::GraphicsDevice::Create(context->device, pool));
             graphics = pool;
         }
-        const ViewCallbacks callbacks{this, [](void* self, const ViewCommand& command) noexcept
-                                      { static_cast<Widget*>(self)->Command(command); }, [](void* self) noexcept
-                                      { (void)static_cast<Widget*>(self)->_runtime->Host()->RequestFrame(); },
-                                      [](void* self, const Configuration& configuration) noexcept
-                                      { return static_cast<Widget*>(self)->Save(configuration); }};
+        const ViewCallbacks callbacks{this,
+                                      [](void* self, const ViewCommand& command) noexcept { static_cast<Widget*>(self)->Command(command); },
+                                      [](void* self) noexcept { (void)static_cast<Widget*>(self)->_runtime->Host()->RequestFrame(); },
+                                      [](void* self, const Configuration& configuration) noexcept { return static_cast<Widget*>(self)->Save(configuration); }};
         HRESULT result = _tile.Attach(pool, callbacks);
         if (SUCCEEDED(result))
             result = _overlay.Attach(pool, callbacks);
@@ -269,7 +269,7 @@ class Widget final
         _tile.SetVisible(_visible);
         _overlay.SetVisible(_visible && _raised);
         _publishedRevision = _publishedDevices = 0;
-        _profilesDirty = true;
+        _profilesDirty                         = true;
         return S_OK;
     }
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
@@ -285,9 +285,9 @@ class Widget final
     }
     HRESULT STDMETHODCALLTYPE Prepare(const RedXeGpuPreparationContext* context) noexcept override
     {
-        if (!context || context->sizeBytes != sizeof(*context) || !context->dpi)
+        if (! context || context->sizeBytes != sizeof(*context) || ! context->dpi)
             return E_INVALIDARG;
-        if (!_pool || !_visible)
+        if (! _pool || ! _visible)
             return S_FALSE;
         if (context->appearance.flags & ~(RedXeAppearanceDark | RedXeAppearanceHighContrast))
             return E_INVALIDARG;
@@ -308,47 +308,42 @@ class Widget final
             _tile.SetProfiles(_configuration, &current, _runtime->DeviceRevision());
             _overlay.SetProfiles(_configuration, &current, _runtime->DeviceRevision());
             _publishedDevices = _runtime->DeviceRevision();
-            _profilesDirty = false;
+            _profilesDirty    = false;
         }
-        const HRESULT tile =
-            _tile.Prepare(context->tileWidthPixels, context->tileHeightPixels, static_cast<float>(context->dpi));
+        const HRESULT tile = _tile.Prepare(context->tileWidthPixels, context->tileHeightPixels, static_cast<float>(context->dpi));
         RETURN_IF_FAILED(tile);
         _overlay.SetVisible(_raised && context->raisedWidthPixels && context->raisedHeightPixels);
-        const HRESULT overlay =
-            _overlay.Prepare(context->raisedWidthPixels, context->raisedHeightPixels, static_cast<float>(context->dpi));
+        const HRESULT overlay = _overlay.Prepare(context->raisedWidthPixels, context->raisedHeightPixels, static_cast<float>(context->dpi));
         RETURN_IF_FAILED(overlay);
         return tile == S_OK || overlay == S_OK ? S_OK : S_FALSE;
     }
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
-        if (!context || !context->widget)
+        if (! context || ! context->widget)
             return E_POINTER;
-        if (context->sizeBytes != sizeof(*context) || context->widget->sizeBytes != sizeof(*context->widget) ||
-            context->viewId > 1 || !context->deviceContext)
+        if (context->sizeBytes != sizeof(*context) || context->widget->sizeBytes != sizeof(*context->widget) || context->viewId > 1 || ! context->deviceContext)
             return E_INVALIDARG;
-        if (!_visible || !_pool)
+        if (! _visible || ! _pool)
             return S_FALSE;
         return (context->viewId ? _overlay : _tile).Composite(context->deviceContext, context->viewport);
     }
     HRESULT STDMETHODCALLTYPE OnPointer(const RedXePointerEvent* event) noexcept override
     {
-        if (!event)
+        if (! event)
             return E_POINTER;
-        if (event->sizeBytes != sizeof(*event) || event->viewId > 1 ||
-            event->phase > RedXePointerPhaseHorizontalWheel || !std::isfinite(event->x) || !std::isfinite(event->y) ||
-            !std::isfinite(event->wheelDelta))
+        if (event->sizeBytes != sizeof(*event) || event->viewId > 1 || event->phase > RedXePointerPhaseHorizontalWheel || ! std::isfinite(event->x) ||
+            ! std::isfinite(event->y) || ! std::isfinite(event->wheelDelta))
             return E_INVALIDARG;
-        if (!_visible || !_pool)
+        if (! _visible || ! _pool)
             return S_FALSE;
         // DxUi has no horizontal wheel; declining leaves the sample to host page navigation.
         if (event->phase == RedXePointerPhaseHorizontalWheel)
             return S_FALSE;
         _action = S_OK;
-        constexpr std::array actions{DxUi::PointerAction::Down, DxUi::PointerAction::Move, DxUi::PointerAction::Up,
-                                     DxUi::PointerAction::Cancel, DxUi::PointerAction::Wheel};
-        auto& view = event->viewId ? _overlay : _tile;
-        const bool handled =
-            view.Pointer({actions[event->phase], event->x, event->y, event->modifiers, event->wheelDelta});
+        constexpr std::array actions{
+            DxUi::PointerAction::Down, DxUi::PointerAction::Move, DxUi::PointerAction::Up, DxUi::PointerAction::Cancel, DxUi::PointerAction::Wheel};
+        auto& view         = event->viewId ? _overlay : _tile;
+        const bool handled = view.Pointer({actions[event->phase], event->x, event->y, event->modifiers, event->wheelDelta});
         if (_action != S_OK && event->phase == RedXePointerPhaseUp)
             return std::exchange(_action, S_OK);
         return handled ? event->phase == RedXePointerPhaseDown ? RedXePointerCapture : S_OK : S_FALSE;
@@ -370,7 +365,7 @@ class Widget final
         if (viewId > 1)
             return E_INVALIDARG;
         auto& view = viewId ? _overlay : _tile;
-        if (!focused)
+        if (! focused)
         {
             view.Cancel();
             view.LoseTextFocus();
@@ -379,13 +374,13 @@ class Widget final
     }
     HRESULT STDMETHODCALLTYPE OnKey(const RedXeKeyEvent* event) noexcept override
     {
-        if (!event)
+        if (! event)
             return E_POINTER;
         if (event->sizeBytes != sizeof(*event) || event->viewId > 1)
             return E_INVALIDARG;
-        if (!_visible || !_pool)
+        if (! _visible || ! _pool)
             return S_FALSE;
-        _action = S_OK;
+        _action    = S_OK;
         auto& view = event->viewId ? _overlay : _tile;
         // F6 opens the profile chooser through the same generic raise as its visible button.
         if (event->down && event->virtualKey == VK_F6)
@@ -402,31 +397,30 @@ class Widget final
     {
         if (character > 0xffff || viewId > 1)
             return E_INVALIDARG;
-        if (!_visible || !_pool)
+        if (! _visible || ! _pool)
             return S_FALSE;
-        _action = S_OK;
+        _action            = S_OK;
         const bool handled = (viewId ? _overlay : _tile).Character(static_cast<wchar_t>(character), modifiers);
         return _action != S_OK ? std::exchange(_action, S_OK) : handled ? S_OK : S_FALSE;
     }
     HRESULT STDMETHODCALLTYPE ReadTextState(uint32_t viewId, RedXeTextState* state) noexcept override
     {
-        if (!state)
+        if (! state)
             return E_POINTER;
         *state = {};
         if (viewId > 1)
             return E_INVALIDARG;
-        if (!_visible || !_pool || (viewId && !_raised))
+        if (! _visible || ! _pool || (viewId && ! _raised))
             return S_FALSE;
         return (viewId ? _overlay : _tile).ReadText(*state);
     }
-    HRESULT STDMETHODCALLTYPE ApplyTextState(uint32_t viewId, uint32_t action,
-                                             const RedXeTextState* state) noexcept override
+    HRESULT STDMETHODCALLTYPE ApplyTextState(uint32_t viewId, uint32_t action, const RedXeTextState* state) noexcept override
     {
-        if (!state)
+        if (! state)
             return E_POINTER;
         if (viewId > 1)
             return E_INVALIDARG;
-        if (!_visible || !_pool || (viewId && !_raised))
+        if (! _visible || ! _pool || (viewId && ! _raised))
             return S_FALSE;
         return (viewId ? _overlay : _tile).ApplyText(action, *state);
     }
@@ -436,30 +430,29 @@ class Widget final
             return E_INVALIDARG;
         return (viewId ? _overlay : _tile).CancelText(focusId);
     }
-    HRESULT STDMETHODCALLTYPE HitTestText(uint32_t viewId, uint64_t revision, float x, float y,
-                                          uint32_t* index) noexcept override
+    HRESULT STDMETHODCALLTYPE HitTestText(uint32_t viewId, uint64_t revision, float x, float y, uint32_t* index) noexcept override
     {
-        if (!index)
+        if (! index)
             return E_POINTER;
         *index = 0;
-        if (viewId > 1 || !std::isfinite(x) || !std::isfinite(y))
+        if (viewId > 1 || ! std::isfinite(x) || ! std::isfinite(y))
             return E_INVALIDARG;
-        if (!_visible || !_pool || (viewId && !_raised))
+        if (! _visible || ! _pool || (viewId && ! _raised))
             return S_FALSE;
         return (viewId ? _overlay : _tile).HitText(revision, x, y, *index);
     }
-    HRESULT STDMETHODCALLTYPE GetTextRangeBounds(uint32_t viewId, uint64_t revision, uint32_t start, uint32_t end,
-                                                 RedXeTextRectangle* bounds, BOOL* clipped) noexcept override
+    HRESULT STDMETHODCALLTYPE
+    GetTextRangeBounds(uint32_t viewId, uint64_t revision, uint32_t start, uint32_t end, RedXeTextRectangle* bounds, BOOL* clipped) noexcept override
     {
         if (bounds)
             *bounds = {};
         if (clipped)
             *clipped = TRUE;
-        if (!bounds || !clipped)
+        if (! bounds || ! clipped)
             return E_POINTER;
         if (viewId > 1)
             return E_INVALIDARG;
-        if (!_visible || !_pool || (viewId && !_raised))
+        if (! _visible || ! _pool || (viewId && ! _raised))
             return S_FALSE;
         return (viewId ? _overlay : _tile).TextRange(revision, start, end, *bounds, *clipped);
     }
@@ -467,14 +460,14 @@ class Widget final
                                                    IRedXeAccessibilitySite* site,
                                                    IRawElementProviderFragmentRoot** result) noexcept override
     {
-        if (!result)
+        if (! result)
             return E_POINTER;
         *result = nullptr;
         if (GetCurrentThreadId() != _thread)
             return RPC_E_WRONG_THREAD;
-        if (!placement || !site || !IsValidRedXeAccessibilityPlacement(*placement))
+        if (! placement || ! site || ! IsValidRedXeAccessibilityPlacement(*placement))
             return E_INVALIDARG;
-        if (!_visible || !_pool || (placement->viewId && !_raised))
+        if (! _visible || ! _pool || (placement->viewId && ! _raised))
             return S_FALSE;
         auto& view = placement->viewId ? _overlay : _tile;
         wil::com_ptr_nothrow<IRawElementProviderFragmentRoot> provider;
@@ -494,9 +487,9 @@ class Widget final
     {
         if (GetCurrentThreadId() != _thread)
             return RPC_E_WRONG_THREAD;
-        if (!placement || !IsValidRedXeAccessibilityPlacement(*placement))
+        if (! placement || ! IsValidRedXeAccessibilityPlacement(*placement))
             return E_INVALIDARG;
-        if (!_visible || !_pool || (placement->viewId && !_raised))
+        if (! _visible || ! _pool || (placement->viewId && ! _raised))
             return S_FALSE;
         return (placement->viewId ? _overlay : _tile).UpdateAccessibility(*placement);
     }
@@ -508,21 +501,21 @@ class Widget final
     }
     HRESULT STDMETHODCALLTYPE TakeAccessibilityAction(uint32_t viewId, HRESULT* action) noexcept override
     {
-        if (!action)
+        if (! action)
             return E_POINTER;
         *action = S_OK;
         if (GetCurrentThreadId() != _thread)
             return RPC_E_WRONG_THREAD;
         if (viewId > 1)
             return E_INVALIDARG;
-        if (!_visible || (viewId != (_raised ? 1U : 0U)))
+        if (! _visible || (viewId != (_raised ? 1U : 0U)))
             return S_FALSE;
         *action = std::exchange(_action, S_OK);
         return S_OK;
     }
 
-  private:
-    DWORD _thread = GetCurrentThreadId();
+private:
+    DWORD _thread      = GetCurrentThreadId();
     Widget* _probeNext = nullptr;
     wil::com_ptr_nothrow<IRedXeWidgetProvider> _provider;
     wil::com_ptr_nothrow<Coordinator> _runtime;
@@ -543,63 +536,59 @@ class Widget final
         for (uint32_t i = 0; i < _configuration.count; ++i)
         {
             const auto& profile = _configuration.profiles[i];
-            const auto match = MatchProfile(profile, _runtime->Current().state);
+            const auto match    = MatchProfile(profile, _runtime->Current().state);
             if (match == ProfileMatch::Custom)
                 continue;
             const auto text = profile.name.View();
-            const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
-                                                  static_cast<int>(text.size()), name.data(), 128);
+            const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), name.data(), 128);
             if (count <= 0)
                 break;
             if (match == ProfileMatch::Adjusted)
                 wcscat_s(name.data(), name.size(), L" · Adjusted");
             return;
         }
-        wcscpy_s(name.data(), name.size(),
-                 FAILED(_runtime->LastResult()) ? L"Request failed · Profiles to retry" : L"Custom");
+        wcscpy_s(name.data(), name.size(), FAILED(_runtime->LastResult()) ? L"Request failed · Profiles to retry" : L"Custom");
     }
     void Command(const ViewCommand& command) noexcept
     {
         switch (command.kind)
         {
-        case ViewCommandKind::OpenProfiles:
-            _runtime->Refresh();
-            if (_raised)
-                _overlay.ShowProfiles();
-            else
-            {
-                _tile.ShowProfiles();
-                _openProfilesOnRaise = true;
-                _action = RedXePointerRaise;
-            }
-            break;
-        case ViewCommandKind::CloseProfiles:
-            _tile.CloseProfiles();
-            _overlay.CloseProfiles();
-            _openProfilesOnRaise = false;
-            if (_raised)
-                _action = RedXePointerDismiss;
-            break;
-        case ViewCommandKind::ApplyProfile:
-            if (command.value < _configuration.count)
-            {
-                const HRESULT result = _runtime->SubmitProfile(_configuration.profiles[command.value]);
-                if (SUCCEEDED(result))
+            case ViewCommandKind::OpenProfiles:
+                _runtime->Refresh();
+                if (_raised)
+                    _overlay.ShowProfiles();
+                else
                 {
-                    _tile.CloseProfiles();
-                    _overlay.CloseProfiles();
-                    _openProfilesOnRaise = false;
-                    if (_raised)
-                        _action = RedXePointerDismiss;
+                    _tile.ShowProfiles();
+                    _openProfilesOnRaise = true;
+                    _action              = RedXePointerRaise;
                 }
-            }
-            break;
-        case ::AVControl::ViewCommandKind::SetCameraEnabled:
-        case ::AVControl::ViewCommandKind::SetLevel:
-        case ::AVControl::ViewCommandKind::SetMuted:
-        default:
-            (void)_runtime->Submit(command);
-            break;
+                break;
+            case ViewCommandKind::CloseProfiles:
+                _tile.CloseProfiles();
+                _overlay.CloseProfiles();
+                _openProfilesOnRaise = false;
+                if (_raised)
+                    _action = RedXePointerDismiss;
+                break;
+            case ViewCommandKind::ApplyProfile:
+                if (command.value < _configuration.count)
+                {
+                    const HRESULT result = _runtime->SubmitProfile(_configuration.profiles[command.value]);
+                    if (SUCCEEDED(result))
+                    {
+                        _tile.CloseProfiles();
+                        _overlay.CloseProfiles();
+                        _openProfilesOnRaise = false;
+                        if (_raised)
+                            _action = RedXePointerDismiss;
+                    }
+                }
+                break;
+            case ::AVControl::ViewCommandKind::SetCameraEnabled:
+            case ::AVControl::ViewCommandKind::SetLevel:
+            case ::AVControl::ViewCommandKind::SetMuted:
+            default: (void)_runtime->Submit(command); break;
         }
     }
     HRESULT Save(const Configuration& configuration) noexcept
@@ -608,8 +597,8 @@ class Widget final
         uint32_t bytes = 0;
         RETURN_IF_FAILED(SerializeConfiguration(configuration, json.data(), json.size(), bytes));
         RETURN_IF_FAILED(_runtime->Host()->PersistWidgetSettings(_instance.c_str(), json.data(), bytes));
-        _configuration = configuration;
-        _profilesDirty = true;
+        _configuration     = configuration;
+        _profilesDirty     = true;
         _publishedRevision = 0;
         _runtime->ConfigurationChanged();
         (void)_runtime->Host()->RequestFrame();
@@ -624,9 +613,11 @@ class Widget final
 #pragma warning(disable : 4625 4626)
 class Provider final : public RedXeComObject<Provider, IRedXeWidgetProvider>
 {
-  public:
+public:
     Provider(wil::com_ptr_nothrow<Coordinator> runtime, const Configuration& configuration, uint32_t backgroundRgb)
-        : _runtime(std::move(runtime)), _configuration(configuration), _backgroundRgb(backgroundRgb)
+        : _runtime(std::move(runtime)),
+          _configuration(configuration),
+          _backgroundRgb(backgroundRgb)
     {
         ++providerCount;
     }
@@ -635,28 +626,26 @@ class Provider final : public RedXeComObject<Provider, IRedXeWidgetProvider>
         --providerCount;
         ReleaseUnusedCoordinator();
     }
-    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             uint32_t* count) noexcept override
+    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
             *descriptors = nullptr;
         if (count)
             *count = 0;
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
             return E_POINTER;
         *descriptors = &WidgetType;
-        *count = 1;
+        *count       = 1;
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE CreateWidget(const char* type, const char* instance,
-                                           IRedXeWidget** widget) noexcept override
+    HRESULT STDMETHODCALLTYPE CreateWidget(const char* type, const char* instance, IRedXeWidget** widget) noexcept override
     {
-        if (!widget)
+        if (! widget)
             return E_POINTER;
         *widget = nullptr;
-        if (!type || !instance || !instance[0] || strnlen_s(instance, 128) >= 128)
+        if (! type || ! instance || ! instance[0] || strnlen_s(instance, 128) >= 128)
             return E_INVALIDARG;
-        if (!RedXeAsciiEqualsIgnoreCase(type, TypeId))
+        if (! RedXeAsciiEqualsIgnoreCase(type, TypeId))
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         try
         {
@@ -673,7 +662,7 @@ class Provider final : public RedXeComObject<Provider, IRedXeWidgetProvider>
         }
     }
 
-  private:
+private:
     wil::com_ptr_nothrow<Coordinator> _runtime;
     Configuration _configuration;
     uint32_t _backgroundRgb;
@@ -689,9 +678,9 @@ HRESULT CreateProvider(REFIID iid, const RedXeFactoryOptions* options, IRedXeHos
     wil::com_ptr_nothrow<Coordinator> runtime;
     RETURN_IF_FAILED(GetCoordinator(host, runtime));
     Provider* provider = nullptr;
-    if (!std::exchange(failNextProviderAllocation, false))
+    if (! std::exchange(failNextProviderAllocation, false))
         provider = new (std::nothrow) Provider(std::move(runtime), configuration, RedXeBackgroundRgb(options));
-    if (!provider)
+    if (! provider)
     {
         ReleaseUnusedCoordinator();
         return E_OUTOFMEMORY;
@@ -702,8 +691,7 @@ HRESULT CreateProvider(REFIID iid, const RedXeFactoryOptions* options, IRedXeHos
 constexpr RedXeFactoryEntry Entry{&Metadata, CreateProvider};
 } // namespace
 } // namespace AVControl
-extern "C" HRESULT __stdcall RedXeCreate(REFIID iid, const RedXeFactoryOptions* options, IRedXeHost* host,
-                                         const char* plugin, void** result) noexcept
+extern "C" HRESULT __stdcall RedXeCreate(REFIID iid, const RedXeFactoryOptions* options, IRedXeHost* host, const char* plugin, void** result) noexcept
 {
     return RedXeCreateFromFactoryEntries(&AVControl::Entry, 1, iid, options, host, plugin, result);
 }
@@ -711,8 +699,7 @@ extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** m
 {
     return RedXeEnumerateFactoryMetadata(&AVControl::Metadata, 1, metadata, count);
 }
-extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* plugin,
-                                                            const RedXePluginSettingsContract** contract) noexcept
+extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* plugin, const RedXePluginSettingsContract** contract) noexcept
 {
     return RedXeGetStaticPluginSettingsContract(AVControl::PluginId, plugin, &AVControl::SettingsContract, contract);
 }
@@ -724,7 +711,7 @@ extern "C" void __stdcall RedXePluginShutdown() noexcept
 }
 extern "C" HRESULT __stdcall RedXeAVControlQueryProbeStatistics(AVControl::ProbeStatistics* statistics) noexcept
 {
-    if (!statistics)
+    if (! statistics)
         return E_POINTER;
     if (statistics->sizeBytes != sizeof(*statistics))
         return E_INVALIDARG;
@@ -734,24 +721,24 @@ extern "C" HRESULT __stdcall RedXeAVControlUseSyntheticBackend(BOOL enabled) noe
 {
     if (AVControl::providerCount || AVControl::coordinator)
         return HRESULT_FROM_WIN32(ERROR_BUSY);
-    AVControl::syntheticBackend = enabled != FALSE;
+    AVControl::syntheticBackend           = enabled != FALSE;
     AVControl::failNextProviderAllocation = false;
     return S_OK;
 }
 extern "C" HRESULT __stdcall RedXeAVControlFailNextProviderAllocation() noexcept
 {
-    if (!AVControl::syntheticBackend)
+    if (! AVControl::syntheticBackend)
         return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
     AVControl::failNextProviderAllocation = true;
     return S_OK;
 }
 extern "C" HRESULT __stdcall RedXeAVControlTestSnapshot(AVControl::Inventory* inventory, uint32_t bytes) noexcept
 {
-    if (!inventory)
+    if (! inventory)
         return E_POINTER;
     if (bytes != sizeof(*inventory))
         return E_INVALIDARG;
-    if (!AVControl::coordinator)
+    if (! AVControl::coordinator)
         return E_UNEXPECTED;
     *inventory = AVControl::coordinator->Current();
     return S_OK;

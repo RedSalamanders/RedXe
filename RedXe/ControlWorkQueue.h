@@ -14,12 +14,12 @@
 // One process-scoped control lane. Start, Enqueue, DrainCompletions and Stop are UI-thread operations.
 class ControlWorkQueue final
 {
-  public:
-    using Notify = void (*)(void*) noexcept;
+public:
+    using Notify                     = void (*)(void*) noexcept;
     static constexpr size_t Capacity = 16;
-    ControlWorkQueue() = default;
+    ControlWorkQueue()               = default;
     ~ControlWorkQueue();
-    ControlWorkQueue(const ControlWorkQueue&) = delete;
+    ControlWorkQueue(const ControlWorkQueue&)            = delete;
     ControlWorkQueue& operator=(const ControlWorkQueue&) = delete;
     [[nodiscard]] HRESULT Start(Notify notify, void* context) noexcept;
     [[nodiscard]] HRESULT Enqueue(IRedXeControlWork* work) noexcept;
@@ -30,7 +30,7 @@ class ControlWorkQueue final
         return _worker.joinable();
     }
 
-  private:
+private:
     enum class State : uint32_t
     {
         Empty,
@@ -41,9 +41,9 @@ class ControlWorkQueue final
     struct Slot final
     {
         wil::com_ptr_nothrow<IRedXeControlWork> work;
-        State state = State::Empty;
-        HRESULT result = S_OK;
-        bool rerun = false;
+        State state       = State::Empty;
+        HRESULT result    = S_OK;
+        bool rerun        = false;
         uint64_t queuedAt = 0;
     };
     void Worker() noexcept;

@@ -6,11 +6,11 @@ namespace AVControl::Camera
 {
 class BridgeObserver
 {
-  public:
+public:
     virtual ~BridgeObserver() = default;
     // One MTA helper thread serializes admission, acquisition work, and final capture shutdown. Notifications
     // are coalesced. The observer reads Consumers() and its own latest intent; it must not hold a UI lock.
-    virtual void OnBridgeWork() noexcept = 0;
+    virtual void OnBridgeWork() noexcept     = 0;
     virtual void OnBridgeStopping() noexcept = 0;
 };
 // Lives only in the owned helper (or an explicit synthetic fixture). Driver stalls in observer callbacks are
@@ -21,7 +21,7 @@ class BridgeObserver
 #pragma warning(disable : 4625 4626)
 class BridgeServer final
 {
-  public:
+public:
     BridgeServer() = default;
     ~BridgeServer()
     {
@@ -50,7 +50,7 @@ class BridgeServer final
     HRESULT SetGate(uint64_t generation, bool enabled) noexcept;
     HRESULT Publish(uint64_t generation, std::span<const BYTE> frame, LONGLONG timestamp) noexcept;
 
-  private:
+private:
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
@@ -61,11 +61,11 @@ class BridgeServer final
         wil::unique_handle pipe;
         wil::unique_event event;
         OVERLAPPED read{};
-        BYTE unexpected = 0;
-        bool pending = false;
-        bool closeRequested = false;
+        BYTE unexpected          = 0;
+        bool pending             = false;
+        bool closeRequested      = false;
         uint64_t channelRevision = 1;
-        ULONGLONG demandedAt = 0;
+        ULONGLONG demandedAt     = 0;
         void Close() noexcept;
         void ReadDemand() noexcept;
     };
@@ -78,11 +78,11 @@ class BridgeServer final
     wil::unique_hlocal _security;
     OVERLAPPED _connect{};
     bool _connecting = false;
-    SRWLOCK _lock = SRWLOCK_INIT;
+    SRWLOCK _lock    = SRWLOCK_INIT;
     std::array<Client, MaximumConsumers> _clients;
     std::atomic<uint32_t> _consumers{0};
     uint64_t _generation = 1;
-    bool _enabled = false;
+    bool _enabled        = false;
     static DWORD WINAPI Entry(void* value) noexcept;
     void Run() noexcept;
     HRESULT Listen(bool first) noexcept;

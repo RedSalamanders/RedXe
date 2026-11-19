@@ -35,7 +35,7 @@ struct MonitorCandidate final
     RECT bounds{};
     // The GDI device name (\\.\DISPLAYn), the only name `name:<substring>` matches here.
     const wchar_t* device = nullptr;
-    bool primary = false;
+    bool primary          = false;
     // The display the main window is on (SetHostWindow): what `xeneon` names.
     bool hostWindow = false;
     // The display XENEON discovery found (SetXeneonDisplay): `secondary` ranks it below every other display.
@@ -69,8 +69,7 @@ struct MonitorSearch final
 // system rejected, or the Win32 failure. A launch returns S_FALSE once launches has queued it (its result is logged
 // when the worker finishes), or the queue's refusal. deviceAccess false counts and performs nothing, and a launch then
 // returns S_FALSE without touching launches, which may be null only then.
-[[nodiscard]] HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target, bool deviceAccess,
-                              LaunchWorker* launches) noexcept;
+[[nodiscard]] HRESULT Execute(const RedXeActionDescriptor& descriptor, std::string_view target, bool deviceAccess, LaunchWorker* launches) noexcept;
 
 // Releases keys and buttons still held by keys.down / mouse.down. The main window calls OnHeldTimer for the
 // one-shot deadline and for the retry of a release SendInput refused; closing the main window (SetHostWindow) and
@@ -88,19 +87,19 @@ inline constexpr uint32_t kHeldReleaseMilliseconds = 2000;
 // A refused release (a UAC prompt or the lock screen owns the input desktop) keeps its hold and retries at this
 // interval, at most kMaximumHeldReleaseAttempts attempts in all, then stops tracking it.
 inline constexpr uint32_t kHeldReleaseRetryMilliseconds = 250;
-inline constexpr uint32_t kMaximumHeldReleaseAttempts = 40;
-inline constexpr UINT_PTR kHeldInputTimerId = 0x5C7;
-inline constexpr uint32_t kMaximumInputBatch = 32;
+inline constexpr uint32_t kMaximumHeldReleaseAttempts   = 40;
+inline constexpr UINT_PTR kHeldInputTimerId             = 0x5C7;
+inline constexpr uint32_t kMaximumInputBatch            = 32;
 
 // Counters for automated hosts and tests; every field counts since the last reset.
 struct Counters final
 {
-    uint32_t executed = 0;
+    uint32_t executed       = 0;
     uint32_t injectedInputs = 0;
-    uint32_t launches = 0;
-    uint32_t processes = 0;
-    uint32_t powerRequests = 0;
-    uint32_t heldReleases = 0;
+    uint32_t launches       = 0;
+    uint32_t processes      = 0;
+    uint32_t powerRequests  = 0;
+    uint32_t heldReleases   = 0;
     std::array<char, kRedXeMaximumActionNameBytes + 1> lastAction{};
 };
 [[nodiscard]] Counters CopyCounters() noexcept;

@@ -302,6 +302,17 @@ Changes to this contract require:
 .\validate-skills.ps1
 ```
 
+## Formatting
+
+The root `.clang-format` is the one style. `format.ps1` formats, and `format.ps1 -Check` verifies without writing
+and lists every file that needs formatting. Both take clang-format from `Install-CiFormatter` in the pinned
+`.ci-engine`, which installs the build that the engine's `Policy/clang-format.json` pins (22.1.3 today) under
+`.build/shared-format` and verifies its SHA-256 and version; no Visual Studio, `PATH` or repository-pinned formatter
+is used. Both cover the files CI formats: `.c`, `.cc`, `.cpp`, `.cxx`, `.h`, `.hh`, `.hpp` and `.hxx` files under the
+`formatRoots` of `.ci/project.json` that its `formatExclude` does not match. Pull-request checks run the same formatter
+over the files the pull request changes, or over every file when `.clang-format` or `.clang-format-ignore` changes;
+drift fails the check and retains the patch. The manual `Commit PR formatting` workflow commits that formatting to an
+open same-repository pull request with an ordinary push and requests fresh checks for the new head.
 
 ## Public DxUi access in CI
 

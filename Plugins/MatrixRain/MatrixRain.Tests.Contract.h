@@ -17,8 +17,7 @@ struct MatrixRainTestDiagnostics final
 #define REDXE_MATRIX_TEST_API
 #endif
 
-extern "C" REDXE_MATRIX_TEST_API HRESULT __stdcall RedXeMatrixRainGetTestDiagnostics(
-    MatrixRainTestDiagnostics* diagnostics) noexcept;
+extern "C" REDXE_MATRIX_TEST_API HRESULT __stdcall RedXeMatrixRainGetTestDiagnostics(MatrixRainTestDiagnostics* diagnostics) noexcept;
 
 using MatrixRainGetTestDiagnosticsFn = decltype(&RedXeMatrixRainGetTestDiagnostics);
 

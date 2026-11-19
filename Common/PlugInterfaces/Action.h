@@ -20,9 +20,9 @@ inline constexpr uint32_t kRedXeMaximumActionNameBytes = 64;
 // A target is at most this many UTF-8 bytes excluding the terminator.
 inline constexpr uint32_t kRedXeMaximumActionTargetBytes = 512;
 // A namespace (the first name segment) is at most this many bytes.
-inline constexpr uint32_t kRedXeMaximumActionNamespaceBytes = 32;
+inline constexpr uint32_t kRedXeMaximumActionNamespaceBytes      = 32;
 inline constexpr uint32_t kRedXeMaximumActionNamespacesPerPlugin = 4;
-inline constexpr uint32_t kRedXeMaximumActionsPerNamespace = 64;
+inline constexpr uint32_t kRedXeMaximumActionsPerNamespace       = 64;
 // Execute and every host-native action return within this budget on the UI thread; longer work is deferred.
 inline constexpr uint32_t kRedXeActionExecuteBudgetMilliseconds = 20;
 
@@ -199,11 +199,10 @@ extern "C"
     // Returns the borrowed action contract of one plugin id, or HRESULT_FROM_WIN32(ERROR_NOT_FOUND) when that id
     // publishes no actions. Creates nothing. A module that advertises RedXePluginCapabilityActions for an id MUST
     // answer for it.
-    REDXE_ACTION_API HRESULT __stdcall RedXeGetActionContract(const char* pluginId,
-                                                              const RedXeActionContract** contract) noexcept;
+    REDXE_ACTION_API HRESULT __stdcall RedXeGetActionContract(const char* pluginId, const RedXeActionContract** contract) noexcept;
 }
 
-using RedXeGetActionContractFn = decltype(&RedXeGetActionContract);
+using RedXeGetActionContractFn                        = decltype(&RedXeGetActionContract);
 inline constexpr char kRedXeGetActionContractExport[] = "RedXeGetActionContract";
 
 #undef REDXE_ACTION_API
@@ -213,11 +212,11 @@ inline constexpr char kRedXeGetActionContractExport[] = "RedXeGetActionContract"
 // True when value is the action-name grammar: ^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*){1,3}$ within the byte bound.
 [[nodiscard]] constexpr bool RedXeIsActionNameSyntax(const char* value) noexcept
 {
-    if (!value || value[0] < 'a' || value[0] > 'z')
+    if (! value || value[0] < 'a' || value[0] > 'z')
     {
         return false;
     }
-    uint32_t length = 0;
+    uint32_t length   = 0;
     uint32_t segments = 1;
     bool segmentStart = false;
     while (value[length] != '\0')
@@ -244,20 +243,19 @@ inline constexpr char kRedXeGetActionContractExport[] = "RedXeGetActionContract"
             }
             segmentStart = false;
         }
-        else if (!((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-                   (character >= '0' && character <= '9')))
+        else if (! ((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9')))
         {
             return false;
         }
         ++length;
     }
-    return segments >= 2 && !segmentStart;
+    return segments >= 2 && ! segmentStart;
 }
 
 // Length of the namespace segment of an action name (the bytes before the first '.'), or 0 for no namespace.
 [[nodiscard]] constexpr uint32_t RedXeActionNamespaceLength(const char* value) noexcept
 {
-    if (!value)
+    if (! value)
     {
         return 0;
     }
@@ -273,7 +271,7 @@ inline constexpr char kRedXeGetActionContractExport[] = "RedXeGetActionContract"
 [[nodiscard]] constexpr bool RedXeActionInNamespace(const char* actionName, const char* actionNamespace) noexcept
 {
     const uint32_t length = RedXeActionNamespaceLength(actionName);
-    if (length == 0 || !actionNamespace)
+    if (length == 0 || ! actionNamespace)
     {
         return false;
     }

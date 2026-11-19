@@ -141,7 +141,7 @@ These requirements supplement `Core_PerformanceAndResources.md`.
 Before this contract is complete:
 
 ```powershell
-.\format.ps1
+.\format.ps1 -Check
 .\test.ps1 -Full -Configuration Debug -Platform x64
 .\test.ps1 -Full -Configuration Release -Platform x64
 .\build.ps1 -Configuration Release -Platform ARM64

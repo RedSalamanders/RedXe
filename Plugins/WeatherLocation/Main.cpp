@@ -44,7 +44,7 @@ HRESULT ReadCachedReport(WeatherLocationPosition& position) noexcept
     SYSTEMTIME utc{};
     FILETIME time{};
     RETURN_IF_FAILED(report->GetTimestamp(&utc));
-    if (!SystemTimeToFileTime(&utc, &time))
+    if (! SystemTimeToFileTime(&utc, &time))
         return HRESULT_FROM_WIN32(GetLastError());
     position.timestamp = Timestamp(time);
     return S_OK;
@@ -63,29 +63,29 @@ HRESULT ReadWindowsPosition(void*, WeatherLocationSource source, WeatherLocation
         if (source == WeatherLocationSource::WindowsDefault)
         {
             const auto saved = Geolocator::DefaultGeoposition();
-            if (!saved)
+            if (! saved)
                 return HRESULT_FROM_WIN32(ERROR_NO_DATA);
-            const auto value = saved.Value();
-            position.latitude = value.Latitude;
+            const auto value   = saved.Value();
+            position.latitude  = value.Latitude;
             position.longitude = value.Longitude;
             return S_OK;
         }
         const Geolocator locator;
         if (source == WeatherLocationSource::Coarse)
             locator.AllowFallbackToConsentlessPositions(); // Windows still enforces the system-wide location switch.
-        const auto timeout = std::chrono::seconds(source == WeatherLocationSource::Current ? 8 : 4);
+        const auto timeout   = std::chrono::seconds(source == WeatherLocationSource::Current ? 8 : 4);
         const auto operation = locator.GetGeopositionAsync(std::chrono::minutes(5), timeout);
         if (operation.wait_for(timeout) == winrt::Windows::Foundation::AsyncStatus::Started)
         {
             operation.Cancel();
             return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
         }
-        const auto result = operation.get();
-        const auto coordinate = result.Coordinate();
-        position.latitude = coordinate.Latitude();
-        position.longitude = coordinate.Longitude();
+        const auto result       = operation.get();
+        const auto coordinate   = result.Coordinate();
+        position.latitude       = coordinate.Latitude();
+        position.longitude      = coordinate.Longitude();
         position.accuracyMeters = coordinate.Accuracy();
-        const auto time = coordinate.Timestamp().time_since_epoch().count();
+        const auto time         = coordinate.Timestamp().time_since_epoch().count();
         if (time <= 0)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         position.timestamp = static_cast<uint64_t>(time);
@@ -100,8 +100,8 @@ HRESULT ReadWindowsPosition(void*, WeatherLocationSource source, WeatherLocation
 struct TestProvider
 {
     WeatherLocationSource successfulSource = WeatherLocationSource::Current;
-    uint64_t now = 0;
-    bool unavailable = false;
+    uint64_t now                           = 0;
+    bool unavailable                       = false;
 };
 
 HRESULT ReadTestPosition(void* context, WeatherLocationSource source, WeatherLocationPosition& position) noexcept
@@ -134,7 +134,7 @@ int wmain(int argc, wchar_t** argv) noexcept
         {
             winrt::init_apartment(winrt::apartment_type::multi_threaded);
             const auto apartment = wil::scope_exit([]() noexcept { winrt::uninit_apartment(); });
-            result = WeatherResolveLocation(ReadWindowsPosition, nullptr, now, position);
+            result               = WeatherResolveLocation(ReadWindowsPosition, nullptr, now, position);
         }
         else if (argc == 2)
         {
@@ -155,10 +155,8 @@ int wmain(int argc, wchar_t** argv) noexcept
             return 1;
         char text[96]{};
         const int length = sprintf_s(text, "%.6f,%.6f", position.latitude, position.longitude);
-        DWORD written = 0;
-        return length > 0 &&
-                       WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, static_cast<DWORD>(length), &written,
-                                 nullptr) &&
+        DWORD written    = 0;
+        return length > 0 && WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, static_cast<DWORD>(length), &written, nullptr) &&
                        written == static_cast<DWORD>(length)
                    ? 0
                    : 1;

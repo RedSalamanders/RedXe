@@ -44,13 +44,16 @@
 
 namespace
 {
-constexpr char kPluginId[] = "builtin.launcher";
+constexpr char kPluginId[]     = "builtin.launcher";
 constexpr char kWidgetTypeId[] = "launcher";
 constexpr char kSettingsSchema[] =
     R"json({"type":"object","additionalProperties":false,"properties":{"shortcuts":{"type":"array","minItems":0,"maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"action":{"type":"string","pattern":"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*){1,3}$"},"target":{"type":"string","maxLength":512},"icon":{"type":"string","maxLength":260}}}},"iconSize":{"type":"string","enum":["small","medium","large","huge","automatic"]}}})json";
 constexpr char kSettingsDefaults[] = R"json({"shortcuts":[],"iconSize":"automatic"})json";
 constexpr RedXePluginSettingsContract kSettingsContract{
-    sizeof(RedXePluginSettingsContract), kSettingsSchema, sizeof(kSettingsSchema) - 1, kSettingsDefaults,
+    sizeof(RedXePluginSettingsContract),
+    kSettingsSchema,
+    sizeof(kSettingsSchema) - 1,
+    kSettingsDefaults,
     sizeof(kSettingsDefaults) - 1,
 };
 
@@ -80,16 +83,16 @@ constexpr std::array kWidgetTypes{
     },
 };
 
-constexpr uint32_t kMaximumShortcuts = kLauncherMaximumShortcuts;
-constexpr uint32_t kIconEdge = 256;
-constexpr uint32_t kTargetCapacity = 513;
-constexpr uint32_t kIconPngCapacity = 261;
+constexpr uint32_t kMaximumShortcuts   = kLauncherMaximumShortcuts;
+constexpr uint32_t kIconEdge           = 256;
+constexpr uint32_t kTargetCapacity     = 513;
+constexpr uint32_t kIconPngCapacity    = 261;
 constexpr uint32_t kInstanceIdCapacity = 64;
 constexpr float kLaunchDurationSeconds = 0.4f;
 
-using unique_yyjson_doc = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
-using unique_yyjson_mut_doc = wil::unique_any<yyjson_mut_doc*, decltype(&yyjson_mut_doc_free), yyjson_mut_doc_free>;
-using unique_malloc_string = wil::unique_any<char*, decltype(&free), free>;
+using unique_yyjson_doc                  = wil::unique_any<yyjson_doc*, decltype(&yyjson_doc_free), yyjson_doc_free>;
+using unique_yyjson_mut_doc              = wil::unique_any<yyjson_mut_doc*, decltype(&yyjson_mut_doc_free), yyjson_mut_doc_free>;
+using unique_malloc_string               = wil::unique_any<char*, decltype(&free), free>;
 constexpr uint32_t kSettingsJsonCapacity = 4096;
 
 enum class PinMode : uint32_t
@@ -130,8 +133,7 @@ wchar_t gPinOverride[1024]{};
 [[nodiscard]] bool IsAutomatedHost() noexcept
 {
     std::array<wchar_t, 8> value{};
-    const DWORD length =
-        GetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", value.data(), static_cast<DWORD>(value.size()));
+    const DWORD length = GetEnvironmentVariableW(L"REDXE_AUTOMATED_HOST", value.data(), static_cast<DWORD>(value.size()));
     return length == 1 && value[0] == L'1';
 }
 
@@ -141,8 +143,8 @@ wchar_t gPinOverride[1024]{};
     {
         return 0;
     }
-    if (target.size() >= 3 && ((target[0] >= 'A' && target[0] <= 'Z') || (target[0] >= 'a' && target[0] <= 'z')) &&
-        target[1] == ':' && (target[2] == '\\' || target[2] == '/'))
+    if (target.size() >= 3 && ((target[0] >= 'A' && target[0] <= 'Z') || (target[0] >= 'a' && target[0] <= 'z')) && target[1] == ':' &&
+        (target[2] == '\\' || target[2] == '/'))
     {
         return 1;
     }
@@ -150,7 +152,7 @@ wchar_t gPinOverride[1024]{};
     {
         return 1;
     }
-    if (target.size() < 3 || !std::isalpha(static_cast<unsigned char>(target[0])))
+    if (target.size() < 3 || ! std::isalpha(static_cast<unsigned char>(target[0])))
     {
         return 0;
     }
@@ -158,7 +160,7 @@ wchar_t gPinOverride[1024]{};
     while (index < target.size())
     {
         const unsigned char value = static_cast<unsigned char>(target[index]);
-        if (!(std::isalnum(value) || value == '+' || value == '.' || value == '-'))
+        if (! (std::isalnum(value) || value == '+' || value == '.' || value == '-'))
         {
             break;
         }
@@ -169,7 +171,7 @@ wchar_t gPinOverride[1024]{};
 
 bool CopyNarrow(std::string_view source, char* destination, size_t capacity) noexcept
 {
-    if (!destination || capacity == 0 || source.size() + 1 > capacity)
+    if (! destination || capacity == 0 || source.size() + 1 > capacity)
     {
         return false;
     }
@@ -180,7 +182,7 @@ bool CopyNarrow(std::string_view source, char* destination, size_t capacity) noe
 
 bool CopyWide(const wchar_t* source, wchar_t* destination, size_t capacity) noexcept
 {
-    if (!source || !destination || capacity == 0)
+    if (! source || ! destination || capacity == 0)
     {
         return false;
     }
@@ -195,7 +197,7 @@ bool CopyWide(const wchar_t* source, wchar_t* destination, size_t capacity) noex
 
 [[nodiscard]] bool Utf8ToWide(std::string_view utf8, wchar_t* wide, size_t capacity) noexcept
 {
-    if (!wide || capacity == 0)
+    if (! wide || capacity == 0)
     {
         return false;
     }
@@ -204,8 +206,7 @@ bool CopyWide(const wchar_t* source, wchar_t* destination, size_t capacity) noex
         wide[0] = L'\0';
         return true;
     }
-    const int written = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), static_cast<int>(utf8.size()),
-                                            wide, static_cast<int>(capacity - 1));
+    const int written = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), static_cast<int>(utf8.size()), wide, static_cast<int>(capacity - 1));
     if (written <= 0)
     {
         return false;
@@ -216,25 +217,23 @@ bool CopyWide(const wchar_t* source, wchar_t* destination, size_t capacity) noex
 
 [[nodiscard]] bool WideToUtf8(const wchar_t* wide, char* utf8, size_t capacity) noexcept
 {
-    if (!wide || !utf8 || capacity == 0)
+    if (! wide || ! utf8 || capacity == 0)
     {
         return false;
     }
-    const int written = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide, -1, utf8, static_cast<int>(capacity),
-                                            nullptr, nullptr);
+    const int written = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide, -1, utf8, static_cast<int>(capacity), nullptr, nullptr);
     return written > 0;
 }
 
 [[nodiscard]] bool EndsWithInsensitive(const wchar_t* name, const wchar_t* suffix) noexcept
 {
-    const size_t nameLength = std::wcslen(name);
+    const size_t nameLength   = std::wcslen(name);
     const size_t suffixLength = std::wcslen(suffix);
     if (nameLength < suffixLength)
     {
         return false;
     }
-    return CompareStringOrdinal(name + nameLength - suffixLength, static_cast<int>(suffixLength), suffix,
-                                static_cast<int>(suffixLength), TRUE) == CSTR_EQUAL;
+    return CompareStringOrdinal(name + nameLength - suffixLength, static_cast<int>(suffixLength), suffix, static_cast<int>(suffixLength), TRUE) == CSTR_EQUAL;
 }
 
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
@@ -264,7 +263,7 @@ struct ShortcutRecord final
 #pragma warning(disable : 4625 4626)
 struct LauncherConfiguration final
 {
-    uint32_t count = 0;
+    uint32_t count            = 0;
     LauncherIconSize iconSize = LauncherIconSize::Automatic;
     std::array<ShortcutRecord, kMaximumShortcuts> items{};
 };
@@ -298,12 +297,12 @@ static_assert(sizeof(LauncherIconInstance) == 32);
 
 [[nodiscard]] HRESULT CopyWicToBgra(IWICBitmapSource* source, ShortcutRecord& record) noexcept
 {
-    if (!source)
+    if (! source)
     {
         return E_POINTER;
     }
-    UINT width = 0;
-    UINT height = 0;
+    UINT width     = 0;
+    UINT height    = 0;
     HRESULT result = source->GetSize(&width, &height);
     if (FAILED(result) || width == 0 || height == 0)
     {
@@ -336,8 +335,8 @@ static_assert(sizeof(LauncherIconInstance) == 32);
             return result;
         }
         converted = scaler;
-        width = kIconEdge;
-        height = kIconEdge;
+        width     = kIconEdge;
+        height    = kIconEdge;
     }
     wil::com_ptr_nothrow<IWICFormatConverter> converter;
     result = factory->CreateFormatConverter(converter.put());
@@ -345,14 +344,13 @@ static_assert(sizeof(LauncherIconInstance) == 32);
     {
         return result;
     }
-    result = converter->Initialize(converted.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr,
-                                   0.0, WICBitmapPaletteTypeMedianCut);
+    result = converter->Initialize(converted.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeMedianCut);
     if (FAILED(result))
     {
         return result;
     }
     record.bgra.reset(new (std::nothrow) uint8_t[kIconEdge * kIconEdge * 4]);
-    if (!record.bgra)
+    if (! record.bgra)
     {
         return E_OUTOFMEMORY;
     }
@@ -362,7 +360,7 @@ static_assert(sizeof(LauncherIconInstance) == 32);
 
 [[nodiscard]] HRESULT TrimAndFit(ShortcutRecord& record) noexcept
 {
-    if (!record.bgra)
+    if (! record.bgra)
     {
         return E_UNEXPECTED;
     }
@@ -388,28 +386,26 @@ static_assert(sizeof(LauncherIconInstance) == 32);
     {
         return S_OK;
     }
-    const uint32_t trimmedWidth = maxX - minX + 1;
+    const uint32_t trimmedWidth  = maxX - minX + 1;
     const uint32_t trimmedHeight = maxY - minY + 1;
     if (trimmedWidth >= kIconEdge - 4 && trimmedHeight >= kIconEdge - 4)
     {
         return S_OK;
     }
     wil::com_ptr_nothrow<IWICImagingFactory> factory;
-    HRESULT result =
-        CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
+    HRESULT result = CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
     if (FAILED(result))
     {
         return result;
     }
     wil::com_ptr_nothrow<IWICBitmap> bitmap;
-    result = factory->CreateBitmapFromMemory(kIconEdge, kIconEdge, GUID_WICPixelFormat32bppPBGRA, kIconEdge * 4,
-                                             kIconEdge * kIconEdge * 4, record.bgra.get(), bitmap.put());
+    result = factory->CreateBitmapFromMemory(
+        kIconEdge, kIconEdge, GUID_WICPixelFormat32bppPBGRA, kIconEdge * 4, kIconEdge * kIconEdge * 4, record.bgra.get(), bitmap.put());
     if (FAILED(result))
     {
         return result;
     }
-    WICRect crop{static_cast<INT>(minX), static_cast<INT>(minY), static_cast<INT>(trimmedWidth),
-                 static_cast<INT>(trimmedHeight)};
+    WICRect crop{static_cast<INT>(minX), static_cast<INT>(minY), static_cast<INT>(trimmedWidth), static_cast<INT>(trimmedHeight)};
     wil::com_ptr_nothrow<IWICBitmapClipper> clipper;
     result = factory->CreateBitmapClipper(clipper.put());
     if (FAILED(result))
@@ -427,15 +423,13 @@ static_assert(sizeof(LauncherIconInstance) == 32);
 [[nodiscard]] HRESULT ExtractFromPng(const wchar_t* path, ShortcutRecord& record) noexcept
 {
     wil::com_ptr_nothrow<IWICImagingFactory> factory;
-    HRESULT result =
-        CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
+    HRESULT result = CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
     if (FAILED(result))
     {
         return result;
     }
     wil::com_ptr_nothrow<IWICBitmapDecoder> decoder;
-    result =
-        factory->CreateDecoderFromFilename(path, nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.put());
+    result = factory->CreateDecoderFromFilename(path, nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.put());
     if (FAILED(result))
     {
         return result;
@@ -458,13 +452,12 @@ static_assert(sizeof(LauncherIconInstance) == 32);
 
 [[nodiscard]] HRESULT ExtractFromHicon(HICON icon, ShortcutRecord& record) noexcept
 {
-    if (!icon)
+    if (! icon)
     {
         return E_POINTER;
     }
     wil::com_ptr_nothrow<IWICImagingFactory> factory;
-    HRESULT result =
-        CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
+    HRESULT result = CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
     if (FAILED(result))
     {
         return result;
@@ -481,13 +474,12 @@ static_assert(sizeof(LauncherIconInstance) == 32);
 
 [[nodiscard]] HRESULT ExtractFromHbitmap(HBITMAP bitmap, ShortcutRecord& record) noexcept
 {
-    if (!bitmap)
+    if (! bitmap)
     {
         return E_POINTER;
     }
     wil::com_ptr_nothrow<IWICImagingFactory> factory;
-    HRESULT result =
-        CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
+    HRESULT result = CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(factory.put()));
     if (FAILED(result))
     {
         return result;
@@ -514,7 +506,7 @@ static_assert(sizeof(LauncherIconInstance) == 32);
             continue;
         }
         HICON icon = nullptr;
-        result = list->GetIcon(iconIndex, ILD_TRANSPARENT, &icon);
+        result     = list->GetIcon(iconIndex, ILD_TRANSPARENT, &icon);
         wil::unique_hicon owned{icon};
         if (SUCCEEDED(result) && owned)
         {
@@ -536,8 +528,7 @@ struct ConstructionCancellation final
     uint64_t expected;
     [[nodiscard]] bool Canceled() const noexcept
     {
-        return generation->load(std::memory_order_acquire) != expected ||
-               WaitForSingleObject(event, 0) == WAIT_OBJECT_0 || GetTickCount64() >= deadline;
+        return generation->load(std::memory_order_acquire) != expected || WaitForSingleObject(event, 0) == WAIT_OBJECT_0 || GetTickCount64() >= deadline;
     }
 };
 // Call-local to Run on the construction STA. Synchronous UI extraction has no cancellation token and no wait/probe.
@@ -548,13 +539,11 @@ thread_local const ConstructionCancellation* gConstructionCancellation = nullptr
     return gConstructionCancellation && gConstructionCancellation->Canceled();
 }
 
-template <typename Operation>
-[[nodiscard]] HRESULT MeasureShellPhase(LauncherShellTimings* timings, LauncherShellPhase phase,
-                                        Operation&& operation) noexcept
+template <typename Operation> [[nodiscard]] HRESULT MeasureShellPhase(LauncherShellTimings* timings, LauncherShellPhase phase, Operation&& operation) noexcept
 {
     if (ConstructionCanceled())
         return E_ABORT;
-    if (!timings)
+    if (! timings)
     {
         const HRESULT result = operation();
         return ConstructionCanceled() ? E_ABORT : result;
@@ -573,23 +562,22 @@ template <typename Operation>
 }
 
 constexpr uint32_t kIconCacheCapacity = 8;
-constexpr uint32_t kIconBytes = kIconEdge * kIconEdge * 4;
+constexpr uint32_t kIconBytes         = kIconEdge * kIconEdge * 4;
 
 struct IconFileIdentity final
 {
     FILE_ID_INFO id{};
     LONGLONG creation = 0;
-    LONGLONG write = 0;
-    LONGLONG change = 0;
-    LONGLONG bytes = 0;
-    DWORD attributes = 0;
+    LONGLONG write    = 0;
+    LONGLONG change   = 0;
+    LONGLONG bytes    = 0;
+    DWORD attributes  = 0;
 
     [[nodiscard]] bool operator==(const IconFileIdentity& other) const noexcept
     {
         return id.VolumeSerialNumber == other.id.VolumeSerialNumber &&
-               std::memcmp(id.FileId.Identifier, other.id.FileId.Identifier, sizeof(id.FileId.Identifier)) == 0 &&
-               creation == other.creation && write == other.write && change == other.change && bytes == other.bytes &&
-               attributes == other.attributes;
+               std::memcmp(id.FileId.Identifier, other.id.FileId.Identifier, sizeof(id.FileId.Identifier)) == 0 && creation == other.creation &&
+               write == other.write && change == other.change && bytes == other.bytes && attributes == other.attributes;
     }
 };
 
@@ -598,40 +586,38 @@ struct IconCacheKey final
     std::array<wchar_t, kTargetCapacity> target{};
     std::array<wchar_t, kTargetCapacity> resource{};
     std::array<wchar_t, MAX_PATH> location{};
-    int index = 0;
+    int index  = 0;
     UINT flags = 0;
     IconFileIdentity targetFile{};
     IconFileIdentity resourceFile{};
 
     [[nodiscard]] bool operator==(const IconCacheKey& other) const noexcept
     {
-        return target == other.target && resource == other.resource && location == other.location &&
-               index == other.index && flags == other.flags && targetFile == other.targetFile &&
-               resourceFile == other.resourceFile;
+        return target == other.target && resource == other.resource && location == other.location && index == other.index && flags == other.flags &&
+               targetFile == other.targetFile && resourceFile == other.resourceFile;
     }
 };
 
 [[nodiscard]] HRESULT ReadIconFileIdentity(const wchar_t* path, IconFileIdentity& identity) noexcept
 {
-    if (!Launcher::ShellIconParentLength(std::wstring_view(path, wcsnlen_s(path, kTargetCapacity))))
+    if (! Launcher::ShellIconParentLength(std::wstring_view(path, wcsnlen_s(path, kTargetCapacity))))
         return S_FALSE;
-    wil::unique_hfile file{CreateFileW(path, FILE_READ_ATTRIBUTES,
-                                       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                                       FILE_ATTRIBUTE_NORMAL, nullptr)};
-    if (!file)
+    wil::unique_hfile file{CreateFileW(
+        path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (! file)
         return HRESULT_FROM_WIN32(GetLastError());
     FILE_BASIC_INFO basic{};
     FILE_STANDARD_INFO standard{};
-    if (!GetFileInformationByHandleEx(file.get(), FileIdInfo, &identity.id, sizeof(identity.id)) ||
-        !GetFileInformationByHandleEx(file.get(), FileBasicInfo, &basic, sizeof(basic)) ||
-        !GetFileInformationByHandleEx(file.get(), FileStandardInfo, &standard, sizeof(standard)))
+    if (! GetFileInformationByHandleEx(file.get(), FileIdInfo, &identity.id, sizeof(identity.id)) ||
+        ! GetFileInformationByHandleEx(file.get(), FileBasicInfo, &basic, sizeof(basic)) ||
+        ! GetFileInformationByHandleEx(file.get(), FileStandardInfo, &standard, sizeof(standard)))
         return HRESULT_FROM_WIN32(GetLastError());
     if (standard.Directory || standard.DeletePending)
         return S_FALSE;
-    identity.creation = basic.CreationTime.QuadPart;
-    identity.write = basic.LastWriteTime.QuadPart;
-    identity.change = basic.ChangeTime.QuadPart;
-    identity.bytes = standard.EndOfFile.QuadPart;
+    identity.creation   = basic.CreationTime.QuadPart;
+    identity.write      = basic.LastWriteTime.QuadPart;
+    identity.change     = basic.ChangeTime.QuadPart;
+    identity.bytes      = standard.EndOfFile.QuadPart;
     identity.attributes = basic.FileAttributes;
     return S_OK;
 }
@@ -644,19 +630,17 @@ struct IconCacheKey final
     return path[0] && wcsnlen_s(path, MAX_PATH) < MAX_PATH && (flags & ~supported) == 0;
 }
 
-[[nodiscard]] HRESULT MakeIconCacheKey(const wchar_t* target, const wchar_t* path, int index, UINT flags,
-                                       IconCacheKey& key) noexcept
+[[nodiscard]] HRESULT MakeIconCacheKey(const wchar_t* target, const wchar_t* path, int index, UINT flags, IconCacheKey& key) noexcept
 {
-    if (!CacheableIconLocation(path, flags) || !(flags & GIL_FORCENOSHIELD) ||
-        !Launcher::ShellIconParentLength(std::wstring_view(target, wcsnlen_s(target, kTargetCapacity))) ||
-        !CopyWide(target, key.target.data(), key.target.size()) ||
-        !CopyWide(path, key.location.data(), key.location.size()))
+    if (! CacheableIconLocation(path, flags) || ! (flags & GIL_FORCENOSHIELD) ||
+        ! Launcher::ShellIconParentLength(std::wstring_view(target, wcsnlen_s(target, kTargetCapacity))) ||
+        ! CopyWide(target, key.target.data(), key.target.size()) || ! CopyWide(path, key.location.data(), key.location.size()))
         return S_FALSE;
     const DWORD length = ExpandEnvironmentStringsW(path, key.resource.data(), static_cast<DWORD>(key.resource.size()));
-    if (!length || length > key.resource.size())
+    if (! length || length > key.resource.size())
         return S_FALSE;
-    key.index = index;
-    key.flags = flags;
+    key.index      = index;
+    key.flags      = flags;
     HRESULT result = ReadIconFileIdentity(target, key.targetFile);
     if (result != S_OK)
         return result;
@@ -670,7 +654,7 @@ struct IconCacheKey final
 #pragma warning(disable : 4625 4626)
 class IconCache final
 {
-  public:
+public:
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
@@ -680,7 +664,7 @@ class IconCache final
         IconCacheKey key{};
         std::unique_ptr<uint8_t[]> pixels;
         uint32_t sourceEdge = 0;
-        bool valid = false;
+        bool valid          = false;
     };
 #pragma warning(pop)
 
@@ -702,11 +686,11 @@ class IconCache final
     [[nodiscard]] HRESULT Read(const Entry& entry, ShortcutRecord& record) noexcept
     {
         const bool injected = std::exchange(failNextRead, false);
-        auto pixels = injected ? nullptr : std::unique_ptr<uint8_t[]>{new (std::nothrow) uint8_t[kIconBytes]};
-        if (!pixels)
+        auto pixels         = injected ? nullptr : std::unique_ptr<uint8_t[]>{new (std::nothrow) uint8_t[kIconBytes]};
+        if (! pixels)
             return E_OUTOFMEMORY;
         std::memcpy(pixels.get(), entry.pixels.get(), kIconBytes);
-        record.bgra = std::move(pixels);
+        record.bgra       = std::move(pixels);
         record.sourceEdge = entry.sourceEdge;
         return S_OK;
     }
@@ -716,30 +700,30 @@ class IconCache final
         if (std::exchange(failNextStore, false))
             return E_OUTOFMEMORY;
         Entry* chosen = Find(key);
-        if (!chosen)
+        if (! chosen)
             for (auto& entry : _entries)
-                if (!entry.valid)
+                if (! entry.valid)
                 {
                     chosen = &entry;
                     break;
                 }
-        if (!chosen)
+        if (! chosen)
         {
             chosen = &_entries[_next];
-            _next = (_next + 1) % kIconCacheCapacity;
+            _next  = (_next + 1) % kIconCacheCapacity;
         }
-        if (!chosen->pixels)
+        if (! chosen->pixels)
         {
             chosen->pixels.reset(new (std::nothrow) uint8_t[kIconBytes]);
-            if (!chosen->pixels)
+            if (! chosen->pixels)
                 return E_OUTOFMEMORY;
         }
-        if (chosen->valid && !(chosen->key == key))
+        if (chosen->valid && ! (chosen->key == key))
             ++evictions;
         std::memcpy(chosen->pixels.get(), record.bgra.get(), kIconBytes);
-        chosen->key = key;
+        chosen->key        = key;
         chosen->sourceEdge = record.sourceEdge;
-        chosen->valid = true;
+        chosen->valid      = true;
         ++stores;
         return S_OK;
     }
@@ -761,18 +745,18 @@ class IconCache final
             diagnostics.residentCount += entry.valid ? 1U : 0U;
             diagnostics.allocatedBytes += entry.pixels ? kIconBytes : 0U;
         }
-        diagnostics.hits = hits;
-        diagnostics.stores = stores;
+        diagnostics.hits      = hits;
+        diagnostics.stores    = stores;
         diagnostics.evictions = evictions;
     }
 
-    uint64_t hits = 0;
-    uint64_t stores = 0;
+    uint64_t hits      = 0;
+    uint64_t stores    = 0;
     uint64_t evictions = 0;
-    bool failNextRead = false;
+    bool failNextRead  = false;
     bool failNextStore = false;
 
-  private:
+private:
     std::array<Entry, kIconCacheCapacity> _entries{};
     uint32_t _next = 0;
 };
@@ -792,7 +776,7 @@ void InvalidateIconCache(const wchar_t* target) noexcept
 
 [[nodiscard]] HRESULT ReadIconCache(const IconCacheKey& key, ShortcutRecord& record) noexcept
 {
-    const auto guard = wil::AcquireSRWLockExclusive(&gIconCacheLock);
+    const auto guard  = wil::AcquireSRWLockExclusive(&gIconCacheLock);
     const auto* entry = gIconCache.Find(key);
     return entry ? gIconCache.Read(*entry, record) : S_FALSE;
 }
@@ -803,40 +787,33 @@ void InvalidateIconCache(const wchar_t* target) noexcept
     return gIconCache.Store(key, record);
 }
 
-[[nodiscard]] HRESULT ExtractFromShellHandler(IExtractIconW* extractor, ShortcutRecord& record,
+[[nodiscard]] HRESULT ExtractFromShellHandler(IExtractIconW* extractor,
+                                              ShortcutRecord& record,
                                               LauncherShellTimings* timings = nullptr,
-                                              const wchar_t* cacheTarget = nullptr) noexcept
+                                              const wchar_t* cacheTarget    = nullptr) noexcept
 {
     std::array<wchar_t, MAX_PATH> iconPath{};
-    int iconIndex = 0;
-    UINT flags = 0;
+    int iconIndex   = 0;
+    UINT flags      = 0;
     HRESULT located = E_NOTIMPL;
-    bool checked = false;
+    bool checked    = false;
     // The shield-aware request also supplies the location. Keep the ordinary query for handlers that
     // cannot supply it; discard their partial outputs before that fallback, and never cache the fallback.
     if (cacheTarget)
     {
-        located = MeasureShellPhase(timings, LauncherShellPhase::ShieldCheck,
-                                    [&]() noexcept
-                                    {
-                                        return extractor->GetIconLocation(
-                                            GIL_FORSHELL | GIL_CHECKSHIELD, iconPath.data(),
-                                            static_cast<UINT>(iconPath.size()), &iconIndex, &flags);
-                                    });
+        located = MeasureShellPhase(timings, LauncherShellPhase::ShieldCheck, [&]() noexcept {
+            return extractor->GetIconLocation(GIL_FORSHELL | GIL_CHECKSHIELD, iconPath.data(), static_cast<UINT>(iconPath.size()), &iconIndex, &flags);
+        });
         checked = located == S_OK && wcsnlen_s(iconPath.data(), iconPath.size()) < iconPath.size();
     }
-    if (!checked)
+    if (! checked)
     {
         iconPath.fill(0);
         iconIndex = 0;
-        flags = 0;
-        located = MeasureShellPhase(timings, LauncherShellPhase::GetLocation,
-                                    [&]() noexcept
-                                    {
-                                        return extractor->GetIconLocation(GIL_FORSHELL, iconPath.data(),
-                                                                          static_cast<UINT>(iconPath.size()),
-                                                                          &iconIndex, &flags);
-                                    });
+        flags     = 0;
+        located   = MeasureShellPhase(timings, LauncherShellPhase::GetLocation, [&]() noexcept {
+            return extractor->GetIconLocation(GIL_FORSHELL, iconPath.data(), static_cast<UINT>(iconPath.size()), &iconIndex, &flags);
+        });
     }
     if (FAILED(located) || wcsnlen_s(iconPath.data(), iconPath.size()) == iconPath.size())
     {
@@ -849,21 +826,20 @@ void InvalidateIconCache(const wchar_t* target) noexcept
     if (cacheTarget)
     {
         if (checked)
-            cacheable = MeasureShellPhase(
-                            timings, LauncherShellPhase::CacheValidation, [&]() noexcept
-                            { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, key); }) == S_OK;
-        if (!cacheable)
+            cacheable = MeasureShellPhase(timings, LauncherShellPhase::CacheValidation, [&]() noexcept {
+                return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, key);
+            }) == S_OK;
+        if (! cacheable)
             InvalidateIconCache(cacheTarget);
         else
         {
-            const HRESULT cached = MeasureShellPhase(timings, LauncherShellPhase::CacheRead,
-                                                     [&]() noexcept { return ReadIconCache(key, record); });
+            const HRESULT cached = MeasureShellPhase(timings, LauncherShellPhase::CacheRead, [&]() noexcept { return ReadIconCache(key, record); });
             if (cached == S_OK)
             {
                 IconCacheKey after{};
-                if (MeasureShellPhase(
-                        timings, LauncherShellPhase::CacheValidation, [&]() noexcept
-                        { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, after); }) == S_OK &&
+                if (MeasureShellPhase(timings,
+                                      LauncherShellPhase::CacheValidation,
+                                      [&]() noexcept { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, after); }) == S_OK &&
                     after == key)
                 {
                     const auto guard = wil::AcquireSRWLockExclusive(&gIconCacheLock);
@@ -883,38 +859,32 @@ void InvalidateIconCache(const wchar_t* target) noexcept
     }
     wil::unique_hicon icon;
     // Only the large image is consumed. Asking for a second 256-pixel image repeats shell work.
-    const HRESULT extracted =
-        MeasureShellPhase(timings, LauncherShellPhase::HandlerExtraction,
-                          [&]() noexcept
-                          {
-                              return extractor->Extract(iconPath.data(), static_cast<UINT>(iconIndex), icon.put(),
-                                                        nullptr, MAKELONG(kIconEdge, 0));
-                          });
+    const HRESULT extracted = MeasureShellPhase(timings, LauncherShellPhase::HandlerExtraction, [&]() noexcept {
+        return extractor->Extract(iconPath.data(), static_cast<UINT>(iconIndex), icon.put(), nullptr, MAKELONG(kIconEdge, 0));
+    });
     if (extracted != S_OK)
     {
         if (cacheTarget)
             InvalidateIconCache(cacheTarget);
         return extracted;
     }
-    if (!icon)
+    if (! icon)
     {
         if (cacheTarget)
             InvalidateIconCache(cacheTarget);
         return E_UNEXPECTED;
     }
-    const HRESULT decoded = MeasureShellPhase(timings, LauncherShellPhase::DecodeIcon,
-                                              [&]() noexcept { return ExtractFromHicon(icon.get(), record); });
+    const HRESULT decoded = MeasureShellPhase(timings, LauncherShellPhase::DecodeIcon, [&]() noexcept { return ExtractFromHicon(icon.get(), record); });
     if (decoded == S_OK && timings)
         timings->sourceKind = 1;
     if (cacheable && decoded == S_OK)
     {
         IconCacheKey after{};
-        if (MeasureShellPhase(timings, LauncherShellPhase::CacheValidation, [&]() noexcept
-                              { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, after); }) ==
-                S_OK &&
+        if (MeasureShellPhase(timings,
+                              LauncherShellPhase::CacheValidation,
+                              [&]() noexcept { return MakeIconCacheKey(cacheTarget, iconPath.data(), iconIndex, flags, after); }) == S_OK &&
             after == key)
-            (void)MeasureShellPhase(timings, LauncherShellPhase::CacheStore,
-                                    [&]() noexcept { return StoreIconCache(key, record); });
+            (void)MeasureShellPhase(timings, LauncherShellPhase::CacheStore, [&]() noexcept { return StoreIconCache(key, record); });
         else
             InvalidateIconCache(cacheTarget);
     }
@@ -931,128 +901,123 @@ void InvalidateIconCache(const wchar_t* target) noexcept
 #pragma warning(disable : 4625 4626 5026 5027)
 class ShellParentFileData final : public RedXeComObject<ShellParentFileData, IFileSystemBindData>
 {
-  public:
+public:
     HRESULT STDMETHODCALLTYPE SetFindData(const WIN32_FIND_DATAW* found) noexcept override
     {
-        if (!found)
+        if (! found)
             return E_POINTER;
         _found = *found;
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE GetFindData(WIN32_FIND_DATAW* found) noexcept override
     {
-        if (!found)
+        if (! found)
             return E_POINTER;
         *found = _found;
         return S_OK;
     }
 
-  private:
+private:
     WIN32_FIND_DATAW _found{};
 };
 #pragma warning(pop)
 
-[[nodiscard]] HRESULT CreateShellParentItem(const wchar_t* path, LauncherShellTimings* timings,
+[[nodiscard]] HRESULT CreateShellParentItem(const wchar_t* path,
+                                            LauncherShellTimings* timings,
                                             LauncherShellParentFailure failure,
                                             wil::com_ptr_nothrow<IShellItem>& parent) noexcept
 {
     WIN32_FIND_DATAW found{};
-    const HRESULT metadata =
-        MeasureShellPhase(timings, LauncherShellPhase::ParentMetadata,
-                          [&]() noexcept
-                          {
-                              if (failure == LauncherShellParentFailure::Metadata)
-                                  return E_ACCESSDENIED;
-                              // FindFirstFile accepts patterns/dot segments; Shell parsing has its own semantics.
-                              // Supply metadata only for a literal ordinary parent, never a guessed match or normalized
-                              // alias.
-                              const std::wstring_view name(path);
-                              if (name.size() == 3 || std::wcspbrk(path + 2, L"*?:") || name.ends_with(L"\\.") ||
-                                  name.ends_with(L"\\..") || name.find(L"\\.\\") != std::wstring_view::npos ||
-                                  name.find(L"\\..\\") != std::wstring_view::npos)
-                                  return S_FALSE;
-                              wil::unique_hfind find{FindFirstFileW(path, &found)};
-                              if (!find)
-                                  return HRESULT_FROM_WIN32(GetLastError());
-                              if (failure == LauncherShellParentFailure::ReparseMetadata)
-                                  found.dwFileAttributes |= FILE_ATTRIBUTE_REPARSE_POINT;
-                              else if (failure == LauncherShellParentFailure::FileMetadata)
-                                  found.dwFileAttributes &= ~FILE_ATTRIBUTE_DIRECTORY;
-                              return (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
-                                             !(found.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
-                                         ? S_OK
-                                         : S_FALSE;
-                          });
+    const HRESULT metadata = MeasureShellPhase(timings,
+                                               LauncherShellPhase::ParentMetadata,
+                                               [&]() noexcept
+    {
+        if (failure == LauncherShellParentFailure::Metadata)
+            return E_ACCESSDENIED;
+        // FindFirstFile accepts patterns/dot segments; Shell parsing has its own semantics.
+        // Supply metadata only for a literal ordinary parent, never a guessed match or normalized
+        // alias.
+        const std::wstring_view name(path);
+        if (name.size() == 3 || std::wcspbrk(path + 2, L"*?:") || name.ends_with(L"\\.") || name.ends_with(L"\\..") ||
+            name.find(L"\\.\\") != std::wstring_view::npos || name.find(L"\\..\\") != std::wstring_view::npos)
+            return S_FALSE;
+        wil::unique_hfind find{FindFirstFileW(path, &found)};
+        if (! find)
+            return HRESULT_FROM_WIN32(GetLastError());
+        if (failure == LauncherShellParentFailure::ReparseMetadata)
+            found.dwFileAttributes |= FILE_ATTRIBUTE_REPARSE_POINT;
+        else if (failure == LauncherShellParentFailure::FileMetadata)
+            found.dwFileAttributes &= ~FILE_ATTRIBUTE_DIRECTORY;
+        return (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && ! (found.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ? S_OK : S_FALSE;
+    });
     if (metadata == S_OK)
     {
         wil::com_ptr_nothrow<IFileSystemBindData> data;
         wil::com_ptr_nothrow<IBindCtx> context;
-        const HRESULT prepared = MeasureShellPhase(timings, LauncherShellPhase::ParentContext,
+        const HRESULT prepared = MeasureShellPhase(timings,
+                                                   LauncherShellPhase::ParentContext,
                                                    [&]() noexcept
-                                                   {
-                                                       if (failure == LauncherShellParentFailure::Allocation)
-                                                           return E_OUTOFMEMORY;
-                                                       data.attach(new (std::nothrow) ShellParentFileData);
-                                                       if (!data)
-                                                           return E_OUTOFMEMORY;
-                                                       HRESULT result = data->SetFindData(&found);
-                                                       if (FAILED(result))
-                                                           return result;
-                                                       if (failure == LauncherShellParentFailure::BindContext)
-                                                           return E_OUTOFMEMORY;
-                                                       result = CreateBindCtx(0, context.put());
-                                                       if (FAILED(result) || !context)
-                                                           return FAILED(result) ? result : E_UNEXPECTED;
-                                                       if (failure == LauncherShellParentFailure::Registration)
-                                                           return E_FAIL;
-                                                       return context->RegisterObjectParam(
-                                                           const_cast<wchar_t*>(STR_FILE_SYS_BIND_DATA), data.get());
-                                                   });
+        {
+            if (failure == LauncherShellParentFailure::Allocation)
+                return E_OUTOFMEMORY;
+            data.attach(new (std::nothrow) ShellParentFileData);
+            if (! data)
+                return E_OUTOFMEMORY;
+            HRESULT result = data->SetFindData(&found);
+            if (FAILED(result))
+                return result;
+            if (failure == LauncherShellParentFailure::BindContext)
+                return E_OUTOFMEMORY;
+            result = CreateBindCtx(0, context.put());
+            if (FAILED(result) || ! context)
+                return FAILED(result) ? result : E_UNEXPECTED;
+            if (failure == LauncherShellParentFailure::Registration)
+                return E_FAIL;
+            return context->RegisterObjectParam(const_cast<wchar_t*>(STR_FILE_SYS_BIND_DATA), data.get());
+        });
         if (prepared == S_OK)
         {
-            const HRESULT created =
-                MeasureShellPhase(timings, LauncherShellPhase::ParentItem,
-                                  [&]() noexcept
-                                  {
-                                      if (failure == LauncherShellParentFailure::NullItem)
-                                          return E_UNEXPECTED;
-                                      const HRESULT result =
-                                          SHCreateItemFromParsingName(path, context.get(), IID_PPV_ARGS(parent.put()));
-                                      if (failure == LauncherShellParentFailure::PartialItem && parent)
-                                          return E_FAIL;
-                                      return SUCCEEDED(result) && !parent ? E_UNEXPECTED : result;
-                                  });
+            const HRESULT created = MeasureShellPhase(timings,
+                                                      LauncherShellPhase::ParentItem,
+                                                      [&]() noexcept
+            {
+                if (failure == LauncherShellParentFailure::NullItem)
+                    return E_UNEXPECTED;
+                const HRESULT result = SHCreateItemFromParsingName(path, context.get(), IID_PPV_ARGS(parent.put()));
+                if (failure == LauncherShellParentFailure::PartialItem && parent)
+                    return E_FAIL;
+                return SUCCEEDED(result) && ! parent ? E_UNEXPECTED : result;
+            });
             if (SUCCEEDED(created) && parent)
                 return created;
             // Discard every partial owner and the supplied metadata before the ordinary retry.
             parent.reset();
         }
     }
-    return MeasureShellPhase(timings, LauncherShellPhase::ParentItem, [&]() noexcept
-                             { return SHCreateItemFromParsingName(path, nullptr, IID_PPV_ARGS(parent.put())); });
+    return MeasureShellPhase(
+        timings, LauncherShellPhase::ParentItem, [&]() noexcept { return SHCreateItemFromParsingName(path, nullptr, IID_PPV_ARGS(parent.put())); });
 }
 
 // One refresh borrows one filesystem folder at a time. Folder ownership ends with the batch.
 class ShellIconBatch final
 {
-  public:
-    explicit ShellIconBatch(LauncherShellParentFailure failure = LauncherShellParentFailure::None,
-                            bool inspectMetadata = false) noexcept
-        : _parentFailure(failure), _inspectMetadata(inspectMetadata)
+public:
+    explicit ShellIconBatch(LauncherShellParentFailure failure = LauncherShellParentFailure::None, bool inspectMetadata = false) noexcept
+        : _parentFailure(failure),
+          _inspectMetadata(inspectMetadata)
     {
     }
 
-    [[nodiscard]] HRESULT Bind(const wchar_t* target, LauncherShellTimings* timings,
-                               wil::com_ptr_nothrow<IExtractIconW>& extractor) noexcept
+    [[nodiscard]] HRESULT Bind(const wchar_t* target, LauncherShellTimings* timings, wil::com_ptr_nothrow<IExtractIconW>& extractor) noexcept
     {
-        const size_t length = wcsnlen_s(target, kTargetCapacity);
+        const size_t length       = wcsnlen_s(target, kTargetCapacity);
         const size_t parentLength = Launcher::ShellIconParentLength(std::wstring_view(target, length));
-        if (!parentLength)
+        if (! parentLength)
             return E_INVALIDARG;
         const wchar_t* separator = wcsrchr(target, L'\\');
         // Keep the separator on drive roots: C: would resolve against a per-drive working directory.
-        if (_length != parentLength || CompareStringOrdinal(_parent.data(), static_cast<int>(_length), target,
-                                                            static_cast<int>(parentLength), FALSE) != CSTR_EQUAL)
+        if (_length != parentLength ||
+            CompareStringOrdinal(_parent.data(), static_cast<int>(_length), target, static_cast<int>(parentLength), FALSE) != CSTR_EQUAL)
         {
             _folder.reset();
             _length = parentLength;
@@ -1060,47 +1025,38 @@ class ShellIconBatch final
             _parent[parentLength] = L'\0';
             wil::com_ptr_nothrow<IShellItem> parent;
             // Metadata-assisted parsing is diagnostic only: both matched hardware orders regressed.
-            HRESULT result =
-                _inspectMetadata
-                    ? CreateShellParentItem(_parent.data(), timings, _parentFailure, parent)
-                    : MeasureShellPhase(
-                          timings, LauncherShellPhase::ParentItem, [&]() noexcept
-                          { return SHCreateItemFromParsingName(_parent.data(), nullptr, IID_PPV_ARGS(parent.put())); });
-            if (FAILED(result) || !parent)
+            HRESULT result = _inspectMetadata ? CreateShellParentItem(_parent.data(), timings, _parentFailure, parent)
+                                              : MeasureShellPhase(timings, LauncherShellPhase::ParentItem, [&]() noexcept {
+                return SHCreateItemFromParsingName(_parent.data(), nullptr, IID_PPV_ARGS(parent.put()));
+            });
+            if (FAILED(result) || ! parent)
                 return FAILED(result) ? result : E_UNEXPECTED;
-            result = MeasureShellPhase(
-                timings, LauncherShellPhase::ParentFolder,
-                [&]() noexcept { return parent->BindToHandler(nullptr, BHID_SFObject, IID_PPV_ARGS(_folder.put())); });
+            result = MeasureShellPhase(timings, LauncherShellPhase::ParentFolder, [&]() noexcept {
+                return parent->BindToHandler(nullptr, BHID_SFObject, IID_PPV_ARGS(_folder.put()));
+            });
             if (FAILED(result))
             {
                 _folder.reset();
                 return result;
             }
         }
-        if (!_folder)
+        if (! _folder)
             return E_NOINTERFACE;
         std::array<wchar_t, kTargetCapacity> childName{};
         std::copy_n(separator + 1, length - static_cast<size_t>(separator - target), childName.data());
         wil::unique_cotaskmem_ptr<ITEMIDLIST> child;
-        HRESULT result =
-            MeasureShellPhase(timings, LauncherShellPhase::ChildParse,
-                              [&]() noexcept
-                              {
-                                  return _folder->ParseDisplayName(nullptr, nullptr, childName.data(), nullptr,
-                                                                   wil::out_param(child), nullptr);
-                              });
-        if (FAILED(result) || !child)
+        HRESULT result = MeasureShellPhase(timings, LauncherShellPhase::ChildParse, [&]() noexcept {
+            return _folder->ParseDisplayName(nullptr, nullptr, childName.data(), nullptr, wil::out_param(child), nullptr);
+        });
+        if (FAILED(result) || ! child)
             return FAILED(result) ? result : E_UNEXPECTED;
         PCUITEMID_CHILD childId = child.get();
-        return MeasureShellPhase(timings, LauncherShellPhase::BindHandler,
-                                 [&]() noexcept
-                                 {
-                                     return _folder->GetUIObjectOf(nullptr, 1, &childId, __uuidof(IExtractIconW),
-                                                                   nullptr, extractor.put_void());
-                                 });
+        return MeasureShellPhase(timings, LauncherShellPhase::BindHandler, [&]() noexcept {
+            return _folder->GetUIObjectOf(nullptr, 1, &childId, __uuidof(IExtractIconW), nullptr, extractor.put_void());
+        });
     }
 
-  private:
+private:
     std::array<wchar_t, kTargetCapacity> _parent{};
     size_t _length = 0;
     wil::com_ptr_nothrow<IShellFolder> _folder;
@@ -1108,9 +1064,10 @@ class ShellIconBatch final
     bool _inspectMetadata;
 };
 
-[[nodiscard]] HRESULT ExtractShellIcon(const wchar_t* target, ShortcutRecord& record,
+[[nodiscard]] HRESULT ExtractShellIcon(const wchar_t* target,
+                                       ShortcutRecord& record,
                                        LauncherShellTimings* timings = nullptr,
-                                       ShellIconBatch* batch = nullptr) noexcept
+                                       ShellIconBatch* batch         = nullptr) noexcept
 {
     gExtractCalls.fetch_add(1, std::memory_order_relaxed);
     wil::com_ptr_nothrow<IExtractIconW> extractIcon;
@@ -1119,37 +1076,33 @@ class ShellIconBatch final
         return S_OK;
     extractIcon.reset();
     wil::com_ptr_nothrow<IShellItem> item;
-    HRESULT result =
-        MeasureShellPhase(timings, LauncherShellPhase::CreateItem, [&]() noexcept
-                          { return SHCreateItemFromParsingName(target, nullptr, IID_PPV_ARGS(item.put())); });
+    HRESULT result = MeasureShellPhase(
+        timings, LauncherShellPhase::CreateItem, [&]() noexcept { return SHCreateItemFromParsingName(target, nullptr, IID_PPV_ARGS(item.put())); });
     if (SUCCEEDED(result))
     {
         // A refused relative bind falls back to the original full-path handler. A handler that already
         // refused extraction is not called twice; retain the original image-factory/image-list fallback.
-        if (!bound)
+        if (! bound)
         {
-            result = MeasureShellPhase(
-                timings, LauncherShellPhase::BindHandler, [&]() noexcept
-                { return item->BindToHandler(nullptr, BHID_SFUIObject, IID_PPV_ARGS(extractIcon.put())); });
-            if (SUCCEEDED(result) && extractIcon &&
-                ExtractFromShellHandler(extractIcon.get(), record, timings, batch ? target : nullptr) == S_OK)
+            result = MeasureShellPhase(timings, LauncherShellPhase::BindHandler, [&]() noexcept {
+                return item->BindToHandler(nullptr, BHID_SFUIObject, IID_PPV_ARGS(extractIcon.put()));
+            });
+            if (SUCCEEDED(result) && extractIcon && ExtractFromShellHandler(extractIcon.get(), record, timings, batch ? target : nullptr) == S_OK)
             {
                 return S_OK;
             }
         }
         wil::com_ptr_nothrow<IShellItemImageFactory> images;
-        result = MeasureShellPhase(timings, LauncherShellPhase::GetImage,
-                                   [&]() noexcept { return item.query_to(images.put()); });
+        result = MeasureShellPhase(timings, LauncherShellPhase::GetImage, [&]() noexcept { return item.query_to(images.put()); });
         if (SUCCEEDED(result) && images)
         {
             SIZE size{static_cast<LONG>(kIconEdge), static_cast<LONG>(kIconEdge)};
             wil::unique_hbitmap bitmap;
-            result = MeasureShellPhase(timings, LauncherShellPhase::GetImage, [&]() noexcept
-                                       { return images->GetImage(size, SIIGBF_BIGGERSIZEOK, bitmap.put()); });
+            result =
+                MeasureShellPhase(timings, LauncherShellPhase::GetImage, [&]() noexcept { return images->GetImage(size, SIIGBF_BIGGERSIZEOK, bitmap.put()); });
             if (SUCCEEDED(result) && bitmap)
             {
-                result = MeasureShellPhase(timings, LauncherShellPhase::DecodeImage,
-                                           [&]() noexcept { return ExtractFromHbitmap(bitmap.get(), record); });
+                result = MeasureShellPhase(timings, LauncherShellPhase::DecodeImage, [&]() noexcept { return ExtractFromHbitmap(bitmap.get(), record); });
                 if (SUCCEEDED(result))
                 {
                     if (timings)
@@ -1160,35 +1113,34 @@ class ShellIconBatch final
         }
     }
 
-    return MeasureShellPhase(timings, LauncherShellPhase::ImageList,
+    return MeasureShellPhase(timings,
+                             LauncherShellPhase::ImageList,
                              [&]() noexcept
-                             {
-                                 SHFILEINFOW info{};
-                                 if (SHGetFileInfoW(target, 0, &info, sizeof(info), SHGFI_SYSICONINDEX) != 0 &&
-                                     SUCCEEDED(ExtractFromImageList(info.iIcon, record)))
-                                 {
-                                     if (timings)
-                                         timings->sourceKind = 3;
-                                     return S_OK;
-                                 }
-                                 SHSTOCKICONINFO stock{};
-                                 stock.cbSize = sizeof(stock);
-                                 if (SUCCEEDED(SHGetStockIconInfo(SIID_APPLICATION, SHGSI_SYSICONINDEX, &stock)))
-                                 {
-                                     const HRESULT decoded = ExtractFromImageList(stock.iSysImageIndex, record);
-                                     if (SUCCEEDED(decoded) && timings)
-                                         timings->sourceKind = 4;
-                                     return decoded;
-                                 }
-                                 return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
-                             });
+    {
+        SHFILEINFOW info{};
+        if (SHGetFileInfoW(target, 0, &info, sizeof(info), SHGFI_SYSICONINDEX) != 0 && SUCCEEDED(ExtractFromImageList(info.iIcon, record)))
+        {
+            if (timings)
+                timings->sourceKind = 3;
+            return S_OK;
+        }
+        SHSTOCKICONINFO stock{};
+        stock.cbSize = sizeof(stock);
+        if (SUCCEEDED(SHGetStockIconInfo(SIID_APPLICATION, SHGSI_SYSICONINDEX, &stock)))
+        {
+            const HRESULT decoded = ExtractFromImageList(stock.iSysImageIndex, record);
+            if (SUCCEEDED(decoded) && timings)
+                timings->sourceKind = 4;
+            return decoded;
+        }
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    });
 }
 
-[[nodiscard]] HRESULT ExtractFromGlyph(wchar_t glyph, ShortcutRecord& record,
-                                       RedXeActions::FluentGlyphRasterizer& rasterizer) noexcept
+[[nodiscard]] HRESULT ExtractFromGlyph(wchar_t glyph, ShortcutRecord& record, RedXeActions::FluentGlyphRasterizer& rasterizer) noexcept
 {
     record.bgra.reset(new (std::nothrow) uint8_t[kIconEdge * kIconEdge * 4]);
-    if (!record.bgra)
+    if (! record.bgra)
     {
         return E_OUTOFMEMORY;
     }
@@ -1202,12 +1154,14 @@ class ShellIconBatch final
     return S_OK;
 }
 
-HRESULT ExtractShortcutIcon(ShortcutRecord& record, RedXeActions::FluentGlyphRasterizer& rasterizer,
-                            ShellIconBatch& batch, LauncherShellTimings* timings = nullptr) noexcept
+HRESULT ExtractShortcutIcon(ShortcutRecord& record,
+                            RedXeActions::FluentGlyphRasterizer& rasterizer,
+                            ShellIconBatch& batch,
+                            LauncherShellTimings* timings = nullptr) noexcept
 {
     record.bgra.reset();
     record.sourceEdge = 0;
-    if (!record.valid || record.kind == 0)
+    if (! record.valid || record.kind == 0)
     {
         // The host refused the action or its target: the tile shows the Warning glyph and never dispatches.
         return ExtractFromGlyph(L'\xE7BA', record, rasterizer);
@@ -1221,7 +1175,7 @@ HRESULT ExtractShortcutIcon(ShortcutRecord& record, RedXeActions::FluentGlyphRas
             return S_OK;
         }
     }
-    else if (!icon.empty())
+    else if (! icon.empty())
     {
         const wchar_t glyph = RedXeActions::FluentGlyphFromName(icon);
         if (SUCCEEDED(ExtractFromGlyph(glyph != 0 ? glyph : L'\xE897', record, rasterizer)))
@@ -1242,7 +1196,7 @@ HRESULT ExtractShortcutIcon(ShortcutRecord& record, RedXeActions::FluentGlyphRas
 
 void EnumerateLnks(const wchar_t* directory, LauncherConfiguration& configuration) noexcept
 {
-    if (!directory || directory[0] == L'\0' || configuration.count >= kMaximumShortcuts)
+    if (! directory || directory[0] == L'\0' || configuration.count >= kMaximumShortcuts)
     {
         return;
     }
@@ -1265,7 +1219,7 @@ void EnumerateLnks(const wchar_t* directory, LauncherConfiguration& configuratio
     {
         if (ConstructionCanceled())
             return;
-        if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 || !EndsWithInsensitive(data.cFileName, L".lnk") ||
+        if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 || ! EndsWithInsensitive(data.cFileName, L".lnk") ||
             CompareStringOrdinal(data.cFileName, -1, L"desktop.ini", -1, TRUE) == CSTR_EQUAL)
         {
             continue;
@@ -1289,11 +1243,10 @@ void EnumerateLnks(const wchar_t* directory, LauncherConfiguration& configuratio
     }
     for (uint32_t index = 0; index < found && configuration.count < kMaximumShortcuts; ++index)
     {
-        ShortcutRecord& item = configuration.items[configuration.count];
-        item = ShortcutRecord{};
-        const int pathWritten =
-            swprintf_s(item.target, std::size(item.target), L"%s\\%s", directory, names[index].data());
-        if (pathWritten <= 0 || !WideToUtf8(item.target, item.targetUtf8, std::size(item.targetUtf8)))
+        ShortcutRecord& item  = configuration.items[configuration.count];
+        item                  = ShortcutRecord{};
+        const int pathWritten = swprintf_s(item.target, std::size(item.target), L"%s\\%s", directory, names[index].data());
+        if (pathWritten <= 0 || ! WideToUtf8(item.target, item.targetUtf8, std::size(item.targetUtf8)))
         {
             continue;
         }
@@ -1323,27 +1276,25 @@ void ResolvePinDirectory(wchar_t* directory, size_t capacity) noexcept
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_UserPinned, 0, nullptr, &folder)) && folder)
     {
         wil::unique_cotaskmem_string owned{folder};
-        if (swprintf_s(directory, capacity, L"%s\\TaskBar", owned.get()) > 0 &&
-            GetFileAttributesW(directory) != INVALID_FILE_ATTRIBUTES)
+        if (swprintf_s(directory, capacity, L"%s\\TaskBar", owned.get()) > 0 && GetFileAttributesW(directory) != INVALID_FILE_ATTRIBUTES)
         {
             return;
         }
     }
-    directory[0] = L'\0';
+    directory[0]  = L'\0';
     PWSTR roaming = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &roaming)) || !roaming)
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &roaming)) || ! roaming)
     {
         return;
     }
     wil::unique_cotaskmem_string owned{roaming};
-    (void)swprintf_s(directory, capacity, L"%s\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar",
-                     owned.get());
+    (void)swprintf_s(directory, capacity, L"%s\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar", owned.get());
 }
 
 [[nodiscard]] bool ParseInstanceSettings(yyjson_val* instance, LauncherConfiguration& configuration) noexcept
 {
     configuration = {};
-    if (!instance || !yyjson_is_obj(instance))
+    if (! instance || ! yyjson_is_obj(instance))
     {
         return false;
     }
@@ -1359,22 +1310,22 @@ void ResolvePinDirectory(wchar_t* directory, size_t capacity) noexcept
     yyjson_val* iconSize = yyjson_obj_get(instance, "iconSize");
     if (iconSize)
     {
-        if (!yyjson_is_str(iconSize))
+        if (! yyjson_is_str(iconSize))
         {
             return false;
         }
         const std::string_view size{yyjson_get_str(iconSize), yyjson_get_len(iconSize)};
-        if (!TryParseLauncherIconSize(size, configuration.iconSize))
+        if (! TryParseLauncherIconSize(size, configuration.iconSize))
         {
             return false;
         }
     }
     yyjson_val* shortcuts = yyjson_obj_get(instance, "shortcuts");
-    if (!shortcuts)
+    if (! shortcuts)
     {
         return true;
     }
-    if (!yyjson_is_arr(shortcuts) || yyjson_arr_size(shortcuts) > kMaximumShortcuts)
+    if (! yyjson_is_arr(shortcuts) || yyjson_arr_size(shortcuts) > kMaximumShortcuts)
     {
         return false;
     }
@@ -1382,22 +1333,21 @@ void ResolvePinDirectory(wchar_t* directory, size_t capacity) noexcept
     for (size_t index = 0; index < count; ++index)
     {
         yyjson_val* item = yyjson_arr_get(shortcuts, index);
-        if (!yyjson_is_obj(item))
+        if (! yyjson_is_obj(item))
         {
             return false;
         }
         Launcher::ShortcutItem parsed{};
         const char* error = nullptr;
-        if (!Launcher::ParseShortcutItem(item, nullptr, parsed, &error))
+        if (! Launcher::ParseShortcutItem(item, nullptr, parsed, &error))
         {
             return false;
         }
         ShortcutRecord& record = configuration.items[configuration.count];
-        record = ShortcutRecord{};
-        if (!CopyNarrow(parsed.action, record.actionUtf8, std::size(record.actionUtf8)) ||
-            !CopyNarrow(parsed.target, record.targetUtf8, std::size(record.targetUtf8)) ||
-            !Utf8ToWide(parsed.target, record.target, std::size(record.target)) ||
-            !CopyNarrow(parsed.icon, record.icon, std::size(record.icon)))
+        record                 = ShortcutRecord{};
+        if (! CopyNarrow(parsed.action, record.actionUtf8, std::size(record.actionUtf8)) ||
+            ! CopyNarrow(parsed.target, record.targetUtf8, std::size(record.targetUtf8)) ||
+            ! Utf8ToWide(parsed.target, record.target, std::size(record.target)) || ! CopyNarrow(parsed.icon, record.icon, std::size(record.icon)))
         {
             return false;
         }
@@ -1415,11 +1365,10 @@ void ResolvePinDirectory(wchar_t* directory, size_t capacity) noexcept
     return true;
 }
 
-[[nodiscard]] HRESULT ReadFactoryConfiguration(const RedXeFactoryOptions* options,
-                                               LauncherConfiguration& configuration) noexcept
+[[nodiscard]] HRESULT ReadFactoryConfiguration(const RedXeFactoryOptions* options, LauncherConfiguration& configuration) noexcept
 {
     configuration = {};
-    if (!options)
+    if (! options)
     {
         return S_OK;
     }
@@ -1427,24 +1376,23 @@ void ResolvePinDirectory(wchar_t* directory, size_t capacity) noexcept
     {
         return E_INVALIDARG;
     }
-    if (!options->configurationJsonUtf8 && options->configurationBytes == 0)
+    if (! options->configurationJsonUtf8 && options->configurationBytes == 0)
     {
         return S_OK;
     }
-    if (!options->configurationJsonUtf8 || options->configurationBytes == 0 ||
-        options->configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
+    if (! options->configurationJsonUtf8 || options->configurationBytes == 0 || options->configurationBytes > kRedXeMaximumFactoryConfigurationBytes)
     {
         return E_INVALIDARG;
     }
     unique_yyjson_doc document{yyjson_read(options->configurationJsonUtf8, options->configurationBytes, 0)};
     yyjson_val* root = document ? yyjson_doc_get_root(document.get()) : nullptr;
-    if (!yyjson_is_obj(root))
+    if (! yyjson_is_obj(root))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    yyjson_val* plugin = yyjson_obj_get(root, "plugin");
+    yyjson_val* plugin   = yyjson_obj_get(root, "plugin");
     yyjson_val* instance = yyjson_obj_get(root, "instance");
-    if (!yyjson_is_obj(plugin) || yyjson_obj_size(plugin) != 0 || !yyjson_is_obj(instance))
+    if (! yyjson_is_obj(plugin) || yyjson_obj_size(plugin) != 0 || ! yyjson_is_obj(instance))
     {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
@@ -1453,10 +1401,10 @@ void ResolvePinDirectory(wchar_t* directory, size_t capacity) noexcept
 
 class LauncherInstanceGpu final
 {
-  public:
+public:
     [[nodiscard]] HRESULT Initialize(ID3D11Device* device) noexcept
     {
-        if (!device)
+        if (! device)
         {
             return E_POINTER;
         }
@@ -1466,9 +1414,9 @@ class LauncherInstanceGpu final
         }
         Reset();
         D3D11_BUFFER_DESC constantDescription{};
-        constantDescription.ByteWidth = sizeof(LauncherConstants);
-        constantDescription.Usage = D3D11_USAGE_DYNAMIC;
-        constantDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        constantDescription.ByteWidth      = sizeof(LauncherConstants);
+        constantDescription.Usage          = D3D11_USAGE_DYNAMIC;
+        constantDescription.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
         constantDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         wil::com_ptr_nothrow<ID3D11Buffer> constantBuffer;
         HRESULT result = device->CreateBuffer(&constantDescription, nullptr, constantBuffer.put());
@@ -1477,11 +1425,11 @@ class LauncherInstanceGpu final
             return result;
         }
         D3D11_BUFFER_DESC instanceDescription{};
-        instanceDescription.ByteWidth = sizeof(LauncherIconInstance) * kMaximumShortcuts;
-        instanceDescription.Usage = D3D11_USAGE_DYNAMIC;
-        instanceDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        instanceDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        instanceDescription.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+        instanceDescription.ByteWidth           = sizeof(LauncherIconInstance) * kMaximumShortcuts;
+        instanceDescription.Usage               = D3D11_USAGE_DYNAMIC;
+        instanceDescription.BindFlags           = D3D11_BIND_SHADER_RESOURCE;
+        instanceDescription.CPUAccessFlags      = D3D11_CPU_ACCESS_WRITE;
+        instanceDescription.MiscFlags           = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
         instanceDescription.StructureByteStride = sizeof(LauncherIconInstance);
         wil::com_ptr_nothrow<ID3D11Buffer> instanceBuffer;
         result = device->CreateBuffer(&instanceDescription, nullptr, instanceBuffer.put());
@@ -1490,8 +1438,8 @@ class LauncherInstanceGpu final
             return result;
         }
         D3D11_SHADER_RESOURCE_VIEW_DESC instanceViewDescription{};
-        instanceViewDescription.Format = DXGI_FORMAT_UNKNOWN;
-        instanceViewDescription.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+        instanceViewDescription.Format             = DXGI_FORMAT_UNKNOWN;
+        instanceViewDescription.ViewDimension      = D3D11_SRV_DIMENSION_BUFFER;
         instanceViewDescription.Buffer.NumElements = kMaximumShortcuts;
         wil::com_ptr_nothrow<ID3D11ShaderResourceView> instanceView;
         result = device->CreateShaderResourceView(instanceBuffer.get(), &instanceViewDescription, instanceView.put());
@@ -1502,7 +1450,7 @@ class LauncherInstanceGpu final
         _deviceIdentity = device;
         _constantBuffer = std::move(constantBuffer);
         _instanceBuffer = std::move(instanceBuffer);
-        _instanceView = std::move(instanceView);
+        _instanceView   = std::move(instanceView);
         return S_OK;
     }
 
@@ -1514,12 +1462,12 @@ class LauncherInstanceGpu final
         _instanceBuffer.reset();
         _constantBuffer.reset();
         _deviceIdentity = nullptr;
-        _slices = 0;
+        _slices         = 0;
     }
 
     [[nodiscard]] HRESULT UploadIcons(ID3D11DeviceContext* context, const LauncherConfiguration& display) noexcept
     {
-        if (!context || !_deviceIdentity || display.count > kMaximumShortcuts)
+        if (! context || ! _deviceIdentity || display.count > kMaximumShortcuts)
         {
             return E_UNEXPECTED;
         }
@@ -1534,10 +1482,10 @@ class LauncherInstanceGpu final
         std::unique_ptr<uint8_t[]> empty;
         for (uint32_t index = 0; index < display.count; ++index)
         {
-            if (!display.items[index].bgra)
+            if (! display.items[index].bgra)
             {
                 empty.reset(new (std::nothrow) uint8_t[kIconEdge * kIconEdge * 4]{});
-                if (!empty)
+                if (! empty)
                     return E_OUTOFMEMORY;
                 break;
             }
@@ -1550,45 +1498,43 @@ class LauncherInstanceGpu final
             if (gTestIconFailurePhase.compare_exchange_strong(failurePhase, 0, std::memory_order_relaxed))
                 return E_OUTOFMEMORY;
             D3D11_TEXTURE2D_DESC description{};
-            description.Width = kIconEdge;
-            description.Height = kIconEdge;
-            description.MipLevels = 1;
-            description.ArraySize = display.count;
-            description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            description.Width            = kIconEdge;
+            description.Height           = kIconEdge;
+            description.MipLevels        = 1;
+            description.ArraySize        = display.count;
+            description.Format           = DXGI_FORMAT_B8G8R8A8_UNORM;
             description.SampleDesc.Count = 1;
-            description.Usage = D3D11_USAGE_DEFAULT;
-            description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-            HRESULT result = _deviceIdentity->CreateTexture2D(&description, nullptr, replacement.put());
+            description.Usage            = D3D11_USAGE_DEFAULT;
+            description.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
+            HRESULT result               = _deviceIdentity->CreateTexture2D(&description, nullptr, replacement.put());
             if (FAILED(result))
                 return result;
             failurePhase = 2;
             if (gTestIconFailurePhase.compare_exchange_strong(failurePhase, 0, std::memory_order_relaxed))
                 return E_OUTOFMEMORY;
             D3D11_SHADER_RESOURCE_VIEW_DESC viewDescription{};
-            viewDescription.Format = description.Format;
-            viewDescription.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+            viewDescription.Format                   = description.Format;
+            viewDescription.ViewDimension            = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
             viewDescription.Texture2DArray.MipLevels = 1;
             viewDescription.Texture2DArray.ArraySize = display.count;
-            result =
-                _deviceIdentity->CreateShaderResourceView(replacement.get(), &viewDescription, replacementView.put());
+            result                                   = _deviceIdentity->CreateShaderResourceView(replacement.get(), &viewDescription, replacementView.put());
             if (FAILED(result))
                 return result;
         }
         ID3D11Texture2D* texture = replacement ? replacement.get() : _texture.get();
-        if (!texture)
+        if (! texture)
             return E_UNEXPECTED;
         const UINT pitch = kIconEdge * 4;
         for (uint32_t index = 0; index < display.count; ++index)
         {
             const uint8_t* source = display.items[index].bgra ? display.items[index].bgra.get() : empty.get();
-            context->UpdateSubresource(texture, D3D11CalcSubresource(0, index, 1), nullptr, source, pitch,
-                                       pitch * kIconEdge);
+            context->UpdateSubresource(texture, D3D11CalcSubresource(0, index, 1), nullptr, source, pitch, pitch * kIconEdge);
         }
         if (replacement)
         {
             _texture = std::move(replacement);
-            _view = std::move(replacementView);
-            _slices = display.count;
+            _view    = std::move(replacementView);
+            _slices  = display.count;
         }
         gTextureUploads.fetch_add(1, std::memory_order_relaxed);
         return S_OK;
@@ -1614,7 +1560,7 @@ class LauncherInstanceGpu final
         return _view.get();
     }
 
-  private:
+private:
     ID3D11Device* _deviceIdentity = nullptr;
     wil::com_ptr_nothrow<ID3D11Buffer> _constantBuffer;
     wil::com_ptr_nothrow<ID3D11Buffer> _instanceBuffer;
@@ -1626,10 +1572,10 @@ class LauncherInstanceGpu final
 
 class LauncherDeviceResources final
 {
-  public:
+public:
     [[nodiscard]] HRESULT Initialize(ID3D11Device* device) noexcept
     {
-        if (!device)
+        if (! device)
         {
             return E_POINTER;
         }
@@ -1639,25 +1585,23 @@ class LauncherDeviceResources final
         }
         Reset();
         wil::com_ptr_nothrow<ID3D11VertexShader> vertexShader;
-        HRESULT result = device->CreateVertexShader(g_LauncherVertexShader, sizeof(g_LauncherVertexShader), nullptr,
-                                                    vertexShader.put());
+        HRESULT result = device->CreateVertexShader(g_LauncherVertexShader, sizeof(g_LauncherVertexShader), nullptr, vertexShader.put());
         if (FAILED(result))
         {
             return result;
         }
         wil::com_ptr_nothrow<ID3D11PixelShader> pixelShader;
-        result =
-            device->CreatePixelShader(g_LauncherPixelShader, sizeof(g_LauncherPixelShader), nullptr, pixelShader.put());
+        result = device->CreatePixelShader(g_LauncherPixelShader, sizeof(g_LauncherPixelShader), nullptr, pixelShader.put());
         if (FAILED(result))
         {
             return result;
         }
         D3D11_SAMPLER_DESC samplerDescription{};
-        samplerDescription.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        samplerDescription.Filter   = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
         samplerDescription.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
         samplerDescription.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
         samplerDescription.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-        samplerDescription.MaxLOD = D3D11_FLOAT32_MAX;
+        samplerDescription.MaxLOD   = D3D11_FLOAT32_MAX;
         wil::com_ptr_nothrow<ID3D11SamplerState> sampler;
         result = device->CreateSamplerState(&samplerDescription, sampler.put());
         if (FAILED(result))
@@ -1665,13 +1609,13 @@ class LauncherDeviceResources final
             return result;
         }
         D3D11_BLEND_DESC blendDescription{};
-        blendDescription.RenderTarget[0].BlendEnable = TRUE;
-        blendDescription.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
-        blendDescription.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-        blendDescription.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
-        blendDescription.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
-        blendDescription.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
-        blendDescription.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+        blendDescription.RenderTarget[0].BlendEnable           = TRUE;
+        blendDescription.RenderTarget[0].SrcBlend              = D3D11_BLEND_ONE;
+        blendDescription.RenderTarget[0].DestBlend             = D3D11_BLEND_INV_SRC_ALPHA;
+        blendDescription.RenderTarget[0].BlendOp               = D3D11_BLEND_OP_ADD;
+        blendDescription.RenderTarget[0].SrcBlendAlpha         = D3D11_BLEND_ONE;
+        blendDescription.RenderTarget[0].DestBlendAlpha        = D3D11_BLEND_INV_SRC_ALPHA;
+        blendDescription.RenderTarget[0].BlendOpAlpha          = D3D11_BLEND_OP_ADD;
         blendDescription.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
         wil::com_ptr_nothrow<ID3D11BlendState> blend;
         result = device->CreateBlendState(&blendDescription, blend.put());
@@ -1680,8 +1624,8 @@ class LauncherDeviceResources final
             return result;
         }
         D3D11_RASTERIZER_DESC rasterDescription{};
-        rasterDescription.FillMode = D3D11_FILL_SOLID;
-        rasterDescription.CullMode = D3D11_CULL_NONE;
+        rasterDescription.FillMode        = D3D11_FILL_SOLID;
+        rasterDescription.CullMode        = D3D11_CULL_NONE;
         rasterDescription.DepthClipEnable = TRUE;
         wil::com_ptr_nothrow<ID3D11RasterizerState> rasterizer;
         result = device->CreateRasterizerState(&rasterDescription, rasterizer.put());
@@ -1697,12 +1641,12 @@ class LauncherDeviceResources final
             return result;
         }
         _deviceIdentity = device;
-        _vertexShader = std::move(vertexShader);
-        _pixelShader = std::move(pixelShader);
-        _sampler = std::move(sampler);
-        _blend = std::move(blend);
-        _rasterizer = std::move(rasterizer);
-        _depth = std::move(depth);
+        _vertexShader   = std::move(vertexShader);
+        _pixelShader    = std::move(pixelShader);
+        _sampler        = std::move(sampler);
+        _blend          = std::move(blend);
+        _rasterizer     = std::move(rasterizer);
+        _depth          = std::move(depth);
         return S_OK;
     }
 
@@ -1717,15 +1661,16 @@ class LauncherDeviceResources final
         _deviceIdentity = nullptr;
     }
 
-    [[nodiscard]] HRESULT Draw(ID3D11DeviceContext* context, LauncherInstanceGpu& instance, LauncherConstants constants,
+    [[nodiscard]] HRESULT Draw(ID3D11DeviceContext* context,
+                               LauncherInstanceGpu& instance,
+                               LauncherConstants constants,
                                const LauncherIconInstance* icons) noexcept
     {
-        if (!context || !_vertexShader || !instance.ConstantBuffer())
+        if (! context || ! _vertexShader || ! instance.ConstantBuffer())
         {
             return E_UNEXPECTED;
         }
-        if (constants.iconCount > 0 &&
-            (!icons || !instance.View() || !instance.InstanceBuffer() || !instance.InstanceView()))
+        if (constants.iconCount > 0 && (! icons || ! instance.View() || ! instance.InstanceBuffer() || ! instance.InstanceView()))
         {
             return E_UNEXPECTED;
         }
@@ -1740,8 +1685,8 @@ class LauncherDeviceResources final
         std::memcpy(mapped.pData, &constants, sizeof(constants));
         context->Unmap(constantBuffer, 0);
 
-        ID3D11Buffer* constantsBuffers[] = {constantBuffer};
-        ID3D11SamplerState* samplers[] = {_sampler.get()};
+        ID3D11Buffer* constantsBuffers[]  = {constantBuffer};
+        ID3D11SamplerState* samplers[]    = {_sampler.get()};
         ID3D11ShaderResourceView* views[] = {instance.View()};
         constexpr float blendFactor[4]{};
         context->IASetInputLayout(nullptr);
@@ -1791,7 +1736,7 @@ class LauncherDeviceResources final
         return S_OK;
     }
 
-  private:
+private:
     ID3D11Device* _deviceIdentity = nullptr;
     wil::com_ptr_nothrow<ID3D11VertexShader> _vertexShader;
     wil::com_ptr_nothrow<ID3D11PixelShader> _pixelShader;
@@ -1803,7 +1748,7 @@ class LauncherDeviceResources final
 
 void CopyShortcutIdentity(const ShortcutRecord& source, ShortcutRecord& destination) noexcept
 {
-    destination.kind = source.kind;
+    destination.kind  = source.kind;
     destination.valid = source.valid;
     CopyWide(source.target, destination.target, std::size(destination.target));
     CopyNarrow(source.icon, destination.icon, std::size(destination.icon));
@@ -1813,8 +1758,8 @@ void CopyShortcutIdentity(const ShortcutRecord& source, ShortcutRecord& destinat
 
 void CopyConfigurationIdentity(const LauncherConfiguration& source, LauncherConfiguration& destination) noexcept
 {
-    destination = {};
-    destination.count = source.count;
+    destination          = {};
+    destination.count    = source.count;
     destination.iconSize = source.iconSize;
     for (uint32_t index = 0; index < source.count; ++index)
     {
@@ -1822,18 +1767,17 @@ void CopyConfigurationIdentity(const LauncherConfiguration& source, LauncherConf
     }
 }
 
-[[nodiscard]] HRESULT WriteConfigurationJson(const LauncherConfiguration& configuration, char* jsonUtf8,
-                                             uint32_t capacityBytes, uint32_t& written) noexcept
+[[nodiscard]] HRESULT WriteConfigurationJson(const LauncherConfiguration& configuration, char* jsonUtf8, uint32_t capacityBytes, uint32_t& written) noexcept
 {
     written = 0;
-    if (!jsonUtf8 || capacityBytes == 0)
+    if (! jsonUtf8 || capacityBytes == 0)
     {
         return E_INVALIDARG;
     }
     unique_yyjson_mut_doc document{yyjson_mut_doc_new(nullptr)};
-    yyjson_mut_val* root = document ? yyjson_mut_obj(document.get()) : nullptr;
+    yyjson_mut_val* root  = document ? yyjson_mut_obj(document.get()) : nullptr;
     yyjson_mut_val* array = document ? yyjson_mut_arr(document.get()) : nullptr;
-    if (!root || !array)
+    if (! root || ! array)
     {
         return E_OUTOFMEMORY;
     }
@@ -1841,33 +1785,32 @@ void CopyConfigurationIdentity(const LauncherConfiguration& source, LauncherConf
     for (uint32_t index = 0; index < configuration.count; ++index)
     {
         yyjson_mut_val* item = yyjson_mut_obj(document.get());
-        if (!item || !yyjson_mut_obj_add_strcpy(document.get(), item, "target", configuration.items[index].targetUtf8))
+        if (! item || ! yyjson_mut_obj_add_strcpy(document.get(), item, "target", configuration.items[index].targetUtf8))
         {
             return E_OUTOFMEMORY;
         }
         if (std::strcmp(configuration.items[index].actionUtf8, Launcher::kDefaultAction) != 0 &&
-            !yyjson_mut_obj_add_strcpy(document.get(), item, "action", configuration.items[index].actionUtf8))
+            ! yyjson_mut_obj_add_strcpy(document.get(), item, "action", configuration.items[index].actionUtf8))
         {
             return E_OUTOFMEMORY;
         }
-        if (configuration.items[index].icon[0] != '\0' &&
-            !yyjson_mut_obj_add_strcpy(document.get(), item, "icon", configuration.items[index].icon))
+        if (configuration.items[index].icon[0] != '\0' && ! yyjson_mut_obj_add_strcpy(document.get(), item, "icon", configuration.items[index].icon))
         {
             return E_OUTOFMEMORY;
         }
-        if (!yyjson_mut_arr_add_val(array, item))
+        if (! yyjson_mut_arr_add_val(array, item))
         {
             return E_OUTOFMEMORY;
         }
     }
-    if (!yyjson_mut_obj_add_val(document.get(), root, "shortcuts", array) ||
-        !yyjson_mut_obj_add_strcpy(document.get(), root, "iconSize", LauncherIconSizeName(configuration.iconSize)))
+    if (! yyjson_mut_obj_add_val(document.get(), root, "shortcuts", array) ||
+        ! yyjson_mut_obj_add_strcpy(document.get(), root, "iconSize", LauncherIconSizeName(configuration.iconSize)))
     {
         return E_OUTOFMEMORY;
     }
     size_t length = 0;
     unique_malloc_string text{yyjson_mut_write(document.get(), 0, &length)};
-    if (!text || length == 0)
+    if (! text || length == 0)
     {
         return E_OUTOFMEMORY;
     }
@@ -1877,7 +1820,7 @@ void CopyConfigurationIdentity(const LauncherConfiguration& source, LauncherConf
     }
     std::memcpy(jsonUtf8, text.get(), length);
     jsonUtf8[length] = '\0';
-    written = static_cast<uint32_t>(length);
+    written          = static_cast<uint32_t>(length);
     return S_OK;
 }
 
@@ -1900,27 +1843,27 @@ struct LauncherConstructionLifetime final
 #pragma warning(disable : 4625 4626 5026 5027)
 class LauncherConstructionWork final : public RedXeComObject<LauncherConstructionWork, IRedXeConstructionWork>
 {
-  public:
-    LauncherConstructionWork(std::shared_ptr<LauncherConstructionLifetime> lifetime, uint64_t generation,
-                             const LauncherConfiguration& input) noexcept
-        : _lifetime(std::move(lifetime)), _generation(generation), _queuedTick(GetTickCount64())
+public:
+    LauncherConstructionWork(std::shared_ptr<LauncherConstructionLifetime> lifetime, uint64_t generation, const LauncherConfiguration& input) noexcept
+        : _lifetime(std::move(lifetime)),
+          _generation(generation),
+          _queuedTick(GetTickCount64())
     {
         CopyConfigurationIdentity(input, configuration);
     }
 
     HRESULT STDMETHODCALLTYPE Run(HANDLE cancelEvent, uint32_t timeoutMilliseconds) noexcept override
     {
-        const uint64_t started = GetTickCount64();
-        queueMilliseconds = started - _queuedTick;
+        const uint64_t started  = GetTickCount64();
+        queueMilliseconds       = started - _queuedTick;
         const uint64_t deadline = started + timeoutMilliseconds;
         const ConstructionCancellation cancellation{cancelEvent, deadline, &_lifetime->generation, _generation};
         const auto* previousCancellation = std::exchange(gConstructionCancellation, &cancellation);
-        const auto restoreCancellation =
-            wil::scope_exit([&]() noexcept { gConstructionCancellation = previousCancellation; });
-        const auto canceled = [&]() noexcept
+        const auto restoreCancellation   = wil::scope_exit([&]() noexcept { gConstructionCancellation = previousCancellation; });
+        const auto canceled              = [&]() noexcept
         {
-            return _lifetime->generation.load(std::memory_order_acquire) != _generation ||
-                   WaitForSingleObject(cancelEvent, 0) == WAIT_OBJECT_0 || GetTickCount64() >= deadline;
+            return _lifetime->generation.load(std::memory_order_acquire) != _generation || WaitForSingleObject(cancelEvent, 0) == WAIT_OBJECT_0 ||
+                   GetTickCount64() >= deadline;
         };
         LARGE_INTEGER frequency{}, begin{};
         QueryPerformanceFrequency(&frequency);
@@ -1928,23 +1871,19 @@ class LauncherConstructionWork final : public RedXeComObject<LauncherConstructio
         FILETIME creation{}, exit{}, kernel{}, user{};
         const auto cpu = [&]() noexcept -> uint64_t
         {
-            if (!GetThreadTimes(GetCurrentThread(), &creation, &exit, &kernel, &user))
+            if (! GetThreadTimes(GetCurrentThread(), &creation, &exit, &kernel, &user))
                 return 0;
-            return (static_cast<uint64_t>(kernel.dwHighDateTime) << 32U) + kernel.dwLowDateTime +
-                   (static_cast<uint64_t>(user.dwHighDateTime) << 32U) + user.dwLowDateTime;
+            return (static_cast<uint64_t>(kernel.dwHighDateTime) << 32U) + kernel.dwLowDateTime + (static_cast<uint64_t>(user.dwHighDateTime) << 32U) +
+                   user.dwLowDateTime;
         };
         const uint64_t beforeCpu = cpu();
-        const auto measured = wil::scope_exit(
-            [&]() noexcept
-            {
-                LARGE_INTEGER end{};
-                QueryPerformanceCounter(&end);
-                wallMicroseconds =
-                    frequency.QuadPart > 0
-                        ? static_cast<uint64_t>((end.QuadPart - begin.QuadPart) * 1'000'000 / frequency.QuadPart)
-                        : 0;
-                cpu100ns = cpu() - beforeCpu;
-            });
+        const auto measured      = wil::scope_exit([&]() noexcept
+        {
+            LARGE_INTEGER end{};
+            QueryPerformanceCounter(&end);
+            wallMicroseconds = frequency.QuadPart > 0 ? static_cast<uint64_t>((end.QuadPart - begin.QuadPart) * 1'000'000 / frequency.QuadPart) : 0;
+            cpu100ns         = cpu() - beforeCpu;
+        });
         if (canceled())
             return E_ABORT;
         if (configuration.count == 0)
@@ -1958,13 +1897,11 @@ class LauncherConstructionWork final : public RedXeComObject<LauncherConstructio
             if (usingPins)
             {
                 uint32_t written = 0;
-                HRESULT encoded = WriteConfigurationJson(configuration, pinJson.data(),
-                                                         static_cast<uint32_t>(pinJson.size()), written);
+                HRESULT encoded  = WriteConfigurationJson(configuration, pinJson.data(), static_cast<uint32_t>(pinJson.size()), written);
                 while (encoded == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) && configuration.count > 0)
                 {
                     --configuration.count;
-                    encoded = WriteConfigurationJson(configuration, pinJson.data(),
-                                                     static_cast<uint32_t>(pinJson.size()), written);
+                    encoded = WriteConfigurationJson(configuration, pinJson.data(), static_cast<uint32_t>(pinJson.size()), written);
                 }
                 RETURN_IF_FAILED(encoded);
                 pinJsonBytes = written;
@@ -1983,8 +1920,7 @@ class LauncherConstructionWork final : public RedXeComObject<LauncherConstructio
             // Preserve the ordinary fresh shield-aware native extraction and exact 256-pixel decode path.
             (void)ExtractShortcutIcon(configuration.items[index], rasterizer, batch, &sample);
             for (uint32_t phase = 0; phase < kLauncherShellPhaseCount; ++phase)
-                phaseMicroseconds[phase] +=
-                    sample.frequency ? sample.phaseTicks[phase] * 1'000'000 / sample.frequency : 0;
+                phaseMicroseconds[phase] += sample.frequency ? sample.phaseTicks[phase] * 1'000'000 / sample.frequency : 0;
         }
         return canceled() ? E_ABORT : S_OK;
     }
@@ -1992,12 +1928,12 @@ class LauncherConstructionWork final : public RedXeComObject<LauncherConstructio
     void STDMETHODCALLTYPE Complete(HRESULT result) noexcept override;
     LauncherConfiguration configuration{};
     std::array<char, kSettingsJsonCapacity + 1> pinJson{};
-    uint32_t pinJsonBytes = 0;
-    bool usingPins = false;
+    uint32_t pinJsonBytes      = 0;
+    bool usingPins             = false;
     uint64_t queueMilliseconds = 0, wallMicroseconds = 0, cpu100ns = 0;
     std::array<uint64_t, kLauncherShellPhaseCount> phaseMicroseconds{};
 
-  private:
+private:
     std::shared_ptr<LauncherConstructionLifetime> _lifetime;
     uint64_t _generation;
     uint64_t _queuedTick;
@@ -2008,18 +1944,28 @@ class LauncherConstructionWork final : public RedXeComObject<LauncherConstructio
 // Preserve aggregate and overload behavior. Owner: repository maintainers; review: 2027-01-31.
 #pragma warning(push)
 #pragma warning(disable : 4625 4626)
-class LauncherWidget final
-    : public RedXeComObject<LauncherWidget, IRedXeWidget, IRedXeGpuWidget, IRedXePreparedGpuWidget,
-                            IRedXeConstructionStateWidget, IRedXeInteractiveWidget, IRedXeRaisedWidget>
+class LauncherWidget final : public RedXeComObject<LauncherWidget,
+                                                   IRedXeWidget,
+                                                   IRedXeGpuWidget,
+                                                   IRedXePreparedGpuWidget,
+                                                   IRedXeConstructionStateWidget,
+                                                   IRedXeInteractiveWidget,
+                                                   IRedXeRaisedWidget>
 {
-  public:
-    LauncherWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner, LauncherDeviceResources& resources,
-                   IRedXeHost* host, const char* instanceId, const LauncherConfiguration& configuration,
+public:
+    LauncherWidget(wil::com_ptr_nothrow<IRedXeWidgetProvider>&& providerOwner,
+                   LauncherDeviceResources& resources,
+                   IRedXeHost* host,
+                   const char* instanceId,
+                   const LauncherConfiguration& configuration,
                    uint32_t backgroundRgb) noexcept
-        : _providerOwner(std::move(providerOwner)), _resources(&resources), _host(host),
+        : _providerOwner(std::move(providerOwner)),
+          _resources(&resources),
+          _host(host),
           _background{static_cast<float>((backgroundRgb >> 16U) & 0xFFU) / 255.0f,
                       static_cast<float>((backgroundRgb >> 8U) & 0xFFU) / 255.0f,
-                      static_cast<float>(backgroundRgb & 0xFFU) / 255.0f, 1.0f}
+                      static_cast<float>(backgroundRgb & 0xFFU) / 255.0f,
+                      1.0f}
     {
         CopyConfigurationIdentity(configuration, _authored);
         ValidateShortcuts(_authored);
@@ -2044,47 +1990,46 @@ class LauncherWidget final
     HRESULT STDMETHODCALLTYPE SetVisible(BOOL visible) noexcept override
     {
         _visible = visible != FALSE;
-        if (!_visible)
+        if (! _visible)
         {
             CancelConstruction();
             _launchActive = false;
-            _pointerDown = false;
-            _pagePan = false;
+            _pointerDown  = false;
+            _pagePan      = false;
             StopPageSettle(true);
             return S_OK;
         }
-        if (!StartConstruction())
+        if (! StartConstruction())
             RefreshDisplay(false);
         return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE GetConstructionState(RedXeConstructionState* state) noexcept override
     {
-        if (!state)
+        if (! state)
             return E_POINTER;
-        *state = _constructionPending                                    ? RedXeConstructionStatePending
-                 : _constructionFailed || _iconsPreparationFailed        ? RedXeConstructionStateUnavailable
-                 : _iconsDirty || _invalidImportedIcons || !_deviceReady ? RedXeConstructionStateNeedsPreparation
-                                                                         : RedXeConstructionStateReady;
+        *state = _constructionPending                                     ? RedXeConstructionStatePending
+                 : _constructionFailed || _iconsPreparationFailed         ? RedXeConstructionStateUnavailable
+                 : _iconsDirty || _invalidImportedIcons || ! _deviceReady ? RedXeConstructionStateNeedsPreparation
+                                                                          : RedXeConstructionStateReady;
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes,
-                                                        uint32_t* writtenBytes) noexcept override
+    HRESULT STDMETHODCALLTYPE CollectPersistentSettings(char* jsonUtf8, uint32_t capacityBytes, uint32_t* writtenBytes) noexcept override
     {
         if (writtenBytes)
         {
             *writtenBytes = 0;
         }
-        if (!writtenBytes)
+        if (! writtenBytes)
         {
             return E_POINTER;
         }
-        if (!_dirty)
+        if (! _dirty)
         {
             return S_FALSE;
         }
-        uint32_t written = 0;
+        uint32_t written     = 0;
         const HRESULT result = WriteAuthoredJson(jsonUtf8, capacityBytes, written);
         if (SUCCEEDED(result))
         {
@@ -2095,7 +2040,7 @@ class LauncherWidget final
 
     HRESULT STDMETHODCALLTYPE GetRaisedExtent(RedXeRaisedExtent* extent) noexcept override
     {
-        if (!extent)
+        if (! extent)
         {
             return E_POINTER;
         }
@@ -2110,11 +2055,11 @@ class LauncherWidget final
 
     HRESULT STDMETHODCALLTYPE OnDeviceCreated(const RedXeGpuDeviceContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
-        if (context->sizeBytes != sizeof(RedXeGpuDeviceContext) || !context->device)
+        if (context->sizeBytes != sizeof(RedXeGpuDeviceContext) || ! context->device)
         {
             return E_INVALIDARG;
         }
@@ -2131,48 +2076,47 @@ class LauncherWidget final
         _device = context->device;
         wil::com_ptr_nothrow<ID3D11DeviceContext> immediate;
         context->device->GetImmediateContext(immediate.put());
-        result = _gpu.UploadIcons(immediate.get(), _display);
-        _deviceReady = SUCCEEDED(result);
-        _iconsDirty = FAILED(result);
+        result                  = _gpu.UploadIcons(immediate.get(), _display);
+        _deviceReady            = SUCCEEDED(result);
+        _iconsDirty             = FAILED(result);
         _iconsPreparationFailed = false;
         return result;
     }
 
     void STDMETHODCALLTYPE OnDeviceLost() noexcept override
     {
-        _deviceReady = false;
-        _iconsDirty = true;
+        _deviceReady            = false;
+        _iconsDirty             = true;
         _iconsPreparationFailed = false;
-        _device = nullptr;
+        _device                 = nullptr;
         _gpu.Reset();
         _resources->Reset();
     }
 
     HRESULT STDMETHODCALLTYPE OnTargetSizeChanged(const RedXeGpuTargetSizeContext* context) noexcept override
     {
-        if (!context)
+        if (! context)
         {
             return E_POINTER;
         }
-        if (context->sizeBytes != sizeof(RedXeGpuTargetSizeContext) || context->widthPixels == 0 ||
-            context->heightPixels == 0)
+        if (context->sizeBytes != sizeof(RedXeGpuTargetSizeContext) || context->widthPixels == 0 || context->heightPixels == 0)
         {
             return E_INVALIDARG;
         }
         if (_width != context->widthPixels || _height != context->heightPixels || _dpi != context->dpi)
             _iconsPreparationFailed = false;
-        _width = context->widthPixels;
+        _width  = context->widthPixels;
         _height = context->heightPixels;
-        _dpi = context->dpi == 0 ? USER_DEFAULT_SCREEN_DPI : context->dpi;
+        _dpi    = context->dpi == 0 ? USER_DEFAULT_SCREEN_DPI : context->dpi;
         ComputeGrid();
         return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE Prepare(const RedXeGpuPreparationContext* context) noexcept override
     {
-        if (!context || context->sizeBytes != sizeof(RedXeGpuPreparationContext))
+        if (! context || context->sizeBytes != sizeof(RedXeGpuPreparationContext))
             return E_INVALIDARG;
-        if (!_visible)
+        if (! _visible)
             return S_FALSE;
         if (_constructionPending)
         {
@@ -2195,13 +2139,13 @@ class LauncherWidget final
             }
             _invalidImportedIcons = 0;
         }
-        if (!_visible || !_iconsDirty || _iconsPreparationFailed)
+        if (! _visible || ! _iconsDirty || _iconsPreparationFailed)
             return S_FALSE;
-        if (!_deviceReady || !_device)
+        if (! _deviceReady || ! _device)
             return E_UNEXPECTED;
         wil::com_ptr_nothrow<ID3D11DeviceContext> immediate;
         _device->GetImmediateContext(immediate.put());
-        const HRESULT result = _gpu.UploadIcons(immediate.get(), _display);
+        const HRESULT result    = _gpu.UploadIcons(immediate.get(), _display);
         _iconsPreparationFailed = FAILED(result);
         if (SUCCEEDED(result))
             _iconsDirty = false;
@@ -2210,39 +2154,37 @@ class LauncherWidget final
 
     HRESULT STDMETHODCALLTYPE Render(const RedXeGpuFrameContext* context) noexcept override
     {
-        if (!context || !context->widget)
+        if (! context || ! context->widget)
         {
             return E_POINTER;
         }
         const RedXeWidgetFrameContext& widget = *context->widget;
-        if (context->sizeBytes != sizeof(RedXeGpuFrameContext) || widget.sizeBytes != sizeof(RedXeWidgetFrameContext) ||
-            !context->deviceContext || widget.widthPixels == 0 || widget.heightPixels == 0 ||
-            !std::isfinite(widget.elapsedSeconds) || !std::isfinite(widget.deltaSeconds) || widget.deltaSeconds < 0.0f)
+        if (context->sizeBytes != sizeof(RedXeGpuFrameContext) || widget.sizeBytes != sizeof(RedXeWidgetFrameContext) || ! context->deviceContext ||
+            widget.widthPixels == 0 || widget.heightPixels == 0 || ! std::isfinite(widget.elapsedSeconds) || ! std::isfinite(widget.deltaSeconds) ||
+            widget.deltaSeconds < 0.0f)
         {
             return E_INVALIDARG;
         }
         if (_constructionPending)
             return S_FALSE;
-        if (_constructionFailed || !_deviceReady || _iconsDirty)
+        if (_constructionFailed || ! _deviceReady || _iconsDirty)
         {
             return E_UNEXPECTED;
         }
         // The size notification describes the largest target. A raised widget also draws its original tile.
-        _width = widget.widthPixels;
+        _width  = widget.widthPixels;
         _height = widget.heightPixels;
-        _dpi = widget.dpi == 0 ? USER_DEFAULT_SCREEN_DPI : widget.dpi;
+        _dpi    = widget.dpi == 0 ? USER_DEFAULT_SCREEN_DPI : widget.dpi;
         ComputeGrid();
-        const auto& grid = _grids[_activeGrid];
+        const auto& grid             = _grids[_activeGrid];
         const uint32_t shortcutCount = grid.count;
-        float launchAmount = 0.0f;
+        float launchAmount           = 0.0f;
         if (_launchActive)
         {
             LARGE_INTEGER now{};
             QueryPerformanceCounter(&now);
-            const double elapsed = _qpcFrequency == 0
-                                       ? 1.0
-                                       : static_cast<double>(static_cast<uint64_t>(now.QuadPart) - _launchStartQpc) /
-                                             static_cast<double>(_qpcFrequency);
+            const double elapsed =
+                _qpcFrequency == 0 ? 1.0 : static_cast<double>(static_cast<uint64_t>(now.QuadPart) - _launchStartQpc) / static_cast<double>(_qpcFrequency);
             if (elapsed >= kLaunchDurationSeconds)
             {
                 _launchActive = false;
@@ -2257,40 +2199,39 @@ class LauncherWidget final
             }
         }
         LauncherConstants constants{};
-        constants.viewportWidth = static_cast<float>(widget.widthPixels);
+        constants.viewportWidth  = static_cast<float>(widget.widthPixels);
         constants.viewportHeight = static_cast<float>(widget.heightPixels);
-        constants.hint = (_display.count == 0) ? 1.0f : 0.0f;
+        constants.hint           = (_display.count == 0) ? 1.0f : 0.0f;
         std::copy(_background.begin(), _background.end(), constants.background);
         constants.hintColor[0] = 0.55f;
         constants.hintColor[1] = 0.58f;
         constants.hintColor[2] = 0.62f;
         constants.hintColor[3] = 1.0f;
         AdvancePageSettle();
-        const float slide = static_cast<float>(_slidePx);
+        const float slide               = static_cast<float>(_slidePx);
         const LauncherIconSize iconSize = _display.count > 0 ? _display.iconSize : _authored.iconSize;
         std::array<LauncherIconInstance, kMaximumShortcuts> instances{};
-        uint32_t drawn = 0;
+        uint32_t drawn        = 0;
         const auto appendPage = [&](uint32_t page, float xOffset) noexcept
         {
-            const LauncherPageGeometry pageGeometry =
-                ComputeLauncherPages(_width, _height, _dpi, shortcutCount, page, iconSize);
+            const LauncherPageGeometry pageGeometry = ComputeLauncherPages(_width, _height, _dpi, shortcutCount, page, iconSize);
             std::array<std::array<float, 4>, kMaximumShortcuts> pageCells{};
             FillLauncherPageCells(_width, _height, _dpi, shortcutCount, pageGeometry, pageCells);
             const uint32_t pagePacked = LauncherPackedIconCount(pageGeometry, shortcutCount);
             for (uint32_t index = 0; index < pagePacked && drawn < kMaximumShortcuts; ++index)
             {
-                const uint32_t global = pageGeometry.firstIndex + index;
+                const uint32_t global    = pageGeometry.firstIndex + index;
                 instances[drawn].rect[0] = pageCells[index][0] + xOffset;
                 instances[drawn].rect[1] = pageCells[index][1];
                 instances[drawn].rect[2] = pageCells[index][2];
                 instances[drawn].rect[3] = pageCells[index][3];
-                float dim = 1.0f;
-                float tilt = 0.0f;
-                float z = 0.0f;
+                float dim                = 1.0f;
+                float tilt               = 0.0f;
+                float z                  = 0.0f;
                 if (_launchActive && global == _launchIndex)
                 {
                     tilt = launchAmount * 0.65f;
-                    z = launchAmount * 48.0f;
+                    z    = launchAmount * 48.0f;
                 }
                 else if (_launchActive)
                 {
@@ -2316,16 +2257,16 @@ class LauncherWidget final
         {
             appendPage(_pageIndex - 1, slide - static_cast<float>(_width));
         }
-        constants.iconCount = drawn;
+        constants.iconCount                 = drawn;
         const RedXePageIndicatorLayout dots = LauncherPageDots(_width, _height, _dpi, grid.pageCount, grid.pageIndex);
-        constants.pad[0] = dots.pageCount;
-        constants.pad[1] = dots.selected;
-        constants.pad[2] = 0;
-        constants.pageDots[0] = dots.firstCenterX;
-        constants.pageDots[1] = dots.centerY;
-        constants.pageDots[2] = dots.gap;
-        constants.pageDots[3] = dots.radius;
-        constants.pageDotRadii[0] = dots.selectedRadius;
+        constants.pad[0]                    = dots.pageCount;
+        constants.pad[1]                    = dots.selected;
+        constants.pad[2]                    = 0;
+        constants.pageDots[0]               = dots.firstCenterX;
+        constants.pageDots[1]               = dots.centerY;
+        constants.pageDots[2]               = dots.gap;
+        constants.pageDots[3]               = dots.radius;
+        constants.pageDotRadii[0]           = dots.selectedRadius;
         if ((_settleActive || _pagePan || _launchActive) && _host)
         {
             (void)_host->RequestFrame();
@@ -2335,7 +2276,7 @@ class LauncherWidget final
 
     HRESULT STDMETHODCALLTYPE OnPointer(const RedXePointerEvent* event) noexcept override
     {
-        if (!event)
+        if (! event)
         {
             return E_POINTER;
         }
@@ -2356,25 +2297,25 @@ class LauncherWidget final
         if (event->phase == RedXePointerPhaseCancel)
         {
             _pointerDown = false;
-            _pagePan = false;
-            _downIndex = kMaximumShortcuts;
-            _dotDown = UINT32_MAX;
+            _pagePan     = false;
+            _downIndex   = kMaximumShortcuts;
+            _dotDown     = UINT32_MAX;
             if (_slidePx != 0)
             {
                 StartPageSettle(0);
             }
             return S_FALSE;
         }
-        const auto& grid = _grids[_activeGrid];
+        const auto& grid       = _grids[_activeGrid];
         const uint32_t pageHit = HitLauncherPageDot(event->x, event->y, _width, _height, _dpi, grid.pageCount);
         if (event->phase == RedXePointerPhaseDown)
         {
-            _pagePan = false;
-            _launchActive = false;
-            _pointerStartX = event->x - static_cast<float>(_slidePx);
-            _pointerStartY = event->y;
-            _pointerLastX = event->x;
-            _pointerLastQpc = 0;
+            _pagePan          = false;
+            _launchActive     = false;
+            _pointerStartX    = event->x - static_cast<float>(_slidePx);
+            _pointerStartY    = event->y;
+            _pointerLastX     = event->x;
+            _pointerLastQpc   = 0;
             _velocityPxPerSec = 0.0f;
             if (_settleActive)
             {
@@ -2383,37 +2324,36 @@ class LauncherWidget final
             if (pageHit < grid.pageCount)
             {
                 _pointerDown = true;
-                _downIndex = kMaximumShortcuts;
-                _dotDown = pageHit;
+                _downIndex   = kMaximumShortcuts;
+                _dotDown     = pageHit;
                 return S_OK;
             }
-            _dotDown = UINT32_MAX;
+            _dotDown           = UINT32_MAX;
             const uint32_t hit = HitCell(event->x, event->y);
-            _pointerDown = true;
-            _downIndex = hit;
+            _pointerDown       = true;
+            _downIndex         = hit;
             return hit < _display.count || _slidePx != 0 ? S_OK : S_FALSE;
         }
         if (event->phase == RedXePointerPhaseMove)
         {
-            if (!_pointerDown)
+            if (! _pointerDown)
             {
                 return S_FALSE;
             }
             UpdatePagePanVelocity(event->x);
-            const LONG deltaX = static_cast<LONG>(event->x - _pointerStartX);
-            const LONG deltaY = static_cast<LONG>(event->y - _pointerStartY);
+            const LONG deltaX    = static_cast<LONG>(event->x - _pointerStartX);
+            const LONG deltaY    = static_cast<LONG>(event->y - _pointerStartY);
             const LONG threshold = LauncherPageSwipeThresholdPixels(_dpi);
-            if (!_pagePan && grid.pageCount > 1 && LauncherPageSwipeLocksHorizontal(deltaX, deltaY, threshold))
+            if (! _pagePan && grid.pageCount > 1 && LauncherPageSwipeLocksHorizontal(deltaX, deltaY, threshold))
             {
-                _pagePan = true;
+                _pagePan   = true;
                 _downIndex = kMaximumShortcuts;
-                _dotDown = UINT32_MAX;
+                _dotDown   = UINT32_MAX;
             }
             if (_pagePan)
             {
-                const bool blocked =
-                    LauncherPageSwipeBlocksDirection(deltaX, _pageIndex == 0, _pageIndex + 1 >= grid.pageCount);
-                _slidePx = LauncherApplyPageEdgeResistance(deltaX, static_cast<LONG>(_width), blocked);
+                const bool blocked = LauncherPageSwipeBlocksDirection(deltaX, _pageIndex == 0, _pageIndex + 1 >= grid.pageCount);
+                _slidePx           = LauncherApplyPageEdgeResistance(deltaX, static_cast<LONG>(_width), blocked);
                 PublishCounts();
                 if (_host)
                 {
@@ -2424,19 +2364,18 @@ class LauncherWidget final
         }
         if (event->phase == RedXePointerPhaseUp)
         {
-            const bool panned = _pagePan;
+            const bool panned   = _pagePan;
             const uint32_t down = _downIndex;
-            const uint32_t dot = _dotDown;
-            _pointerDown = false;
-            _pagePan = false;
-            _downIndex = kMaximumShortcuts;
-            _dotDown = UINT32_MAX;
+            const uint32_t dot  = _dotDown;
+            _pointerDown        = false;
+            _pagePan            = false;
+            _downIndex          = kMaximumShortcuts;
+            _dotDown            = UINT32_MAX;
             if (panned && grid.pageCount > 1)
             {
                 const bool atFirst = _pageIndex == 0;
-                const bool atLast = _pageIndex + 1 >= grid.pageCount;
-                if (LauncherShouldCommitPageSwipe(_slidePx, static_cast<LONG>(_width), _velocityPxPerSec, _dpi, atFirst,
-                                                  atLast))
+                const bool atLast  = _pageIndex + 1 >= grid.pageCount;
+                if (LauncherShouldCommitPageSwipe(_slidePx, static_cast<LONG>(_width), _velocityPxPerSec, _dpi, atFirst, atLast))
                 {
                     const LONG width = static_cast<LONG>(_width);
                     if (_slidePx < 0)
@@ -2473,7 +2412,7 @@ class LauncherWidget final
     HRESULT STDMETHODCALLTYPE OnDragOver(float x, float y) noexcept override
     {
         _dragHighlight = true;
-        _hoverIndex = HitCell(x, y);
+        _hoverIndex    = HitCell(x, y);
         if (_host)
         {
             (void)_host->RequestFrame();
@@ -2494,29 +2433,28 @@ class LauncherWidget final
     HRESULT STDMETHODCALLTYPE OnDrop(const RedXeDropEvent* event) noexcept override
     {
         _dragHighlight = false;
-        if (!event)
+        if (! event)
         {
             return E_POINTER;
         }
-        if (event->sizeBytes != sizeof(RedXeDropEvent) || event->itemCount == 0 ||
-            event->itemCount > kRedXeMaximumDropItems || !event->items)
+        if (event->sizeBytes != sizeof(RedXeDropEvent) || event->itemCount == 0 || event->itemCount > kRedXeMaximumDropItems || ! event->items)
         {
             return E_INVALIDARG;
         }
         LauncherConfiguration previous{};
         CopyConfigurationIdentity(_authored, previous);
         const bool previousDirty = _dirty;
-        uint32_t accepted = 0;
+        uint32_t accepted        = 0;
         for (uint32_t index = 0; index < event->itemCount && _authored.count < kMaximumShortcuts; ++index)
         {
             const RedXeDropItem& item = event->items[index];
-            if (item.sizeBytes != sizeof(RedXeDropItem) || !item.target || item.target[0] == L'\0')
+            if (item.sizeBytes != sizeof(RedXeDropItem) || ! item.target || item.target[0] == L'\0')
             {
                 continue;
             }
             ShortcutRecord record{};
-            if (!CopyWide(item.target, record.target, std::size(record.target)) ||
-                !WideToUtf8(record.target, record.targetUtf8, std::size(record.targetUtf8)))
+            if (! CopyWide(item.target, record.target, std::size(record.target)) ||
+                ! WideToUtf8(record.target, record.targetUtf8, std::size(record.targetUtf8)))
             {
                 continue;
             }
@@ -2530,8 +2468,7 @@ class LauncherWidget final
             for (uint32_t existing = 0; existing < _authored.count; ++existing)
             {
                 duplicate =
-                    Launcher::ShortcutsEqual(_authored.items[existing].actionUtf8, _authored.items[existing].targetUtf8,
-                                             record.actionUtf8, record.targetUtf8);
+                    Launcher::ShortcutsEqual(_authored.items[existing].actionUtf8, _authored.items[existing].targetUtf8, record.actionUtf8, record.targetUtf8);
                 if (duplicate)
                 {
                     break;
@@ -2554,7 +2491,7 @@ class LauncherWidget final
         if (_host)
         {
             std::array<char, kSettingsJsonCapacity + 1> json{};
-            uint32_t written = 0;
+            uint32_t written            = 0;
             const HRESULT writtenResult = WriteAuthoredJson(json.data(), kSettingsJsonCapacity, written);
             if (FAILED(writtenResult) || FAILED(_host->PersistWidgetSettings(_instanceId, json.data(), written)))
             {
@@ -2569,7 +2506,7 @@ class LauncherWidget final
         return S_OK;
     }
 
-  private:
+private:
     friend class LauncherConstructionWork;
     void CancelConstruction() noexcept
     {
@@ -2582,9 +2519,8 @@ class LauncherWidget final
     void ConstructionFailed(HRESULT result) noexcept
     {
         _constructionPending = false;
-        _constructionFailed = true;
-        const RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusUnavailable,
-                                             L"Shortcut construction failed"};
+        _constructionFailed  = true;
+        const RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusUnavailable, L"Shortcut construction failed"};
         if (_host)
         {
             (void)_host->ReportWidgetStatus(_instanceId, &report);
@@ -2595,7 +2531,7 @@ class LauncherWidget final
 
     void TrySubmitConstruction() noexcept
     {
-        if (!_deferredConstruction || !_host)
+        if (! _deferredConstruction || ! _host)
             return;
         const HRESULT queued = _host->QueueConstructionWork(_deferredConstruction.get());
         if (queued == HRESULT_FROM_WIN32(ERROR_BUSY))
@@ -2609,19 +2545,19 @@ class LauncherWidget final
     {
         CancelConstruction();
         _constructionFailed = false;
-        if (!_host)
+        if (! _host)
             return false;
         try
         {
-            if (!_constructionLifetime)
+            if (! _constructionLifetime)
             {
-                _constructionLifetime = std::make_shared<LauncherConstructionLifetime>();
+                _constructionLifetime        = std::make_shared<LauncherConstructionLifetime>();
                 _constructionLifetime->owner = this;
             }
             const uint64_t generation = _constructionLifetime->generation.load(std::memory_order_acquire);
             wil::com_ptr_nothrow<LauncherConstructionWork> work;
             work.attach(new (std::nothrow) LauncherConstructionWork(_constructionLifetime, generation, _authored));
-            if (!work)
+            if (! work)
             {
                 ConstructionFailed(E_OUTOFMEMORY);
                 return true;
@@ -2647,20 +2583,24 @@ class LauncherWidget final
     {
         _constructionPending = false;
         std::array<char, 1024> message{};
-        const auto phase = [&](LauncherShellPhase value) noexcept
-        { return work.phaseMicroseconds[static_cast<size_t>(value)]; };
-        (void)sprintf_s(message.data(), message.size(),
+        const auto phase = [&](LauncherShellPhase value) noexcept { return work.phaseMicroseconds[static_cast<size_t>(value)]; };
+        (void)sprintf_s(message.data(),
+                        message.size(),
                         "queue_ms=%llu worker_wall_us=%llu worker_cpu_100ns=%llu icons=%u result=0x%08X "
                         "parent_us=%llu bind_us=%llu shield_us=%llu location_us=%llu extract_us=%llu decode_us=%llu",
                         static_cast<unsigned long long>(work.queueMilliseconds),
                         static_cast<unsigned long long>(work.wallMicroseconds),
-                        static_cast<unsigned long long>(work.cpu100ns), work.configuration.count,
-                        static_cast<unsigned int>(result), phase(LauncherShellPhase::ParentItem),
-                        phase(LauncherShellPhase::BindHandler), phase(LauncherShellPhase::ShieldCheck),
-                        phase(LauncherShellPhase::GetLocation), phase(LauncherShellPhase::HandlerExtraction),
+                        static_cast<unsigned long long>(work.cpu100ns),
+                        work.configuration.count,
+                        static_cast<unsigned int>(result),
+                        phase(LauncherShellPhase::ParentItem),
+                        phase(LauncherShellPhase::BindHandler),
+                        phase(LauncherShellPhase::ShieldCheck),
+                        phase(LauncherShellPhase::GetLocation),
+                        phase(LauncherShellPhase::HandlerExtraction),
                         phase(LauncherShellPhase::DecodeIcon));
-        (void)RedXeHostLog(_host, FAILED(result) ? RedXeLogLevelWarning : RedXeLogLevelInfo, kPluginId, _instanceId,
-                           "launcher-construction", message.data(), result);
+        (void)RedXeHostLog(
+            _host, FAILED(result) ? RedXeLogLevelWarning : RedXeLogLevelInfo, kPluginId, _instanceId, "launcher-construction", message.data(), result);
         if (FAILED(result))
         {
             ConstructionFailed(result);
@@ -2673,13 +2613,13 @@ class LauncherWidget final
         {
             ValidateShortcuts(work.configuration);
             for (uint32_t index = 0; index < work.configuration.count; ++index)
-                if (!work.configuration.items[index].valid)
+                if (! work.configuration.items[index].valid)
                 {
                     work.configuration.items[index].bgra.reset();
                     _invalidImportedIcons |= uint32_t{1} << index;
                 }
         }
-        _display = std::move(work.configuration);
+        _display   = std::move(work.configuration);
         _usingPins = work.usingPins;
         if (_usingPins)
         {
@@ -2690,7 +2630,7 @@ class LauncherWidget final
                 (void)queue->QueueWidgetSettings(_instanceId, work.pinJson.data(), work.pinJsonBytes);
         }
         ComputeGrid();
-        _iconsDirty = true;
+        _iconsDirty             = true;
         _iconsPreparationFailed = false;
         const RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusOk, nullptr};
         if (_host)
@@ -2710,9 +2650,9 @@ class LauncherWidget final
         gPageIndex.store(_pageIndex, std::memory_order_relaxed);
         gPageSlidePx.store(_slidePx, std::memory_order_relaxed);
         gPageSettling.store(_settleActive ? 1U : 0U, std::memory_order_relaxed);
-        const auto& grid = _grids[_activeGrid];
+        const auto& grid      = _grids[_activeGrid];
         const uint32_t packed = grid.pageCount > 1 ? grid.visibleCount : grid.count;
-        const uint32_t half = packed > 0 ? static_cast<uint32_t>(grid.cells[0][2] + 0.5f) : 0U;
+        const uint32_t half   = packed > 0 ? static_cast<uint32_t>(grid.cells[0][2] + 0.5f) : 0U;
         gIconHalfExtentPx.store(half, std::memory_order_relaxed);
     }
 
@@ -2722,8 +2662,8 @@ class LauncherWidget final
         {
             _slidePx = _settleTargetPx;
         }
-        _settleActive = false;
-        _settleStartPx = _slidePx;
+        _settleActive   = false;
+        _settleStartPx  = _slidePx;
         _settleTargetPx = _slidePx;
         PublishCounts();
     }
@@ -2740,12 +2680,12 @@ class LauncherWidget final
             }
             return;
         }
-        _settleStartPx = _slidePx;
+        _settleStartPx  = _slidePx;
         _settleTargetPx = target;
-        _settleActive = true;
+        _settleActive   = true;
         LARGE_INTEGER now{};
         QueryPerformanceCounter(&now);
-        _settleStartQpc = static_cast<uint64_t>(now.QuadPart);
+        _settleStartQpc   = static_cast<uint64_t>(now.QuadPart);
         _settleDurationMs = LauncherPageSettleDurationMilliseconds(_settleTargetPx - _settleStartPx, _velocityPxPerSec);
         PublishCounts();
         if (_host)
@@ -2756,26 +2696,25 @@ class LauncherWidget final
 
     void AdvancePageSettle() noexcept
     {
-        if (!_settleActive)
+        if (! _settleActive)
         {
             return;
         }
         if (_qpcFrequency == 0 || _settleDurationMs == 0)
         {
-            _slidePx = _settleTargetPx;
+            _slidePx      = _settleTargetPx;
             _settleActive = false;
             PublishCounts();
             return;
         }
         LARGE_INTEGER now{};
         QueryPerformanceCounter(&now);
-        const double elapsed = static_cast<double>(static_cast<uint64_t>(now.QuadPart) - _settleStartQpc) /
-                               static_cast<double>(_qpcFrequency);
-        const float t = static_cast<float>(elapsed * 1000.0 / static_cast<double>(_settleDurationMs));
-        _slidePx = LauncherInterpolatePageOffset(_settleStartPx, _settleTargetPx, t);
+        const double elapsed = static_cast<double>(static_cast<uint64_t>(now.QuadPart) - _settleStartQpc) / static_cast<double>(_qpcFrequency);
+        const float t        = static_cast<float>(elapsed * 1000.0 / static_cast<double>(_settleDurationMs));
+        _slidePx             = LauncherInterpolatePageOffset(_settleStartPx, _settleTargetPx, t);
         if (t >= 1.0f)
         {
-            _slidePx = _settleTargetPx;
+            _slidePx      = _settleTargetPx;
             _settleActive = false;
         }
         PublishCounts();
@@ -2793,8 +2732,8 @@ class LauncherWidget final
         // (positive when moving forward, so it enters from the right) and settles to 0 while the old page, drawn one
         // width behind it, leaves the other way.
         const LONG delta = static_cast<LONG>(page) - static_cast<LONG>(_pageIndex);
-        _pageIndex = page;
-        _slidePx = delta * width;
+        _pageIndex       = page;
+        _slidePx         = delta * width;
         ComputeGrid();
         StartPageSettle(0);
     }
@@ -2805,15 +2744,15 @@ class LauncherWidget final
     // can change dashboard pages with it.
     HRESULT OnWheel(const RedXePointerEvent& event) noexcept
     {
-        const auto& grid = _grids[_activeGrid];
+        const auto& grid  = _grids[_activeGrid];
         const float units = event.phase == RedXePointerPhaseWheel ? -event.wheelDelta : event.wheelDelta;
-        if (grid.pageCount <= 1 || !std::isfinite(units) || units == 0.0f)
+        if (grid.pageCount <= 1 || ! std::isfinite(units) || units == 0.0f)
         {
             _wheelDetent.Clear();
             return S_FALSE;
         }
         const bool forward = units > 0.0f;
-        if (_pointerDown || (forward && _pageIndex + 1 >= grid.pageCount) || (!forward && _pageIndex == 0))
+        if (_pointerDown || (forward && _pageIndex + 1 >= grid.pageCount) || (! forward && _pageIndex == 0))
         {
             _wheelDetent.Clear();
             return S_OK;
@@ -2839,41 +2778,40 @@ class LauncherWidget final
                 _velocityPxPerSec = static_cast<float>((x - _pointerLastX) / seconds);
             }
         }
-        _pointerLastX = x;
+        _pointerLastX   = x;
         _pointerLastQpc = ticks;
     }
 
     void ComputeGrid() noexcept
     {
-        const uint32_t n = _display.count;
-        const LauncherIconSize iconSize = _display.count > 0 ? _display.iconSize : _authored.iconSize;
+        const uint32_t n                 = _display.count;
+        const LauncherIconSize iconSize  = _display.count > 0 ? _display.iconSize : _authored.iconSize;
         const LauncherPageGeometry pages = ComputeLauncherPages(_width, _height, _dpi, n, _pageIndex, iconSize);
-        _pageIndex = pages.pageIndex;
+        _pageIndex                       = pages.pageIndex;
         for (size_t index = 0; index < _grids.size(); ++index)
         {
             const auto& cached = _grids[index];
-            if (cached.width == _width && cached.height == _height && cached.dpi == _dpi && cached.count == n &&
-                cached.pageIndex == pages.pageIndex && cached.pageCount == pages.pageCount &&
-                cached.iconSize == iconSize)
+            if (cached.width == _width && cached.height == _height && cached.dpi == _dpi && cached.count == n && cached.pageIndex == pages.pageIndex &&
+                cached.pageCount == pages.pageCount && cached.iconSize == iconSize)
             {
                 _activeGrid = index;
                 PublishCounts();
                 return;
             }
         }
-        _activeGrid = 1 - _activeGrid;
-        auto& grid = _grids[_activeGrid];
-        grid = {};
-        grid.width = _width;
-        grid.height = _height;
-        grid.dpi = _dpi;
-        grid.count = n;
-        grid.pageCount = pages.pageCount;
-        grid.pageIndex = pages.pageIndex;
-        grid.firstIndex = pages.firstIndex;
-        grid.visibleCount = pages.visibleCount;
+        _activeGrid          = 1 - _activeGrid;
+        auto& grid           = _grids[_activeGrid];
+        grid                 = {};
+        grid.width           = _width;
+        grid.height          = _height;
+        grid.dpi             = _dpi;
+        grid.count           = n;
+        grid.pageCount       = pages.pageCount;
+        grid.pageIndex       = pages.pageIndex;
+        grid.firstIndex      = pages.firstIndex;
+        grid.visibleCount    = pages.visibleCount;
         grid.indicatorHeight = pages.indicatorHeightPx;
-        grid.iconSize = iconSize;
+        grid.iconSize        = iconSize;
         if (n == 0 || _width == 0 || _height == 0)
         {
             PublishCounts();
@@ -2881,7 +2819,7 @@ class LauncherWidget final
         }
         FillLauncherPageCells(_width, _height, _dpi, n, pages, grid.cells);
         grid.columns = std::max(1U, pages.columns);
-        grid.rows = std::max(1U, pages.rows);
+        grid.rows    = std::max(1U, pages.rows);
         PublishCounts();
     }
 
@@ -2891,12 +2829,11 @@ class LauncherWidget final
         {
             return kMaximumShortcuts;
         }
-        const auto& grid = _grids[_activeGrid];
+        const auto& grid      = _grids[_activeGrid];
         const uint32_t packed = grid.pageCount > 1 ? grid.visibleCount : grid.count;
         for (uint32_t index = 0; index < packed; ++index)
         {
-            if (std::fabs(x - grid.cells[index][0]) <= grid.cells[index][2] &&
-                std::fabs(y - grid.cells[index][1]) <= grid.cells[index][3])
+            if (std::fabs(x - grid.cells[index][0]) <= grid.cells[index][2] && std::fabs(y - grid.cells[index][1]) <= grid.cells[index][3])
             {
                 return grid.firstIndex + index;
             }
@@ -2907,12 +2844,12 @@ class LauncherWidget final
     void RefreshDisplay(bool requestFrame) noexcept
     {
         CancelConstruction();
-        _constructionFailed = false;
+        _constructionFailed   = false;
         _invalidImportedIcons = 0;
         if (_authored.count > 0)
         {
-            _display = {};
-            _display.count = _authored.count;
+            _display          = {};
+            _display.count    = _authored.count;
             _display.iconSize = _authored.iconSize;
             for (uint32_t index = 0; index < _authored.count; ++index)
             {
@@ -2922,7 +2859,7 @@ class LauncherWidget final
         }
         else
         {
-            _display = {};
+            _display          = {};
             _display.iconSize = _authored.iconSize;
             std::array<wchar_t, 1024> directory{};
             ResolvePinDirectory(directory.data(), directory.size());
@@ -2934,12 +2871,12 @@ class LauncherWidget final
                 _dirty = true;
                 std::array<char, kSettingsJsonCapacity + 1> json{};
                 uint32_t written = 0;
-                HRESULT encoded = WriteAuthoredJson(json.data(), static_cast<uint32_t>(json.size()), written);
+                HRESULT encoded  = WriteAuthoredJson(json.data(), static_cast<uint32_t>(json.size()), written);
                 while (encoded == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) && _authored.count > 0)
                 {
                     --_authored.count;
                     _display.count = _authored.count;
-                    encoded = WriteAuthoredJson(json.data(), static_cast<uint32_t>(json.size()), written);
+                    encoded        = WriteAuthoredJson(json.data(), static_cast<uint32_t>(json.size()), written);
                 }
                 // Visibility callbacks only enqueue; the host commits outside this callback on its UI thread.
                 wil::com_ptr_nothrow<IRedXeSettingsQueue> queue;
@@ -2962,7 +2899,7 @@ class LauncherWidget final
         }
         (void)degraded;
         ComputeGrid();
-        _iconsDirty = true;
+        _iconsDirty             = true;
         _iconsPreparationFailed = false;
         if (_host)
         {
@@ -2983,7 +2920,7 @@ class LauncherWidget final
             return;
         }
         const ShortcutRecord& item = _display.items[index];
-        if (!item.valid || item.kind == 0)
+        if (! item.valid || item.kind == 0)
         {
             return;
         }
@@ -2997,27 +2934,26 @@ class LauncherWidget final
             // Every shortcut is a named action the host performs now; system.launch keeps the file's directory as
             // working directory inside the host's own launch policy.
             RedXeActionRequest request{};
-            request.sizeBytes = sizeof(request);
-            request.actionUtf8 = item.actionUtf8;
-            request.targetUtf8 = item.targetUtf8[0] != '\0' ? item.targetUtf8 : nullptr;
+            request.sizeBytes      = sizeof(request);
+            request.actionUtf8     = item.actionUtf8;
+            request.targetUtf8     = item.targetUtf8[0] != '\0' ? item.targetUtf8 : nullptr;
             request.sourcePluginId = kPluginId;
             const HRESULT executed = _host->ExecuteAction(&request);
             if (SUCCEEDED(executed))
             {
-                if (item.kind != 3 && !IsAutomatedHost())
+                if (item.kind != 3 && ! IsAutomatedHost())
                 {
                     gShellExecuteCount.fetch_add(1, std::memory_order_relaxed);
                 }
             }
             else
             {
-                const RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusDegraded,
-                                                     L"Launch failed"};
+                const RedXeWidgetStatusReport report{sizeof(RedXeWidgetStatusReport), RedXeWidgetStatusDegraded, L"Launch failed"};
                 (void)_host->ReportWidgetStatus(_instanceId, &report);
             }
         }
         _launchActive = true;
-        _launchIndex = index;
+        _launchIndex  = index;
         LARGE_INTEGER now{};
         QueryPerformanceCounter(&now);
         _launchStartQpc = static_cast<uint64_t>(now.QuadPart);
@@ -3041,17 +2977,17 @@ class LauncherWidget final
             record.valid = false;
             return;
         }
-        if (!_host)
+        if (! _host)
         {
             record.valid = true;
             return;
         }
         RedXeActionRequest request{};
-        request.sizeBytes = sizeof(request);
-        request.actionUtf8 = record.actionUtf8;
-        request.targetUtf8 = record.targetUtf8[0] != '\0' ? record.targetUtf8 : nullptr;
+        request.sizeBytes      = sizeof(request);
+        request.actionUtf8     = record.actionUtf8;
+        request.targetUtf8     = record.targetUtf8[0] != '\0' ? record.targetUtf8 : nullptr;
         request.sourcePluginId = kPluginId;
-        record.valid = SUCCEEDED(_host->ValidateAction(&request, nullptr));
+        record.valid           = SUCCEEDED(_host->ValidateAction(&request, nullptr));
     }
 
     void ValidateShortcuts(LauncherConfiguration& configuration) noexcept
@@ -3066,7 +3002,7 @@ class LauncherWidget final
     LauncherDeviceResources* _resources = nullptr;
     LauncherInstanceGpu _gpu;
     ID3D11Device* _device = nullptr;
-    IRedXeHost* _host = nullptr;
+    IRedXeHost* _host     = nullptr;
     // Host-resolved dashboard background (RedXeFactoryOptions::backgroundColor) as the tile fill.
     std::array<float, 4> _background{0.0f, 0.0f, 0.0f, 1.0f};
     char _instanceId[kInstanceIdCapacity]{};
@@ -3074,59 +3010,59 @@ class LauncherWidget final
     LauncherConfiguration _display{};
     std::shared_ptr<LauncherConstructionLifetime> _constructionLifetime;
     wil::com_ptr_nothrow<IRedXeConstructionWork> _deferredConstruction;
-    bool _constructionPending = false;
-    bool _constructionFailed = false;
+    bool _constructionPending      = false;
+    bool _constructionFailed       = false;
     uint32_t _invalidImportedIcons = 0;
     struct GridLayout final
     {
-        uint32_t width = 0;
-        uint32_t height = 0;
-        uint32_t dpi = 0;
-        uint32_t count = 0;
-        uint32_t columns = 0;
-        uint32_t rows = 0;
-        uint32_t pageCount = 1;
-        uint32_t pageIndex = 0;
-        uint32_t firstIndex = 0;
-        uint32_t visibleCount = 0;
-        float indicatorHeight = 0.0f;
+        uint32_t width            = 0;
+        uint32_t height           = 0;
+        uint32_t dpi              = 0;
+        uint32_t count            = 0;
+        uint32_t columns          = 0;
+        uint32_t rows             = 0;
+        uint32_t pageCount        = 1;
+        uint32_t pageIndex        = 0;
+        uint32_t firstIndex       = 0;
+        uint32_t visibleCount     = 0;
+        float indicatorHeight     = 0.0f;
         LauncherIconSize iconSize = LauncherIconSize::Automatic;
         std::array<std::array<float, 4>, kMaximumShortcuts> cells{};
     };
     std::array<GridLayout, 2> _grids{};
-    size_t _activeGrid = 0;
-    uint32_t _width = 0;
-    uint32_t _height = 0;
-    uint32_t _dpi = USER_DEFAULT_SCREEN_DPI;
-    uint32_t _downIndex = kMaximumShortcuts;
+    size_t _activeGrid    = 0;
+    uint32_t _width       = 0;
+    uint32_t _height      = 0;
+    uint32_t _dpi         = USER_DEFAULT_SCREEN_DPI;
+    uint32_t _downIndex   = kMaximumShortcuts;
     uint32_t _launchIndex = kMaximumShortcuts;
-    uint32_t _hoverIndex = kMaximumShortcuts;
-    uint32_t _pageIndex = 0;
-    uint32_t _dotDown = UINT32_MAX;
+    uint32_t _hoverIndex  = kMaximumShortcuts;
+    uint32_t _pageIndex   = 0;
+    uint32_t _dotDown     = UINT32_MAX;
     RedXeWheelDetent _wheelDetent{};
-    LONG _slidePx = 0;
-    LONG _settleStartPx = 0;
-    LONG _settleTargetPx = 0;
-    UINT _settleDurationMs = 0;
-    uint64_t _settleStartQpc = 0;
-    float _pointerStartX = 0.0f;
-    float _pointerStartY = 0.0f;
-    float _pointerLastX = 0.0f;
-    float _velocityPxPerSec = 0.0f;
-    uint64_t _pointerLastQpc = 0;
-    uint64_t _launchStartQpc = 0;
-    uint64_t _qpcFrequency = 0;
-    bool _visible = false;
-    bool _deviceReady = false;
-    bool _iconsDirty = true;
+    LONG _slidePx                = 0;
+    LONG _settleStartPx          = 0;
+    LONG _settleTargetPx         = 0;
+    UINT _settleDurationMs       = 0;
+    uint64_t _settleStartQpc     = 0;
+    float _pointerStartX         = 0.0f;
+    float _pointerStartY         = 0.0f;
+    float _pointerLastX          = 0.0f;
+    float _velocityPxPerSec      = 0.0f;
+    uint64_t _pointerLastQpc     = 0;
+    uint64_t _launchStartQpc     = 0;
+    uint64_t _qpcFrequency       = 0;
+    bool _visible                = false;
+    bool _deviceReady            = false;
+    bool _iconsDirty             = true;
     bool _iconsPreparationFailed = false;
-    bool _usingPins = false;
-    bool _pointerDown = false;
-    bool _pagePan = false;
-    bool _settleActive = false;
-    bool _launchActive = false;
-    bool _dragHighlight = false;
-    bool _dirty = false;
+    bool _usingPins              = false;
+    bool _pointerDown            = false;
+    bool _pagePan                = false;
+    bool _settleActive           = false;
+    bool _launchActive           = false;
+    bool _dragHighlight          = false;
+    bool _dirty                  = false;
 };
 #pragma warning(pop)
 
@@ -3142,15 +3078,13 @@ void LauncherConstructionWork::Complete(HRESULT result) noexcept
 #pragma warning(disable : 4625 4626 5026 5027)
 class LauncherProvider final : public RedXeComObject<LauncherProvider, IRedXeWidgetProvider>
 {
-  public:
-    LauncherProvider(const LauncherConfiguration& configuration, uint32_t backgroundRgb, IRedXeHost* host) noexcept
-        : _backgroundRgb(backgroundRgb), _host(host)
+public:
+    LauncherProvider(const LauncherConfiguration& configuration, uint32_t backgroundRgb, IRedXeHost* host) noexcept : _backgroundRgb(backgroundRgb), _host(host)
     {
         CopyConfigurationIdentity(configuration, _configuration);
     }
 
-    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors,
-                                             uint32_t* count) noexcept override
+    HRESULT STDMETHODCALLTYPE GetWidgetTypes(const RedXeWidgetTypeDescriptor** descriptors, uint32_t* count) noexcept override
     {
         if (descriptors)
         {
@@ -3160,31 +3094,30 @@ class LauncherProvider final : public RedXeComObject<LauncherProvider, IRedXeWid
         {
             *count = 0;
         }
-        if (!descriptors || !count)
+        if (! descriptors || ! count)
         {
             return E_POINTER;
         }
         *descriptors = kWidgetTypes.data();
-        *count = static_cast<uint32_t>(kWidgetTypes.size());
+        *count       = static_cast<uint32_t>(kWidgetTypes.size());
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId,
-                                           IRedXeWidget** widget) noexcept override
+    HRESULT STDMETHODCALLTYPE CreateWidget(const char* typeId, const char* instanceId, IRedXeWidget** widget) noexcept override
     {
         if (widget)
         {
             *widget = nullptr;
         }
-        if (!widget)
+        if (! widget)
         {
             return E_POINTER;
         }
-        if (!typeId || !instanceId || instanceId[0] == '\0')
+        if (! typeId || ! instanceId || instanceId[0] == '\0')
         {
             return E_INVALIDARG;
         }
-        if (!RedXeAsciiEqualsIgnoreCase(typeId, kWidgetTypeId))
+        if (! RedXeAsciiEqualsIgnoreCase(typeId, kWidgetTypeId))
         {
             return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
@@ -3194,9 +3127,8 @@ class LauncherProvider final : public RedXeComObject<LauncherProvider, IRedXeWid
         {
             return result;
         }
-        auto* created = new (std::nothrow)
-            LauncherWidget(std::move(providerOwner), _resources, _host, instanceId, _configuration, _backgroundRgb);
-        if (!created)
+        auto* created = new (std::nothrow) LauncherWidget(std::move(providerOwner), _resources, _host, instanceId, _configuration, _backgroundRgb);
+        if (! created)
         {
             return E_OUTOFMEMORY;
         }
@@ -3204,7 +3136,7 @@ class LauncherProvider final : public RedXeComObject<LauncherProvider, IRedXeWid
         return S_OK;
     }
 
-  private:
+private:
     LauncherConfiguration _configuration;
     LauncherDeviceResources _resources;
     uint32_t _backgroundRgb;
@@ -3212,10 +3144,9 @@ class LauncherProvider final : public RedXeComObject<LauncherProvider, IRedXeWid
 };
 #pragma warning(pop)
 
-HRESULT CreateLauncherProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                               void** result) noexcept
+HRESULT CreateLauncherProvider(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, void** result) noexcept
 {
-    if (!result)
+    if (! result)
     {
         return E_POINTER;
     }
@@ -3231,7 +3162,7 @@ HRESULT CreateLauncherProvider(REFIID interfaceId, const RedXeFactoryOptions* op
         return parsed;
     }
     auto* provider = new (std::nothrow) LauncherProvider(configuration, RedXeBackgroundRgb(options), host);
-    if (!provider)
+    if (! provider)
     {
         return E_OUTOFMEMORY;
     }
@@ -3243,20 +3174,19 @@ constexpr std::array kFactoryEntries{
     RedXeFactoryEntry{&kMetadata[0], CreateLauncherProvider},
 };
 
-[[nodiscard]] HRESULT InspectShellIcon(const wchar_t* target, IExtractIconW* extractor, LauncherShellTimings& timings,
-                                       ShellIconBatch* batch = nullptr, bool cachedHandler = false) noexcept
+[[nodiscard]] HRESULT InspectShellIcon(
+    const wchar_t* target, IExtractIconW* extractor, LauncherShellTimings& timings, ShellIconBatch* batch = nullptr, bool cachedHandler = false) noexcept
 {
     LARGE_INTEGER frequency{};
-    if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
+    if (! QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
         return E_UNEXPECTED;
     timings.frequency = static_cast<uint64_t>(frequency.QuadPart);
     ShortcutRecord record{};
     LARGE_INTEGER begin{};
     LARGE_INTEGER end{};
     QueryPerformanceCounter(&begin);
-    const HRESULT result = extractor
-                               ? ExtractFromShellHandler(extractor, record, &timings, cachedHandler ? target : nullptr)
-                               : ExtractShellIcon(target, record, &timings, batch);
+    const HRESULT result =
+        extractor ? ExtractFromShellHandler(extractor, record, &timings, cachedHandler ? target : nullptr) : ExtractShellIcon(target, record, &timings, batch);
     QueryPerformanceCounter(&end);
     timings.totalTicks = static_cast<uint64_t>(std::max<LONGLONG>(0, end.QuadPart - begin.QuadPart));
     if (result == S_OK)
@@ -3264,18 +3194,16 @@ constexpr std::array kFactoryEntries{
         uint64_t hash = 14695981039346656037ULL;
         for (uint32_t index = 0; index < kIconEdge * kIconEdge * 4; ++index)
             hash = (hash ^ record.bgra[index]) * 1099511628211ULL;
-        timings.pixelHash = hash;
+        timings.pixelHash  = hash;
         timings.sourceEdge = record.sourceEdge;
     }
     return result;
 }
 } // namespace
 
-extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host,
-                                         const char* pluginId, void** result) noexcept
+extern "C" HRESULT __stdcall RedXeCreate(REFIID interfaceId, const RedXeFactoryOptions* options, IRedXeHost* host, const char* pluginId, void** result) noexcept
 {
-    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()),
-                                         interfaceId, options, host, pluginId, result);
+    return RedXeCreateFromFactoryEntries(kFactoryEntries.data(), static_cast<uint32_t>(kFactoryEntries.size()), interfaceId, options, host, pluginId, result);
 }
 
 extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** metadata, uint32_t* count) noexcept
@@ -3283,8 +3211,7 @@ extern "C" HRESULT __stdcall RedXeEnumeratePlugins(const RedXePluginMetadata** m
     return RedXeEnumerateFactoryMetadata(kMetadata.data(), static_cast<uint32_t>(kMetadata.size()), metadata, count);
 }
 
-extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId,
-                                                            const RedXePluginSettingsContract** contract) noexcept
+extern "C" HRESULT __stdcall RedXeGetPluginSettingsContract(const char* pluginId, const RedXePluginSettingsContract** contract) noexcept
 {
     return RedXeGetStaticPluginSettingsContract(kPluginId, pluginId, &kSettingsContract, contract);
 }
@@ -3295,23 +3222,24 @@ extern "C" void __stdcall RedXePluginShutdown() noexcept
     gIconCache.Clear();
 }
 
-extern "C" HRESULT __stdcall RedXeLauncherTestCanceledShellHandler(IExtractIconW* extractor, HANDLE cancellation,
+extern "C" HRESULT __stdcall RedXeLauncherTestCanceledShellHandler(IExtractIconW* extractor,
+                                                                   HANDLE cancellation,
                                                                    uint32_t budgetMilliseconds,
                                                                    LauncherShellTimings* timings) noexcept
 {
-    if (!timings)
+    if (! timings)
         return E_POINTER;
     if (timings->sizeBytes != sizeof(LauncherShellTimings))
         return E_INVALIDARG;
     *timings = LauncherShellTimings{sizeof(LauncherShellTimings)};
-    if (!IsAutomatedHost())
+    if (! IsAutomatedHost())
         return E_ACCESSDENIED;
-    if (!extractor || !cancellation)
+    if (! extractor || ! cancellation)
         return E_POINTER;
     std::atomic<uint64_t> generation{0};
     const ConstructionCancellation token{cancellation, GetTickCount64() + budgetMilliseconds, &generation, 0};
     const auto* previous = std::exchange(gConstructionCancellation, &token);
-    const auto restore = wil::scope_exit([&]() noexcept { gConstructionCancellation = previous; });
+    const auto restore   = wil::scope_exit([&]() noexcept { gConstructionCancellation = previous; });
     LARGE_INTEGER frequency{};
     QueryPerformanceFrequency(&frequency);
     timings->frequency = static_cast<uint64_t>(frequency.QuadPart);
@@ -3319,15 +3247,14 @@ extern "C" HRESULT __stdcall RedXeLauncherTestCanceledShellHandler(IExtractIconW
     return ExtractFromShellHandler(extractor, record, timings);
 }
 
-extern "C" HRESULT __stdcall RedXeLauncherTestIconCache(uint32_t operation,
-                                                        LauncherIconCacheDiagnostics* diagnostics) noexcept
+extern "C" HRESULT __stdcall RedXeLauncherTestIconCache(uint32_t operation, LauncherIconCacheDiagnostics* diagnostics) noexcept
 {
-    if (!diagnostics)
+    if (! diagnostics)
         return E_POINTER;
     if (diagnostics->sizeBytes != sizeof(LauncherIconCacheDiagnostics))
         return E_INVALIDARG;
     *diagnostics = LauncherIconCacheDiagnostics{sizeof(LauncherIconCacheDiagnostics)};
-    if (!IsAutomatedHost())
+    if (! IsAutomatedHost())
         return E_ACCESSDENIED;
     if (operation > 3)
         return E_INVALIDARG;
@@ -3342,59 +3269,56 @@ extern "C" HRESULT __stdcall RedXeLauncherTestIconCache(uint32_t operation,
     return S_OK;
 }
 
-extern "C" HRESULT __stdcall RedXeLauncherTestCachedShellHandler(const wchar_t* target, IExtractIconW* extractor,
-                                                                 LauncherShellTimings* timings) noexcept
+extern "C" HRESULT __stdcall RedXeLauncherTestCachedShellHandler(const wchar_t* target, IExtractIconW* extractor, LauncherShellTimings* timings) noexcept
 {
-    if (!timings)
+    if (! timings)
         return E_POINTER;
     if (timings->sizeBytes != sizeof(LauncherShellTimings))
         return E_INVALIDARG;
     *timings = LauncherShellTimings{sizeof(LauncherShellTimings)};
-    if (!IsAutomatedHost())
+    if (! IsAutomatedHost())
         return E_ACCESSDENIED;
-    if (!target || !extractor)
+    if (! target || ! extractor)
         return E_POINTER;
-    if (!target[0])
+    if (! target[0])
         return E_INVALIDARG;
     return InspectShellIcon(target, extractor, *timings, nullptr, true);
 }
 
-extern "C" HRESULT __stdcall RedXeLauncherTestShellIcon(const wchar_t* target, IExtractIconW* extractor,
-                                                        LauncherShellTimings* timings) noexcept
+extern "C" HRESULT __stdcall RedXeLauncherTestShellIcon(const wchar_t* target, IExtractIconW* extractor, LauncherShellTimings* timings) noexcept
 {
-    if (!timings)
+    if (! timings)
         return E_POINTER;
     if (timings->sizeBytes != sizeof(LauncherShellTimings))
         return E_INVALIDARG;
     *timings = LauncherShellTimings{sizeof(LauncherShellTimings)};
-    if (!IsAutomatedHost())
+    if (! IsAutomatedHost())
         return E_ACCESSDENIED;
-    if (!target && !extractor)
+    if (! target && ! extractor)
         return E_POINTER;
     if ((target && extractor) || (target && target[0] == L'\0'))
         return E_INVALIDARG;
     return InspectShellIcon(target, extractor, *timings);
 }
 
-extern "C" HRESULT __stdcall RedXeLauncherTestShellBatch(const wchar_t* const* targets, uint32_t count,
-                                                         LauncherShellTimings* timings) noexcept
+extern "C" HRESULT __stdcall RedXeLauncherTestShellBatch(const wchar_t* const* targets, uint32_t count, LauncherShellTimings* timings) noexcept
 {
     if (count == 0 || count > kMaximumShortcuts)
         return E_INVALIDARG;
-    if (!timings)
+    if (! timings)
         return E_POINTER;
     for (uint32_t index = 0; index < count; ++index)
         if (timings[index].sizeBytes != sizeof(LauncherShellTimings))
             return E_INVALIDARG;
     for (uint32_t index = 0; index < count; ++index)
         timings[index] = LauncherShellTimings{sizeof(LauncherShellTimings)};
-    if (!IsAutomatedHost())
+    if (! IsAutomatedHost())
         return E_ACCESSDENIED;
-    if (!targets)
+    if (! targets)
         return E_POINTER;
     for (uint32_t index = 0; index < count; ++index)
     {
-        if (!targets[index])
+        if (! targets[index])
             return E_POINTER;
         if (targets[index][0] == L'\0')
             return E_INVALIDARG;
@@ -3410,34 +3334,32 @@ extern "C" HRESULT __stdcall RedXeLauncherTestShellBatch(const wchar_t* const* t
     return result;
 }
 
-extern "C" HRESULT __stdcall RedXeLauncherTestShellParent(const wchar_t* target, LauncherShellParentFailure failure,
-                                                          LauncherShellTimings* timings) noexcept
+extern "C" HRESULT __stdcall RedXeLauncherTestShellParent(const wchar_t* target, LauncherShellParentFailure failure, LauncherShellTimings* timings) noexcept
 {
-    if (!timings)
+    if (! timings)
         return E_POINTER;
     if (timings->sizeBytes != sizeof(LauncherShellTimings))
         return E_INVALIDARG;
     *timings = LauncherShellTimings{sizeof(LauncherShellTimings)};
-    if (!IsAutomatedHost())
+    if (! IsAutomatedHost())
         return E_ACCESSDENIED;
-    if (!target)
+    if (! target)
         return E_POINTER;
-    if (!target[0] || failure > LauncherShellParentFailure::FileMetadata)
+    if (! target[0] || failure > LauncherShellParentFailure::FileMetadata)
         return E_INVALIDARG;
     ShellIconBatch batch(failure, true);
     return InspectShellIcon(target, nullptr, *timings, &batch);
 }
 
-extern "C" HRESULT __stdcall RedXeLauncherTestShellHandler(IExtractIconW* extractor, uint64_t* pixelHash,
-                                                           uint32_t* sourceEdge) noexcept
+extern "C" HRESULT __stdcall RedXeLauncherTestShellHandler(IExtractIconW* extractor, uint64_t* pixelHash, uint32_t* sourceEdge) noexcept
 {
     if (pixelHash)
         *pixelHash = 0;
     if (sourceEdge)
         *sourceEdge = 0;
-    if (!IsAutomatedHost())
+    if (! IsAutomatedHost())
         return E_ACCESSDENIED;
-    if (!extractor || !pixelHash || !sourceEdge)
+    if (! extractor || ! pixelHash || ! sourceEdge)
         return E_POINTER;
     ShortcutRecord record{};
     const HRESULT result = ExtractFromShellHandler(extractor, record);
@@ -3446,7 +3368,7 @@ extern "C" HRESULT __stdcall RedXeLauncherTestShellHandler(IExtractIconW* extrac
         uint64_t hash = 14695981039346656037ULL;
         for (uint32_t index = 0; index < kIconEdge * kIconEdge * 4; ++index)
             hash = (hash ^ record.bgra[index]) * 1099511628211ULL;
-        *pixelHash = hash;
+        *pixelHash  = hash;
         *sourceEdge = record.sourceEdge;
     }
     return result;
@@ -3454,7 +3376,7 @@ extern "C" HRESULT __stdcall RedXeLauncherTestShellHandler(IExtractIconW* extrac
 
 extern "C" HRESULT __stdcall RedXeLauncherSetTestIconFailure(uint32_t phase) noexcept
 {
-    if (!IsAutomatedHost())
+    if (! IsAutomatedHost())
         return E_ACCESSDENIED;
     if (phase > 2)
         return E_INVALIDARG;
@@ -3465,19 +3387,19 @@ extern "C" HRESULT __stdcall RedXeLauncherSetTestIconFailure(uint32_t phase) noe
 extern "C" HRESULT __stdcall RedXeLauncherSetTestPinDirectory(const wchar_t* directory) noexcept
 {
     AcquireSRWLockExclusive(&gPinLock);
-    if (!directory)
+    if (! directory)
     {
-        gPinMode = PinMode::Live;
+        gPinMode        = PinMode::Live;
         gPinOverride[0] = L'\0';
     }
     else if (directory[0] == L'\0')
     {
-        gPinMode = PinMode::None;
+        gPinMode        = PinMode::None;
         gPinOverride[0] = L'\0';
     }
     else
     {
-        if (!CopyWide(directory, gPinOverride, std::size(gPinOverride)))
+        if (! CopyWide(directory, gPinOverride, std::size(gPinOverride)))
         {
             ReleaseSRWLockExclusive(&gPinLock);
             return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
@@ -3490,7 +3412,7 @@ extern "C" HRESULT __stdcall RedXeLauncherSetTestPinDirectory(const wchar_t* dir
 
 extern "C" HRESULT __stdcall RedXeLauncherGetTestDiagnostics(LauncherTestDiagnostics* diagnostics) noexcept
 {
-    if (!diagnostics)
+    if (! diagnostics)
     {
         return E_POINTER;
     }
@@ -3498,29 +3420,29 @@ extern "C" HRESULT __stdcall RedXeLauncherGetTestDiagnostics(LauncherTestDiagnos
     {
         return E_INVALIDARG;
     }
-    diagnostics->authoredCount = gAuthoredCount.load(std::memory_order_relaxed);
-    diagnostics->displayCount = gDisplayCount.load(std::memory_order_relaxed);
-    diagnostics->usingTaskbarPins = gUsingPins.load(std::memory_order_relaxed);
-    diagnostics->columns = gColumns.load(std::memory_order_relaxed);
-    diagnostics->rows = gRows.load(std::memory_order_relaxed);
+    diagnostics->authoredCount     = gAuthoredCount.load(std::memory_order_relaxed);
+    diagnostics->displayCount      = gDisplayCount.load(std::memory_order_relaxed);
+    diagnostics->usingTaskbarPins  = gUsingPins.load(std::memory_order_relaxed);
+    diagnostics->columns           = gColumns.load(std::memory_order_relaxed);
+    diagnostics->rows              = gRows.load(std::memory_order_relaxed);
     diagnostics->lastInstanceCount = gLastInstanceCount.load(std::memory_order_relaxed);
-    diagnostics->lastDrawCount = gLastDrawCount.load(std::memory_order_relaxed);
-    diagnostics->lastLaunchKind = gLastLaunchKind.load(std::memory_order_relaxed);
-    diagnostics->lastShellMask = gLastShellMask.load(std::memory_order_relaxed);
-    diagnostics->lastVerbWasNull = gLastVerbWasNull.load(std::memory_order_relaxed);
-    diagnostics->lastShow = gLastShow.load(std::memory_order_relaxed);
-    diagnostics->extractCalls = gExtractCalls.load(std::memory_order_relaxed);
-    diagnostics->textureUploads = gTextureUploads.load(std::memory_order_relaxed);
-    diagnostics->drawCalls = gDrawCalls.load(std::memory_order_relaxed);
-    diagnostics->launchCount = gLaunchCount.load(std::memory_order_relaxed);
+    diagnostics->lastDrawCount     = gLastDrawCount.load(std::memory_order_relaxed);
+    diagnostics->lastLaunchKind    = gLastLaunchKind.load(std::memory_order_relaxed);
+    diagnostics->lastShellMask     = gLastShellMask.load(std::memory_order_relaxed);
+    diagnostics->lastVerbWasNull   = gLastVerbWasNull.load(std::memory_order_relaxed);
+    diagnostics->lastShow          = gLastShow.load(std::memory_order_relaxed);
+    diagnostics->extractCalls      = gExtractCalls.load(std::memory_order_relaxed);
+    diagnostics->textureUploads    = gTextureUploads.load(std::memory_order_relaxed);
+    diagnostics->drawCalls         = gDrawCalls.load(std::memory_order_relaxed);
+    diagnostics->launchCount       = gLaunchCount.load(std::memory_order_relaxed);
     diagnostics->shellExecuteCount = gShellExecuteCount.load(std::memory_order_relaxed);
-    diagnostics->largestIconEdge = gLargestIconEdge.load(std::memory_order_relaxed);
-    diagnostics->liveWidgets = gLiveWidgets.load(std::memory_order_relaxed);
-    diagnostics->pageCount = gPageCount.load(std::memory_order_relaxed);
-    diagnostics->pageIndex = gPageIndex.load(std::memory_order_relaxed);
-    diagnostics->pageSlidePx = gPageSlidePx.load(std::memory_order_relaxed);
-    diagnostics->pageSettling = gPageSettling.load(std::memory_order_relaxed);
-    diagnostics->iconHalfExtentPx = gIconHalfExtentPx.load(std::memory_order_relaxed);
+    diagnostics->largestIconEdge   = gLargestIconEdge.load(std::memory_order_relaxed);
+    diagnostics->liveWidgets       = gLiveWidgets.load(std::memory_order_relaxed);
+    diagnostics->pageCount         = gPageCount.load(std::memory_order_relaxed);
+    diagnostics->pageIndex         = gPageIndex.load(std::memory_order_relaxed);
+    diagnostics->pageSlidePx       = gPageSlidePx.load(std::memory_order_relaxed);
+    diagnostics->pageSettling      = gPageSettling.load(std::memory_order_relaxed);
+    diagnostics->iconHalfExtentPx  = gIconHalfExtentPx.load(std::memory_order_relaxed);
     return S_OK;
 }
 

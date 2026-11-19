@@ -13,22 +13,22 @@
 
 class SettingsWatcher final
 {
-  public:
+public:
     static constexpr UINT kSettingsChangedMessage = WM_APP + 2;
 
     SettingsWatcher() = default;
     ~SettingsWatcher();
 
-    SettingsWatcher(const SettingsWatcher&) = delete;
+    SettingsWatcher(const SettingsWatcher&)            = delete;
     SettingsWatcher& operator=(const SettingsWatcher&) = delete;
-    SettingsWatcher(SettingsWatcher&&) = delete;
-    SettingsWatcher& operator=(SettingsWatcher&&) = delete;
+    SettingsWatcher(SettingsWatcher&&)                 = delete;
+    SettingsWatcher& operator=(SettingsWatcher&&)      = delete;
 
     [[nodiscard]] HRESULT Start(HWND targetWindow, std::wstring_view settingsDirectory) noexcept;
     void AcknowledgeNotification() noexcept;
     void Stop() noexcept;
 
-  private:
+private:
     void WatchThread() noexcept;
     void PostSettingsChanged() noexcept;
 

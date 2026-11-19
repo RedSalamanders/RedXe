@@ -22,13 +22,13 @@ HRESULT LaunchWorker::Enqueue(const Request& request) noexcept
     {
         return E_UNEXPECTED;
     }
-    if (!_thread.joinable())
+    if (! _thread.joinable())
     {
-        if (!_stop)
+        if (! _stop)
         {
             RETURN_IF_FAILED(_stop.create(wil::EventOptions::ManualReset));
         }
-        if (!_wake)
+        if (! _wake)
         {
             RETURN_IF_FAILED(_wake.create());
         }
@@ -51,10 +51,10 @@ HRESULT LaunchWorker::Enqueue(const Request& request) noexcept
         {
             return HRESULT_FROM_WIN32(ERROR_BUSY);
         }
-        Slot& slot = _slots[(_head + _count) % kSlots];
+        Slot& slot   = _slots[(_head + _count) % kSlots];
         slot.request = request;
-        slot.result = S_OK;
-        slot.state = State::Queued;
+        slot.result  = S_OK;
+        slot.state   = State::Queued;
         ++_count;
     }
     _wake.SetEvent();
@@ -65,7 +65,7 @@ void LaunchWorker::DrainCompletions(IRedXeHost* host) noexcept
 {
     for (;;)
     {
-        HRESULT result = S_OK;
+        HRESULT result           = S_OK;
         const char* failureEvent = nullptr;
         std::array<char, 64> subject{};
         {
@@ -74,26 +74,30 @@ void LaunchWorker::DrainCompletions(IRedXeHost* host) noexcept
             {
                 return;
             }
-            const Slot& slot = _slots[_head];
-            result = slot.result;
-            failureEvent = slot.request.failureEvent;
-            subject = slot.request.subject;
+            const Slot& slot    = _slots[_head];
+            result              = slot.result;
+            failureEvent        = slot.request.failureEvent;
+            subject             = slot.request.subject;
             _slots[_head].state = State::Empty;
-            _head = (_head + 1) % kSlots;
+            _head               = (_head + 1) % kSlots;
             --_count;
         }
         const bool failed = FAILED(result);
         std::array<char, kRedXeMaximumLogMessageBytes> message{};
-        (void)_snprintf_s(message.data(), message.size(), _TRUNCATE, "%s %s", subject.data(),
-                          failed ? "could not start its target." : "started its target.");
-        (void)RedXeHostLog(host, failed ? RedXeLogLevelWarning : RedXeLogLevelDebug, nullptr, nullptr,
-                           failed && failureEvent ? failureEvent : "launch-completed", message.data(), result);
+        (void)_snprintf_s(message.data(), message.size(), _TRUNCATE, "%s %s", subject.data(), failed ? "could not start its target." : "started its target.");
+        (void)RedXeHostLog(host,
+                           failed ? RedXeLogLevelWarning : RedXeLogLevelDebug,
+                           nullptr,
+                           nullptr,
+                           failed && failureEvent ? failureEvent : "launch-completed",
+                           message.data(),
+                           result);
     }
 }
 
 LaunchWorker::StopResult LaunchWorker::Stop(uint32_t timeoutMilliseconds) noexcept
 {
-    if (!_thread.joinable())
+    if (! _thread.joinable())
     {
         return StopResult::Stopped;
     }
@@ -125,7 +129,7 @@ LaunchWorker::StopResult LaunchWorker::Stop(uint32_t timeoutMilliseconds) noexce
         {
             slot.state = State::Empty;
         }
-        _head = 0;
+        _head  = 0;
         _count = 0;
     }
     _waitedOut = false;
@@ -140,9 +144,16 @@ HRESULT LaunchWorker::Launch(Request& request) noexcept
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
         wil::unique_process_information process;
-        if (!CreateProcessW(request.file.data(), request.commandLine.data(), nullptr, nullptr, FALSE,
-                            CREATE_DEFAULT_ERROR_MODE, nullptr,
-                            request.directory[0] != L'\0' ? request.directory.data() : nullptr, &startup, &process))
+        if (! CreateProcessW(request.file.data(),
+                             request.commandLine.data(),
+                             nullptr,
+                             nullptr,
+                             FALSE,
+                             CREATE_DEFAULT_ERROR_MODE,
+                             nullptr,
+                             request.directory[0] != L'\0' ? request.directory.data() : nullptr,
+                             &startup,
+                             &process))
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
@@ -155,8 +166,8 @@ HRESULT LaunchWorker::Launch(Request& request) noexcept
         if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
         {
             request.directory = request.file;
-            wchar_t* slash = wcsrchr(request.directory.data(), L'\\');
-            if (!slash)
+            wchar_t* slash    = wcsrchr(request.directory.data(), L'\\');
+            if (! slash)
             {
                 slash = wcsrchr(request.directory.data(), L'/');
             }
@@ -171,11 +182,11 @@ HRESULT LaunchWorker::Launch(Request& request) noexcept
         }
     }
     SHELLEXECUTEINFOW info{};
-    info.cbSize = sizeof(info);
-    info.fMask = request.shellMask;
-    info.lpFile = request.file.data();
+    info.cbSize      = sizeof(info);
+    info.fMask       = request.shellMask;
+    info.lpFile      = request.file.data();
     info.lpDirectory = request.directory[0] != L'\0' ? request.directory.data() : nullptr;
-    info.nShow = SW_SHOWNORMAL;
+    info.nShow       = SW_SHOWNORMAL;
     return ShellExecuteExW(&info) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
 }
 
@@ -183,21 +194,19 @@ void LaunchWorker::Worker() noexcept
 {
     // The shell can hand a launch to an extension activated through COM, and asks its caller for an STA.
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    const auto uninitialize = wil::scope_exit(
-        [&]() noexcept
+    const auto uninitialize = wil::scope_exit([&]() noexcept
+    {
+        if (SUCCEEDED(apartment))
         {
-            if (SUCCEEDED(apartment))
-            {
-                CoUninitialize();
-            }
-        });
+            CoUninitialize();
+        }
+    });
     constexpr DWORD kEvents = 2;
     const std::array<HANDLE, kEvents> events{_stop.get(), _wake.get()};
     for (;;)
     {
         // An apartment thread keeps its queue moving, so the wait also returns for a message; an idle lane gets none.
-        const DWORD wait =
-            MsgWaitForMultipleObjectsEx(kEvents, events.data(), INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        const DWORD wait = MsgWaitForMultipleObjectsEx(kEvents, events.data(), INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
         if (wait == WAIT_OBJECT_0 + kEvents)
         {
             MSG message{};
@@ -222,17 +231,17 @@ void LaunchWorker::Worker() noexcept
                 {
                     return;
                 }
-                for (size_t offset = 0; offset < _count && !running; ++offset)
+                for (size_t offset = 0; offset < _count && ! running; ++offset)
                 {
                     Slot& slot = _slots[(_head + offset) % kSlots];
                     if (slot.state == State::Queued)
                     {
                         slot.state = State::Running;
-                        running = &slot;
+                        running    = &slot;
                     }
                 }
             }
-            if (!running)
+            if (! running)
             {
                 break;
             }
@@ -241,8 +250,8 @@ void LaunchWorker::Worker() noexcept
             const HRESULT result = FAILED(apartment) ? apartment : _perform(running->request);
             {
                 const auto guard = wil::AcquireSRWLockExclusive(&_lock);
-                running->result = result;
-                running->state = State::Complete;
+                running->result  = result;
+                running->state   = State::Complete;
             }
             if (_notify)
             {

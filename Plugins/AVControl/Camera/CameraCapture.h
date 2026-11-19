@@ -13,7 +13,7 @@ namespace AVControl::Camera
 #pragma warning(disable : 4625 4626)
 class CaptureReader final
 {
-  public:
+public:
     CaptureReader();
     ~CaptureReader();
     HRESULT OpenDevice(PCWSTR symbolicLink, HANDLE wake) noexcept;
@@ -26,7 +26,7 @@ class CaptureReader final
     HRESULT ReadFrame(std::span<BYTE> output, LONGLONG& timestamp) noexcept;
     [[nodiscard]] bool IsOpen() const noexcept;
 
-  private:
+private:
     struct State;
     std::unique_ptr<State> _state;
 };

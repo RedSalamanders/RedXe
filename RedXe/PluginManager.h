@@ -19,22 +19,21 @@
 
 class PluginManager final
 {
-  public:
+public:
     static constexpr uint32_t kMaximumWidgetInstances = static_cast<uint32_t>(kMaximumWidgetsPerPage);
 
     PluginManager() = default;
     ~PluginManager();
 
-    PluginManager(const PluginManager&) = delete;
+    PluginManager(const PluginManager&)            = delete;
     PluginManager& operator=(const PluginManager&) = delete;
-    PluginManager(PluginManager&&) = delete;
-    PluginManager& operator=(PluginManager&&) = delete;
+    PluginManager(PluginManager&&)                 = delete;
+    PluginManager& operator=(PluginManager&&)      = delete;
 
     [[nodiscard]] HRESULT Initialize(const AppSettings& settings) noexcept;
     // A checked target selector borrows the current document. A peer's immutable validation evidence is reusable
     // only after an exact bounded comparison of all logical document facts in this process runtime.
-    [[nodiscard]] HRESULT InitializePage(const AppSettings& settings, uint32_t pageIndex,
-                                         const PluginManager* validated = nullptr) noexcept;
+    [[nodiscard]] HRESULT InitializePage(const AppSettings& settings, uint32_t pageIndex, const PluginManager* validated = nullptr) noexcept;
     [[nodiscard]] HRESULT Reconfigure(const AppSettings& settings) noexcept;
     [[nodiscard]] size_t ProviderCount() const noexcept;
     [[nodiscard]] size_t WidgetCount() const noexcept;
@@ -49,8 +48,7 @@ class PluginManager final
     [[nodiscard]] IRedXeKeyboardWidget* KeyboardWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeTextInputWidget* TextInputWidgetAt(size_t index) const noexcept;
     [[nodiscard]] IRedXeAccessibilityWidget* AccessibilityWidgetAt(size_t index) const noexcept;
-    [[nodiscard]] static HRESULT ValidatePluginPublishedSchema(std::string_view schemaJson,
-                                                               std::string_view defaultsJson) noexcept;
+    [[nodiscard]] static HRESULT ValidatePluginPublishedSchema(std::string_view schemaJson, std::string_view defaultsJson) noexcept;
     [[nodiscard]] IRedXeNetworkWidget* NetworkWidgetAt(size_t index) const noexcept;
     [[nodiscard]] uint32_t WidgetFlagsAt(size_t index) const noexcept;
     // True when the instance could not be constructed and the host owns its tile. Its placement is still honoured so
@@ -69,7 +67,7 @@ class PluginManager final
     [[nodiscard]] uint32_t GridColumns() const noexcept;
     [[nodiscard]] uint32_t GridRows() const noexcept;
 
-  private:
+private:
 #if defined(REDXE_HOST_PLUGIN_TESTS)
     friend struct PluginManagerTestAccess;
     friend struct PluginManagerGpuResourceTestAccess;
@@ -78,19 +76,16 @@ class PluginManager final
     inline static bool _failValidationEvidenceAllocation = false;
 #endif
     struct ValidationEvidence;
-    [[nodiscard]] static std::shared_ptr<const ValidationEvidence> BuildValidationEvidence(
-        const AppSettings& settings) noexcept;
-    [[nodiscard]] static bool ValidationEvidenceMatches(const ValidationEvidence& evidence,
-                                                        const AppSettings& settings) noexcept;
-    [[nodiscard]] HRESULT InitializePageImpl(const AppSettings& settings, uint32_t pageIndex,
-                                             const PluginManager* validated) noexcept;
+    [[nodiscard]] static std::shared_ptr<const ValidationEvidence> BuildValidationEvidence(const AppSettings& settings) noexcept;
+    [[nodiscard]] static bool ValidationEvidenceMatches(const ValidationEvidence& evidence, const AppSettings& settings) noexcept;
+    [[nodiscard]] HRESULT InitializePageImpl(const AppSettings& settings, uint32_t pageIndex, const PluginManager* validated) noexcept;
     struct WidgetSlot final
     {
         WidgetSlot() noexcept = default;
         ~WidgetSlot() noexcept;
         WidgetSlot(WidgetSlot&&) noexcept = default;
         WidgetSlot& operator=(WidgetSlot&& other) noexcept;
-        WidgetSlot(const WidgetSlot&) = delete;
+        WidgetSlot(const WidgetSlot&)            = delete;
         WidgetSlot& operator=(const WidgetSlot&) = delete;
         PluginHost::WidgetStatusBinding status;
         wil::com_ptr_nothrow<IRedXeGpuWidget> gpuWidget;
@@ -109,12 +104,12 @@ class PluginManager final
         WidgetGridPlacement placement;
         AdaptiveWidgetPlacement adaptivePlacement;
         bool usesAdaptivePlacement = false;
-        uint32_t backgroundRgb = kRedXeDefaultBackgroundRgb;
-        uint32_t flags = RedXeWidgetFlagNone;
+        uint32_t backgroundRgb     = kRedXeDefaultBackgroundRgb;
+        uint32_t flags             = RedXeWidgetFlagNone;
         // A placeholder slot holds no plugin object. It records why creation failed so the host can draw and report a
         // failed tile instead of failing the whole page.
         bool placeholder = false;
-        HRESULT failure = S_OK;
+        HRESULT failure  = S_OK;
     };
 
     struct ProviderSlot final
@@ -124,47 +119,52 @@ class PluginManager final
 
     struct ProviderBuildKey final
     {
-        uint64_t configurationHash = 0;
+        uint64_t configurationHash  = 0;
         uint32_t configurationBytes = 0;
-        uint32_t backgroundRgb = kRedXeDefaultBackgroundRgb;
-        const char* pluginId = nullptr;
-        uint32_t widgetIndex = 0;
+        uint32_t backgroundRgb      = kRedXeDefaultBackgroundRgb;
+        const char* pluginId        = nullptr;
+        uint32_t widgetIndex        = 0;
     };
     static_assert(sizeof(ProviderBuildKey) <= 32);
 
     [[nodiscard]] static uint64_t HashFactoryConfiguration(const char* json, uint32_t bytes) noexcept;
     [[nodiscard]] static bool ProviderConfigurationMatches(const ProviderBuildKey& key,
                                                            const DashboardPageSettings& page,
-                                                           const WidgetInstanceSettings& instance, const char* pluginId,
-                                                           uint64_t hash, uint32_t bytes,
+                                                           const WidgetInstanceSettings& instance,
+                                                           const char* pluginId,
+                                                           uint64_t hash,
+                                                           uint32_t bytes,
                                                            uint32_t backgroundRgb) noexcept;
 
-    [[nodiscard]] HRESULT CreateBundledProvider(const char* pluginId, const char* configurationJson,
-                                                uint32_t configurationBytes, uint32_t backgroundRgb,
-                                                IRedXeWidgetProvider** provider) noexcept;
-    [[nodiscard]] HRESULT CreateWidgetInstance(IRedXeWidgetProvider& provider, const WidgetInstanceSettings& settings,
-                                               uint32_t backgroundRgb, WidgetSlot& widgetSlot) noexcept;
-    static void MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings, uint32_t backgroundRgb,
-                                HRESULT failure) noexcept;
+    [[nodiscard]] HRESULT CreateBundledProvider(
+        const char* pluginId, const char* configurationJson, uint32_t configurationBytes, uint32_t backgroundRgb, IRedXeWidgetProvider** provider) noexcept;
+    [[nodiscard]] HRESULT CreateWidgetInstance(IRedXeWidgetProvider& provider,
+                                               const WidgetInstanceSettings& settings,
+                                               uint32_t backgroundRgb,
+                                               WidgetSlot& widgetSlot) noexcept;
+    static void MakePlaceholder(WidgetSlot& widgetSlot, const WidgetInstanceSettings& settings, uint32_t backgroundRgb, HRESULT failure) noexcept;
     void ClearWidgetStatuses() noexcept;
     static void ReleaseWidgetInterfaces(WidgetSlot& slot) noexcept;
     void ReleaseWidgets() noexcept;
-    [[nodiscard]] HRESULT StagePage(const AppSettings& settings, uint32_t pageIndex, const PluginManager* validated,
+    [[nodiscard]] HRESULT StagePage(const AppSettings& settings,
+                                    uint32_t pageIndex,
+                                    const PluginManager* validated,
                                     std::shared_ptr<const ValidationEvidence>& evidence,
                                     std::array<ProviderSlot, kMaximumWidgetInstances>& providers,
                                     std::array<ProviderBuildKey, kMaximumWidgetInstances>& providerKeys,
-                                    size_t& providerCount, std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
+                                    size_t& providerCount,
+                                    std::array<WidgetSlot, kMaximumWidgetInstances>& widgets,
                                     size_t& widgetCount) noexcept;
 
     // Borrowed process runtime. Every PluginManager, including the one staged for an adjacent page during a swipe,
     // shares the same modules, data sources, subscriptions, and acquisition worker.
     std::array<ProviderSlot, kMaximumWidgetInstances> _providers;
     std::array<WidgetSlot, kMaximumWidgetInstances> _widgets;
-    size_t _providerCount = 0;
-    size_t _widgetCount = 0;
-    uint32_t _gridColumns = 0;
-    uint32_t _gridRows = 0;
+    size_t _providerCount   = 0;
+    size_t _widgetCount     = 0;
+    uint32_t _gridColumns   = 0;
+    uint32_t _gridRows      = 0;
     uint32_t _backgroundRgb = kRedXeDefaultBackgroundRgb;
-    bool _initialized = false;
+    bool _initialized       = false;
     std::shared_ptr<const ValidationEvidence> _validationEvidence;
 };

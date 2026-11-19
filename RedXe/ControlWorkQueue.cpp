@@ -12,7 +12,7 @@ HRESULT ControlWorkQueue::Start(Notify notify, void* context) noexcept
         return S_FALSE;
     RETURN_IF_FAILED(_stop.create(wil::EventOptions::ManualReset));
     RETURN_IF_FAILED(_ready.create());
-    _notify = notify;
+    _notify  = notify;
     _context = context;
     try
     {
@@ -35,9 +35,9 @@ HRESULT ControlWorkQueue::Start(Notify notify, void* context) noexcept
 
 HRESULT ControlWorkQueue::Enqueue(IRedXeControlWork* work) noexcept
 {
-    if (!work)
+    if (! work)
         return E_POINTER;
-    if (!Running())
+    if (! Running())
         return E_UNEXPECTED;
     const auto guard = wil::AcquireSRWLockExclusive(&_lock);
     for (Slot& slot : _slots)
@@ -52,8 +52,8 @@ HRESULT ControlWorkQueue::Enqueue(IRedXeControlWork* work) noexcept
     {
         if (slot.state != State::Empty)
             continue;
-        slot.work = work;
-        slot.state = State::Queued;
+        slot.work     = work;
+        slot.state    = State::Queued;
         slot.queuedAt = GetTickCount64();
         _ready.SetEvent();
         return S_OK;
@@ -64,12 +64,11 @@ HRESULT ControlWorkQueue::Enqueue(IRedXeControlWork* work) noexcept
 void ControlWorkQueue::Worker() noexcept
 {
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    const auto uninitialize = wil::scope_exit(
-        [&]() noexcept
-        {
-            if (SUCCEEDED(apartment))
-                CoUninitialize();
-        });
+    const auto uninitialize = wil::scope_exit([&]() noexcept
+    {
+        if (SUCCEEDED(apartment))
+            CoUninitialize();
+    });
     const HANDLE events[]{_stop.get(), _ready.get()};
     while (WaitForMultipleObjects(2, events, FALSE, INFINITE) == WAIT_OBJECT_0 + 1)
     {
@@ -77,7 +76,7 @@ void ControlWorkQueue::Worker() noexcept
         {
             if (_stop.is_signaled())
                 return;
-            size_t selected = Capacity;
+            size_t selected   = Capacity;
             uint64_t queuedAt = 0;
             wil::com_ptr_nothrow<IRedXeControlWork> work;
             {
@@ -87,24 +86,24 @@ void ControlWorkQueue::Worker() noexcept
                     const size_t i = (_lastSelected + offset) % Capacity;
                     if (_slots[i].state != State::Queued)
                         continue;
-                    selected = i;
-                    _lastSelected = i;
-                    queuedAt = _slots[i].queuedAt;
+                    selected        = i;
+                    _lastSelected   = i;
+                    queuedAt        = _slots[i].queuedAt;
                     _slots[i].state = State::Running;
-                    work = _slots[i].work;
+                    work            = _slots[i].work;
                     break;
                 }
             }
-            if (!work)
+            if (! work)
                 break;
-            const uint64_t age = GetTickCount64() - queuedAt;
+            const uint64_t age   = GetTickCount64() - queuedAt;
             const HRESULT result = FAILED(apartment) ? apartment
                                    : age >= 3000     ? HRESULT_FROM_WIN32(ERROR_TIMEOUT)
                                                      : work->Run(_stop.get(), static_cast<uint32_t>(3000 - age));
             {
-                const auto guard = wil::AcquireSRWLockExclusive(&_lock);
+                const auto guard        = wil::AcquireSRWLockExclusive(&_lock);
                 _slots[selected].result = result;
-                _slots[selected].state = State::Complete;
+                _slots[selected].state  = State::Complete;
                 _completed.store(true, std::memory_order_release);
             }
             if (_notify)
@@ -115,7 +114,7 @@ void ControlWorkQueue::Worker() noexcept
 
 void ControlWorkQueue::DrainCompletions() noexcept
 {
-    if (!_completed.exchange(false, std::memory_order_acq_rel))
+    if (! _completed.exchange(false, std::memory_order_acq_rel))
         return;
     std::array<Slot, Capacity> ready{};
     size_t count = 0;
@@ -126,12 +125,12 @@ void ControlWorkQueue::DrainCompletions() noexcept
             if (slot.state != State::Complete)
                 continue;
             ready[count++] = std::move(slot);
-            slot = Slot{};
+            slot           = Slot{};
         }
     }
     for (size_t i = 0; i < count; ++i)
     {
-        if (!Running())
+        if (! Running())
             break;
         ready[i].work->Complete(ready[i].result);
         if (ready[i].rerun && Running())
@@ -149,7 +148,7 @@ void ControlWorkQueue::Stop() noexcept
     // All COM references are released on the owning UI thread, after the last worker borrow is gone.
     _slots = {};
     _completed.store(false, std::memory_order_release);
-    _notify = nullptr;
+    _notify  = nullptr;
     _context = nullptr;
     _ready.reset();
     _stop.reset();
