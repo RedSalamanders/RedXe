@@ -268,10 +268,10 @@ uint32_t RunModuleTests()
               "a provider with no widgets releases its last shared model owner");
     }
     {
+        const auto failAllocation =
 // Named export is bound to its declared Windows/plugin ABI; GetProcAddress erases that type.
 // Owner: RedXe maintainers; review: 2027-01-31.
 #pragma warning(suppress : 4191)
-        const auto failAllocation =
             reinterpret_cast<decltype(&RedXeAVControlFailNextProviderAllocation)>(GetProcAddress(module.get(), "RedXeAVControlFailNextProviderAllocation"));
         auto coldState = std::make_unique<AVControl::Inventory>();
         wil::com_ptr_nothrow<IRedXeWidgetProvider> failedProvider, survivingProvider;
