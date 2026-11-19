@@ -1,0 +1,17 @@
+# Code owners, read by GitHub from the pull request's base branch, so a pull request cannot change who owns its own
+# changes. The last matching pattern wins. Every RedSalamanders repository has this same file.
+
+# CI: the workflows, this file, and every script that decides what CI runs, measures or passes.
+/.github/                  @eric-jesover
+/.ci/                      @eric-jesover
+/Tests/                    @eric-jesover
+/Tools/                    @eric-jesover
+/Build/                    @eric-jesover
+/*.ps1                     @eric-jesover
+/Directory.Build.*         @eric-jesover
+
+# Agent instructions.
+/.agents/                  @eric-jesover
+/.claude/                  @eric-jesover
+/AGENTS.md                 @eric-jesover
+/CLAUDE.md                 @eric-jesover

@@ -374,7 +374,7 @@ PR delegation MUST account for conditional workflow jobs: a check covers a scope
 
 ## Test-run retention
 
-[Generated test-run evidence](Build_TestRunEvidence.md) owns completed, failed and interrupted output storage and verification.
+[Generated test-run evidence](../Testing/Testing_RunEvidence.md) owns completed, failed and interrupted output storage and verification.
 
 ## MSVC 14.52 Release compilation and linkage
 

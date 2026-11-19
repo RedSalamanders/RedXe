@@ -7,7 +7,7 @@ Later consumer: RedSalamander
 
 Normative consumer behavior now lives in [`Specs/Core/Core_DxUiIntegration.md`](../../Core/Core_DxUiIntegration.md).
 Real IME/touch/screen-reader, matched text/UIA performance, and AV hardware backends remain on
-[`RFC_Plugins_AVControl.md`](../WIP/RFC_Plugins_AVControl.md). RedSalamander stays on DxUi's HOLD migration plan.
+[`RFC_Plugins_AVControl.md`](../WIP/RFC_Plugins_AVControl_2026-09-05.md). RedSalamander stays on DxUi's HOLD migration plan.
 
 This file is historical sequencing. Do not treat remaining AV release gates as unfinished library extraction.
 
@@ -38,7 +38,7 @@ backends remain unfinished consumer gates. Library test evidence does not establ
 Current RedXe authority remains in [spec policy](../../README.md), [plugin API](../../Plugins/Plugins_API.md),
 [dashboard](../../UI/UI_Dashboard.md), [performance](../../Core/Core_PerformanceAndResources.md),
 [build process](../../Build/Build_Process.md), and [DxUi integration](../../Core/Core_DxUiIntegration.md).
-The [AV Control RFC](../WIP/RFC_Plugins_AVControl.md) owns remaining product gates. DxUi's own normative contracts are listed below. Do not describe an unfinished adapter
+The [AV Control RFC](../WIP/RFC_Plugins_AVControl_2026-09-05.md) owns remaining product gates. DxUi's own normative contracts are listed below. Do not describe an unfinished adapter
 as currently supported merely because its intended contract has been written.
 
 ## Accepted decision: one static library from a pinned source revision

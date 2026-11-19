@@ -18,11 +18,11 @@
   - [Specs/Plugins/Plugins_Weather.md](../../Plugins/Plugins_Weather.md)
   - [Specs/Plugins/Plugins_Actions.md](../../Plugins/Plugins_Actions.md)
   - [Specs/Build/Build_Process.md](../../Build/Build_Process.md)
-  - [Specs/Build/Build_TestRunEvidence.md](../../Build/Build_TestRunEvidence.md)
+  - [Specs/Testing/Testing_RunEvidence.md](../../Testing/Testing_RunEvidence.md)
   - [Specs/Build/Build_UnifiedCI.md](../../Build/Build_UnifiedCI.md)
 - **Related active plans**:
   - [PluginBoundaryHardening_2026-09-03.md](PluginBoundaryHardening_2026-09-03.md) (G2 gesture extraction in `Application.cpp` aligns directly with Slice 1)
-  - [RFC_Plugins_AVControl.md](RFC_Plugins_AVControl.md) (retains real hardware/IME/accessibility release gates)
+  - [RFC_Plugins_AVControl_2026-09-05.md](RFC_Plugins_AVControl_2026-09-05.md) (retains real hardware/IME/accessibility release gates)
 
 ---
 
@@ -175,5 +175,5 @@ Stop and request owner guidance before proceeding if any slice would:
 
 ## Closeout checklist
 
-1. Merge durable state-machine contracts into [UI_Dashboard.md](../../UI/UI_Dashboard.md), [UI_XeneonDisplayWindowing.md](../../UI/UI_XeneonDisplayWindowing.md), [Core_Settings.md](../../Core/Core_Settings.md), [Plugins_API.md](../../Plugins/Plugins_API.md), [Plugins_AVControl.md](../../Plugins/Plugins_AVControl.md), [Plugins_Logicon.md](../../Plugins/Plugins_Logicon.md), [Plugins_Weather.md](../../Plugins/Plugins_Weather.md), [Build_Process.md](../../Build/Build_Process.md), and [Build_TestRunEvidence.md](../../Build/Build_TestRunEvidence.md), and check off item `G2` in [PluginBoundaryHardening_2026-09-03.md](PluginBoundaryHardening_2026-09-03.md).
+1. Merge durable state-machine contracts into [UI_Dashboard.md](../../UI/UI_Dashboard.md), [UI_XeneonDisplayWindowing.md](../../UI/UI_XeneonDisplayWindowing.md), [Core_Settings.md](../../Core/Core_Settings.md), [Plugins_API.md](../../Plugins/Plugins_API.md), [Plugins_AVControl.md](../../Plugins/Plugins_AVControl.md), [Plugins_Logicon.md](../../Plugins/Plugins_Logicon.md), [Plugins_Weather.md](../../Plugins/Plugins_Weather.md), [Build_Process.md](../../Build/Build_Process.md), and [Testing_RunEvidence.md](../../Testing/Testing_RunEvidence.md), and check off item `G2` in [PluginBoundaryHardening_2026-09-03.md](PluginBoundaryHardening_2026-09-03.md).
 2. Move this plan to `Specs/Plans/Done/ExplicitStateMachines_2026-11-10.md`, remove its row from `Specs/Plans/WIP/README.md`, add its record to [Specs/Plans/Done/README.md](../Done/README.md), and run `.\Test-Changes.ps1 -Mode PrePush`.

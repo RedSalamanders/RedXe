@@ -84,7 +84,7 @@ Build/
   BuildPresentation.psm1, BuildOutputProcess.psm1 build.ps1's banner, log, streamed colors, diagnostic summary and warned-project reset; the running-output check
   ScopedTesting.psm1 Scope planner behind Test-Changes.ps1: Git change discovery, scope rules, evidence identity and receipts, PR delegation
   StreamingProcess.psm1 Child-process runner of build.ps1, test.ps1 and the package smoke: one argument quoter, streamed log, budget in a kill-on-close job
-  TestRunEvidence.psm1 Per-run evidence directories: pinned handles, 128-bit file identities, create-only records (Build_TestRunEvidence.md)
+  TestRunEvidence.psm1 Per-run evidence directories: pinned handles, 128-bit file identities, create-only records (Testing_RunEvidence.md)
   SkillValidation.psm1, SkillPackageIntegrity.psm1, SkillText.psm1 Skill metadata grammar, package/reference checks, and their shared strict reads and Markdown fence/code-span grammar (validate-skills.ps1)
   RedMonitor.props  Pinned RedMonitor client include path and the RequirePinnedRedMonitorClient build gate
 Tools/
@@ -96,8 +96,10 @@ Settings/
   RedXe.settings.json        Shipped Release default
 Specs/
   README.md         Specification authority and plan workflow
+  Build/            Normative build, packaging, CI, and skill-package behavior
   Core/             Normative cross-cutting performance and resource behavior
   Plugins/          Normative native plugin and widget behavior
+  Testing/          Normative test-run evidence
   UI/               Normative display and windowing behavior
   Plans/WIP/        Non-normative active plans
   Plans/Done/       Historical completed plans

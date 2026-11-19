@@ -7,7 +7,7 @@ This contract owns how RedXe consumes the standalone DxUi library: the exact sou
 which process modules link `DxUi.lib`, and the COM/POD boundary that keeps DxUi C++ objects inside those modules.
 Library behavior remains in DxUi's own contracts. AV audio/camera backends, real IME/touch/screen-reader acceptance,
 and matched text/UIA performance remain in [`Plugins_AVControl.md`](../Plugins/Plugins_AVControl.md) and the active
-[AV plan](../Plans/WIP/RFC_Plugins_AVControl.md). RedSalamander owns its I19 migration and release decision.
+[AV plan](../Plans/WIP/RFC_Plugins_AVControl_2026-09-05.md). RedSalamander owns its I19 migration and release decision.
 
 ## Pin and restore
 
