@@ -565,11 +565,14 @@ try {
     }
     Run-Case 'public runner executes once, reuses success across commits and never records failed or mutated runs' {
         $sandbox=Join-Path $fixture 'runner'
-        Write-Fixture (Join-Path $sandbox '.gitignore') '.build/'
+        Write-Fixture (Join-Path $sandbox '.gitignore') ".build/`n.ci-engine/`n"
         Copy-Item -LiteralPath (Join-Path $repository 'Test-Changes.ps1') -Destination (Join-Path $sandbox 'Test-Changes.ps1')
-        foreach ($relative in @('Tools/Fold-Changelog.ps1','Tools/Test-Changelog.ps1','Tools/Modules/Documentation/Changelog.psm1')) {
+        foreach ($relative in @('Tools/Fold-Changelog.ps1','Tools/Test-Changelog.ps1','.ci/project.json')) {
             Write-Fixture (Join-Path $sandbox $relative) ([IO.File]::ReadAllText((Join-Path $repository $relative)))
         }
+        # The changelog shims run the pinned engine from the fixture's own .ci-engine.
+        $engineClone=& git clone --quiet --no-hardlinks (Join-Path $repository '.ci-engine') (Join-Path $sandbox '.ci-engine') 2>&1
+        if($LASTEXITCODE){throw "Owned engine fixture clone failed: $($engineClone -join ' ')"}
         Write-Fixture (Join-Path $sandbox 'Changes/README.md') '# Changelog fragments'
         Write-Fixture (Join-Path $sandbox 'CHANGELOG.md') "# Changelog`n`n## Unreleased`n"
         Write-Fixture (Join-Path $sandbox 'Build/ScopedTesting.psm1') ([IO.File]::ReadAllText((Join-Path $repository 'Build/ScopedTesting.psm1')))
