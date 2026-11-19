@@ -1,4 +1,3 @@
-# Repository instructions
+# GitHub Copilot Instructions
 
-Read and follow the repository-root `AGENTS.md`. It is the canonical project guidance. Focused build, Direct3D 11,
-Win32, and C++ workflows are documented in `.agents/skills/`.
+Read and follow [../AGENTS.md](../AGENTS.md), the single canonical guidance for this repository; do not duplicate or diverge from it here. Repository skills live in `.agents/skills/`. Shared RedSalamanders skills live in the sibling `RedHome` repository: `../RedHome/AGENTS.md` indexes them and `../RedHome/.agents/skills/` holds them.
