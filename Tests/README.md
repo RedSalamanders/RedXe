@@ -51,6 +51,6 @@ Repeated unchanged scopes print REUSED. Force reruns them. SkipBuild requires an
 
 The logs of native test executables and `RedXe.exe` runs, receipts, and RedXe's own capture, crash and fixture output stay under `.build/evidence/test-runs/<id>/payload` on success, failure and interruption.
 The AVControl size-matrix PNGs (`.build/test-artifacts/AVControl`) and the CameraPackage fixtures (`.build/test-artifacts/CameraPackage/<guid>`) are not part of it: `test.ps1` does not pass `-CaptureNativeArtifacts`, so the next AVControl run overwrites those PNGs, the CameraPackage folders stay behind unmanaged, and CI uploads the folder beside the evidence. Copy anything you need from there before running again.
-See the [retention contract](../Specs/Build/Build_TestRunEvidence.md) for verification and qualification boundaries.
+See the [retention contract](../Specs/Testing/Testing_RunEvidence.md) for verification and qualification boundaries.
 
 RedMonitor controls verify the two vendored files entirely offline: exact bytes, missing/tampered inputs, invalid locks and reparse paths. No source checkout or viewer build is required. `test.ps1` checks the `--redmonitor` and `--redmonitor-probe` command line without a viewer: both refuse other arguments, an absent viewer is named, and the probe reports a missing listener. RedMonitor's TransportRoundtripTests runs the actual `RedXe.exe --redmonitor-probe` for cross-process Unicode/severity/PID/TID; installer closure tests belong to RedMonitor.
