@@ -1,7 +1,7 @@
 # Completed work
 
-Completed plans are history: they record sequencing, rationale, and evidence, never current behavior. Each is
-listed once, newest first, as `- [Title](File.md) — outcome`.
+Completed plans are history: they record sequencing, rationale, and evidence, never current behavior. A plan is
+added here, newest first, as `- [Title](File.md) — outcome` in the change that moves it to Done.
 
 - [Skill and guidance remediation](SkillGuidanceRemediation_2026-10-28.md) — category-aware template guidance, current contract routing, bounded package/reference admission and tooling-only scope tests; native/model effectiveness remain separate.
 
