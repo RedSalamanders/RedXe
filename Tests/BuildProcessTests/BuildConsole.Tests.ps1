@@ -20,6 +20,14 @@ function Refuses([scriptblock]$Body,[string]$Pattern){
 $clean=Join-Path $ScratchRoot 'clean.log'
 [IO.File]::WriteAllText($clean,'Build succeeded. 0 Warning(s) 0 Error(s)')
 Assert-NativeBuildDiagnostics -LogPath $clean
+$exceptionLog = Join-Path $ScratchRoot 'tool-exception.log'
+[IO.File]::WriteAllLines($exceptionLog, @(
+    '2>ExceptionCode = 0xC0000005'
+    'Build succeeded.'
+    '    0 Warning(s)'
+    '    0 Error(s)'
+))
+Refuses { Assert-NativeBuildDiagnostics -LogPath $exceptionLog } 'tool process exception dump'
 foreach($diagnostic in @(
     'source.cpp(4): warning C4100: unused parameter',
     '2>C:\work\source.cpp(4): warning C4365: sign conversion',

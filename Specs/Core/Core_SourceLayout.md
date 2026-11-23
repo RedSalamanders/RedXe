@@ -80,7 +80,7 @@ Build/
   DxUiProvenance.psm1, DxUiUpdate.psm1 The DxUi module provenance record the build writes, and Update-DxUi.ps1's pin update
   RedXe.DxUi.props, RedXe.DxUi.targets, PinnedDxUiPolicy.targets The consumer import of the restored DxUi headers and archive, and the policy its archive is built with
   NativeBuildPolicy.targets The shared /Wall without /WX, debug-format and Release ICF policy (five repositories)
-  BuildConsole.psm1 The shared zero-warning gate grammar and the green result with terminal links (five repositories)
+  BuildConsole.psm1 Engine module shim: the shared zero-warning gate grammar and the green result with terminal links (Tools/Modules/Ci.BuildConsole.psm1 in the pinned engine)
   BuildPresentation.psm1, BuildOutputProcess.psm1 build.ps1's banner, log, streamed colors, diagnostic summary and warned-project reset; the running-output check
   ScopedTesting.psm1 Scope planner behind Test-Changes.ps1: Git change discovery, scope rules, evidence identity and receipts, PR delegation
   StreamingProcess.psm1 Child-process runner of build.ps1, test.ps1 and the package smoke: one argument quoter, streamed log, budget in a kill-on-close job
