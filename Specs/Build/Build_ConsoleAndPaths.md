@@ -34,9 +34,9 @@ dependency fingerprints; an old archive cannot reuse the changed policy's output
 
 ## Successful terminal output
 
-Build/BuildConsole.psm1 implements the common result/diagnostic/link contract.
-A native success summary is green only after native exit success, zero logged
-warnings/errors and the entrypoint's existing provenance/attestation checks.
+Build/BuildConsole.psm1 is the shared CI engine's module shim for Tools/Modules/Ci.BuildConsole.psm1, which implements the common result/diagnostic/link contract.
+A native success summary is green after native exit success, a log with zero warnings and errors and no
+structured tool process exception dump, and the entrypoint's provenance and attestation checks.
 Failed builds remain failures. Clean/package-only operations preserve their
 existing meaning and do not pretend to be native compilation.
 
