@@ -4,7 +4,7 @@
   "repository": "RedSalamanders/RedXe",
   "engine": {
     "repository": "RedSalamanders/.github",
-    "ref": "a9087c3456a8e30f6b40e5a3b8e2c7a5f78fe02b"
+    "ref": "15301c26ea1926d7816551e24f3df38061ff5d48"
   },
   "kind": "application",
   "adapter": "Tools/Invoke-ProjectCi.ps1",
