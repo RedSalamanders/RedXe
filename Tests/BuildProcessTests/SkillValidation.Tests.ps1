@@ -193,7 +193,9 @@ try {
     function py { throw 'Validation must not invoke the Python launcher' }
     & (Join-Path $repository 'validate-skills.ps1')
 }
-$scopedModule = Import-Module (Join-Path $repository 'Build/ScopedTesting.psm1') -Force -PassThru
+Import-Module (Join-Path $repository '.ci-engine/Tools/Modules/Ci.EngineBinding.psm1') -Scope Local
+$scopedPath = Resolve-CiPinnedEngineModule -ProjectRoot $repository -Name 'ScopedTesting.psm1'
+$scopedModule = Import-Module $scopedPath -Scope Local -PassThru
 $inputs = @(& $scopedModule {
     function Get-Command {
         [CmdletBinding()]param([string]$Name, [string]$CommandType)

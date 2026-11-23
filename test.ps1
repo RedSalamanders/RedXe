@@ -25,7 +25,9 @@ Uses existing pinned profile artifacts. Test-Changes.ps1 additionally verifies s
 Runs the complete noninteractive gate; ordinary calls use Test-Changes affected iteration, or the full gate when there is
 no Git work tree or comparison base to select from.
 .PARAMETER SkipTooling
-Leaves profile-independent tooling to the CI tooling job or selected BuildProcess scope.
+Leaves profile-independent checks to their tooling and format jobs or the shared runner.
+.PARAMETER ParallelSuites
+Shared runner option. RedXe runs native suites serially because their tests share profile output.
 .PARAMETER LocalSdkBuildReceipt
 Original independently hashed local SDK build record. Requires native Release, SkipBuild and explicit HostSmoke only.
 The same hidden WARP, CLI and crash checks run against the held output; ordinary qualification is not granted.
@@ -49,6 +51,9 @@ param(
 
     [string[]] $Suites,
 
+    [ValidateRange(1, 8)]
+    [int] $ParallelSuites = 1,
+
     [ValidateRange(0, 65535)]
     [int] $BuildNumber = 0,
 
@@ -68,12 +73,12 @@ if ($localSdkMode -and (-not $LocalSdkBuildReceipt -or $LocalSdkBuildSha256 -cno
     @($Suites).Count -ne 1 -or $Suites -cnotcontains 'HostSmoke')) {
     throw 'Local SDK runtime requires the original build record/digest, Release, SkipBuild and explicit HostSmoke only.'
 }
-Import-Module (Join-Path $repoRoot 'Build/ScopedTesting.psm1') -Force
-$manifest = Read-ScopedTestManifest $repoRoot
+Import-Module (Join-Path $repoRoot 'Build/ScopedTesting.psm1') -Scope Local -ErrorAction Stop
+$manifest = Read-ScopedTestManifest -Root $repoRoot -SkipProjectRules
 # Ordinary iteration uses source impact. Explicit suites and Full retain the lower-level runner surface.
 if (-not $Full -and -not $PSBoundParameters.ContainsKey('Suites') -and
     @($PSBoundParameters.Keys | Where-Object { $_ -notin @('Platform','Configuration','SkipBuild') }).Count -eq 0) {
-    $unselectable = Get-ScopedComparisonProblem $repoRoot ('origin/' + $manifest.defaultBranch)
+    $unselectable = Get-ScopedComparisonProblem -Root $repoRoot -BaseRef ('origin/' + $manifest.defaultBranch)
     if (-not $unselectable) {
         & (Join-Path $PSScriptRoot 'Test-Changes.ps1') -Configuration $Configuration -Platform $Platform -SkipBuild:$SkipBuild
         exit $LASTEXITCODE
@@ -85,18 +90,40 @@ if (-not $Full -and -not $PSBoundParameters.ContainsKey('Suites') -and
 # Tests/test-scopes.json names the suites; each runs only through its one block below.
 $knownSuites = @($manifest.scopes | ForEach-Object { $_.name })
 if (-not $PSBoundParameters.ContainsKey('Suites')) { $Suites = $knownSuites }
-$Suites = @($Suites | ForEach-Object { $_ -split ',' })
+$Suites = @($Suites | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() })
 foreach ($suite in $Suites) { if ($suite -notin $knownSuites) { throw "Unknown test suite '$suite'." } }
-if ($SkipTooling) {$Suites=@($Suites | Where-Object {$_ -ne 'BuildProcess'})}
 
-$nativeArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-if ($Platform -eq 'ARM64' -and $nativeArchitecture -ne 'Arm64') {
-    throw 'ARM64 runtime qualification requires a native ARM64 host; use build.ps1 for cross-compilation.'
+$nativeScopes = @($manifest.scopes | Where-Object native)
+if ($SkipTooling) {
+    $Suites = @($Suites | Where-Object { $_ -in $nativeScopes.name })
 }
+foreach ($tooling in @($manifest.scopes | Where-Object { -not $_.native -and $_.name -in $Suites })) {
+    foreach ($command in $tooling.commands) {
+        $commandArguments = @($command.arguments)
+        & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $repoRoot $command.path) @commandArguments
+        if ($LASTEXITCODE -ne 0) { throw "$($tooling.name) failed with exit code $LASTEXITCODE." }
+    }
+}
+if (-not @($Suites | Where-Object { $_ -in $nativeScopes.name }).Count) {
+    Write-Host 'Independent tooling complete. Native coverage remains NOT_EVALUATED.'
+    exit 0
+}
+Assert-ScopedRuntimePlatform -Platform $Platform
+if ($ParallelSuites -gt 1) { Write-Verbose 'RedXe executes native suites serially.' }
+
 # Resolve the build number once (explicit, else the commit count) so the build and the identity checks agree.
 $runtimeInput = $null
 $runtimeFailure = $null
+$profileLease = $null
 try {
+if (-not $localSdkMode) {
+    $profileLease = Enter-ScopedProfileLease -Root $repoRoot -Platform $Platform -Configuration $Configuration
+    $scopedReports = Get-ScopedReportRoot -Root $repoRoot -Platform $Platform -Configuration $Configuration
+    Remove-ScopedIteration -Root $repoRoot -Path (Join-Path $scopedReports 'iteration.json')
+    foreach ($name in $nativeScopes.name | Where-Object { $_ -in $Suites }) {
+        Remove-ScopedIteration -Root $repoRoot -Path (Join-Path $scopedReports ($name + '.json'))
+    }
+}
 if ($localSdkMode) {
     Import-Module (Join-Path $repoRoot 'Build/DxUiRestore.psm1')
     Import-Module (Join-Path $repoRoot '.ci-engine/Tools/Modules/Ci.LocalSdkRuntime.psm1')
@@ -131,10 +158,6 @@ if ($localSdkMode) {
     Assert-RedXeDxUiProvenance -OutputRoot (Join-Path $repoRoot ".build/$Platform/$Configuration") -LockFile (Join-Path $repoRoot 'Dependencies/DxUi.lock.json') -Platform $Platform -Configuration $Configuration
     $executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
 }
-if ($Platform -ne 'x64' -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64') {
-    throw 'The ARM64 smoke test must run on ARM64 Windows. The build itself completed successfully.'
-}
-
 $expectedFileVersion = (Get-RedXeVersion -RepoRoot $repoRoot -BuildNumber $BuildNumber).FileVersion
 $executableVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($executable)
 if ($executableVersion.FileDescription -ne 'RedXe XENEON dashboard' -or
@@ -158,6 +181,32 @@ Import-Module (Join-Path $repoRoot 'Build/TestRunEvidence.psm1') -Force
 $evidence = Start-TestRunEvidence -Repository $repoRoot -LocalSdkCandidate:$localSdkMode -Context @{ project='RedXe'; platform=$Platform; configuration=$Configuration; suites=$Suites; buildNumber=$BuildNumber; localSdkCandidate=$localSdkMode }
 $runPassed = $false
 try {
+$reportSuffix = if (@(Get-ScopedInstrumentation -Manifest $manifest).Count) { '.instrumented' } else { '' }
+
+function Invoke-RedXeNativeSuite {
+    param([string] $Name, [scriptblock] $Action)
+
+    if ($Name -notin $Suites) { return }
+    $capabilitySkips = [Collections.Generic.List[string]]::new()
+    $exitCode = 1
+    try {
+        & $Action $capabilitySkips
+        $exitCode = 0
+    } finally {
+        if (-not $localSdkMode) {
+            $reportName = "$Name-$Platform-$Configuration$reportSuffix.json"
+            try {
+                Publish-TestRunEvidenceReceipt -Run $evidence -Name $reportName -Receipt ([ordered]@{
+                    exitCode = $exitCode
+                    skips = $capabilitySkips.ToArray()
+                })
+            } catch {
+                if ($exitCode -eq 0) { throw }
+                Write-Warning "Failed to preserve $Name's report. $($_.Exception.Message)"
+            }
+        }
+    }
+}
 
 # A run bounded by two minutes and logged like the others, but from a background job whose hidden console is its own,
 # under console output code page 437: non-ASCII text that a check then finds intact in the log proves the UTF-8
@@ -196,7 +245,7 @@ function Invoke-RedXeLegacyConsoleRun {
     finally { $job | Remove-Job -Force }
 }
 
-if ('LauncherAlias' -in $Suites) {
+Invoke-RedXeNativeSuite 'LauncherAlias' {
 # The winget command alias targets RedXeLauncher.exe: it must carry the same version stamp, need nothing but
 # system DLLs, and hand --help through to RedXe.exe with its output and exit code.
 $launcher = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXeLauncher.exe"
@@ -224,11 +273,7 @@ if ($launcherUnknownExit -ne 2 -or (Get-Content -LiteralPath $launcherUnknownLog
 
 }
 
-if ('BuildProcess' -in $Suites) {
-    & (Join-Path $repoRoot 'Tests/BuildProcessTests/Invoke-ToolingTests.ps1')
-    if ($LASTEXITCODE) {throw 'Independent tooling tests failed.'}
-}
-if ('Packaging' -in $Suites) {
+Invoke-RedXeNativeSuite 'Packaging' {
 Write-Host 'Running packaging, versioning, winget manifest, and in-package installer tests...' -ForegroundColor Cyan
 & (Join-Path $repoRoot 'Tests\BuildProcessTests\PackagingTests.ps1') -Configuration $Configuration -Platform $Platform
 if ($LASTEXITCODE -ne 0) {
@@ -238,7 +283,7 @@ if ($LASTEXITCODE -ne 0) {
 
 }
 
-if ('PluginContract' -in $Suites) {
+Invoke-RedXeNativeSuite 'PluginContract' {
 $contractTests = Join-Path $repoRoot ".build\$Platform\$Configuration\PluginContractTests.exe"
 if ($Configuration -eq 'ASan Debug') {
     $probeLog = Join-Path $evidence.Path "I19-ASan-probe-$Platform-$([guid]::NewGuid().ToString('N')).log"
@@ -306,7 +351,7 @@ if ($contractProcess -ne 0) {
 
 }
 
-if ('AVControl' -in $Suites) {
+Invoke-RedXeNativeSuite 'AVControl' {
 $avControlTests = Join-Path $repoRoot ".build\$Platform\$Configuration\AVControlTests.exe"
 Write-Host 'Running AV Control model, input and layout tests...' -ForegroundColor Cyan
 $avControlProcess = Invoke-RedXeStreamingProcess -FilePath $avControlTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath (Join-Path $evidence.Path ([IO.Path]::GetFileName($avControlTests) + '.log')) -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
@@ -329,7 +374,7 @@ if ($watchdogExit -ne 10 -or $watchdogText -notmatch "stage 'watchdog fixture' d
 
 }
 
-if ('SystemData' -in $Suites) {
+Invoke-RedXeNativeSuite 'SystemData' {
 $systemDataTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataTests.exe"
 Write-Host 'Running local system-data provider contract tests...' -ForegroundColor Cyan
 $systemDataProcess = Invoke-RedXeStreamingProcess -FilePath $systemDataTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath (Join-Path $evidence.Path ([IO.Path]::GetFileName($systemDataTests) + '.log')) -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
@@ -352,7 +397,7 @@ if ($Configuration -eq 'Release' -and $Platform -eq 'x64') {
 
 }
 
-if ('SystemDataPhase0' -in $Suites) {
+Invoke-RedXeNativeSuite 'SystemDataPhase0' {
 $systemDataPhase0 = Join-Path $repoRoot ".build\$Platform\$Configuration\SystemDataPhase0.exe"
 Write-Host 'Running system-data Phase 0 acquisition spikes...' -ForegroundColor Cyan
 $systemDataPhase0Process = Invoke-RedXeStreamingProcess -FilePath $systemDataPhase0 -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath (Join-Path $evidence.Path ([IO.Path]::GetFileName($systemDataPhase0) + '.log')) -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
@@ -363,7 +408,7 @@ if ($systemDataPhase0Process -ne 0) {
 
 }
 
-if ('StudioClock' -in $Suites) {
+Invoke-RedXeNativeSuite 'StudioClock' {
 $studioClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\StudioClockTests.exe"
 Write-Host 'Running Studio Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
 $studioClockProcess = Invoke-RedXeStreamingProcess -FilePath $studioClockTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath (Join-Path $evidence.Path ([IO.Path]::GetFileName($studioClockTests) + '.log')) -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
@@ -374,7 +419,7 @@ if ($studioClockProcess -ne 0) {
 
 }
 
-if ('DeskClock' -in $Suites) {
+Invoke-RedXeNativeSuite 'DeskClock' {
 $deskClockTests = Join-Path $repoRoot ".build\$Platform\$Configuration\DeskClockTests.exe"
 Write-Host 'Running Desk Clock contract, scheduling, WARP, and resource tests...' -ForegroundColor Cyan
 $deskClockProcess = Invoke-RedXeStreamingProcess -FilePath $deskClockTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath (Join-Path $evidence.Path ([IO.Path]::GetFileName($deskClockTests) + '.log')) -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
@@ -385,7 +430,7 @@ if ($deskClockProcess -ne 0) {
 
 }
 
-if ('Launcher' -in $Suites) {
+Invoke-RedXeNativeSuite 'Launcher' {
 $launcherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\LauncherTests.exe"
 Write-Host 'Running Launcher factory, pin fallback, WARP, launch, and drop tests...' -ForegroundColor Cyan
 $launcherProcess = Invoke-RedXeStreamingProcess -FilePath $launcherTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath (Join-Path $evidence.Path ([IO.Path]::GetFileName($launcherTests) + '.log')) -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
@@ -396,7 +441,7 @@ if ($launcherProcess -ne 0) {
 
 }
 
-if ('Weather' -in $Suites) {
+Invoke-RedXeNativeSuite 'Weather' {
 $weatherTests = Join-Path $repoRoot ".build\$Platform\$Configuration\WeatherTests.exe"
 Write-Host 'Running Weather HTTP, unit, and label format tests...' -ForegroundColor Cyan
 $weatherProcess = Invoke-RedXeStreamingProcess -FilePath $weatherTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath (Join-Path $evidence.Path ([IO.Path]::GetFileName($weatherTests) + '.log')) -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
@@ -407,7 +452,7 @@ if ($weatherProcess -ne 0) {
 
 }
 
-if ('Logicon' -in $Suites) {
+Invoke-RedXeNativeSuite 'Logicon' {
 $logiconTests = Join-Path $repoRoot ".build\$Platform\$Configuration\LogiconTests.exe"
 Write-Host 'Running Logicon protocol, settings, face, device, and module tests...' -ForegroundColor Cyan
 $logiconProcess = Invoke-RedXeStreamingProcess -FilePath $logiconTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath (Join-Path $evidence.Path ([IO.Path]::GetFileName($logiconTests) + '.log')) -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
@@ -418,7 +463,7 @@ if ($logiconProcess -ne 0) {
 
 }
 
-if ('Zoom' -in $Suites) {
+Invoke-RedXeNativeSuite 'Zoom' {
 $zoomTests = Join-Path $repoRoot ".build\$Platform\$Configuration\ZoomTests.exe"
 Write-Host 'Running Zoom browser action, meeting URL, and module tests...' -ForegroundColor Cyan
 $zoomProcess = Invoke-RedXeStreamingProcess -FilePath $zoomTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath (Join-Path $evidence.Path ([IO.Path]::GetFileName($zoomTests) + '.log')) -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
@@ -429,7 +474,7 @@ if ($zoomProcess -ne 0) {
 
 }
 
-if ('Settings' -in $Suites) {
+Invoke-RedXeNativeSuite 'Settings' {
 $settingsTests = Join-Path $repoRoot ".build\$Platform\$Configuration\SettingsTests.exe"
 Write-Host 'Running settings, schema, stamp, and watcher contract tests...' -ForegroundColor Cyan
 $settingsProcess = Invoke-RedXeStreamingProcess -FilePath $settingsTests -WorkingDirectory $repoRoot -TimeoutSeconds $testTimeoutSeconds -LogPath (Join-Path $evidence.Path ([IO.Path]::GetFileName($settingsTests) + '.log')) -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8
@@ -440,7 +485,7 @@ if ($settingsProcess -ne 0) {
 
 }
 
-if ('HostPlugin' -in $Suites) {
+Invoke-RedXeNativeSuite 'HostPlugin' {
 $hostPluginTests = Join-Path $repoRoot ".build\$Platform\$Configuration\HostPluginTests.exe"
 Write-Host 'Running production host and plugin integration tests...' -ForegroundColor Cyan
 $hostPluginLog = Join-Path $evidence.Path "HostPluginTests.log"
@@ -488,7 +533,8 @@ foreach ($soak in @('matrix','studio-clock','desk-clock')) {
 
 }
 
-if ('HostSmoke' -in $Suites) {
+Invoke-RedXeNativeSuite 'HostSmoke' {
+param()
 Write-Host 'Running hidden Direct3D 11 WARP smoke test...' -ForegroundColor Cyan
 # Bounded and logged like every other test process. A failed self-test check names itself on stderr, so in this log,
 # and exits 6. RedXe.exe routes a --self-test run through Common/FailureReports.h, so a failed Debug runtime check ends
@@ -737,12 +783,14 @@ $monitorCases = @(
     @{ Arguments = @('--redmonitor', '--warp'); Exit = 2; Text = 'Use --redmonitor by itself.' },
     @{ Arguments = @('--redmonitor-probe', '--warp'); Exit = 2; Text = 'Use --redmonitor-probe by itself.' })
 if ($installedViewers) {
+    $capabilitySkips.Add('--redmonitor without a viewer (RedMonitor installed)')
     Write-Host "SKIP --redmonitor without a viewer: $($installedViewers -join ', ') exists" -ForegroundColor Yellow
 }
 else {
     $monitorCases += @{ Arguments = @('--redmonitor'); Exit = 1; Text = 'RedMonitor is not installed: no Release RedMonitor.exe in %LocalAppData%\Programs\RedMonitor or %ProgramFiles%\RedMonitor.' }
 }
 if ($viewerRunning) {
+    $capabilitySkips.Add('--redmonitor-probe without a listener (RedMonitor running)')
     Write-Host 'SKIP --redmonitor-probe without a listener: a RedMonitor instance is running' -ForegroundColor Yellow
 }
 else {
@@ -913,11 +961,15 @@ exit 0
     $runtimeFailure = $_
     throw
 } finally {
-    if ($null -ne $runtimeInput -and -not $runtimeInput.Closed) {
-        try { Close-CiLocalSdkApplicationRuntimeInput $runtimeInput }
-        catch {
-            if ($null -eq $runtimeFailure) { throw }
-            Write-Warning ('Local SDK runtime close also failed: ' + $_.Exception.Message)
+    try {
+        if ($null -ne $runtimeInput -and -not $runtimeInput.Closed) {
+            try { Close-CiLocalSdkApplicationRuntimeInput $runtimeInput }
+            catch {
+                if ($null -eq $runtimeFailure) { throw }
+                Write-Warning ('Local SDK runtime close also failed: ' + $_.Exception.Message)
+            }
         }
+    } finally {
+        Exit-ScopedProfileLease $profileLease
     }
 }
