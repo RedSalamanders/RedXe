@@ -1,15 +1,20 @@
 # Generated test-run evidence
 
 Status: normative current tooling contract
-Last reviewed: 2026-10-29
+Last reviewed: 2026-11-23
+
+`Build/TestRunEvidence.psm1` loads the pinned engine's evidence module. Each executed native suite writes its `exitCode`
+and `skips` to the run payload and publishes a compatibility copy at `.build/reports/<suite>-<platform>-<configuration>.json`.
+Instrumentation uses the `.instrumented.json` suffix. The shared runner uses these reports to verify a fresh result.
+HostSmoke records unavailable RedMonitor scenarios as capability skips, which prevent reuse of that report.
 
 Explicit local SDK runtime checks use `.build/evidence/local-sdk-test-runs/` and
 `local-sdk-runtime.json`; normal qualification continues to use `test-runs` and
 `normal-suites.json`. The local result has role `LocalUnpinnedApplicationRuntimeResult`
 and binds the independently retained original build-record digest, current source,
 engine, dependency and complete runtime catalog. It always records
-`repositoryQualified=false` and `productionQualified=false`. Hosted discovery never
-scans the local folder. Close and revalidate the shared SDK/runtime reader before
+`repositoryQualified=false` and `productionQualified=false` and publishes only its local SDK receipt.
+Hosted discovery uses the ordinary evidence folder. Close and revalidate the shared SDK/runtime reader before
 publishing a passing local result; failed checks or close failures retain evidence.
 
 After argument, desktop and build preflight, native test execution writes each invocation under `.build/evidence/test-runs/<UTC-pid-guid>/payload`.

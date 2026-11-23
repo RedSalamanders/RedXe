@@ -248,6 +248,7 @@ and non-activating, and no scoped, CI or partial pass closes a focus-taking gate
 
 ## Scoped testing policy
 
+`Test-Changes.ps1` uses the pinned engine and the product's `Tests/test-scopes.json`. PrePush plans all six profiles.
 The user's accepted workflow replaces unconditional full-test iteration. While editing, run `Test-Changes.ps1 -Explain`
 and then the affected default; use `-Mode PrePush` to account for the remaining local and pull-request obligations
 without repeating identical ones, and explicit Full where qualification requires it. A pending CI check is never a

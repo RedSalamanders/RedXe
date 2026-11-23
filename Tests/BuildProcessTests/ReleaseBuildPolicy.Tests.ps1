@@ -218,12 +218,21 @@ $exitCompilerHost={param($State) if($State.Previous -cne 'fixture-caller'){throw
 $sdkInput=[pscustomobject]@{Closed=$false};$sdk=$sdkInput
 $sdkFailure=if($PrimaryFailure){'controlled primary failure'}else{$null};$packageFailure=$sdkFailure
 function Close-CiPinnedSdkInput {param($InputBytes) $Probe.closes++;if($CloseFailure){throw 'controlled SDK close failure'}}
+$profileLease=[pscustomobject]@{Profile='fixture'}
+function Exit-ScopedProfileLease {
+    param($Lease)
+    if (-not [object]::ReferenceEquals($Lease, $profileLease)) { throw 'Lost the held profile lease.' }
+    $Probe.leaseReleases++
+}
 try{if($PrimaryFailure){throw 'controlled primary failure'}}finally{
 '@ + $body + "`n}")
     foreach($primary in @($false,$true)){foreach($closeFailure in @($false,$true)){
-        $probe=@{restores=0;closes=0};$message=''
+        $probe=@{restores=0;closes=0;leaseReleases=0};$message=''
         try{& $stage $probe $primary $closeFailure}catch{$message=$_.Exception.Message}
         if($probe.restores -ne 1){throw "$script lost compiler-host restoration during SDK cleanup."}
+        if ($script -ceq 'build.ps1' -and $probe.leaseReleases -ne 1) {
+            throw 'build.ps1 did not release its profile lease during compiler-host and SDK cleanup.'
+        }
         $expected=if($primary){'controlled primary failure'}elseif($closeFailure -and $script -ne 'restore-dxui.ps1'){'controlled SDK close failure'}else{''}
         if($message -cne $expected){throw "$script changed failure precedence: expected '$expected', got '$message'."}
     }}

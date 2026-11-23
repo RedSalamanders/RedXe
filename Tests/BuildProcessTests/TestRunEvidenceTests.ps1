@@ -6,8 +6,8 @@ $ErrorActionPreference = 'Stop'
 $repository = Split-Path -Parent $PSScriptRoot
 if (-not (Test-Path -LiteralPath (Join-Path $repository 'AGENTS.md'))) { $repository = Split-Path -Parent $repository }
 if (-not $ModulePath) {
-    $ModulePath = Join-Path $repository 'Tools/TestRunEvidence.psm1'
-    if (-not (Test-Path -LiteralPath $ModulePath)) { $ModulePath = Join-Path $repository 'Build/TestRunEvidence.psm1' }
+    Import-Module (Join-Path $repository '.ci-engine/Tools/Modules/Ci.EngineBinding.psm1') -Scope Local
+    $ModulePath = Resolve-CiPinnedEngineModule -ProjectRoot $repository -Name 'TestRunEvidence.psm1'
 }
 if (-not $ScratchRoot) {
     if (-not (Test-Path -LiteralPath (Join-Path $repository 'AGENTS.md'))) { $repository = Split-Path -Parent $PSScriptRoot }
@@ -33,7 +33,8 @@ function Reject-Evidence([scriptblock] $Body, [string] $Message, [Parameter(Mand
 function Get-OsReason([int] $Code) { [regex]::Escape([ComponentModel.Win32Exception]::new($Code).Message.TrimEnd('.')) }
 function New-Fixture([string] $Name) {
     $path = Join-Path $ScratchRoot $Name
-    [void][IO.Directory]::CreateDirectory($path)
+    [void][IO.Directory]::CreateDirectory((Join-Path $path 'Tests'))
+    [IO.File]::Copy((Join-Path $repository 'Tests/test-scopes.json'), (Join-Path $path 'Tests/test-scopes.json'))
     return $path
 }
 

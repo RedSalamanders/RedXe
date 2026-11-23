@@ -322,55 +322,36 @@ CI may use its automatic `github.token` for API rate limits; this is provided by
 token. Source URLs, logs and shipped provenance contain no credentials. The existing advisory lookup also works without
 authentication.
 
-## Scoped iteration and PR coverage
+## Scoped iteration and qualification
 
-Active native test sources, helpers, fixtures and seams MUST use `Scope.Tests.Something.h/.cpp`. `Tests/native-test-files.json` owns active membership. Sources under `Specs/` and `Measurements/` (archived harnesses, sealed reproduction inputs) are historical: they keep their original names, are never taken for active test sources and MUST NOT enter the inventory. Rename project entries, includes, current inventories and callers together. Outside `Tests/` and `SelfTest/` folders, a `.cpp` or `.h` file is an active test source, which the inventory MUST then list, when its name has a `.Tests.` segment in any spelling or a `Test`, `Mock` or `Fake` name component spelled as the naming rule spells it (`FakeClock.h`, `MockHost.cpp`, `WeatherTest.cpp`). Those letters inside a word (`Attestation.h`, `LatestRelease.cpp`, `Mockingbird.h`) MUST NOT make a product file a test source.
+`Test-Changes.ps1` runs the pinned engine's [scoped-testing contract](https://github.com/RedSalamanders/.github/blob/main/Specs/ProjectCommands.md#scoped-testing).
+`Tests/test-scopes.json` owns RedXe's suite names, path rules, native source inventory and PrePush profiles.
+The planner uses local merge-base changes or its eligible local iteration baseline and includes staged, unstaged,
+deleted, renamed and untracked inputs. Known prose selects independent tooling and formatting. The test
+fixtures, embedded resources and unknown executable inputs retain native coverage.
 
-`Test-Changes.ps1` is the ordinary iteration entrypoint. Its default is affected coverage, including committed changes since a local merge base and independent staged, unstaged, deletion, rename-side and untracked discovery. No ref is fetched. Unknown executable inputs widen coverage; prose alone does not require native tests. Owned Markdown prose under `Specs/`, `docs/`, `Changes/`, `.agents/` and `.github/skills/`, ordinary README/AGENTS/CLAUDE files and the root changelog select independent validators. Markdown under tests, data, fixtures or embedded resources, and unknown implementation-local Markdown retain their declared native owners or conservative fallback. Explicit native Markdown rules and exact exclusive native rules override prose classification. Other undeclared files under `docs/`, `Measurements/` or `Mockups/` select nothing. Explanations name paths, consumers and fallback reasons. Explicit selectors reject unknown scopes. Affected, filtered and environment-reduced coverage MUST NOT be reported as a full repository pass.
+Full selects one profile. PrePush runs x64 Debug, Release and ASan Debug with native tests and the three ARM64
+cross-build profiles. Native runtime execution requires the matching host architecture. The hosted Release
+adapter runs the existing full native suite batch after its build. The PR checks remain compiler-free.
+Independent tooling uses `Tests/BuildProcessTests/Invoke-ToolingTests.ps1` and `format.ps1 -Check`.
 
-Every `Test-Changes.ps1` run that does not fail ends with a coverage label, except `-Explain`, which ends with the plan. An empty affected plan MUST end with `NOTHING_SELECTED; repository NOT_EVALUATED` and exit 0: it evaluated nothing, so it is never a gate; `test.ps1 -Full` and `-Mode Full` are. A Git failure in scope discovery MUST name the Git command and its exit code. A base ref that does not resolve, or one that shares no history with `HEAD` (a shallow or unrelated clone), fails affected selection with that failure and the remedy: fetch, deepen, pass `-BaseRef`, or run the full gate; so does a tree without Git or a work tree. An ordinary `test.ps1` call (only `-Platform`, `-Configuration` or `-SkipBuild` bound) runs this affected selection; when it cannot compare (no Git, no work tree, no `origin/<default branch>`, no shared history) `test.ps1` MUST say why and run every suite, as `-Full` does.
+The shared runner stamps both its build and test with the comparison merge base's commit count.
+Direct `test.ps1 -SkipBuild` needs that stamp as `-BuildNumber` when testing an output built by `Test-Changes.ps1`.
+Direct builds retain the default build number in [Build_Packaging.md](Build_Packaging.md).
+Build and test share the engine's fail-fast profile lease. Starting a native run revokes the previous iteration
+baseline. Starting a build invalidates its profile's scoped build receipt. `Test-Changes.ps1 -SkipBuild` requires
+an exact attestation from the shared runner for that profile, source, artifact and environment.
 
-Successful whole-scope results are reused only for equal repository content, complete executable/DLL/PDB output closure, stable deployed settings/schema and DxUi provenance bytes, architecture, configuration, scope, runner and environment. Every required deployed input must exist and the binary closure must be nonempty before an identity is established. Changes or deletion of those deployed inputs invalidate reuse; generated reports and test-owned fixtures do not enter that stable runtime closure. Build attestation binds source inputs to those artifacts before SkipBuild. The attestation and native identities exclude owned prose and the `docs/`, `Measurements/`, `Mockups/` and `Specs/Plans/` folders except explicitly declared runtime inputs. Test data, fixture README files, embedded resources, unknown implementation-local Markdown and explicit native Markdown/exclusive rules retain byte identity. Tooling identities also include prose because validators read it. Invalid, missing, failed, interrupted or concurrently mutated evidence is never reusable. Force bypasses test-result reuse. Independent tooling receipts are shared across profiles because their execution has no profile argument. Receipt identity is content-based; staging/committing the same source tree does not itself invalidate it.
+Native reuse binds actual executable, library and symbol bytes, the deployed Debug and Release settings, the
+deployed schema, and the DxUi provenance file listed in the manifest. The runner also needs a current
+successful suite report with no capability skip. Changed source, runtime bytes or environment refuse the
+affected run's success. `-Force` reruns selected scopes. Native reports and receipts follow
+[Testing_RunEvidence.md](../Testing/Testing_RunEvidence.md).
 
-The actual generated `.ci-engine` is also an input of local build attestations and
-native/tooling evidence, even though product Git discovery ignores it. Source identity
-includes the shared `Get-CiPinnedEngineInputsIdentity` result for this exact checkout.
-An absent, foreign, dirty or wrong-pin engine refuses before evidence reuse. Current
-raw engine source bytes are hashed afresh; generated engine `.build` output is excluded.
-This identity grants no qualification result or CI delegation.
-
-Independent tooling publishes its own successful receipt immediately after the complete
-original source/tool/environment closure verifies, before native execution. A later
-native failure or interruption preserves that proof and its original receipt bytes.
-Failed or input-mutating independent checks publish no success and stop before native
-execution. Native results remain separate; a later source mutation invalidates their
-own evidence and prevents current-tree completion. Pending CI or a retained independent
-pass does not close native, whole-run, manual or platform gates.
-
-`Test-Changes.ps1` MUST resolve one build number per run and pass it to `build.ps1 -BuildNumber` and `test.ps1 -BuildNumber`, and the build attestation MUST bind it. The number is the commit count of the merge base of `HEAD` with `origin/<default branch>`, or the default build number ([`Build_Packaging.md`](Build_Packaging.md)) when that ref does not resolve. A commit therefore leaves the version stamp, the binaries and native receipts unchanged; moving to a newer base changes the stamp, relinks the version-stamped binaries and invalidates native receipts, and SkipBuild then refuses with "Run without -SkipBuild" before any test runs. Binaries built this way carry the base's version, not a release number: `test.ps1 -Full -SkipBuild` or an explicit `-Suites` run on them needs the same `-BuildNumber`, which the run prints.
-
-Git output is decoded as UTF-8 whatever the console code page. A path Git lists that is not a file on disk leaves the source identity only when Git reports it deleted (or it is a nested repository's directory); any other unresolvable path fails the identity instead of silently dropping out of it.
-
-The environment identity covers the machine, OS build and update revision (UBR), architecture, PowerShell, the Direct2D, Direct3D, WARP, DirectWrite, DXGI and WIC system runtimes by hash, the Git version, the Visual Studio and Windows SDK installations, and the sanitizer, CI, processor, `PATH` and toolset environment variables. Tooling receipts record the PowerShell tooling contract; PowerShell version is already part of the common identity. No Python discovery or PyYAML probe runs. Receipts store only digests, never these values.
-
-When the inputs of a scope that passed change while the run executes, `Test-Changes.ps1` MUST NOT record that scope, MUST still record the scopes whose inputs did not change, MUST warn naming the changed scopes, and MUST end with `SELECTED_PASSED; NOT_RECORDED` and exit 0: the selected tests passed on the tree as it started, and the current tree is not covered. A source change during the build still fails the run before any test executes, because its binaries could mix both trees.
-
-`-Scopes` accepts a comma list as `test.ps1 -Suites` does, also as the single argument `pwsh -File` passes. Both entrypoints apply one platform rule: ARM64 runtime tests need an ARM64 host, and x64 also runs on an ARM64 host under emulation; the architecture in the environment identity keeps that evidence apart from native x64 evidence.
-
-`-Mode Full` selects the full local obligation. `-Mode PrePush` accounts for full coverage across local execution and the forthcoming PR gate. Each `prCoverage` entry of `Tests/test-scopes.json` is one PR check, named as GitHub reports it. A check that names a platform and configuration (`native (x64, Release)`) covers that native profile only; one that names neither (`tooling`) covers its profile-independent scopes for every local profile, so a Debug PrePush delegates `BuildProcess` too. Delegation requires a clean committed candidate, the enabled GitHub workflow, matching candidate workflow bytes and their reviewed manifest digest, a `pull_request` trigger, and no change on `origin/<default branch>` since the merge base to the workflow, `test.ps1`, the manifest, `Build/ScopedTesting.psm1` (which `test.ps1` reads the manifest through) or the tooling commands, because a PR runs the workflow and runner of its merge with the base. It also requires that the default branch require the check: the rules GitHub reports for that branch (`gh api repos/<repo>/rules/branches/<branch>`) MUST name it as a required status check, since a check that is not required lets a failing or pending run merge. Until the branch requires it, PrePush keeps that check's work local. Staged, unstaged and untracked inputs retain obligations locally; a dirty tree or changed HEAD during the coverage lookup also rejects delegation. Nightly and weekly jobs are not PR coverage. Workflow/API uncertainty keeps obligations local. Every refusal MUST print `PR delegation not used: <reason>`. A delegated run reports `CI_PENDING` (`LOCAL_OBLIGATIONS_PASSED; CI_PENDING`, or `LOCAL_OBLIGATIONS_NONE; CI_PENDING` when nothing runs locally), never repository `PASSED`. Main/release acceptance remains separate because its merge tree, configuration matrix or requirements can differ.
-
-Every suite `Test-Changes.ps1`, `test.ps1` and CI run is noninteractive. Timing, native ARM64 execution, real devices, IME and assistive technology, foreground input and the live checks a domain contract names stay separate qualification work after agreement to the time: noninteractive iteration and CI do not claim those manual gates, and scoped selection adds no screenshot or desktop automation.
-
-`Tests/test-scopes.json` owns the standalone scope and verified PR-profile mapping. A test project's folder selects its own suite, while common support and unknown paths retain conservative fan-out. New source/build/runtime/runner dependencies must extend the relevant manifest and focused regression coverage.
-
-The manifest's scope names are the suite names. `test.ps1` takes `-Suites` and its default from them and runs each suite in exactly one `if ('<Scope>' -in $Suites)` block. `ScopedTesting.Tests.ps1` MUST check that every manifest scope has exactly one such block and every block names a manifest scope; that every rule matches at least one tracked path; and that every input of a project whose executable a suite runs selects that suite or the full fallback. Those inputs are the project's items, its project references and the quoted `#include` closure, resolved beside the including file, then through the project's include directories and `Common`. A rule that misses a consumer therefore fails the tooling suite instead of narrowing selection.
-
-AVControl, Launcher, Logicon and Zoom edits also select Settings because that suite compiles their models/settings or consumes their shared settings constraints. A test project file (`Tests/<Project>/<Project>.vcxproj`) also selects PluginContract, HostPlugin, HostSmoke and Packaging: every project builds into the shared output folder, where the files it deploys and the product projects it references reach those suites. Its `.filters` file, which only the IDE reads, stays with its own suite. Skill metadata (`.agents/**`), `validate-skills.ps1`, `Build/SkillValidation.psm1` select only `BuildProcess`.
-
-CI invokes explicit full gates rather than the affected default. The forthcoming PR executes its candidate workflow merged with the base; a reviewed local workflow digest, a runner the base has not changed since, the enabled GitHub workflow and checks the default branch requires gate delegation. Workflow edits invalidate that digest until the scope contract is reviewed and updated. RedXe's independent Windows tooling/skill tests execute once in its tooling job. Native workflow jobs pass `-SkipTooling` to avoid repeating the independent tooling job. Workflow guards reject routine Python provisioning. Hosted timing investigations still use paired, fixture-matched resource evidence; cached historical observations are not new measurements.
-
-PR delegation MUST account for conditional workflow jobs: a check covers a scope only for the changes it runs on. Both RedXe PR checks run on every pull request, because `ci.yml` has no path filter and no job condition, so the scopes they cover do not depend on what changed. A workflow edit that adds a filter or a condition changes the reviewed digest, which keeps every obligation local until the manifest accounts for it.
-
+A test project's sources and referenced inputs select every consuming suite. Project edits also select the
+shared-host and packaging consumers of its deployed output. The tooling fixture checks that each declared native
+suite has one implementation and that each rule matches actual tracked files. Real devices, desktop focus,
+IME, assistive technology and performance acceptance keep their applicable product qualification.
 
 ## Test-run retention
 

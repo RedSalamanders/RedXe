@@ -1,7 +1,88 @@
 {
-  "version": 1,
-  "repository": "RedSalamanders/RedXe",
+  "version": 2,
   "defaultBranch": "main",
+  "buildNumber": "mergeBaseCount",
+  "nativeInventory": {
+    "path": "Tests/native-test-files.json",
+    "exclude": [
+      "Specs/**",
+      "Measurements/**"
+    ],
+    "testFolders": [
+      "Tests/**",
+      "**/SelfTest/**"
+    ]
+  },
+  "runtimeFiles": [
+    "Settings/RedXe-debug.settings.json",
+    "Settings/RedXe.settings.json",
+    "Settings/RedXe.settings.schema.json",
+    "DxUi.provenance.json"
+  ],
+  "prose": [
+    ".agents/**/*.md",
+    ".github/skills/**/*.md",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "Changes/**/*.md",
+    "Changes/README.md",
+    "CLAUDE.md",
+    "docs/**/*.md",
+    "docs/plugins/README.md",
+    "docs/README.md",
+    "docs/screenshots/README.md",
+    "Measurements/AVIntegration/2026-09-05/av-touch-2026-09-05/README.md",
+    "Measurements/AVIntegration/2026-09-05/embedded-text-v1-2026-09-05/README.md",
+    "Measurements/AVIntegration/2026-09-05/primary-high-contrast-2026-09-05/README.md",
+    "Measurements/AVIntegration/2026-09-05/README.md",
+    "Measurements/DxUiAdoption/2026-09-09/README.md",
+    "Measurements/DxUiAdoption/2026-09-12/README.md",
+    "Measurements/DxUiAdoption/2026-09-13/arm64-builds/README.md",
+    "Measurements/DxUiAdoption/2026-09-13/README.md",
+    "Measurements/RedMonitor_Adoption_2026-10-23/README.md",
+    "Measurements/TestingAcceleration_2026-11-10_SDK2/README.md",
+    "Measurements/TestingAcceleration_2026-11-10_SdkAvMeasurement/README.md",
+    "Measurements/TestingAcceleration_2026-11-10/README.md",
+    "Measurements/Toolchain/2026-10-23-msvc1452/README.md",
+    "Plugins/5H4D3R5/README.md",
+    "Plugins/Actions/Zoom/AGENTS.md",
+    "Plugins/Actions/Zoom/CLAUDE.md",
+    "Plugins/Actions/Zoom/README.md",
+    "Plugins/AVControl/AGENTS.md",
+    "Plugins/AVControl/Camera/README.md",
+    "Plugins/AVControl/CLAUDE.md",
+    "Plugins/AVControl/README.md",
+    "Plugins/DeskClock/AGENTS.md",
+    "Plugins/DeskClock/CLAUDE.md",
+    "Plugins/DeskClock/README.md",
+    "Plugins/Launcher/AGENTS.md",
+    "Plugins/Launcher/CLAUDE.md",
+    "Plugins/Launcher/README.md",
+    "Plugins/Logicon/AGENTS.md",
+    "Plugins/Logicon/CLAUDE.md",
+    "Plugins/Logicon/README.md",
+    "Plugins/MatrixRain/README.md",
+    "Plugins/StudioClock/AGENTS.md",
+    "Plugins/StudioClock/CLAUDE.md",
+    "Plugins/StudioClock/README.md",
+    "Plugins/SystemData/AGENTS.md",
+    "Plugins/SystemData/CLAUDE.md",
+    "Plugins/SystemData/README.md",
+    "Plugins/Weather/AGENTS.md",
+    "Plugins/Weather/CLAUDE.md",
+    "Plugins/Weather/README.md",
+    "README.md",
+    "Specs/**/*.md",
+    "Specs/Plans/Done/README.md",
+    "Specs/Plans/WIP/README.md",
+    "Specs/README.md",
+    "Tools/README.md"
+  ],
+  "unscoped": [
+    "docs/**",
+    "Measurements/**",
+    "Mockups/**"
+  ],
   "scopes": [
     {
       "name": "LauncherAlias",
@@ -81,7 +162,26 @@
     {
       "name": "BuildProcess",
       "native": false,
-      "reuse": true
+      "reuse": true,
+      "commands": [
+        {
+          "path": "Tests/BuildProcessTests/Invoke-ToolingTests.ps1",
+          "arguments": []
+        }
+      ]
+    },
+    {
+      "name": "Format",
+      "native": false,
+      "reuse": true,
+      "commands": [
+        {
+          "path": "format.ps1",
+          "arguments": [
+            "-Check"
+          ]
+        }
+      ]
     }
   ],
   "rules": [
@@ -376,11 +476,72 @@
       ],
       "reason": "independent skill validation tooling",
       "exclusive": true
+    },
+    {
+      "pattern": "**/*.cpp",
+      "scopes": [
+        "Format"
+      ],
+      "reason": "native source formatting",
+      "additive": true
+    },
+    {
+      "pattern": "**/*.h",
+      "scopes": [
+        "Format"
+      ],
+      "reason": "native header formatting",
+      "additive": true
     }
   ],
-  "toolingCommands": [
-    "Tests/BuildProcessTests/Invoke-ToolingTests.ps1"
+  "watchedProcesses": [
+    "RedXe.exe",
+    "DxUi.ControlTests.exe",
+    "DxUi.EmbeddedTests.exe",
+    "DxUi.FoundationTests.exe",
+    "DxUi.InteractiveLease.exe"
   ],
-  "prCoverage": [],
-  "prWorkflowDigest": "8da40d0350b862c3596a141b674116631321f3439fba8c296dfda7d8e847d05a"
+  "prePushProfiles": [
+    {
+      "platform": "x64",
+      "configuration": "Debug",
+      "buildOnly": false
+    },
+    {
+      "platform": "x64",
+      "configuration": "Release",
+      "buildOnly": false
+    },
+    {
+      "platform": "x64",
+      "configuration": "ASan Debug",
+      "buildOnly": false
+    },
+    {
+      "platform": "ARM64",
+      "configuration": "Debug",
+      "buildOnly": true
+    },
+    {
+      "platform": "ARM64",
+      "configuration": "Release",
+      "buildOnly": true
+    },
+    {
+      "platform": "ARM64",
+      "configuration": "ASan Debug",
+      "buildOnly": true
+    }
+  ],
+  "instrumentationVariables": [
+    "ASAN_OPTIONS"
+  ],
+  "systemFiles": [
+    "d2d1.dll",
+    "d3d10warp.dll",
+    "d3d11.dll",
+    "dwrite.dll",
+    "dxgi.dll",
+    "windowscodecs.dll"
+  ]
 }

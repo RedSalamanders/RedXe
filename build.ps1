@@ -70,6 +70,13 @@ if ($Clean -and $Run) {
     throw '-Run cannot be combined with -Clean.'
 }
 
+Import-Module (Join-Path $PSScriptRoot 'Build/ScopedTesting.psm1') -Scope Local -ErrorAction Stop
+$profileLease = Enter-ScopedProfileLease -Root $PSScriptRoot -Platform $Platform -Configuration $Configuration
+try {
+$scopedReports = Get-ScopedReportRoot -Root $PSScriptRoot -Platform $Platform -Configuration $Configuration
+Remove-ScopedIteration -Root $PSScriptRoot -Path (Join-Path $scopedReports 'iteration.json')
+Remove-ScopedIteration -Root $PSScriptRoot -Path (Join-Path $scopedReports 'build.json')
+
 # Use one compiler host for dependency identity, restore, compilation and provenance.
 Import-Module (Join-Path $PSScriptRoot 'Build/DxUiRestore.psm1') -Force -ErrorAction Stop
 $compilerHost = Enter-RedXeCompilerHost
@@ -229,4 +236,7 @@ else {
     try{if($null -ne $sdkInput -and -not $sdkInput.Closed){Close-CiPinnedSdkInput $sdkInput}}
     catch{if($null -eq $sdkFailure){throw}else{Write-Warning ('SDK close also failed: '+$_.Exception.Message)}}
     finally{& $exitCompilerHost -State $compilerHost}
+}
+} finally {
+    Exit-ScopedProfileLease $profileLease
 }
