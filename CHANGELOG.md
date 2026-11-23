@@ -4,6 +4,136 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Moved the vcpkg tool pin in `vcpkg-tool.json` from `9e593bb1` to `aeb162b7`, the same commit as the baseline and
+  as RedSalamander's pin (RedHome CV-4-07, register C-07). The managed checkout's scripts and triplets now come from
+  that commit and its bootstrap downloads vcpkg-tool 2026-09-26 instead of 2026-07-27; package ABI hashes change, so
+  the first restore rebuilds the dependencies. Compiler-free checks pass; native qualification runs on `main` after
+  merge.
+- Moved the vcpkg `builtin-baseline` in `vcpkg.json` from `9eec002d` to `aeb162b7` (microsoft/vcpkg, 2026-10-22),
+  RedSalamander's baseline, so every repository resolves ports from one baseline (RedHome CV-4-07, register C-06).
+  Between the two baselines only `7zip` and `sqlite3` change, and this repository uses neither, so no dependency
+  version changes. Compiler-free checks pass; native qualification runs on `main` after merge.
+- Gave `Specs/Build/Build_UnifiedCI.md` the skeleton every RedSalamanders repository now shares (convergence
+  CV-6-03, B-08): the same headings in the same order, one common text above `## Project adapter` built from the
+  paragraphs the six files already shared, five stale statements corrected to the engine's `Specs/CI.md`, and every
+  repository-specific sentence moved unchanged into the fixed adapter subsections. The WIP, Done and catalog headers also describe the index row format in words instead of a literal example link. Prose only; no CI
+  behavior changed. Validated with the repository's specification validators and `Tools/Test-Changelog.ps1`.
+- Gave the specifications the same shape as every RedSalamanders repository (convergence CV-6-03): the common
+  `Specs/README.md` structure and WIP and Done index formats, dated names for the two active RFC plans
+  (`RFC_Plugins_AVControl_2026-09-05.md`, `RFC_Plugins_Actions_2026-09-17.md`), the run-evidence contract moved
+  unchanged to `Specs/Testing/Testing_RunEvidence.md`, the common CODEOWNERS file, and a
+  `Core_RedMonitorIntegration.md` that keeps only RedXe's adapter facts and links to RedMonitor's consumer
+  contract. No rule, behavior, build input or test changed. Validated with `validate-skills.ps1` and
+  `Tools/Test-Changelog.ps1`.
+- Retired two repository-local agent skills now folded into shared skills in `RedHome` (convergence CV-2-12):
+  `build-redxe` into `native-build` and `settings-store` into `app-settings`. Every rule and code line of both is in
+  the shared skills, with RedXe's commands, paths, templates and product rules in each one's
+  `references/repository-facts.md`. Claude Code (the `redhome` plugin), Codex, and Copilot list the shared skills
+  from this repository. `AGENTS.md` points at them. No build, test or product input changes.
+- Agent guidance now matches the other RedSalamanders repositories (`RedHome` convergence step CV-6-02).
+  `.github/copilot-instructions.md` is the identical pointer to `AGENTS.md` that every repository uses. `AGENTS.md`
+  is titled "RedXe development guidance", with the shared-skill pointer directly under `## Skills`. The drive-root,
+  scoped-testing, Changes, native build and Unified CI sections use the text every repository shares, and a new
+  shared "Interactive desktop tests" section states the focus rule. RedXe's own scoped-testing facts move into Build
+  and validation, which no longer asks for `test.ps1 -Full` on every change: PrePush accounts for the remaining
+  coverage. The common `.gitignore` block ignores `.claude/settings.local.json` and `.claude/scheduled_tasks.lock`,
+  and a new `capabilities.json` records what RedXe supports and what is pending, each entry restating the docs or
+  the WIP index. Nothing compiles differently.
+- Converged the root files with every RedSalamanders repository (convergence CV-6-03, owner decision D18 and the
+  B-12 default): `LICENSE.txt` is now only the common MIT text, and its files-under-other-terms section and library
+  list, full license texts included, move verbatim to `THIRD-PARTY-NOTICES.md`, whose DxUi entry now also names what
+  that revision compiles in. The duplicate `LICENSE` is removed. The portable package stages and requires the notices
+  file; its README.txt, `Build_Packaging.md` and `README.md` say where each part is. The common `CONTRIBUTING.md` and
+  pull request template are added. Validated with `validate-skills.ps1`, the packaging tooling tests and
+  `Tools/Test-Changelog.ps1`; native packaging runs in main qualification.
+- Moved the shared CI engine pin from `07bc6f1` to `f965c79`, engine `main` today, with `Update-ProjectPin.ps1`:
+  `.ci/project.json` and the workflow callers name the same full commit. This is this repository's step of the
+  `RedHome` convergence wave (CV-4-04, CV-4-05) that puts every repository on one engine commit. Between the two
+  commits the engine adds local SDK build and binding guards, the shared changelog commands with their product shim
+  templates (CV-5-01, CV-5-02) and the harness exclusions, and changes no workflow template. The pin also adds the
+  agent harness paths `.codex/**`, `.github/agents/**`, `.github/copilot-instructions.md` to the prose exclusions,
+  so editing them no longer changes native inputs (CV-6-01). Compiler-free checks pass; native qualification runs on
+  `main` after merge.
+- Named the workflows and the Dependabot configuration on their own lines in the common CODEOWNERS file, which
+  every RedSalamanders repository shares (convergence CV-6-03, B-12); `/.github/` already owned both, so no owner
+  changes. Prose only. Validated with `Tools/Test-Changelog.ps1`.
+- Planned the code-convention rows of the RedHome convergence register (CV-6-08) that move RedXe, one pull request
+  per row, in `Specs/Plans/WIP/CodeConventionsConvergence_2026-11-19.md`. Plan only; no code changes.
+- Recorded what reading the code found for three code-convention rows (RedHome CV-6-08): occlusion (H-20) spans
+  the renderer, scheduler, edge affordance, probe and two contracts; the settings save (H-25) is a guarded POSIX
+  rename the settings contract requires, which needs an owner decision against the register's `ReplaceFileW`
+  target; and JSON5 reading (H-09) first needs the document scanner behind the dock patches to read JSON5. Plan only.
+- Run the changelog commands from the pinned shared CI engine (convergence CV-5-02). `Tools/Test-Changelog.ps1`,
+  `Fold-Changelog.ps1`, `Submit-ChangelogFold.ps1`, `Test-ChangelogWorkflow.ps1` and the new `Release-Changelog.ps1`
+  are now copies of the engine's shims (`Templates/Project/Tools` at `f965c79`): the same names and parameters, running
+  the engine implementation in `.ci-engine`, and refusing with one message when that checkout is missing, at another
+  commit or changed. `Tools/Modules/Documentation/Changelog.psm1` is removed. The behavior suite now also proves these
+  shims equal the pinned templates and that `Test-Changes.ps1 -Mode PrePush` checks the changelog first. Two engine
+  changes reach this repository: two pending fragments with the same new text are refused by the fold, and a Git error
+  while reading the base changelog fails `-Base` instead of skipping it. The scoped-testing runner fixture gets its own
+  manifest and `.ci-engine` clone; `Specs/Core/Core_Changes.md` now points to the engine contract. Tooling-only;
+  native runtime coverage is unchanged.
+- Import the build console from the pinned shared CI engine (convergence CV-5-03). `Build/BuildConsole.psm1` is now the
+  engine's module shim (`Templates/Project/Build/BuildConsole.psm1`): `build.ps1` and the tooling tests keep importing
+  the same path and get the same four functions from `.ci-engine/Tools/Modules/Ci.BuildConsole.psm1`. The zero-warning
+  gate also refuses a structured native tool exception dump despite a green MSBuild footer, as RedTilde's did. The
+  import refuses with one message when that checkout is missing, at another commit or changed. Tooling-only; no
+  compiler or linker setting changes.
+- `.git-blame-ignore-revs` lists the reformat of pull request #108 (the shared 155-line `.clang-format`) and its
+  merge commit, so `git blame` with `blame.ignoreRevsFile` and GitHub's blame view attribute lines to the change
+  before the reformat. The commit that moved one C4191 suppression is not listed, because it changes a line.
+  This is the follow-up of step CV-6-05 of the `RedHome` convergence plan (register D-01).
+- Restores read vcpkg from complete clones again. Since 2026-11-18 every fresh restore failed inside
+  `vcpkg install` with "Could not resolve host: github.com" for a promisor object. vcpkg 2026-07-27 extracts
+  each versioned port with `git read-tree` and `git checkout-index` in an environment that holds only
+  `GIT_INDEX_FILE`, where Git resolves no host, so it cannot fetch a blob that a `--filter=blob:none` clone
+  left on the server. That blob was first needed when upstream microsoft/vcpkg de36db0455 moved
+  `vcpkg-cmake` on `master` away from the tree the baseline selects.
+  - `Build/VcpkgRestore.psm1` clones the executable and catalogue checkouts completely, fetches a missing pin
+    with its history instead of `--depth 1`, and completes a partial or shallow clone from an earlier restore
+    in place, keeping its HEAD and working tree.
+  - `restore-dxui.ps1` calls the new `Build/VcpkgToolCheckout.psm1` (the same file in every DxUi consumer)
+    before the pinned DxUi's `vcpkg-install.ps1`. The call gives that installer a complete checkout of its own
+    vcpkg pin, which the installer reuses instead of its partial clone. The DxUi pin is unchanged; DxUi's own
+    installer is fixed in DxUi pull request 267.
+  - Validation: `VcpkgRestore.Tests.ps1` (complete clones from a server that offers filtering; in-place
+    completion; offline extraction as vcpkg performs it), the new `VcpkgToolCheckout.Tests.ps1`, and the
+    `restore-dxui.ps1` wiring check in `DxUiRestoreTests.ps1`. Native compile: post-merge qualification.
+- The `plugin-development` skill description now says when to use it ("Use when ..."), so every local skill
+  description says what the skill does and then when to use it, the form the shared `RedHome` skills use, because an
+  agent picks a skill from its description alone (`RedHome` convergence step CV-2-13). Only its front-matter
+  description changes. The three `agents/openai.yaml` Codex UI metadata files are removed (CV-2-11, register A-11
+  decided "none"), and `Specs/Build/Build_SkillPackages.md` says no skill carries one; the validator still treats the
+  file as optional. `AGENTS.md` shrinks from 29,214 to under 21,000 bytes, below the 24,000-byte limit past which
+  Antigravity truncates a rule file (CV-3-08): its source-tree map moves unchanged into the new
+  `Specs/Core/Core_SourceLayout.md`, indexed in `Specs/README.md`, and `AGENTS.md` links to it and keeps every
+  ownership rule. `validate-skills.ps1` passes; no build, test or product input changes.
+- Adopted the shared 155-line `.clang-format` of DxUi, RedSalamander, and RedMonitor (SHA-256 `768439d2…` as
+  committed) and reformatted every C and C++ source under the `formatRoots` of `.ci/project.json` with the pinned
+  clang-format 22.1.3. The change is whitespace only, plus aligned consecutive assignments, `! x` spacing, and the
+  160-column limit that the style sets; no include moved.
+  `format.ps1` is now the shared script: it takes clang-format from `Install-CiFormatter` in the pinned
+  `.ci-engine` instead of `PATH` or Visual Studio, covers the eight extensions CI formats under `formatRoots`
+  (now including `RedXeLauncher`), and gains `-Check`, which verifies without writing.
+  `Plugins/MatrixRain/GenerateGlyphAtlas.ps1` writes its constants aligned, so a regenerated atlas equals the
+  formatted one, and the `Main.cpp` routing check in `BuildProcessTests.ps1` accepts the aligned assignment.
+  In `AVControl.Tests.Module.cpp` the reformat moved one `GetProcAddress` cast below the line that its
+  `#pragma warning(suppress : 4191)` covers, so the pragma now sits directly above the cast, as it does for
+  the file's other exports (found by the zero-warning build; no other suppression in the tree moved).
+  `Build_Process.md` gains the shared formatting paragraph, and the validation steps of `Core_CrashHandling.md`
+  and `Plugins_API.md` run `format.ps1 -Check`.
+  This is step CV-6-05 of the `RedHome` convergence plan (register D-01, D-02, D-05, D-06, E-02).
+- `.gitattributes` and `.gitignore` start with the common blocks that every RedSalamanders repository now
+  shares, and `.editorconfig` is the shared file. The `.gitattributes` block stores text with LF and checks out
+  C and C++ sources, PowerShell, and Visual Studio files with CRLF and Markdown, JSON, and YAML with LF; the
+  repository's own lines follow it unchanged and still take precedence. No tracked file needs renormalizing:
+  every file with CRLF or mixed line endings in the index is already `-text`.
+  This is step CV-6-05 of the `RedHome` convergence plan (register D-03, D-04, and the `.editorconfig` part of B-12).
+- Aligned agent guidance and dependency automation with the other RedSalamanders repositories (convergence step 1,
+  planned in `RedHome`): `CLAUDE.md` is the same thin pointer to `AGENTS.md` in every repository,
+  `.claude/settings.json` enables the shared `redhome` Claude Code skill plugin from the `RedHome` marketplace, and
+  Dependabot now ignores `RedSalamanders/.github/*` so it stops opening one notice per shared-workflow caller; engine
+  pins keep moving through `Update-ProjectPin.ps1` only. No build, test or product input changes.
 - Consolidated the seven shared skills (`direct3d11-rendering`, `modern-cpp-windows`, `performance-resources`,
   `spec-workflow`, `wil-raii`, `win32-windowing`, and `yyjson`) into the organization `RedHome` repository, retaining
   RedXe-specific skills under `.agents/skills/` and validating with `validate-skills.ps1` and `Tools/Test-Changelog.ps1`
