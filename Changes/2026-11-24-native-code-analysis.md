@@ -1,0 +1,1 @@
+- Add a native MSVC code-analysis mode with isolated build outputs.

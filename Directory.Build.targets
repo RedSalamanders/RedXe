@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
-  <Target Name="ValidateRedXeOutputRoot" BeforeTargets="PrepareForBuild">
+  <Target Name="ValidateRedXeOutputRoot" BeforeTargets="PrepareForBuild" Condition="'$(RedXeAnalyze)'!='true'">
     <PropertyGroup>
       <_RedXeCanonicalOutputRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory).build\'))</_RedXeCanonicalOutputRoot>
       <_RedXeEvaluatedOutputRoot>$([System.IO.Path]::GetFullPath('$(RedXeOutputRoot)'))</_RedXeEvaluatedOutputRoot>
@@ -8,6 +8,20 @@
     <Error Condition="'$(_RedXeEvaluatedOutputRoot)'!='$(_RedXeCanonicalOutputRoot)' and ('$(CiSdkContract)'!='LocalUnpinnedAbiV1' or '$(RedXeDxUiSdkRoot)'=='' or '$(RedXeCiEngineRoot)'=='')" Text="Separate RedXe output roots require the explicit local SDK build broker and its active compiler lease." />
     <CallTarget Targets="RedXeRequireLocalSdkOutputLease" Condition="'$(_RedXeEvaluatedOutputRoot)'!='$(_RedXeCanonicalOutputRoot)'" />
   </Target>
+  <!-- MSVC clears tracking state in _PrepareForClean, before BeforeClean. -->
+  <Target Name="ValidateRedXeAnalysisOutput" BeforeTargets="PrepareForBuild;_PrepareForClean" Condition="'$(RedXeAnalyze)'=='true'">
+    <PropertyGroup>
+      <_RedXeAnalysisOutputRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory).build\analysis\'))</_RedXeAnalysisOutputRoot>
+      <_RedXeEvaluatedOutputRoot>$([System.IO.Path]::GetFullPath('$(RedXeOutputRoot)'))</_RedXeEvaluatedOutputRoot>
+    </PropertyGroup>
+    <Error Condition="'$(_RedXeEvaluatedOutputRoot)'!='$(_RedXeAnalysisOutputRoot)' or '$(CiSdkContract)'!='' or '$(RedXeDxUiSdkRoot)'!=''" Text="RedXe code analysis requires its dedicated output directory and source dependencies." />
+    <Exec Command="pwsh -NoProfile -NonInteractive -File &quot;$(MSBuildThisFileDirectory)Tools\Assert-AnalysisOutput.ps1&quot; -OutputDirectory &quot;$(OutDir)/.&quot; -IntermediateDirectory &quot;$(IntDir)/.&quot;" />
+  </Target>
+  <ItemDefinitionGroup Condition="'$(RedXeAnalyze)'=='true' and '$(MSBuildProjectExtension)'=='.vcxproj'">
+    <ClCompile>
+      <EnablePREfast>true</EnablePREfast>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <!-- Non-DxUi plugin projects need output ownership but must not import SDK headers/archive.
        Reuse the shared output-only verifier; actual SDK consumers keep their full ABI guard. -->
   <Target Name="RedXeRequireLocalSdkOutputLease">
