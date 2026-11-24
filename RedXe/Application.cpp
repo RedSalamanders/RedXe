@@ -26,6 +26,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <dwmapi.h>
 #include <memory>
 #include <new>
 #include <ole2.h>
@@ -38,8 +39,24 @@
 
 namespace
 {
-constexpr LONG kXeneonEdgeClientWidth  = 2560;
-constexpr LONG kXeneonEdgeClientHeight = 720;
+constexpr LONG kXeneonEdgeClientWidth        = 2560;
+constexpr LONG kXeneonEdgeClientHeight       = 720;
+constexpr UINT kWindowCloakChangedMessage    = WM_APP + 1;
+constexpr wchar_t kWindowCloakHookProperty[] = L"RedXe.WindowCloakHook";
+
+bool ReadWindowCloaked(HWND window) noexcept
+{
+    DWORD cloaked = 0;
+    return SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked != 0;
+}
+
+void CALLBACK OnWindowCloakEvent(HWINEVENTHOOK hook, DWORD, HWND window, LONG object, LONG child, DWORD, DWORD) noexcept
+{
+    if (window && object == OBJID_WINDOW && child == CHILDID_SELF && GetPropW(window, kWindowCloakHookProperty) == hook)
+    {
+        PostMessageW(window, kWindowCloakChangedMessage, 0, 0);
+    }
+}
 
 // Window-kind styles (UI_Windowing.md). No kind has a redirection surface: the main window never paints
 // with GDI; its chrome is drawn into the swap chain and native-widget containers are layered children with their own
@@ -61,11 +78,11 @@ constexpr uint32_t kSessionEndLogFlushMilliseconds = 500;
 static_assert(kSessionEndMaximumMilliseconds < 5000 && kSessionEndLogFlushMilliseconds < kSessionEndMaximumMilliseconds);
 
 // The private messages the main window receives are distinct.
-static_assert(TrayIcon::kCommandMessage != Renderer::kOcclusionStatusMessage && TrayIcon::kCommandMessage != SettingsWatcher::kSettingsChangedMessage &&
+static_assert(TrayIcon::kCommandMessage != kWindowCloakChangedMessage && TrayIcon::kCommandMessage != SettingsWatcher::kSettingsChangedMessage &&
               TrayIcon::kCommandMessage != PluginHost::kDataSnapshotInvalidateMessage && TrayIcon::kCommandMessage != Application::kPageEdgeHoverMessage &&
               TrayIcon::kCommandMessage != PluginHost::kHostActionMessage && TrayIcon::kCommandMessage != PluginHost::kServiceLaneMessage &&
               TrayIcon::kCommandMessage != Application::kDockAppBarMessage && TrayIcon::kCommandMessage != Application::kScreenshotCompleteMessage);
-static_assert(TrayIcon::kAddResultMessage != TrayIcon::kCommandMessage && TrayIcon::kAddResultMessage != Renderer::kOcclusionStatusMessage &&
+static_assert(TrayIcon::kAddResultMessage != TrayIcon::kCommandMessage && TrayIcon::kAddResultMessage != kWindowCloakChangedMessage &&
               TrayIcon::kAddResultMessage != SettingsWatcher::kSettingsChangedMessage &&
               TrayIcon::kAddResultMessage != PluginHost::kDataSnapshotInvalidateMessage && TrayIcon::kAddResultMessage != Application::kPageEdgeHoverMessage &&
               TrayIcon::kAddResultMessage != PluginHost::kHostActionMessage && TrayIcon::kAddResultMessage != PluginHost::kServiceLaneMessage &&
@@ -1050,63 +1067,19 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
         // a tick above, so one evaluation per loop turn sees each change; an unchanged state costs a few compares.
         EvaluateDockHolds();
 
-        if (! _renderer.IsOccluded())
-        {
-            _occlusionStatusChanged = false;
-        }
-
-        HostFrameState frameState{
-            _windowVisible,
-            _displayPoweredOn,
-            _renderer.IsSuspended(),
-            _renderer.IsOccluded(),
-            _occlusionStatusChanged,
-            DashboardRequiresContinuousFrames(),
-            _frameInvalidated,
-            PageNavigationInProgress() && ! _pageSettleWaiting,
+        const HostFrameState frameState{
+            .windowVisible            = _windowVisible,
+            .displayPoweredOn         = _displayPoweredOn,
+            .rendererSuspended        = _renderer.IsSuspended(),
+            .windowCloaked            = _windowCloaked,
+            .continuousFramesRequired = DashboardRequiresContinuousFrames(),
+            .frameInvalidated         = _frameInvalidated,
+            .pageNavigationActive     = PageNavigationInProgress() && ! _pageSettleWaiting,
             // A dock slide is visible motion like a raise settle: every frame presents until it ends.
-            OverlayMotionInProgress() || _dockSlideActive,
-            DockHidden(),
+            .overlayMotionActive = OverlayMotionInProgress() || _dockSlideActive,
+            .dockHidden          = DockHidden(),
         };
-        HostFrameAction frameAction = SelectHostFrameAction(frameState);
-        if (frameAction == HostFrameAction::ProbeOcclusion)
-        {
-            _occlusionStatusChanged = false;
-            result                  = _renderer.ProbeOcclusion();
-            if (FAILED(result))
-            {
-                RecordRuntimeFailure(result, "occlusion-probe-failed");
-                OutputDebugStringW(L"Swap-chain occlusion probe failed.\n");
-                CloseMainWindow();
-                continue;
-            }
-            if (! _renderer.IsOccluded())
-            {
-                _frameInvalidated = true;
-            }
-            result = UpdateDashboardVisibility();
-            if (FAILED(result))
-            {
-                RecordRuntimeFailure(result, "visibility-failed");
-                CloseMainWindow();
-                continue;
-            }
-            frameState = HostFrameState{
-                _windowVisible,
-                _displayPoweredOn,
-                _renderer.IsSuspended(),
-                _renderer.IsOccluded(),
-                false,
-                DashboardRequiresContinuousFrames(),
-                _frameInvalidated,
-                PageNavigationInProgress() && ! _pageSettleWaiting,
-                OverlayMotionInProgress() || _dockSlideActive,
-                DockHidden(),
-            };
-            frameAction = SelectHostFrameAction(frameState);
-        }
-
-        if (frameAction == HostFrameAction::WaitForMessage)
+        if (SelectHostFrameAction(frameState) == HostFrameAction::WaitForMessage)
         {
             _continuousFramePacer.Reset();
             _continuousFrameWait.Cancel();
@@ -1778,10 +1751,10 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
         }
     }
 
-    const HRESULT powerResult = RegisterDisplayPowerNotification(window);
-    if (FAILED(powerResult))
+    const HRESULT visibilityResult = RegisterWindowVisibilityNotifications(window);
+    if (FAILED(visibilityResult))
     {
-        return powerResult;
+        return visibilityResult;
     }
 
     if (! visible)
@@ -1798,7 +1771,7 @@ void Application::RecordRuntimeFailure(HRESULT result, const char* eventId) noex
         PluginHost::Instance().Interface(), RedXeLogLevelError, nullptr, nullptr, eventId, "A runtime step failed; the frame loop stops.", result);
 }
 
-HRESULT Application::RegisterDisplayPowerNotification(HWND window) noexcept
+HRESULT Application::RegisterWindowVisibilityNotifications(HWND window) noexcept
 {
     _displayPowerNotification.reset(RegisterPowerSettingNotification(window, &GUID_SESSION_DISPLAY_STATUS, DEVICE_NOTIFY_WINDOW_HANDLE));
     if (! _displayPowerNotification)
@@ -1806,6 +1779,15 @@ HRESULT Application::RegisterDisplayPowerNotification(HWND window) noexcept
         const DWORD error = GetLastError();
         return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
     }
+    SetLastError(ERROR_SUCCESS);
+    _windowCloakNotification.reset(SetWinEventHook(EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED, nullptr, OnWindowCloakEvent, 0, 0, WINEVENT_OUTOFCONTEXT));
+    if (! _windowCloakNotification || ! SetPropW(window, kWindowCloakHookProperty, _windowCloakNotification.get()))
+    {
+        const DWORD error = GetLastError();
+        _windowCloakNotification.reset();
+        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    }
+    _windowCloaked = ReadWindowCloaked(window);
     return S_OK;
 }
 
@@ -1845,10 +1827,10 @@ HRESULT Application::CreateDockWindow(bool visible) noexcept
     {
         return HRESULT_FROM_WIN32(GetLastError());
     }
-    const HRESULT powerResult = RegisterDisplayPowerNotification(window);
-    if (FAILED(powerResult))
+    const HRESULT visibilityResult = RegisterWindowVisibilityNotifications(window);
+    if (FAILED(visibilityResult))
     {
-        return powerResult;
+        return visibilityResult;
     }
     const HRESULT placeResult = PlaceDock(false);
     if (FAILED(placeResult))
@@ -3239,7 +3221,7 @@ HRESULT Application::StageTransitionPage(int direction, const uint32_t* targetPa
                 dashboard->Shutdown();
             }
         });
-        const bool visible  = _windowVisible && _displayPoweredOn && ! _renderer.IsSuspended() && ! _renderer.IsOccluded();
+        const bool visible  = _windowVisible && _displayPoweredOn && ! _renderer.IsSuspended() && ! _windowCloaked;
         result              = dashboard->Initialize(*plugins, _window.get(), width, height, dpi, false);
         if (SUCCEEDED(result))
             result = dashboard->SetHorizontalOffset(_pageCurrentOffset + direction * static_cast<LONG>(width));
@@ -3667,7 +3649,7 @@ PageEdgeState Application::CurrentPageEdgeState() const noexcept
     state.windowVisible           = _windowVisible && ! DockHidden();
     state.displayPoweredOn        = _displayPoweredOn;
     state.rendererSuspended       = _renderer.IsSuspended();
-    state.rendererOccluded        = _renderer.IsOccluded();
+    state.rendererOccluded        = _windowCloaked;
     state.widgetRaised            = _raisedActive;
     state.pointerNavigationActive = _pagePointerActive || _pagePanStarted;
     state.settleActive            = _pageSettleActive;
@@ -5239,8 +5221,8 @@ void Application::RefreshAccessibility(uint64_t preparedWidgets) noexcept
     if (! _accessibility)
         return;
     // A collapsed autohide bar shows no widget, and a sliding one moves them on every frame, like a page settle.
-    if (! _dashboardHost || ! _window || ! _windowVisible || ! _displayPoweredOn || _renderer.IsSuspended() || _renderer.IsOccluded() ||
-        PageNavigationInProgress() || OverlayMotionInProgress() || _settingsErrorDialog || DockHidden() || _dockSlideActive)
+    if (! _dashboardHost || ! _window || ! _windowVisible || ! _displayPoweredOn || _renderer.IsSuspended() || _windowCloaked || PageNavigationInProgress() ||
+        OverlayMotionInProgress() || _settingsErrorDialog || DockHidden() || _dockSlideActive)
     {
         _accessibility->ClearViews();
         return;
@@ -5301,7 +5283,7 @@ void Application::HandleAccessibilityRequests() noexcept
 void Application::RefreshTextServices(bool layoutPrepared) noexcept
 {
     if (! _keyboardWidget || ! _dashboardHost || ! _window || GetFocus() != _window.get() || ! _windowVisible || ! _displayPoweredOn ||
-        _renderer.IsSuspended() || _renderer.IsOccluded() || PageNavigationInProgress() || OverlayMotionInProgress() ||
+        _renderer.IsSuspended() || _windowCloaked || PageNavigationInProgress() || OverlayMotionInProgress() ||
         (_raisedActive && _keyboardWidgetIndex != _raisedWidgetIndex))
     {
         ClearTextServices();
@@ -6003,8 +5985,8 @@ void Application::CloseSettingsError() noexcept
 
 bool Application::WaitUntilMessage() noexcept
 {
-    if (! _windowVisible || ! _displayPoweredOn || ! _rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
-        DashboardRequiresContinuousFrames() || DockHidden())
+    if (! _windowVisible || ! _displayPoweredOn || ! _rendererReady || _renderer.IsSuspended() || _windowCloaked || DashboardRequiresContinuousFrames() ||
+        DockHidden())
     {
         ClearScheduledFrameDeadline();
     }
@@ -6106,7 +6088,7 @@ void Application::ApplyContinuousFrameRate(ContinuousFrameRate previous) noexcep
 uint32_t Application::RuntimeProbeState() const noexcept
 {
     return (DashboardRequiresContinuousFrames() ? 1u : 0u) | (_windowVisible ? 2u : 0u) | (_displayPoweredOn ? 4u : 0u) | (_renderer.IsSuspended() ? 8u : 0u) |
-           (_renderer.IsOccluded() ? 16u : 0u) | (DockHidden() ? 32u : 0u) | (PageNavigationInProgress() ? 64u : 0u) |
+           (_windowCloaked ? 16u : 0u) | (DockHidden() ? 32u : 0u) | (PageNavigationInProgress() ? 64u : 0u) |
            (OverlayMotionInProgress() || _dockSlideActive ? 128u : 0u) | (_raisedActive ? kRuntimeProbeRaisedState : 0u);
 }
 
@@ -6193,9 +6175,8 @@ void Application::RefreshScheduledFrameDeadline() noexcept
 {
     // The current frame consumed its continuous deadline; avoid canceling an already-completed one-shot every frame.
     _scheduledFrameDeadlineTick = 0;
-    if (! _windowVisible || ! _displayPoweredOn || ! _rendererReady || _renderer.IsSuspended() || _renderer.IsOccluded() ||
-        DashboardRequiresContinuousFrames() || (PageNavigationInProgress() && ! _pageSettleWaiting) || OverlayMotionInProgress() || _dockSlideActive ||
-        DockHidden())
+    if (! _windowVisible || ! _displayPoweredOn || ! _rendererReady || _renderer.IsSuspended() || _windowCloaked || DashboardRequiresContinuousFrames() ||
+        (PageNavigationInProgress() && ! _pageSettleWaiting) || OverlayMotionInProgress() || _dockSlideActive || DockHidden())
     {
         return;
     }
@@ -6236,7 +6217,7 @@ HRESULT Application::UpdateDashboardVisibility() noexcept
         return S_OK;
     }
 
-    const bool visible = _windowVisible && _displayPoweredOn && ! _renderer.IsSuspended() && ! _renderer.IsOccluded() && ! DockHidden();
+    const bool visible = _windowVisible && _displayPoweredOn && ! _renderer.IsSuspended() && ! _windowCloaked && ! DockHidden();
     if (! visible && _accessibility)
         _accessibility->ClearViews();
     if (! visible)
@@ -6584,7 +6565,25 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             ClearScheduledFrameDeadline();
             _frameInvalidated = true;
             return 0;
-        case Renderer::kOcclusionStatusMessage: _occlusionStatusChanged = true; return 0;
+        case kWindowCloakChangedMessage:
+        {
+            const bool cloaked = ReadWindowCloaked(window);
+            if (_windowCloaked != cloaked)
+            {
+                _windowCloaked = cloaked;
+                ClearScheduledFrameDeadline();
+                if (! cloaked)
+                {
+                    _frameInvalidated = true;
+                }
+                if (const HRESULT result = UpdateDashboardVisibility(); FAILED(result))
+                {
+                    RecordRuntimeFailure(result, "visibility-failed");
+                    PostMessageW(window, WM_CLOSE, 0, 0);
+                }
+            }
+            return 0;
+        }
         case kScreenshotCompleteMessage:
             if (_screenshotWorker.joinable())
             {
@@ -6899,6 +6898,8 @@ LRESULT Application::HandleMessage(HWND window, UINT message, WPARAM wParam, LPA
             }
             return 0;
         case WM_DESTROY:
+            RemovePropW(window, kWindowCloakHookProperty);
+            _windowCloakNotification.reset();
             _displayPowerNotification.reset();
             PostQuitMessage(0);
             return 0;

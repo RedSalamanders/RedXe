@@ -779,16 +779,6 @@ HRESULT Renderer::CreateSwapChain() noexcept
         return result;
     }
 
-    DWORD occlusionStatusCookie = 0;
-    result                      = factory->RegisterOcclusionStatusWindow(_window, kOcclusionStatusMessage, &occlusionStatusCookie);
-    if (FAILED(result))
-    {
-        return result;
-    }
-
-    _factory                   = std::move(factory);
-    _occlusionStatusCookie     = occlusionStatusCookie;
-    _occlusionStatusRegistered = true;
     return S_OK;
 }
 
@@ -810,7 +800,6 @@ HRESULT Renderer::CreateRenderTarget(UINT width, UINT height) noexcept
     _width     = width;
     _height    = height;
     _suspended = false;
-    _occluded  = false;
     return UpdateCachedViewports();
 }
 
@@ -1100,7 +1089,6 @@ HRESULT Renderer::Resize(UINT width, UINT height) noexcept
         _width     = 0;
         _height    = 0;
         _suspended = true;
-        _occluded  = false;
         return S_OK;
     }
 
@@ -1113,7 +1101,6 @@ HRESULT Renderer::Resize(UINT width, UINT height) noexcept
     if (width == _width && height == _height && _renderTarget)
     {
         _suspended = false;
-        _occluded  = false;
         return S_OK;
     }
 
@@ -1147,7 +1134,7 @@ HRESULT Renderer::PrepareWidgets(size_t observedWidget, bool* observedChanged, u
         *changedWidgets = 0;
     // A hidden autohide dock presents one grip frame with no widget work: preparation is suppressed like any other
     // hidden frame.
-    if (_suspended || _occluded || _hostChromeState.dockHidden)
+    if (_suspended || _hostChromeState.dockHidden)
         return S_FALSE;
     if (! _context || ! _dashboardHost || ! _gpuWidgetsDeviceReady)
         return E_UNEXPECTED;
@@ -1262,8 +1249,7 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
             const HRESULT recoveryResult = RecoverDevice();
             return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
         }
-        _occluded = presentResult == DXGI_STATUS_OCCLUDED;
-        return _occluded ? S_OK : presentResult;
+        return presentResult;
     }
 
     const size_t widgetCount = _dashboardHost->WidgetCount();
@@ -1424,49 +1410,12 @@ HRESULT Renderer::Render(float elapsedSeconds, float deltaSeconds) noexcept
         const HRESULT recoveryResult = RecoverDevice();
         return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
     }
-    // A host-owned native child that covers the swap chain makes DXGI report OCCLUDED even though the window is
-    // still the foreground dashboard. Treating that as real occlusion parked page-settle and hid the edge bands for
-    // the rest of the session on any page that includes a window widget.
-    const bool nativeCover =
-        (_dashboardHost && _dashboardHost->HasWindowWidgets()) || (_transitionDashboardHost && _transitionDashboardHost->HasWindowWidgets());
-    _occluded = result == DXGI_STATUS_OCCLUDED && ! nativeCover;
-    return _occluded ? S_OK : result;
-}
-
-HRESULT Renderer::ProbeOcclusion() noexcept
-{
-    if (! _swapChain || ! _occluded)
-    {
-        return E_UNEXPECTED;
-    }
-
-    const HRESULT result = _swapChain->Present(0, DXGI_PRESENT_TEST);
-    if (IsDeviceLost(result))
-    {
-        const HRESULT recoveryResult = RecoverDevice();
-        return SUCCEEDED(recoveryResult) ? S_FALSE : recoveryResult;
-    }
-    if (result == DXGI_STATUS_OCCLUDED)
-    {
-        return S_FALSE;
-    }
-    if (FAILED(result))
-    {
-        return result;
-    }
-
-    _occluded = false;
-    return S_OK;
+    return result;
 }
 
 bool Renderer::IsSuspended() const noexcept
 {
     return _suspended;
-}
-
-bool Renderer::IsOccluded() const noexcept
-{
-    return _occluded;
 }
 
 size_t Renderer::LastFrameWidgetCount() const noexcept
@@ -1512,12 +1461,6 @@ void Renderer::ReleaseDeviceResources() noexcept
     {
         (void)_transitionDashboardHost->SetWidgetsVisible(false);
     }
-    if (_factory && _occlusionStatusRegistered)
-    {
-        _factory->UnregisterOcclusionStatus(_occlusionStatusCookie);
-        _occlusionStatusCookie     = 0;
-        _occlusionStatusRegistered = false;
-    }
     if (_context)
     {
         _context->ClearState();
@@ -1529,7 +1472,6 @@ void Renderer::ReleaseDeviceResources() noexcept
     _renderTarget.reset();
     _frameLatencyWaitable.reset();
     _swapChain.reset();
-    _factory.reset();
     _context1.reset();
     _context.reset();
     _device.reset();
@@ -1538,7 +1480,6 @@ void Renderer::ReleaseDeviceResources() noexcept
     _width         = 0;
     _height        = 0;
     _suspended     = true;
-    _occluded      = false;
 }
 
 bool Renderer::IsDeviceLost(HRESULT result) noexcept

@@ -19,20 +19,20 @@ void TestContinuousFramePacing(bool& success) noexcept
 {
     using namespace std::chrono_literals;
     using Clock = ContinuousFramePacer::Clock;
-    HostFrameState settled{true, true, false, false, false, true, false, false, false, false};
+    HostFrameState settled{true, true, false, false, true, false, false, false, false};
     Check(LimitContinuousFrames(ContinuousFrameRate::Thirty, settled) && ! LimitContinuousFrames(ContinuousFrameRate::Display, settled),
           L"the cap is optional and only limits settled continuous content",
           success);
     const std::array bypass{
-        HostFrameState{false, true, false, false, false, true, false, false, false, false},
-        HostFrameState{true, false, false, false, false, true, false, false, false, false},
-        HostFrameState{true, true, true, false, false, true, false, false, false, false},
-        HostFrameState{true, true, false, true, false, true, false, false, false, false},
-        HostFrameState{true, true, false, false, false, false, false, false, false, false},
-        HostFrameState{true, true, false, false, false, true, true, false, false, false},
-        HostFrameState{true, true, false, false, false, true, false, true, false, false},
-        HostFrameState{true, true, false, false, false, true, false, false, true, false},
-        HostFrameState{true, true, false, false, false, true, false, false, false, true},
+        HostFrameState{false, true, false, false, true, false, false, false, false},
+        HostFrameState{true, false, false, false, true, false, false, false, false},
+        HostFrameState{true, true, true, false, true, false, false, false, false},
+        HostFrameState{true, true, false, true, true, false, false, false, false},
+        HostFrameState{true, true, false, false, false, false, false, false, false},
+        HostFrameState{true, true, false, false, true, true, false, false, false},
+        HostFrameState{true, true, false, false, true, false, true, false, false},
+        HostFrameState{true, true, false, false, true, false, false, true, false},
+        HostFrameState{true, true, false, false, true, false, false, false, true},
     };
     for (const auto& state : bypass)
         Check(

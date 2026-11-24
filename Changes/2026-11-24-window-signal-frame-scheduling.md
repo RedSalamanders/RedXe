@@ -1,0 +1,1 @@
+- Pause dashboard rendering while the window is cloaked and resume on the next eligible visibility event.

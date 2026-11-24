@@ -22,7 +22,7 @@ struct RuntimeProbeSample final
 {
     uint64_t tick = 0, intervalMilliseconds = 0, sampleMicroseconds = 0;
     uint32_t page = 0;
-    // Bits: continuous, visible, display on, suspended, occluded, dock hidden, navigation, overlay motion, raised.
+    // Bits: continuous, visible, display on, suspended, cloaked, dock hidden, navigation, overlay motion, raised.
     uint32_t state             = 0;
     uint64_t scheduledDeadline = 0;
     ProcessResourceSnapshot process;
