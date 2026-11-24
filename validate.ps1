@@ -33,6 +33,7 @@ try {
     $baseCommit = Resolve-CiCommit $PSScriptRoot $Base
     Invoke-CiProjectScript -Context $context -Script 'Tools/Test-Changelog.ps1' -Arguments @('-Base', $baseCommit)
     Invoke-CiProjectScript -Context $context -Script 'validate-skills.ps1' -Arguments @()
+    Invoke-CiProjectScript -Context $context -Script 'validate-specs.ps1' -Arguments @()
 }
 finally {
     [Environment]::SetEnvironmentVariable('CI_NATIVE_BUILDS_DISABLED', $(if ($null -eq $previous) { [NullString]::Value } else { $previous }), 'Process')

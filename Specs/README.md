@@ -104,9 +104,13 @@ These files have the same role in every RedSalamanders repository:
 Before closing a specification change, run:
 
 ```powershell
+./validate-specs.ps1
 ./validate-skills.ps1
 ./Tools/Test-Changelog.ps1
 ```
+
+The root specification validator checks the required indexes and local links in domain specifications and
+active plans. The shared guidance validator checks plan index membership.
 
 Also run the build and runtime checks that each modified domain spec names. Generated reports and build products
 belong under `.build/`, never under `Specs/` or `docs/`.
