@@ -85,6 +85,10 @@ dynamic CRT and library linkage, enable AddressSanitizer for C and C++, and remo
 chainloaded debug toolchain. MSVC STL annotations stay enabled. The app builds and loads the ASan tree's
 runtime DLLs in ASan Debug, and the existing PluginContract fault probe verifies real sanitizer detection.
 
+For dependency-only preparation, `.\restore.ps1 -Platform x64` or `-Platform ARM64` restores the standard
+RedXe and pinned DxUi dependencies with the same selected MSBuild. Running `.\restore.ps1` uses x64.
+The root command uses repository-owned dependency trees and leaves the caller's vcpkg settings in place.
+
 ## Output and validation
 
 Routine repository validators and their regression tests require PowerShell 7 and no Python or external YAML module.
