@@ -186,7 +186,7 @@ standalone profile-edit action above the live controls. No camera preview, fille
 
 ### Target geometry and the half-screen limit
 
-The owning [display contract](../../UI/UI_XeneonDisplayWindowing.md) specifies a 2560×720 landscape XENEON EDGE
+The owning [display contract](../../UI/UI_Windowing.md) specifies a 2560×720 landscape XENEON EDGE
 at 96 DPI. The maximum landscape plugin rectangle is therefore **1280×720**, including its own padding/chrome.
 The previous 960×720 target did not express that requirement. Both the normal placement and raised content must
 stay within the host's half-client-width, full-client-height envelope; never request full-screen expansion.

@@ -41,7 +41,7 @@ namespace
 constexpr LONG kXeneonEdgeClientWidth  = 2560;
 constexpr LONG kXeneonEdgeClientHeight = 720;
 
-// Window-kind styles (UI_XeneonDisplayWindowing.md). No kind has a redirection surface: the main window never paints
+// Window-kind styles (UI_Windowing.md). No kind has a redirection surface: the main window never paints
 // with GDI; its chrome is drawn into the swap chain and native-widget containers are layered children with their own
 // surfaces. A live switch between the standard kinds and the dock restyles the same window between these rows.
 constexpr DWORD kStandardExtendedStyle = WS_EX_APPWINDOW | WS_EX_NOREDIRECTIONBITMAP;
@@ -51,7 +51,7 @@ constexpr DWORD kPopupWindowStyle      = WS_POPUP | WS_CLIPCHILDREN;
 // always be reached; ABN_FULLSCREENAPP lowers it beneath a full-screen application.
 constexpr DWORD kDockExtendedStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
 
-// Session end (UI_XeneonDisplayWindowing.md "Window and rendering lifecycle"): one deadline, taken when WM_ENDSESSION
+// Session end (UI_Windowing.md "Window and rendering lifecycle"): one deadline, taken when WM_ENDSESSION
 // arrives, bounds the whole teardown inside Windows' 5 s hung-application timeout. Each blocking stage waits only for
 // what is left of it (PluginHost::TeardownStageMilliseconds): the device-lane drain and the launch stop at most their
 // own bounds and never into the last kSessionEndLogFlushMilliseconds, which the log flush keeps and then takes with
@@ -448,7 +448,7 @@ struct FirstRunTopology final
 };
 
 // The dock written into a default settings file installed without a XENEON (Core_Settings.md "Cold load and
-// recovery"; UI_XeneonDisplayWindowing.md "First start without a XENEON"): an auto-hiding bar on the second screen
+// recovery"; UI_Windowing.md "First start without a XENEON"): an auto-hiding bar on the second screen
 // when there is more than one display (DockFirstRunMonitor), on the best horizontal edge there (DockFirstRunEdge: the
 // free bottom first, never an edge another display shares unless both are), as deep as the XENEON's proportions make
 // it along that display (DockFirstRunThicknessDips).
@@ -880,7 +880,7 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
 #if ! defined(_DEBUG)
     else if (! _dockActive && ! _unattended)
     {
-        // Owned by UI_XeneonDisplayWindowing.md: Release prompts for a windowed fallback, Debug never does, and an
+        // Owned by UI_Windowing.md: Release prompts for a windowed fallback, Debug never does, and an
         // unattended run takes the fallback window without asking.
         const int choice = MessageBoxW(nullptr,
                                        L"A CORSAIR XENEON display was not found.\n\nDo you want to display RedXe anyway in a standard "
@@ -1256,7 +1256,7 @@ bool Application::SelfTestWindowKindIs(bool dock) const noexcept
 // It MUST NOT call SetLogDirectory: diagnostics stay off `%LocalAppData%` and the deployed tree; a failed check goes
 // to stderr instead (FailSelfTest), and so do the host's Warning and Error records (PluginHost::SetStandardErrorLog).
 //
-// UI_XeneonDisplayWindowing.md owns this mode: skip the startup display discovery and prompts, create the titled
+// UI_Windowing.md owns this mode: skip the startup display discovery and prompts, create the titled
 // window hidden, validate its DPI-adjusted client dimensions, render one frame, switch the hidden window's kind live
 // and back, and exit.
 int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
@@ -1546,7 +1546,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     }
 
     // Live window-kind switches on this window, which a switch leaves hidden because it was hidden before
-    // (UI_XeneonDisplayWindowing.md "Switching the window kind"): into a bar and back through the dock-only path
+    // (UI_Windowing.md "Switching the window kind"): into a bar and back through the dock-only path
     // (ApplyDockSettings), then a reload that also rebuilds the page, whose page cannot be built (a zero-column grid,
     // which the settings store never produces), so the combined path switches the window back. The bar is a fixed
     // overlay on the primary display: it reserves nothing in the work area. Each switch runs XENEON discovery again.

@@ -9,7 +9,7 @@
 #include <string_view>
 #include <windows.h>
 
-// Screen-edge dock: RedXe as a bar along one edge of one monitor (UI_XeneonDisplayWindowing.md "Dock window kind").
+// Screen-edge dock: RedXe as a bar along one edge of one monitor (UI_Windowing.md "Dock window kind").
 // Everything here is a pure function of rectangles, integers, and host state so HostPluginTests proves placement, the
 // app-bar reservation and its message plan, monitor selection, MINMAXINFO, and the autohide state machine without a
 // display topology or a window.
@@ -146,7 +146,7 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     return static_cast<uint32_t>(std::clamp(dips, static_cast<LONG>(kDockMinimumThicknessDips), static_cast<LONG>(kDockMaximumThicknessDips)));
 }
 
-// First start without a XENEON (UI_XeneonDisplayWindowing.md "First start without a XENEON"): only a default file
+// First start without a XENEON (UI_Windowing.md "First start without a XENEON"): only a default file
 // installed because it was missing gets the first-run bar, and only when discovery succeeded without finding a XENEON
 // in a session at the machine's own displays. A remote session sees only the remote client's displays, so a bar decided
 // there would stay in the file for the XENEON at the desk.
@@ -254,7 +254,7 @@ inline constexpr LONG kDockDesignShortSideDips = 720;
     return rect;
 }
 
-// App-bar registration (UI_XeneonDisplayWindowing.md "Monitor and placement"). Every placed dock is an ordinary app
+// App-bar registration (UI_Windowing.md "Monitor and placement"). Every placed dock is an ordinary app
 // bar (ABM_NEW), so the shell reports position changes and full-screen applications to it; what it reserves in the
 // monitor's work area follows the mode. No dock registers ABM_SETAUTOHIDEBAREX: an autohide bar reserves its peek strip
 // as a fixed bar reserves its thickness, so maximized windows stop just inside the strip on every edge, and its
@@ -401,7 +401,7 @@ constexpr void DockAppBarCommitted(
     return client;
 }
 
-// Autohide slide (UI_XeneonDisplayWindowing.md "Autohide"): over `animationMilliseconds` the window's visible
+// Autohide slide (UI_Windowing.md "Autohide"): over `animationMilliseconds` the window's visible
 // thickness travels between the peek strip and the full bar, one SetWindowPos per presented frame (the window is
 // DockHiddenRect of the full bar at the visible thickness). A slide covering part of the travel, such as one that
 // reverses halfway, takes that share of the time; 0 is no animation (one step, as without a slide).
@@ -464,7 +464,7 @@ constexpr void DockAppBarCommitted(
     }
 }
 
-// Where a press or a wheel on the dock goes (UI_XeneonDisplayWindowing.md "Autohide"). The strip and a bar sliding out
+// Where a press or a wheel on the dock goes (UI_Windowing.md "Autohide"). The strip and a bar sliding out
 // show no dashboard to aim at: a press there only reveals the bar (the rest of its contact goes nowhere) and a wheel is
 // dropped, so neither snaps a hiding bar shut nor scrolls or pages a widget nobody can see. A press on a bar sliding in
 // settles the slide and keeps DockSettleShift for its contact; a wheel there reaches the tile under it as the frame
@@ -591,7 +591,7 @@ constexpr void DockMinMaxInfo(const RECT& monitor, DockEdge edge, LONG peekPx, b
     info.ptMaxSize      = info.ptMaxTrackSize;
 }
 
-// Full-screen yield (UI_XeneonDisplayWindowing.md "Window"): ABN_FULLSCREENAPP names no monitor, so the bar steps
+// Full-screen yield (UI_Windowing.md "Window"): ABN_FULLSCREENAPP names no monitor, so the bar steps
 // beneath only a foreground window that covers the bar's own monitor. `windowBounds` is GetWindowRect, which includes
 // the invisible resize borders: a maximized window with a caption overhangs a monitor whose work area is the whole
 // monitor (no taskbar there, or an auto-hiding one) by about 8 px on every side, yet it is an ordinary maximized
@@ -603,7 +603,7 @@ constexpr void DockMinMaxInfo(const RECT& monitor, DockEdge edge, LONG peekPx, b
            windowBounds.top <= monitor.top && windowBounds.right >= monitor.right && windowBounds.bottom >= monitor.bottom;
 }
 
-// Placement requests (UI_XeneonDisplayWindowing.md "Monitor and placement"). A placement makes cross-process shell
+// Placement requests (UI_Windowing.md "Monitor and placement"). A placement makes cross-process shell
 // calls and moves the window, and the UI thread dispatches sent messages while it waits on them, so a display,
 // work-area, DPI, or app-bar change can ask for a placement while one runs. That request is recorded, never dropped:
 // the running placement makes one more pass from the topology as it is then, so the last change wins without recursion.
@@ -754,7 +754,7 @@ struct DockMonitorCandidate final
     return primary;
 }
 
-// Autohide state machine (UI_XeneonDisplayWindowing.md "Autohide"). Once any slide has ended, the window is the peek
+// Autohide state machine (UI_Windowing.md "Autohide"). Once any slide has ended, the window is the peek
 // strip in Hidden and RevealPending and the full rectangle otherwise, and the dashboard is visible only in Revealed and
 // HidePending. A slide (DockSlide* above) sizes the window in between and keeps the dashboard visible from the first
 // frame of a reveal to the last frame of a hide (Application::DockHidden).

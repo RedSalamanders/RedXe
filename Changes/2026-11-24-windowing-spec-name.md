@@ -1,0 +1,1 @@
+- Move the active RedXe windowing specification to Specs/UI/UI_Windowing.md and preserve the original link for archived plans.

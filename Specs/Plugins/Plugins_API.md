@@ -463,7 +463,7 @@ services in `kRedXeRetiredServices` (today `builtin.zoom`); a `services` entry n
   and drained host action, carrying page index/count/id/name, widget count, the raised ordinal, and the
   `Visible`/`Raised`/`Busy` flags. `Stop` runs from `CloseMainWindow` after every dashboard host is shut down and
   before `PluginHost::ShutdownProcessRuntime`, and so also inside `WM_ENDSESSION` when Windows ends the session
-  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"); `PluginHost::Shutdown` repeats it as an
+  (`Specs/UI/UI_Windowing.md` "Window and rendering lifecycle"); `PluginHost::Shutdown` repeats it as an
   idempotent safety net before providers, workers, and modules go. `Start` and `Stop` are idempotent; a failed
   `Start` logs `service-start-failed` once and keeps the object so a later `ApplySettings` can retry. A service MUST
   NOT call back into the host from these calls except `RequestAction`, `RequestFrame`, `Log`, and — from `Start`,
@@ -492,7 +492,7 @@ services in `kRedXeRetiredServices` (today `builtin.zoom`); a `services` entry n
   `PluginHost::StopServices` signals every lane's `stopEvent` before it waits for the first, so the lanes drain
   together and a lane stuck past its bound never delays the stop signal of a responsive lane it stops after; at a
   session end the lanes together wait only for what is left of its deadline (`StopServices` with a budget;
-  `Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"), never more than that bound per lane, so
+  `Specs/UI/UI_Windowing.md` "Window and rendering lifecycle"), never more than that bound per lane, so
   a lane waited for after a stuck one gets only what the stuck one left, by when a responsive lane has returned. An
   overrun logs `device-lane-drain-timeout` once and tombstones the service slot: the thread stays joinable
   and its COM service, worker, module, host, settings, and event handles remain live until `RunDeviceWork` returns. A

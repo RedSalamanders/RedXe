@@ -10,7 +10,7 @@ This specification owns ordered pages, responsive layout compilation, runtime or
 horizontal two- or three-finger touch navigation, mouse edge navigation, mouse wheel navigation, host-owned
 placeholder tiles, and the host raised-overlay chrome. Settings syntax belongs to `Specs/Core/Core_Settings.md`; plugin identities and
 rendering mechanisms belong to `Specs/Plugins/Plugins_API.md`; display/DPI policy belongs to
-`Specs/UI/UI_XeneonDisplayWindowing.md`.
+`Specs/UI/UI_Windowing.md`.
 
 The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 
@@ -138,7 +138,7 @@ navigation. This section owns that affordance; it changes nothing about the pan 
 - A band exists only when the host is composing a live multi-page dashboard and that direction has a neighbour. It
   MUST NOT exist when the renderer is not ready, the window is hidden, the display is off, the renderer is suspended
   or occluded, a widget is raised, a pointer pan is in progress, or a settle or staged transition is in progress.
-- In the dock window kind (`UI_XeneonDisplayWindowing.md`) the reachable client is the whole client, and a collapsed
+- In the dock window kind (`UI_Windowing.md`) the reachable client is the whole client, and a collapsed
   autohide dock (its peek strip) counts as a hidden window: no band exists until the bar reveals.
 - Non-dock reachable geometry is cached on the UI thread and invalidated before dispatch of
   window creation/destruction, move/size/position/style, DPI, display-topology and system-settings notifications.
@@ -329,7 +329,7 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
 - A collapsed autohide dock is one more hidden state: after its single grip frame the host discards scheduled
   deadlines and blocks on messages regardless of continuous widgets; a raised widget, an active pan, settle, staged
   neighbour, or interactive capture holds a revealed autohide dock open, so none of that motion is ever cut by a
-  hide (`UI_XeneonDisplayWindowing.md` "Autohide").
+  hide (`UI_Windowing.md` "Autohide").
 
 ## Required validation
 

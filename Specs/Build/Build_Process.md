@@ -182,7 +182,7 @@ runs, and `AVControlBroker.exe` calls it when it is started as a synthetic helpe
   `--screenshot` runs, the crash harness and its invalid directory) and in the package smoke of `Build/Package.psm1`
   goes through `Invoke-RedXeStreamingProcess` with a budget and a log, and keeps its exit-code check. `RedXe.exe --help`
   writes the catalog to a redirected stdout as UTF-8
-  ([`UI_XeneonDisplayWindowing.md`](../UI/UI_XeneonDisplayWindowing.md)): `test.ps1` runs it from a background job like
+  ([`UI_Windowing.md`](../UI/UI_Windowing.md)): `test.ps1` runs it from a background job like
   the routing check's, under console output code page 437, and requires the U+2014 of the catalog's title line intact,
   which only the UTF-8 decoding of stdout keeps. The title's wording is the catalog's to change.
 - A test executable never turns an HRESULT into its exit code: its low byte can be 0, which passes the run, or 3. A

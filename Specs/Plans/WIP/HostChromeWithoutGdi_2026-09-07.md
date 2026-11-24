@@ -27,7 +27,7 @@ chain forces composed presentation and a DWM copy per frame, the raise overlay a
 and the raise animation creates two to three GDI regions per frame (`RuntimeMemoryAndLatency_2026-09-07.md`).
 
 Owning contracts changed at closeout: `Specs/UI/UI_Dashboard.md`, `Specs/Core/Core_PerformanceAndResources.md`,
-`Specs/UI/UI_XeneonDisplayWindowing.md`, `Specs/Plugins/Plugins_API.md`, `Specs/Core/Core_Settings.md` (template
+`Specs/UI/UI_Windowing.md`, `Specs/Plugins/Plugins_API.md`, `Specs/Core/Core_Settings.md` (template
 coverage exception), `AGENTS.md` (chrome iconography, template rule), `docs/plugins/gdi-orbit.md`.
 
 ## Design

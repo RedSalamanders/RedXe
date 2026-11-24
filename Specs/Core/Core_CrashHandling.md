@@ -86,7 +86,7 @@ open a path read from the marker itself.
 The titled and fullscreen windows own the prompt, which follows their show. A dock MUST NOT own it: the bar is shown
 without activation and presents nothing until the frame loop runs, so an owned prompt would stand over a topmost bar
 with no frame and, when it closes, activate the bar, which keeps an autohide bar revealed with the keyboard focus. For
-a dock the prompt has no owner and is answered before the bar is shown (`Specs/UI/UI_XeneonDisplayWindowing.md`
+a dock the prompt has no owner and is answered before the bar is shown (`Specs/UI/UI_Windowing.md`
 "Window").
 
 The settings directory watcher MUST start after this prompt returns. The watcher startup catch-up notification MUST

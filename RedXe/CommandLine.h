@@ -8,7 +8,7 @@
 
 // The RedXe command line, declared once. `--help` prints this catalog and Main.cpp parses every switch through its
 // names, so a switch cannot exist without an entry here. Changing a switch changes this table, the "Command line"
-// section of docs/usage.md, and the owning mode row of Specs/UI/UI_XeneonDisplayWindowing.md in the same change
+// section of docs/usage.md, and the owning mode row of Specs/UI/UI_Windowing.md in the same change
 // (AGENTS.md); SettingsTests pins the catalog and test.ps1 runs `--help`.
 
 enum class RedXeSwitch : uint8_t
@@ -332,7 +332,7 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General
 
 // Whether a run is unattended: `--self-test` (test.ps1) or `--screenshot` (documentation and agent captures) on the
 // line, found before any value is checked, so a malformed `--screenshot` value counts too. Nobody answers a modal box
-// in such a run, so it never shows one (UI_XeneonDisplayWindowing.md "Configuration behavior"): a command-line error
+// in such a run, so it never shows one (UI_Windowing.md "Configuration behavior"): a command-line error
 // prints its usage to the console or redirected output (exit 2), the settings fallback notice is a Warning record,
 // the Release missing-display prompt takes its Yes answer, the previous-crash notice waits for the next interactive
 // start, a failure exit is a record instead of the exit-code box, and a failed Debug check ends the run with its report

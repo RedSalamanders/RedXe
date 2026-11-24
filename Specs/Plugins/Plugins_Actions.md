@@ -57,7 +57,7 @@ configured service, a bound namespace validated on first use) and registers ever
 below logs one `Error` line (`IRedXeHost::Log`) and appends one bounded notice (at most 8 notices of 256 characters)
 that `Application::ShowActionNotices` shows in one modeless notice window after the next service apply or drained
 action, only while device access is enabled; once a change clears every notice, an open notice window closes. The
-window opens inside the work area of the RedXe window's monitor (`Specs/UI/UI_XeneonDisplayWindowing.md` "Notice
+window opens inside the work area of the RedXe window's monitor (`Specs/UI/UI_Windowing.md` "Notice
 windows"). The dashboard remains enabled and its actions continue to run.
 
 | Condition | Log event | Effect |
@@ -127,7 +127,7 @@ or while the settings error dialog is up returns `ERROR_BUSY` / `E_NOT_VALID_STA
 
 **Collapsed dock:** on an autohide dock that shows its peek strip or is sliding out, a page change or a raise
 (`NavigateToAdjacentPage`, `NavigateToPage`, `TryRaiseWidgetAt`) reveals and settles the bar first and lays out on
-the full bar, never on the strip (`Specs/UI/UI_XeneonDisplayWindowing.md` "Autohide"). It pins nothing, unlike
+the full bar, never on the strip (`Specs/UI/UI_Windowing.md` "Autohide"). It pins nothing, unlike
 `redxe.dock.show`: the bar collapses again after its hide delay once the settle or the raise no longer holds it.
 
 ### `redxe.*` (`Application`)
@@ -138,7 +138,7 @@ the full bar, never on the strip (`Specs/UI/UI_XeneonDisplayWindowing.md` "Autoh
 | `redxe.settings.edit`, `redxe.logs.open` | None, **D** | `system.launch` of the settings path / logs directory. |
 | `redxe.screenshot` | Text: `<absolute png path>[@<pageId>[/<ordinal>]]` | `RequestScreenshot` (the `--screenshot` pipeline, no delay) without its exit: RedXe MUST keep running after the capture, whatever its result. A relative path is `E_INVALIDARG`; a page that is neither a page id nor a page index, or an ordinal past that page's widget count, is `ERROR_NOT_FOUND` and captures nothing; a request while another capture is pending is `ERROR_BUSY`. A capture that fails logs `screenshot-failed` (`Warning`, `HRESULT`). |
 | `redxe.quit` | Enum `now`, **X**, **D** | Posts `WM_CLOSE`; `CloseMainWindow` runs from the message loop. |
-| `redxe.dock.show`, `redxe.dock.hide`, `redxe.dock.toggle` | None | Reveal, collapse, or flip an autohide dock (`Specs/UI/UI_XeneonDisplayWindowing.md` "Autohide"): `show` reveals at once and keeps the bar until another hold appears and clears; `hide` collapses even with the pointer inside but is inert while a raise, capture, dialog, or pending screenshot holds it; `toggle` is `show` when the strip shows, else `hide`. `S_FALSE` (counted, inert) without an autohide dock. |
+| `redxe.dock.show`, `redxe.dock.hide`, `redxe.dock.toggle` | None | Reveal, collapse, or flip an autohide dock (`Specs/UI/UI_Windowing.md` "Autohide"): `show` reveals at once and keeps the bar until another hold appears and clears; `hide` collapses even with the pointer inside but is inert while a raise, capture, dialog, or pending screenshot holds it; `toggle` is `show` when the strip shows, else `hide`. `S_FALSE` (counted, inert) without an autohide dock. |
 
 ### `system.*` (`HostActions`)
 
@@ -309,7 +309,7 @@ and shows pending notices.
 on an offline share took about 42 s), so none of them runs on the UI thread. `RedXe/LaunchWorker.*`, owned by the
 process `PluginHost`, performs every launch: `system.launch`, `system.open`, `system.run`, `system.taskManager` (and
 through them `redxe.settings.edit`, `redxe.logs.open`, `zoom.open`, and `zoom.join`), and the tray's Edit settings
-(`Specs/UI/UI_XeneonDisplayWindowing.md`).
+(`Specs/UI/UI_Windowing.md`).
 
 - The UI thread validates and counts the launch, copies it into one of 8 fixed slots (`LaunchWorker::kSlots`), and
   returns `S_FALSE`; when every slot holds a launch that is queued, running, or not yet drained, the request fails
@@ -328,7 +328,7 @@ through them `redxe.settings.edit`, `redxe.logs.open`, `zoom.open`, and `zoom.jo
   use. `PluginHost::Shutdown` runs it right after `StopServices`, also when a device lane still stuck after its drain
   budget ends that shutdown early, and a session end runs it inside `WM_ENDSESSION`, after `CloseMainWindow` and
   before its log flush, because Windows may end the process before `Shutdown` runs
-  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle"); there it waits only for what is left of
+  (`Specs/UI/UI_Windowing.md` "Window and rendering lifecycle"); there it waits only for what is left of
   the session-end deadline before the flush's reserve, never more than the bound, and not at all when nothing is left
   (a launch in progress is then logged as `launch-stop-timeout` at once). The record covers only a launch still in
   progress when the wait runs out (a `Running` slot, which the worker can no longer enter once the stop event is set,

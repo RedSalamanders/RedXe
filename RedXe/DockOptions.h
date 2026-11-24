@@ -9,7 +9,7 @@
 #include <string_view>
 #include <windows.h>
 
-// The --dock* command line (UI_XeneonDisplayWindowing.md "Dock window kind"): every switch overrides one member of
+// The --dock* command line (UI_Windowing.md "Dock window kind"): every switch overrides one member of
 // the document's `dock` object for the process lifetime, including across live reloads. Parsing and the merge are
 // pure so SettingsTests proves the grammar, the errors, and the precedence without a process.
 

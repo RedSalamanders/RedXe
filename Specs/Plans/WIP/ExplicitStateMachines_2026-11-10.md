@@ -8,7 +8,7 @@
 - **Authoritative contracts to reconcile on closeout**:
   - [Specs/README.md](../../README.md)
   - [Specs/UI/UI_Dashboard.md](../../UI/UI_Dashboard.md)
-  - [Specs/UI/UI_XeneonDisplayWindowing.md](../../UI/UI_XeneonDisplayWindowing.md)
+  - [Specs/UI/UI_Windowing.md](../../UI/UI_Windowing.md)
   - [Specs/Core/Core_Settings.md](../../Core/Core_Settings.md)
   - [Specs/Core/Core_PerformanceAndResources.md](../../Core/Core_PerformanceAndResources.md)
   - [Specs/Core/Core_DxUiIntegration.md](../../Core/Core_DxUiIntegration.md)
@@ -175,5 +175,5 @@ Stop and request owner guidance before proceeding if any slice would:
 
 ## Closeout checklist
 
-1. Merge durable state-machine contracts into [UI_Dashboard.md](../../UI/UI_Dashboard.md), [UI_XeneonDisplayWindowing.md](../../UI/UI_XeneonDisplayWindowing.md), [Core_Settings.md](../../Core/Core_Settings.md), [Plugins_API.md](../../Plugins/Plugins_API.md), [Plugins_AVControl.md](../../Plugins/Plugins_AVControl.md), [Plugins_Logicon.md](../../Plugins/Plugins_Logicon.md), [Plugins_Weather.md](../../Plugins/Plugins_Weather.md), [Build_Process.md](../../Build/Build_Process.md), and [Testing_RunEvidence.md](../../Testing/Testing_RunEvidence.md), and check off item `G2` in [PluginBoundaryHardening_2026-09-03.md](PluginBoundaryHardening_2026-09-03.md).
+1. Merge durable state-machine contracts into [UI_Dashboard.md](../../UI/UI_Dashboard.md), [UI_Windowing.md](../../UI/UI_Windowing.md), [Core_Settings.md](../../Core/Core_Settings.md), [Plugins_API.md](../../Plugins/Plugins_API.md), [Plugins_AVControl.md](../../Plugins/Plugins_AVControl.md), [Plugins_Logicon.md](../../Plugins/Plugins_Logicon.md), [Plugins_Weather.md](../../Plugins/Plugins_Weather.md), [Build_Process.md](../../Build/Build_Process.md), and [Testing_RunEvidence.md](../../Testing/Testing_RunEvidence.md), and check off item `G2` in [PluginBoundaryHardening_2026-09-03.md](PluginBoundaryHardening_2026-09-03.md).
 2. Move this plan to `Specs/Plans/Done/ExplicitStateMachines_2026-11-10.md`, remove its row from `Specs/Plans/WIP/README.md`, add its record to [Specs/Plans/Done/README.md](../Done/README.md), and run `.\Test-Changes.ps1 -Mode PrePush`.

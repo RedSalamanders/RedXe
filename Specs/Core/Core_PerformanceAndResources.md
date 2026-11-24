@@ -274,7 +274,7 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   presenting until it completes; settled overlay chrome MUST NOT add a periodic wake. Close-control hover is
   event-driven GDI on the overlay HWND and MUST NOT start a timer or a host Present. A host-owned native child covering
   the swap chain MUST NOT be treated as DXGI occlusion.
-- The screen-edge dock (`Specs/UI/UI_XeneonDisplayWindowing.md`) adds no periodic wake-up in any state. An autohide
+- The screen-edge dock (`Specs/UI/UI_Windowing.md`) adds no periodic wake-up in any state. An autohide
   reveal or hide never calls `ResizeBuffers`, recomputes the layout, calls `OnTargetSizeChanged`, or allocates, because
   the dock swap chain keeps the full bar size under `DXGI_SCALING_NONE`. With `animationMilliseconds` 0 it is one
   `SetWindowPos` and one frame; otherwise it is a slide of that duration (200 ms by default), visible motion like a
@@ -296,7 +296,7 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   as on an adapter change) and one dashboard resize, with no widget re-creation. The first-run bar on a display without
   a XENEON retains the back buffer of its XENEON-proportioned full size (3840×1080, about 16 MiB, on a 150 % 4K
   display), the same buffer as the titled fallback window it replaces there.
-- The notification-area icon (`Specs/UI/UI_XeneonDisplayWindowing.md`) costs one hidden owner window of its own class
+- The notification-area icon (`Specs/UI/UI_Windowing.md`) costs one hidden owner window of its own class
   and one small-icon `HICON` on the UI thread, with no thread, hook, or periodic wake-up in any state. Its only timer
   is the one-shot retry of an add that a running taskbar refused: at most four, with doubling delays from 1 s, one
   armed at a time, and none once the icon is added or the tries are spent. Shell traffic (`Shell_NotifyIconW`) happens
@@ -360,7 +360,7 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   client-sized redirection surface for it. Host-owned native-widget containers are `WS_EX_LAYERED` children with their
   own DWM surface; while another widget is raised they carry the dim as window alpha (`255 − dim`) and return to
   full alpha on dismiss. The hosting process manifest MUST declare a Windows 8 or later `supportedOS`, which is what
-  makes a layered child legal (`UI_XeneonDisplayWindowing.md`). A native child HWND over the swap chain still forces composed presentation for the whole
+  makes a layered child legal (`UI_Windowing.md`). A native child HWND over the swap chain still forces composed presentation for the whole
   window while it exists, which is why no shipped page places one (`Core_Settings.md` template coverage exception).
 - Resolution-dependent plugin resources are rebuilt on `IRedXeGpuWidget::OnTargetSizeChanged`, never in `Render`. That
   callback is the sanctioned place for rasterizing, creating textures for, and allocating such resources, because it is

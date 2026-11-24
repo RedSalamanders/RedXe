@@ -13,7 +13,7 @@ column freezes, WMI prohibition, host batch collect, or the 32-subscription cap.
 Owning contracts: [`../../Plugins/Plugins_API.md`](../../Plugins/Plugins_API.md),
 [`../../Core/Core_PerformanceAndResources.md`](../../Core/Core_PerformanceAndResources.md),
 [`../../Core/Core_Settings.md`](../../Core/Core_Settings.md), and
-[`../../UI/UI_XeneonDisplayWindowing.md`](../../UI/UI_XeneonDisplayWindowing.md).
+[`../../UI/UI_Windowing.md`](../../UI/UI_Windowing.md).
 
 Historical context:
 
