@@ -380,6 +380,17 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"Deployed settings templates did not load.\n");
         return result;
     }
+    for (const auto& templatePath : {debugPath, releasePath})
+    {
+        std::string bytes;
+        result = ReadFile(templatePath, bytes);
+        if (FAILED(result))
+            return result;
+        constexpr auto flags = YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS | YYJSON_READ_ALLOW_BOM;
+        unique_doc document{yyjson_read(bytes.data(), bytes.size(), flags)};
+        if (! document || ! yyjson_equals_str(yyjson_obj_get(yyjson_doc_get_root(document.get()), "$schema"), "SettingsStore.schema.json"))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     if (! CoversBundledPluginCatalog(debug, true) || ! CoversBundledPluginCatalog(release, false))
     {
         std::wprintf(L"Deployed templates do not cover the bundled plugin catalog.\n");
@@ -489,6 +500,11 @@ constexpr std::string_view kRepresentative = R"json(
         ! yyjson_is_uint(yyjson_obj_get(retention, "minimum")) || yyjson_get_uint(yyjson_obj_get(retention, "minimum")) != kRedXeMinimumLogRetentionDays ||
         ! yyjson_is_uint(yyjson_obj_get(retention, "maximum")) || yyjson_get_uint(yyjson_obj_get(retention, "maximum")) != kRedXeMaximumLogRetentionDays ||
         ! yyjson_is_uint(yyjson_obj_get(retention, "default")) || yyjson_get_uint(yyjson_obj_get(retention, "default")) != kRedXeDefaultLogRetentionDays)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    yyjson_val* schemaNames = yyjson_obj_get(yyjson_obj_get(properties, "$schema"), "enum");
+    if (! yyjson_equals_str(yyjson_obj_get(root, "$id"), "SettingsStore.schema.json") || yyjson_arr_size(schemaNames) != 2 ||
+        ! yyjson_equals_str(yyjson_arr_get(schemaNames, 0), "SettingsStore.schema.json") ||
+        ! yyjson_equals_str(yyjson_arr_get(schemaNames, 1), "RedXe.settings.schema.json"))
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     yyjson_val* rootBackground = yyjson_is_obj(properties) ? yyjson_obj_get(properties, "backgroundColor") : nullptr;
     if (! yyjson_is_obj(rootBackground) || ! yyjson_is_str(yyjson_obj_get(rootBackground, "default")) ||
@@ -666,6 +682,17 @@ constexpr std::string_view kRepresentative = R"json(
     if (FAILED(result) || ! parsed.dashboard.wrapPages || parsed.logRetentionDays != kRedXeDefaultLogRetentionDays || parsed.dashboard.pageCount != 2 ||
         parsed.dashboard.pages[0].widgetCount != 3 || parsed.dashboard.pages[1].widgetCount != 0)
         return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    constexpr std::string_view invalidSchemaNames[] = {
+        R"json({"$schema":"Settings.schema.json","version":{"major":5},"pages":[{}]})json",
+        R"json({"$schema":1,"version":{"major":5},"pages":[{}]})json",
+    };
+    for (const auto document : invalidSchemaNames)
+    {
+        AppSettings rejected{};
+        SettingsParseDiagnostic diagnostic{};
+        if (SUCCEEDED(ParseAppSettingsJsonDetailed(document, rejected, diagnostic)) || diagnostic.path != "$.$schema")
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
     const std::string_view cfg1 = parsed.dashboard.pages[0].widgets[1].privateConfiguration.View();
     const std::string_view cfg2 = parsed.dashboard.pages[0].widgets[2].privateConfiguration.View();
     if (cfg1.find("\"seed\":7") == std::string_view::npos || cfg2.find("\"seed\":9") == std::string_view::npos ||
@@ -2462,6 +2489,16 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         std::string kept;
         if (SUCCEEDED(result))
             result = ReadFile(selected, kept);
+        const auto canonicalSchema = settingsDirectory / L"SettingsStore.schema.json";
+        const auto legacySchema    = settingsDirectory / L"RedXe.settings.schema.json";
+        std::string canonicalBytes;
+        std::string legacyBytes;
+        if (SUCCEEDED(result))
+            result = ReadFile(canonicalSchema, canonicalBytes);
+        if (SUCCEEDED(result))
+            result = ReadFile(legacySchema, legacyBytes);
+        if (SUCCEEDED(result) && (store.SchemaPath() != canonicalSchema.wstring() || canonicalBytes.empty() || canonicalBytes != legacyBytes))
+            result = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         if (FAILED(result) || ! loaded || store.UsedInitialFallback() || kept != releasedBytes || loaded->versionMinor != 2 || loaded->serviceCount != 1 ||
             loaded->retiredServices.size() != 1)
         {
@@ -2803,6 +2840,11 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             std::wprintf(L"A missing default file was not installed with the first-run dock, made once.\n");
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        const auto canonicalSchema = settingsDirectory / L"SettingsStore.schema.json";
+        if (installStore.SchemaPath() != canonicalSchema.wstring() || ! std::filesystem::is_regular_file(canonicalSchema) ||
+            std::filesystem::exists(settingsDirectory / L"RedXe.settings.schema.json"))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
         const std::filesystem::path everyRoot = localRoot / L"EveryMember";
         SettingsStore everyStore;
         std::unique_ptr<AppSettings> everyInstalled;

@@ -1,7 +1,7 @@
 # RedXe settings contract
 
 Status: current normative product contract
-Last reviewed: 2026-10-28
+Last reviewed: 2026-11-24
 Owner: `SettingsStore`, `SettingsWatcher`, and UI-thread application orchestration
 
 ## Scope
@@ -44,8 +44,11 @@ UTC day changes, and deletes dated JSONL files whose UTC date is at least `logRe
 `RedXe-debug.jsonl` and `*.jsonl.1` rotate files in that folder are also deleted. `--self-test` MUST NOT open this
 directory.
 
-The build output MUST contain both templates and `RedXe.settings.schema.json`. Repository sources are `Settings/` and
-`Specs/Settings.schema.json`. The hidden `--self-test` path MUST use the deployed template and MUST NOT touch or watch
+The build output MUST contain both templates and `SettingsStore.schema.json`. Repository sources are `Settings/` and
+`Specs/SettingsStore.schema.json`. The store refreshes the canonical schema beside managed settings on startup.
+For an existing managed document whose `$schema` names `RedXe.settings.schema.json`, the store MUST also install the
+current schema under that legacy name. It MUST preserve the settings bytes during this migration. With `--settings`,
+schema files beside the selected document remain under the caller's control. The hidden `--self-test` path MUST use the deployed template and MUST NOT touch or watch
 the user's settings directory. It MUST NOT create or write the diagnostic `Logs` directory.
 
 Both shipped templates MUST include a representative low-resource startup composition, a denser gallery,
@@ -81,7 +84,7 @@ The root members are:
 
 | Member | Required | Contract |
 | --- | --- | --- |
-| `$schema` | No | When present, `RedXe.settings.schema.json`. |
+| `$schema` | No | New templates use `SettingsStore.schema.json`. Existing documents may use `RedXe.settings.schema.json`. |
 | `version` | Yes | Object with required `major` and optional `minor`; omitted minor is zero. |
 | `wrapPages` | No | Omitted or false stops at page ends; true wraps. |
 | `continuousFrameRate` | No | `"display"` or integer `30` (minor 4). Omitted is `"display"`. Limits settled continuous animation; explicit invalidation and page, overlay or dock motion remain immediate. Applies live without rebuilding widgets. |
@@ -684,5 +687,5 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - Collect-on-exit: `RedXe/DashboardHost.cpp`
 - Contracts and runtime creation: `RedXe/PluginManager.*`, `Common/PlugInterfaces/Factory.*`
 - Host persist thunk and JSONL log writer: `RedXe/PluginHost.*`
-- Schema/templates: `Specs/Settings.schema.json`, `Settings/`
+- Schema/templates: `Specs/SettingsStore.schema.json`, `Settings/`
 - Tests: `Tests/SettingsTests/`, `Tests/HostPluginTests/`, `Tests/PluginContractTests/`

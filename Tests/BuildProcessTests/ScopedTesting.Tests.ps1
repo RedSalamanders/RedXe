@@ -121,7 +121,7 @@ try {
 
     Run-Case 'deployed settings and provenance are required and affect the artifact identity' {
         $expectedFiles = @('Settings/RedXe-debug.settings.json', 'Settings/RedXe.settings.json',
-            'Settings/RedXe.settings.schema.json', 'DxUi.provenance.json')
+            'Settings/SettingsStore.schema.json', 'DxUi.provenance.json')
         Assert-Scope ((@($manifest.runtimeFiles) -join ',') -ceq ($expectedFiles -join ',')) 'The deployed runtime inventory changed.'
         $profile = Join-Path $fixture '.build/x64/Debug'
         Write-Fixture (Join-Path $profile 'suite.exe') 'fixture bytes'

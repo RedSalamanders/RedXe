@@ -21,6 +21,6 @@
   <ItemGroup>
     <None Include="..\..\Settings\RedXe-debug.settings.json"><Filter>Settings</Filter></None>
     <None Include="..\..\Settings\RedXe.settings.json"><Filter>Settings</Filter></None>
-    <None Include="..\..\Specs\Settings.schema.json"><Filter>Settings</Filter></None>
+    <None Include="..\..\Specs\SettingsStore.schema.json"><Filter>Settings</Filter></None>
   </ItemGroup>
 </Project>

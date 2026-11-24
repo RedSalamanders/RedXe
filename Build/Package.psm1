@@ -13,7 +13,7 @@ Import-Module (Join-Path $PSScriptRoot "DxUiRestore.psm1")
 
 $script:PackageProduct = 'RedXe'
 $script:PackageRootBinaries = @('RedXe.exe', 'RedXeLauncher.exe', 'yyjson.dll')
-$script:PackageSettingsFiles = @('RedXe.settings.json', 'RedXe-debug.settings.json', 'RedXe.settings.schema.json')
+$script:PackageSettingsFiles = @('RedXe.settings.json', 'RedXe-debug.settings.json', 'SettingsStore.schema.json')
 $script:PackagePluginHelpers = @('AVControlBroker.exe', 'AVControlCamera.dll', 'AVControlCameraSetup.exe',
     'WeatherLocation.exe', 'libcurl.dll', 'yyjson.dll', 'weathericons-regular-webfont.ttf', 'OFL.txt')
 $script:PackageInstallerFiles = @('Install-RedXe.ps1', 'install.cmd', 'uninstall.cmd')
@@ -127,7 +127,7 @@ function Get-RedXePackageRequiredEntries {
 }
 
 function Get-RedXePackageForbiddenPatterns {
-    return @($script:PackageBuildArtifactExtensions | ForEach-Object { "*$_" }) + @('Plugins/ZoomSdk/*', '*Tests.exe', 'SystemDataPhase0.exe')
+    return @($script:PackageBuildArtifactExtensions | ForEach-Object { "*$_" }) + @('Plugins/ZoomSdk/*', '*Tests.exe', 'SystemDataPhase0.exe', 'Settings/RedXe.settings.schema.json')
 }
 
 <#

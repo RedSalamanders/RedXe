@@ -1580,7 +1580,10 @@ struct DiagnosticSink final
 }
 } // namespace
 
-HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSettings>& output, SettingsParseDiagnostic* diagnostic) noexcept
+HRESULT ParseAppSettingsJsonV5(std::string_view json,
+                               std::unique_ptr<AppSettings>& output,
+                               SettingsParseDiagnostic* diagnostic,
+                               bool* usesLegacySchema) noexcept
 {
     output.reset();
     if (diagnostic)
@@ -1677,11 +1680,12 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
                                    "pages"},
                                   allowUnknown))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        yyjson_val* schema = yyjson_obj_get(root, "$schema");
-        if (schema && (! yyjson_is_str(schema) || std::string_view(yyjson_get_str(schema), yyjson_get_len(schema)) != "RedXe.settings.schema.json"))
+        yyjson_val* schema      = yyjson_obj_get(root, "$schema");
+        const bool legacySchema = yyjson_equals_str(schema, "RedXe.settings.schema.json");
+        if (schema && ! legacySchema && ! yyjson_equals_str(schema, "SettingsStore.schema.json"))
         {
             const auto schemaScope = path.PushName("$schema");
-            return sink.FailHr(path.View(), "When present, $schema must be \"RedXe.settings.schema.json\".");
+            return sink.FailHr(path.View(), "When present, $schema must be \"SettingsStore.schema.json\" or \"RedXe.settings.schema.json\".");
         }
 
         auto parsed          = std::make_unique<AppSettings>();
@@ -1904,6 +1908,8 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json, std::unique_ptr<AppSetting
         parsed->dashboard.activePageIndex = 0;
         parsed->dashboard.activePageId    = parsed->dashboard.pages[0].id;
         output                            = std::move(parsed);
+        if (usesLegacySchema)
+            *usesLegacySchema = legacySchema;
         return S_OK;
     }
     catch (const std::bad_alloc&)

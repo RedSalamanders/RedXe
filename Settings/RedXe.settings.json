@@ -1,5 +1,5 @@
 {
-  "$schema": "RedXe.settings.schema.json",
+  "$schema": "SettingsStore.schema.json",
   "version": { "major": 5, "minor": 4 },
   "wrapPages": false,
   "logRetentionDays": 15,

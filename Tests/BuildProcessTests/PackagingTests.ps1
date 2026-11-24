@@ -69,12 +69,13 @@ try {
     $modules = Get-RedXeBundledPluginModules -RepoRoot $repo
     if ($modules -notcontains 'MatrixRain.dll' -or $modules -notcontains 'zoom.action.dll') { throw 'Bundled plugin catalog was not read.' }
     $required = Get-RedXePackageRequiredEntries -RepoRoot $repo
-    foreach ($entry in @('RedXe.exe', 'RedXeLauncher.exe', 'Install-RedXe.ps1', 'Settings/RedXe.settings.json', 'Plugins/MatrixRain.dll', 'msvcp140.dll', 'Plugins/vcruntime140.dll')) {
+    foreach ($entry in @('RedXe.exe', 'RedXeLauncher.exe', 'Install-RedXe.ps1', 'Settings/RedXe.settings.json', 'Settings/SettingsStore.schema.json', 'Plugins/MatrixRain.dll', 'msvcp140.dll', 'Plugins/vcruntime140.dll')) {
         if ($required -cnotcontains $entry) { throw "Required entry list lacks $entry" }
     }
     if ($required | Where-Object { $_.Contains('\') }) { throw 'Required entries must use forward slashes.' }
     Assert-RedXePackageEntries -RepoRoot $repo -Entries $required
     Reject 'a package missing a plugin' { Assert-RedXePackageEntries -RepoRoot $repo -Entries ($required | Where-Object { $_ -ne 'Plugins/MatrixRain.dll' }) }
+    Reject 'a package with a legacy settings schema' { Assert-RedXePackageEntries -RepoRoot $repo -Entries ($required + 'Settings/RedXe.settings.schema.json') }
     Reject 'a package with a PDB' { Assert-RedXePackageEntries -RepoRoot $repo -Entries ($required + 'RedXe.pdb') }
     Reject 'a package with the Zoom SDK' { Assert-RedXePackageEntries -RepoRoot $repo -Entries ($required + 'Plugins/ZoomSdk/tp.dll') }
     Reject 'a package with a test executable' { Assert-RedXePackageEntries -RepoRoot $repo -Entries ($required + 'SettingsTests.exe') }

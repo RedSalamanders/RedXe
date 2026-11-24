@@ -15,7 +15,7 @@ HLSL allows, and an original written in HLSL (`CosmicOrb.hlsl`) only needs the `
 `fragCoord / iResolution.xy` and `iTime`. To add one: drop the `.hlsl` under `Shaders/` with the two includes, add
 its `FxCompile` item to `5H4D3R5.vcxproj`, its `ShaderInfo` row to `kShaders` and its name to the schema enum in
 `ShadersSettings.h`, its blob to `kPrograms` in `Shaders.cpp`, its row to `LICENSES.md`, the same name to
-`Specs/Settings.schema.json`, and its thumbnail row to the user page.
+`Specs/SettingsStore.schema.json`, and its thumbnail row to the user page.
 
 - `ShadersCommon.hlsli` supplies the Shadertoy uniform block (`iResolution`, `iTime`, `iTimeDelta`, `iFrame`,
   `iMouse`, `iDate`), `iChannel0` with its sampler, the GLSL names HLSL lacks (`vec2`/`vec3`/`vec4`, `fract`, `mix`,

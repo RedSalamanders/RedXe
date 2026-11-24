@@ -154,7 +154,7 @@
     <None Include="..\Settings\RedXe.settings.json">
       <Filter>Resource Files</Filter>
     </None>
-    <None Include="..\Specs\Settings.schema.json">
+    <None Include="..\Specs\SettingsStore.schema.json">
       <Filter>Resource Files</Filter>
     </None>
   </ItemGroup>

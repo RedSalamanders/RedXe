@@ -121,5 +121,5 @@ belong under `.build/`, never under `Specs/` or `docs/`.
   MUST include a screenshot of the live tile (or a named capture path to add in that closeout) and an explanation of
   every user-authored parameter, including defaults and valid ranges. Adding or removing a settings-visible bundled
   widget MUST add or remove its `docs/plugins/` page in the same change.
-- The canonical user JSON schema is [`Settings.schema.json`](Settings.schema.json). The build copies it beside
-  deployed and per-user settings files as `RedXe.settings.schema.json`.
+- The canonical user JSON schema is [`SettingsStore.schema.json`](SettingsStore.schema.json). The build copies it beside
+  deployed and per-user settings files.

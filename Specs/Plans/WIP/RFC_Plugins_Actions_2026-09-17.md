@@ -49,7 +49,7 @@ Owning contracts changed at implementation:
   `RedXeHostAction` enum.
 - [Logicon](../../Plugins/Plugins_Logicon.md): key, dial, roller, and button bindings; `dialpad.turns`; faces; the
   `logicon` namespace it publishes.
-- [Settings](../../Core/Core_Settings.md) and [`Settings.schema.json`](../../Settings.schema.json): the binding shape
+- [Settings](../../Core/Core_Settings.md) and [`SettingsStore.schema.json`](../../SettingsStore.schema.json): the binding shape
   in `services` and in Launcher `shortcuts`, the `builtin.zoom` service object, both templates.
 - [Performance and resources](../../Core/Core_PerformanceAndResources.md): the publisher budget below.
 - New at implementation: `Specs/Plugins/Plugins_Actions.md` owns the binding shape, the default namespaces, the ABI,
@@ -664,7 +664,7 @@ Device access disabled means the SDK is never initialized.
 
 ## Settings, schema, and validation
 
-- `Specs/Settings.schema.json`: `$defs/actionName` (the pattern above, `default: "none"`), `$defs/actionTarget`
+- `Specs/SettingsStore.schema.json`: `$defs/actionName` (the pattern above, `default: "none"`), `$defs/actionTarget`
   (`maxLength: 512`), `$defs/logiconTurn`; `logiconKey.action`, `logiconDialButton.action`, and the Launcher shortcut
   item reference them; Launcher items gain `action` and `icon` and lose `iconPng`; `logiconDialpad` loses `dial`,
   `roller`, and `$defs/logiconDialAction` and gains `turns` (`maxItems: 4`); `serviceDefinition` gains the

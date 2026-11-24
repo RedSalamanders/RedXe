@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "RedXe.settings.schema.json",
+  "$id": "SettingsStore.schema.json",
   "title": "RedXe settings",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "pages"],
   "properties": {
-    "$schema": { "const": "RedXe.settings.schema.json" },
+    "$schema": { "enum": ["SettingsStore.schema.json", "RedXe.settings.schema.json"] },
     "version": { "$ref": "#/$defs/version" },
     "wrapPages": { "type": "boolean", "default": false },
     "continuousFrameRate": {

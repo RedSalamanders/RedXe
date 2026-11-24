@@ -42,7 +42,7 @@ Converting multi-boolean/sentinel/pointer state clusters into explicit `enum cla
 
 Every implementation slice executing this plan MUST uphold [AGENTS.md](../../../AGENTS.md) and [Core_PerformanceAndResources.md](../../Core/Core_PerformanceAndResources.md):
 
-1. **Public COM/POD ABI stability**: Preserve all `sizeof` and `offsetof` assertions in `Common/PlugInterfaces/*.h`, sibling `QueryInterface` contracts, and normalized JSON settings schemas (`Settings/RedXe*.settings.json`, `Specs/Settings.schema.json`).
+1. **Public COM/POD ABI stability**: Preserve all `sizeof` and `offsetof` assertions in `Common/PlugInterfaces/*.h`, sibling `QueryInterface` contracts, and normalized JSON settings schemas (`Settings/RedXe*.settings.json`, `Specs/SettingsStore.schema.json`).
 2. **Zero-allocation GPU `Render` and event-blocked idle**: `Render`, visibility, and paint callbacks remain nonblocking and heap-free; idle, occluded, hidden, and minimized states block on OS events with zero busy polling.
 3. **Strict WIL RAII, exception, and `/Wall` discipline**: Zero warnings across `(x64, ARM64) x (Debug, Release, ASan Debug)`, WIL ownership for every COM/Win32 handle (no manual `Release` or `catch (...)` — including removing the stray `catch (...)` in [CameraSetup.cpp](../../../Plugins/AVControl/Camera/CameraSetup.cpp) L93), and no terminating running `RedXe.exe` outputs.
 4. **Pinned `DxUi.lib` boundary**: Keep `DxUi` C++ inside `RedXe.exe` / isolated consumer targets at the exact commit in `Dependencies/DxUi.lock.json`.
@@ -168,7 +168,7 @@ pwsh -NoProfile -File .\test.ps1
 Stop and request owner guidance before proceeding if any slice would:
 
 1. Change any `Common/PlugInterfaces/*.h` struct size/offset, IID, or method signature.
-2. Require modifying `Settings/RedXe*.settings.json`, `Specs/Settings.schema.json`, or command-line switch syntax in [CommandLine.h](../../../RedXe/CommandLine.h).
+2. Require modifying `Settings/RedXe*.settings.json`, `Specs/SettingsStore.schema.json`, or command-line switch syntax in [CommandLine.h](../../../RedXe/CommandLine.h).
 3. Regress steady-state CPU, private working set, GPU submissions, or idle wake-up counts on any dashboard page.
 
 ---
