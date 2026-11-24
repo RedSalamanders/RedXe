@@ -565,6 +565,8 @@ the repository test entrypoint MUST validate the version fields without desktop 
   (the hidden self-test and test hosts) uses the default adapter; forced WARP never re-checks. Each device creation
   logs one `device-created` record. The policy and its budgets are owned by
   `Specs/Core/Core_PerformanceAndResources.md`.
+- The renderer's device-loss path handles `DXGI_ERROR_DEVICE_REMOVED`, `DXGI_ERROR_DEVICE_RESET`,
+  `DXGI_ERROR_DEVICE_HUNG` and `DXGI_ERROR_DRIVER_INTERNAL_ERROR`.
 - Escape and `WM_CLOSE` close the application through the HWND owner.
 - Session end: `WM_QUERYENDSESSION` MUST return `TRUE`; RedXe never vetoes or delays a sign-out, restart, or
   shutdown. Windows may end the process as soon as `WM_ENDSESSION` with `wParam` `TRUE` returns, without `WM_CLOSE`
