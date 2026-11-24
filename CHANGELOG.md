@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Move RedXe’s tray menu, window captions and startup and crash notices into validated Win32 resources.
 - Keep valid RedXe settings when an optional host or dock preference takes its default, and preserve additive settings across saves.
 - Read authored RedXe settings as JSON5 and preserve the surrounding text when editing a dock value.
 - Pause dashboard rendering while the window is cloaked and resume on the next eligible visibility event.

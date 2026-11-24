@@ -1,1 +1,0 @@
-- Move RedXe’s tray menu, window captions and startup and crash notices into validated Win32 resources.
