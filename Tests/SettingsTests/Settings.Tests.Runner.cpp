@@ -545,7 +545,7 @@ constexpr std::string_view kRepresentative = R"json(
         yyjson_val* mode    = yyjson_is_obj(dockProperties) ? yyjson_obj_get(dockProperties, "mode") : nullptr;
         yyjson_val* reserve = yyjson_is_obj(dockProperties) ? yyjson_obj_get(dockProperties, "reserveWorkArea") : nullptr;
         yyjson_val* monitor = yyjson_is_obj(dockProperties) ? yyjson_obj_get(dockProperties, "monitor") : nullptr;
-        if (! yyjson_is_obj(rootDock) || ! yyjson_is_obj(dockDefinition) || ! yyjson_is_false(yyjson_obj_get(dockDefinition, "additionalProperties")) ||
+        if (! yyjson_is_obj(rootDock) || ! yyjson_is_obj(dockDefinition) || ! yyjson_is_true(yyjson_obj_get(dockDefinition, "additionalProperties")) ||
             ! yyjson_is_obj(edge) || ! yyjson_is_arr(yyjson_obj_get(edge, "enum")) || yyjson_arr_size(yyjson_obj_get(edge, "enum")) != 5 ||
             std::string_view(yyjson_get_str(yyjson_obj_get(edge, "default"))) != "none" || ! yyjson_is_obj(mode) ||
             std::string_view(yyjson_get_str(yyjson_obj_get(mode, "default"))) != "fixed" || ! yyjson_is_obj(reserve) ||
@@ -1074,14 +1074,14 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    constexpr std::array<std::string_view, 64> invalid{
+    constexpr std::array invalid{
+        std::string_view{},
         std::string_view{R"json({"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":4},"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":5,"minor":"0"},"pages":[{}]})json"},
-        std::string_view{R"json({"version":{"major":5},"unknown":1,"pages":[{}]})json"},
+        std::string_view{R"json({"version":{"major":5},"layout":1,"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":5},"version":{"major":5},"pages":[{}]})json"},
         std::string_view{R"json({version:{major:NaN},pages:[{}]})json"},
-        std::string_view{R"json({version:{major:5},continuousFrameRate:Infinity,pages:[{}]})json"},
         std::string_view{R"json({"version":{"major":5},"pages":[]})json"},
         std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[]}]})json"},
         std::string_view{R"json({"version":{"major":5},"pages":[{"columns":[{"weight":0,"widget":{"plugin":"builtin.gdi-orbit"}}]}]})json"},
@@ -1125,16 +1125,9 @@ constexpr std::string_view kRepresentative = R"json(
         std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","extra":1,"shortcuts":[]}]}]})json"},
         std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"jumbo","shortcuts":[]}]}]})json"},
         std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher","iconSize":"auto"}]}]})json"},
-        std::string_view{R"json({"version":{"major":5},"backgroundColor":"#12345","pages":[{}]})json"},
-        std::string_view{R"json({"version":{"major":5},"backgroundColor":"123456","pages":[{}]})json"},
-        std::string_view{R"json({"version":{"major":5},"backgroundColor":1,"pages":[{}]})json"},
         std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.cpu-meter","backgroundColor":"#GG0000"}]}]})json"},
         std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.studio-clock","backgroundColor":7}]}]})json"},
         std::string_view{R"json({"version":{"major":5},"declare":{"X":{"plugin":"builtin.matrix-rain","backgroundColor":"black"}},"pages":[{}]})json"},
-        std::string_view{R"json({"version":{"major":5},"logRetentionDays":0,"pages":[{}]})json"},
-        std::string_view{R"json({"version":{"major":5},"logRetentionDays":366,"pages":[{}]})json"},
-        std::string_view{R"json({"version":{"major":5},"logRetentionDays":false,"pages":[{}]})json"},
-        std::string_view{R"json({"version":{"major":5},"logRetentionDays":-1,"pages":[{}]})json"},
         std::string_view{
             R"json({"version":{"major":5},"pages":[{"layout":{"arrangeAlong":"long-side","areas":[{"sizeRatio":1,"widget":{"plugin":"builtin.gdi-orbit"}}]}}]})json"},
         std::string_view{R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.gdi-orbit","settings":{}}]}]})json"},
@@ -1150,6 +1143,19 @@ constexpr std::string_view kRepresentative = R"json(
         {
             return result;
         }
+    }
+
+    constexpr std::string_view unusableRootValues[]{
+        R"json({version:{major:5},backgroundColor:'#12345',logRetentionDays:0,wrapPages:"true",pages:[{}]})json",
+        R"json({version:{major:5},backgroundColor:'123456',logRetentionDays:366,wrapPages:1,pages:[{}]})json",
+        R"json({version:{major:5},backgroundColor:1,logRetentionDays:false,wrapPages:[],pages:[{}]})json",
+        R"json({version:{major:5},backgroundColor:null,logRetentionDays:-1,wrapPages:null,pages:[{}]})json",
+    };
+    for (const std::string_view document : unusableRootValues)
+    {
+        if (FAILED(ParseAppSettingsJson(document, parsed)) || parsed.backgroundRgb != 0 || parsed.logRetentionDays != 15 || parsed.dashboard.wrapPages ||
+            parsed.sourceDocument != document)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
     const std::string newerMinor =
@@ -1244,7 +1250,7 @@ constexpr std::string_view kRepresentative = R"json(
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             return S_OK;
         };
-        if (FAILED(expectDiagnostic(R"json({"version":{"major":5},"unknown":1,"pages":[{}]})json", ".unknown", "Unknown member")))
+        if (FAILED(expectDiagnostic(R"json({"version":{"major":5},"layout":1,"pages":[{}]})json", ".layout", "layout is not accepted")))
         {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
@@ -1339,7 +1345,7 @@ constexpr std::string_view kRepresentative = R"json(
     return S_OK;
 }
 
-// The `dock` root member (minor 2) and the --dock* command line: defaults, every rejection, older-minor documents,
+// The `dock` root member (minor 2) and the --dock* command line: fallback, duplicate detection, older-minor documents,
 // the switch grammar with its errors, and the merge precedence (DockOptions.h).
 [[nodiscard]] HRESULT ValidateDockSettings() noexcept
 {
@@ -1409,7 +1415,7 @@ constexpr std::string_view kRepresentative = R"json(
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
 
-    const std::string_view rejected[]{
+    const std::string_view defaults[]{
         R"json({"version":{"major":5,"minor":2},"dock":{"edge":"middle"},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"edge":1},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"monitor":"all"},"pages":[{}]})json",
@@ -1433,13 +1439,13 @@ constexpr std::string_view kRepresentative = R"json(
         R"json({"version":{"major":5,"minor":3},"dock":{"animationMilliseconds":1.5},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":{"length":100},"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":2},"dock":[],"pages":[{}]})json",
-        R"json({"version":{"major":5,"minor":2},"dock":{"edge":"top","edge":"top"},"pages":[{}]})json",
     };
-    for (const std::string_view document : rejected)
+    for (const std::string_view document : defaults)
     {
-        if (FAILED(ExpectRejected(document)))
+        AppSettings fallback{};
+        if (FAILED(ParseAppSettingsJson(document, fallback)) || fallback.dock != DefaultDockSettings() || fallback.sourceDocument != document)
         {
-            std::wprintf(L"A malformed dock member was accepted.\n");
+            std::wprintf(L"A dock preference failed to take its default and retain the authored document.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
     }
@@ -1447,7 +1453,8 @@ constexpr std::string_view kRepresentative = R"json(
     {
         AppSettings diagnosed{};
         SettingsParseDiagnostic diagnostic{};
-        if (SUCCEEDED(ParseAppSettingsJsonDetailed(R"json({"version":{"major":5,"minor":2},"dock":{"peek":65},"pages":[{}]})json", diagnosed, diagnostic)) ||
+        if (SUCCEEDED(
+                ParseAppSettingsJsonDetailed(R"json({"version":{"major":5,"minor":2},"dock":{"peek":4,"peek":6},"pages":[{}]})json", diagnosed, diagnostic)) ||
             diagnostic.path != "$.dock.peek")
         {
             std::wprintf(L"The dock diagnostic path is %hs, not $.dock.peek.\n", diagnostic.path.c_str());
@@ -1674,16 +1681,16 @@ constexpr std::string_view kRepresentative = R"json(
             }
         }
         // The diagnostic for a member after a line comment ended by a lone CR is located where the parser reads it.
-        constexpr std::string_view loneCr = "{\"version\":{\"major\":5,\"minor\":2},// note\r\"dock\":{\"peek\":65},\"pages\":[{}]}";
-        const size_t peekAt               = loneCr.find("65");
+        constexpr std::string_view loneCr = "{\"version\":{\"major\":5,\"minor\":2},// note\r\"pages\":65}";
+        const size_t pagesAt              = loneCr.find("65");
         AppSettings diagnosed{};
         SettingsParseDiagnostic diagnostic{};
-        if (SUCCEEDED(ParseAppSettingsJsonDetailed(loneCr, diagnosed, diagnostic)) || diagnostic.path != "$.dock.peek" || ! diagnostic.hasLocation ||
-            diagnostic.byteOffset != peekAt || diagnostic.line != 1 || diagnostic.column != peekAt + 1)
+        if (SUCCEEDED(ParseAppSettingsJsonDetailed(loneCr, diagnosed, diagnostic)) || diagnostic.path != "$.pages" || ! diagnostic.hasLocation ||
+            diagnostic.byteOffset != pagesAt || diagnostic.line != 1 || diagnostic.column != pagesAt + 1)
         {
             std::wprintf(L"A member after a line comment ended by a lone CR was located at offset %llu, not %zu.\n",
                          static_cast<unsigned long long>(diagnostic.byteOffset),
-                         peekAt);
+                         pagesAt);
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
@@ -1718,8 +1725,8 @@ constexpr std::string_view kRepresentative = R"json(
 }
 
 // The `trayIcon` root member (minor 3): omitted, it follows the build (Release shows the notification-area icon,
-// Debug hides it), also in an older-minor document; an authored boolean wins in both builds; anything else rejects
-// the document with the diagnostic on $.trayIcon. A toggle changes no other typed member, is a runtime change by the
+// Debug hides it), also in an older-minor document; an authored boolean wins in both builds. Other values use the
+// build default. A duplicate still rejects the document. A toggle changes no other typed member, is a runtime change by the
 // check a live reload makes before it applies anything (RuntimeSettingsEqual), and keeps the active page
 // (ActiveDashboardRuntimeEquals), so the host applies it without rebuilding the page.
 [[nodiscard]] HRESULT ValidateTrayIconSettings() noexcept
@@ -1756,24 +1763,24 @@ constexpr std::string_view kRepresentative = R"json(
         std::wprintf(L"A trayIcon toggle is not a runtime change that keeps the active page.\n");
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    const std::string_view rejected[]{
+    const std::string_view defaults[]{
         R"json({"version":{"major":5,"minor":3},"trayIcon":"true","pages":[{}]})json",
         R"json({"version":{"major":5,"minor":3},"trayIcon":1,"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":3},"trayIcon":null,"pages":[{}]})json",
         R"json({"version":{"major":5,"minor":3},"trayIcon":{},"pages":[{}]})json",
-        R"json({"version":{"major":5,"minor":3},"trayIcon":true,"trayIcon":false,"pages":[{}]})json",
     };
-    for (const std::string_view document : rejected)
+    for (const std::string_view document : defaults)
     {
-        if (FAILED(ExpectRejected(document)))
+        if (FAILED(ParseAppSettingsJson(document, omitted)) || omitted.trayIcon != buildDefault || omitted.sourceDocument != document)
         {
-            std::wprintf(L"A malformed trayIcon was accepted.\n");
+            std::wprintf(L"A malformed trayIcon did not use the build default.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
     }
     AppSettings diagnosed{};
     SettingsParseDiagnostic diagnostic{};
-    if (SUCCEEDED(ParseAppSettingsJsonDetailed(R"json({"version":{"major":5,"minor":3},"trayIcon":"yes","pages":[{}]})json", diagnosed, diagnostic)) ||
+    if (SUCCEEDED(ParseAppSettingsJsonDetailed(
+            R"json({"version":{"major":5,"minor":3},"trayIcon":true,"trayIcon":false,"pages":[{}]})json", diagnosed, diagnostic)) ||
         diagnostic.path != "$.trayIcon")
     {
         std::wprintf(L"The trayIcon diagnostic path is %hs, not $.trayIcon.\n", diagnostic.path.c_str());
@@ -3043,23 +3050,22 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
             AppSettings settings{};
             return FAILED(ParseAppSettingsJsonDetailed(json, settings, diagnostic));
         };
-        SettingsParseDiagnostic unknown;
+        SettingsParseDiagnostic retired;
         SettingsParseDiagnostic syntax;
         SettingsParseDiagnostic empty;
         SettingsParseDiagnostic commentsOnly;
         SettingsParseDiagnostic nonFinite;
-        constexpr std::string_view infinitePeek = "{version:{major:5,minor:2},// note\xE2\x80\xA9"
-                                                  "dock:{'p\\u0065ek':-Infinity},pages:[{}],}";
+        constexpr std::string_view infiniteVersion = "{// note\xE2\x80\xA9"
+                                                     "version:{'m\\u0061jor':-Infinity},pages:[{}],}";
         AppSettings duplicate{};
-        if (! diagnose(infinitePeek, nonFinite) || nonFinite.path != "$.dock.peek" || ! nonFinite.hasLocation ||
-            nonFinite.byteOffset != infinitePeek.find("-Infinity") ||
+        if (! diagnose(infiniteVersion, nonFinite) || nonFinite.path != "$.version.major" || ! nonFinite.hasLocation ||
+            nonFinite.byteOffset != infiniteVersion.find("-Infinity") ||
             SUCCEEDED(ParseAppSettingsJson(R"json({version:{major:5},'\u0076ersion':{major:5},pages:[{}]})json", duplicate)))
         {
             std::wprintf(L"JSON5 settings did not retain typed diagnostics or duplicate-member validation.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        if (! diagnose(std::string(bom) + R"json({"version":{"major":5},"unknown":1,"pages":[{}]})json", unknown) ||
-            unknown.path.find(".unknown") == std::string::npos ||
+        if (! diagnose(std::string(bom) + R"json({"version":{"major":5},"layout":1,"pages":[{}]})json", retired) || retired.path != "$.layout" ||
             ! diagnose(std::string(bom) + "{\n  \"version\": { \"major\": 5 },\n  \"pages\": [{}] x\n}\n", syntax) || syntax.line != 3 ||
             syntax.message.find("BOM") != std::string::npos || ! diagnose(bom, empty) || empty.message != "The settings file is empty." ||
             ! diagnose(std::string(bom) + "\r\n// Only a comment.\r\n", commentsOnly) || commentsOnly.message != "The settings file is empty.")
@@ -3895,7 +3901,14 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
         if (FAILED(result) || ! loaded)
             return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-        constexpr std::string_view nextValid = R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}]})json";
+        constexpr std::string_view nextValid = R"json({
+          version: {major: 5, minor: 4},
+          wrapPages: true,
+          logRetentionDays: 0,
+          userExtension: {label: 'keep-root'},
+          dock: {edge: 'top', monitor: 'all', thickness: 180, peek: 65, userExtension: ['keep-dock']},
+          pages: [{widgets: [{plugin: 'builtin.launcher'}]}],
+        })json";
         {
             std::ofstream stream(file, std::ios::binary | std::ios::trunc);
             stream << nextValid;
@@ -3906,7 +3919,9 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
         SettingsFileStamp stamp{};
         SettingsReloadStatus status = SettingsReloadStatus::Unchanged;
         if (FAILED(result) || FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Loaded || ! candidate ||
-            candidate->dashboard.pages[0].widgets.empty())
+            candidate->dashboard.pages[0].widgets.empty() || ! candidate->dashboard.wrapPages || candidate->logRetentionDays != 15 ||
+            candidate->dock.edge != DockEdge::Top || candidate->dock.monitor.View() != "primary" || candidate->dock.peekPixels != 4 ||
+            candidate->sourceDocument != nextValid)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         std::string afterValidLoad;
         if (FAILED(ReadFile(file, afterValidLoad)) || afterValidLoad != afterValidWrite)
@@ -3928,6 +3943,14 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
         result                                   = store.PersistWidgetSettings(*candidate, instanceId, explicitPatch);
         std::string afterExplicitPersist;
         if (result != S_OK || FAILED(ReadFile(file, afterExplicitPersist)) || afterExplicitPersist == afterValidWrite)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        if (! afterExplicitPersist.contains("keep-root") || ! afterExplicitPersist.contains("keep-dock") || store.PersistDockThickness(*candidate, 220) != S_OK)
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        std::string afterDockPersist;
+        AppSettings reparsed{};
+        if (FAILED(ReadFile(file, afterDockPersist)) || ! afterDockPersist.contains("keep-root") || ! afterDockPersist.contains("keep-dock") ||
+            FAILED(ParseAppSettingsJson(afterDockPersist, reparsed)) || reparsed.dock.thicknessDips != 220 || reparsed.logRetentionDays != 15 ||
+            ! reparsed.dashboard.wrapPages)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
         constexpr std::string_view invalid = R"json({"version":{"major":4},"pages":[{}]})json";

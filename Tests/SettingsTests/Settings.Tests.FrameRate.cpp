@@ -25,12 +25,11 @@ HRESULT TestContinuousFrameRateSettings() noexcept
         equivalent.sourceDocument      = display.sourceDocument;
         if (equivalent != display)
             return E_FAIL;
-        for (const std::string_view value : std::array{"null", "true", "0", "60", "30.0", "30e0", "-30", "\"30\"", "\"Display\"", "{}", "[]"})
+        for (const std::string_view value : std::array{"null", "true", "0", "60", "30.0", "30e0", "-30", "\"30\"", "\"Display\"", "{}", "[]", "Infinity"})
         {
             const std::string document = "{\"version\":{\"major\":5,\"minor\":4},\"continuousFrameRate\":" + std::string(value) + ",\"pages\":[{}]}";
             AppSettings candidate      = limited;
-            SettingsParseDiagnostic diagnostic;
-            if (SUCCEEDED(ParseAppSettingsJsonDetailed(document, candidate, diagnostic)) || diagnostic.path != "$.continuousFrameRate" || candidate != limited)
+            if (FAILED(ParseAppSettingsJson(document, candidate)) || candidate.sourceDocument != document || ! RuntimeSettingsEqual(candidate, display))
                 return E_FAIL;
         }
         SettingsParseDiagnostic diagnostic;
@@ -42,7 +41,7 @@ HRESULT TestContinuousFrameRateSettings() noexcept
         limited.continuousFrameRate = static_cast<ContinuousFrameRate>(60);
         if (SUCCEEDED(ValidateAppSettings(limited)))
             return E_FAIL;
-        std::wprintf(L"Continuous frame-rate parsing, rejection and active-runtime classification passed.\n");
+        std::wprintf(L"Continuous frame-rate parsing, fallback and active-runtime classification passed.\n");
         return S_OK;
     }
     catch (...)

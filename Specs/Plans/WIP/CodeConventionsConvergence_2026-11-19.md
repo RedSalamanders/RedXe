@@ -54,9 +54,9 @@ Prepared: 2026-11-19, after the 155-line reformat (#108).
   text, in the comments-and-trailing-commas dialect only. It must read JSON5 (single-quoted strings, unquoted keys,
   hexadecimal and signed numbers, `Infinity`, `NaN`) before the flag changes, and the strict-rejection settings
   tests are re-checked.
-- [ ] **H-15 Settings reload.** The watcher already follows RedHome decision D19. Target: field-level fallback (an
-  unusable value takes its default or is clamped, and only an unparseable file is invalid) instead of whole-candidate
-  rejection, and unknown members kept across a save.
+- [ ] **H-15 Settings reload.** The watcher follows RedHome decision D19. Optional root and dock preferences now
+  take field defaults and keep unknown members across writes. Reconcile document-level rejection and recovery for
+  incompatible versions, required layout shape and closed plugin models with the shared D19 rule.
 - [ ] **H-06 and H-08 Resource strings.** RedXe has no `STRINGTABLE`. Target: chrome strings in resources through the
   shared helper set, then the resource-string gate.
 - [ ] **H-23 Keyboard state under hidden self-tests.** `Application` reads modifiers with `GetKeyState`. Target: an
