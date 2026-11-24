@@ -915,11 +915,28 @@ if ($invalidOverrideExit -ne 2) {
     throw "Invalid crash-directory override returned exit code $invalidOverrideExit; expected 2: $invalidOverrideLog"
 }
 
+$missingOverrideLog = Join-Path $evidence.Path 'RedXe.crash-test-missing-directory.log'
+$missingOverrideExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--crash-test') -WorkingDirectory $repoRoot -TimeoutSeconds 120 `
+    -LogPath $missingOverrideLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+if ($missingOverrideExit -ne 2) {
+    throw "Crash probe without an isolated directory returned $missingOverrideExit."
+}
+
 Invoke-RedXeCrashTest -CrashArgument '--crash-test' -ExpectedExceptionCode 0xE000CAFEl `
     -Label 'fatal-process'
 Invoke-RedXeCrashTest -CrashArgument '--crash-test-stack-overflow' -ExpectedExceptionCode 0xC00000FDl `
     -Label 'stack-overflow'
 
+$storeDirectory = Join-Path $evidence.Path ('crash-store-'+[guid]::NewGuid().ToString('N'))
+[void][IO.Directory]::CreateDirectory($storeDirectory)
+$storeLog = Join-Path $evidence.Path 'RedXe.crash-report-store.log'
+$storeTest = Join-Path (Split-Path -Parent $executable) 'HostPluginTests.exe'
+$storeExit = Invoke-RedXeStreamingProcess -FilePath $storeTest -Arguments @('--crash-report-store',$storeDirectory) -WorkingDirectory $repoRoot `
+    -TimeoutSeconds 120 -LogPath $storeLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+if ($storeExit -ne 0) {
+    throw "Crash report retention and restart checks failed: $storeLog"
+}
+Write-Host 'Owned crash report retention and single restart notice passed.'
 
 }
 $resultReceipt = [ordered]@{

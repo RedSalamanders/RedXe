@@ -195,7 +195,7 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
                            nullptr,
                            RedXeSwitchValue::Joined,
                            L"<directory>",
-                           L"Where a test crash writes its dump instead of the user's crash folder.",
+                           L"An existing isolated directory under the build root. Required by both crash tests.",
                            L"Diagnostics"},
     RedXeCommandLineSwitch{RedXeSwitch::RedMonitorProbe,
                            L"--redmonitor-probe",

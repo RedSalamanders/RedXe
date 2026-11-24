@@ -160,8 +160,9 @@ deployed under the build output's `Settings` directory and never touches user se
 RedXe installs a best-effort fatal-process handler before application startup. A fatal SEH exception, C++ terminate,
 purecall, or invalid-parameter failure writes a bounded local minidump, sibling UTF-16 call-stack report, and one-shot
 marker under `%LocalAppData%\RedXe\Crashes`. On the next normal launch, RedXe offers to open that folder after the
-main window is ready. Dumps are never uploaded and may contain sensitive process-memory fragments. The test harness
-uses `--crash-test` with an isolated directory override; normal users do not need this switch.
+main window is ready. RedXe keeps the newest ten new dumps and their stack reports and preserves older diagnostic
+files. Dumps stay local and may contain process-memory fragments. The test harness uses `--crash-test` with a required
+isolated directory.
 
 ## Specifications and plans
 
