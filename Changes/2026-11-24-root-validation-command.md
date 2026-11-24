@@ -1,0 +1,1 @@
+- Run RedXe's compiler-free checks through root `validate.ps1` for local use and pull requests.

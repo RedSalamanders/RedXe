@@ -35,20 +35,15 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $EngineRoot = [IO.Path]::GetFullPath($EngineRoot)
+if ($Phase -eq 'Static') {
+    & (Join-Path $root 'validate.ps1') -EngineRoot $EngineRoot -Base $Base -Platform $Platform -DevelopmentEngine:$DevelopmentEngine
+    return
+}
 Import-Module (Join-Path $EngineRoot 'Tools/Modules/Ci.Policy.psm1') -ErrorAction Stop
 Import-Module (Join-Path $EngineRoot 'Tools/Modules/Ci.Project.psm1') -ErrorAction Stop
 $context = New-CiProjectContext -Root $root -EngineRoot $EngineRoot -Phase $Phase -Platform $Platform -Descriptor $Descriptor -DevelopmentEngine:$DevelopmentEngine
 function Run([string]$Script, [string[]]$CommandArguments = @()) {
     Invoke-CiProjectScript -Context $context -Script $Script -Arguments $CommandArguments
-}
-if ($Phase -eq 'Static') {
-    $env:CI_NATIVE_BUILDS_DISABLED = 'true'
-    Test-CiProjectConfiguration $context
-    & (Join-Path $EngineRoot 'Tools/Test-Workflows.ps1') -Root $root
-    $baseCommit = Resolve-CiCommit $root $Base
-    Run 'Tools/Test-Changelog.ps1' @('-Base',$baseCommit)
-    Run 'validate-skills.ps1'
-    return
 }
 if ($Phase -ne 'Qualification') { $Configuration = 'Release' }
 $number = [string]$context.batch.buildNumber
