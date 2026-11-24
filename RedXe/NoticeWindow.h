@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <windows.h>
 
-// The settings-error and action-notice windows (UI_XeneonDisplayWindowing.md "Notice windows"): one window of the
+// The settings-error and action-notice windows (UI_Windowing.md "Notice windows"): one window of the
 // RedXe.SettingsError class with a text control and an OK button, created by Application::CreateNoticeWindow. The
 // placement is a pure function of rectangles so HostPluginTests proves it without a display topology or a window.
 

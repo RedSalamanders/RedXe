@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <windows.h>
 
-// The active displays in EnumDisplayMonitors order (UI_XeneonDisplayWindowing.md "Monitor and placement"): the one walk
+// The active displays in EnumDisplayMonitors order (UI_Windowing.md "Monitor and placement"): the one walk
 // behind the dock's monitor selection (Application::ResolveDockMonitor) and the first-run bar's measurement
 // (MakeFirstRunDock), so the display a first-run `secondary` is measured on is the display that selector resolves to at
 // runtime. The storage is bounded and belongs to the caller: the walk allocates nothing.

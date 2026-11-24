@@ -176,7 +176,7 @@ Each appearance creates an independent runtime widget instance.
 ### Dock
 
 `dock` is an optional closed object (minor 2) that places RedXe as a bar on one edge of one monitor instead of the
-standard XENEON window; `Specs/UI/UI_XeneonDisplayWindowing.md` "Dock window kind" owns the window, placement, and
+standard XENEON window; `Specs/UI/UI_Windowing.md` "Dock window kind" owns the window, placement, and
 autohide behavior. Every member is optional and the parser merges the defaults below, so an omitted object, `{}`, and
 `{ "edge": "none" }` are the same typed value. Unknown members, wrong types, out-of-range values, `all`, and an
 unknown edge or mode reject the complete candidate with a diagnostic on `$.dock.<member>`.
@@ -197,7 +197,7 @@ The `--dock <edge>[@<monitor>]`, `--dock-mode`, `--dock-thickness`, `--dock-rese
 override the same-named members for one process (`RedXe/DockOptions.h`), including across live reloads; the delays and
 `animationMilliseconds` are settings-only. A valid live reload applies every changed member to the running window,
 including `edge` between `none` and an edge, which switches the window kind without a restart
-(`Specs/UI/UI_XeneonDisplayWindowing.md` "Switching the window kind"). `dock` is a host member: it never enters a plugin
+(`Specs/UI/UI_Windowing.md` "Switching the window kind"). `dock` is a host member: it never enters a plugin
 contract, a factory envelope, or a widget persist. The one host-driven write to an existing document is `dock.thickness`
 after the bar's inner edge is dragged (`PatchDockThickness`): it replaces or adds that member, creates the `dock` object
 when absent, raises `version.minor` to 2 when lower, and uses the same stamp check and atomic replacement as a widget
@@ -225,7 +225,7 @@ RedXe runs interactively; `false` shows none. Omitted, it follows the build: `tr
 Any other type rejects the complete candidate with a diagnostic on `$.trayIcon`. Both shipped templates author it
 explicitly: `true` in the Release template, `false` in the Debug template. It is a host member that never enters a
 plugin contract, and a change is a runtime change applied live without rebuilding the page. `--self-test` never
-shows the icon. `Specs/UI/UI_XeneonDisplayWindowing.md` "Notification-area icon" owns the icon, its double-click (the
+shows the icon. `Specs/UI/UI_Windowing.md` "Notification-area icon" owns the icon, its double-click (the
 settings file in its default editor), and its menu.
 
 ### Services
@@ -450,7 +450,7 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   template. Its backup name is `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`. The user is told what happened and where
   the backup was written.
 - When XENEON discovery succeeded without finding a display outside a remote session
-  (`Specs/UI/UI_XeneonDisplayWindowing.md` "First start without a XENEON"), a default file installed because it was
+  (`Specs/UI/UI_Windowing.md` "First start without a XENEON"), a default file installed because it was
   missing is the template plus the first-run dock (`PatchFirstRunDock`): one `dock` member on its own line after
   `version`, at that member's indentation and in the file's own line breaks, preceded by a two-line comment naming why
   it was added, that `"edge": "none"` restores the standard window, and where the other members are described. The
@@ -473,7 +473,7 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   persist").
 - The recovery notice and the command-line file report are a message box before the window is created, except in an
   unattended `--screenshot` run, which writes the same text as one Warning record (`settings-fallback-notice`) instead
-  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Configuration behavior").
+  (`Specs/UI/UI_Windowing.md` "Configuration behavior").
 - If a deployed default cannot be read or validated, startup fails rather than inventing settings.
 - Template/schema installation and recovery use same-directory temporary files and write-through atomic rename; a
   settings template is written and flushed like any document write ("Plugin persist"), the schema copy is not.
@@ -489,10 +489,10 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - A valid candidate is applied transactionally after the host reselects the page that was current, when that page
   still exists in the candidate. Failure preserves or restores the previous settings and dashboard and never marks the
   file applied. That includes a live window-kind switch that fails: the window returns to its previous kind
-  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Switching the window kind").
+  (`Specs/UI/UI_Windowing.md` "Switching the window kind").
 - A reload that arrives inside the titled window's move/size loop, and a valid candidate that would rebuild the active
   page of a minimized standard window, MUST wait: neither applied nor rejected, with no stamp recorded, until the loop
-  ends or the window is restored, when the file is read once more (`Specs/UI/UI_XeneonDisplayWindowing.md` "Window
+  ends or the window is restored, when the file is read once more (`Specs/UI/UI_Windowing.md` "Window
   and rendering lifecycle"). `redxe.settings.reload` waits the same way.
 - `redxe.settings.reload` forgets the stamps and posts the watcher's message; the reload MUST run from the message
   loop, never inside the widget input callback that requested it, because applying it can release that widget
@@ -515,7 +515,7 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   it with the newest bounded error list; dialogs never stack. If all errors do not fit, an ellipsis states that more
   were omitted. A valid save applies and closes the dialog automatically. The dialog opens inside the work area of the
   RedXe window's monitor, over the full bar of a dock even while an autohide bar is collapsed
-  (`Specs/UI/UI_XeneonDisplayWindowing.md` "Notice windows").
+  (`Specs/UI/UI_Windowing.md` "Notice windows").
 - Dismissal suppresses only that rejected stamp. A distinct later invalid save may display again.
 - Shutdown signals and joins the watcher before destroying its target window.
 

@@ -9,7 +9,7 @@ Prepared: 2026-11-19, after the 155-line reformat (#108).
   and section H of its
   [divergence register](https://github.com/RedSalamanders/RedHome/blob/main/Specs/Plans/WIP/Convergence_2026-11-17/DivergenceRegister.md).
   Each register row names one target for every repository; this plan lists the rows that move RedXe.
-- **Owning contracts**: [display and windowing](../../UI/UI_XeneonDisplayWindowing.md), [settings](../../Core/Core_Settings.md),
+- **Owning contracts**: [display and windowing](../../UI/UI_Windowing.md), [settings](../../Core/Core_Settings.md),
   [performance and resources](../../Core/Core_PerformanceAndResources.md), [source layout](../../Core/Core_SourceLayout.md),
   [build process](../../Build/Build_Process.md) and [changes workflow](../../Core/Core_Changes.md). The shared skills
   in `../RedHome/.agents/skills/` (`d3d11-win32-host`, `yyjson`, `app-settings`, `file-io-safety`, `localization`,
@@ -32,8 +32,8 @@ Prepared: 2026-11-19, after the 155-line reformat (#108).
   `DXGI_ERROR_DEVICE_HUNG`. Direct2D does not draw to RedXe's swap chain, so `D2DERR_RECREATE_TARGET` stays out.
 - [ ] **H-11 `--self-test` and WARP.** Only `--warp` sets `forceWarp`. Target: `--self-test` forces WARP too, as in
   RedPrism, so the hidden startup check runs on the same device on every machine.
-- [ ] **H-12 Host windowing spec name.** The spec is `Specs/UI/UI_XeneonDisplayWindowing.md`. Target:
-  `Specs/UI/UI_Windowing.md`, keeping its XENEON EDGE sections, with every link and source comment updated.
+- [ ] **H-12 Host windowing spec name.** The active contract is `Specs/UI/UI_Windowing.md`. Its original path routes archived references.
+  The specification keeps its XENEON EDGE sections.
 - [ ] **H-20 Occlusion.** The renderer registers a DXGI occlusion-status message and acts on `DXGI_STATUS_OCCLUDED`
   from its flip-model `Present`. DxUi measured that the status is not a usable signal for a flip-model swap chain on
   Windows 11 25H2: `Present` returned `S_OK` while the window was minimized, cloaked, hidden or covered (DxUi

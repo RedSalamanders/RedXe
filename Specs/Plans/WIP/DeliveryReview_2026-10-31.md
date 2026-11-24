@@ -54,7 +54,7 @@ retarget `Dependencies/DxUi.lock.json` to either main tip.
 Do not tick these here. The red-team plan owns the boxes.
 
 - DX-2 is red-team P0-4. The pinned menu lines in the next section were re-read on pin `616104f3` on 2026-11-01 and still match.
-- P1 probe wording is red-team P1-3. `CommandLine.h` 122–124, `docs/usage.md` 176, and `UI_XeneonDisplayWindowing.md` 52 still say `2 no listener` only.
+- P1 probe wording is red-team P1-3. `CommandLine.h` 122–124, `docs/usage.md` 176, and `UI_Windowing.md` 52 still say `2 no listener` only.
 - P2, packaging `8c882636`, is superseded. Package `c61861c` as red-team P0-3. Do not run the command in the P2 section below.
 - P3 is a standing limit on [`RedMonitor_Adoption_2026-10-23.md`](RedMonitor_Adoption_2026-10-23.md), not a task.
 
@@ -153,12 +153,12 @@ Confirmed on `origin/main`, identical in product content to `8c882636`:
   write. `Common/MonitorDiagnostics.h` line 21 matches. Leave both.
 
 These three still say `2 no listener` only. `AGENTS.md` requires the catalog, the command-line section of
-`docs/usage.md`, and the mode table in `Specs/UI/UI_XeneonDisplayWindowing.md` to move together:
+`docs/usage.md`, and the mode table in `Specs/UI/UI_Windowing.md` to move together:
 
 - `RedXe/CommandLine.h` lines 122-124. The summary ends `2 no listener. Use it alone.` It does not
   mention the printed line.
 - `docs/usage.md` line 176. It already says the probe prints one line, and it still says `2 no listener`.
-- `Specs/UI/UI_XeneonDisplayWindowing.md` line 52. The probe cell already says it prints one line naming
+- `Specs/UI/UI_Windowing.md` line 52. The probe cell already says it prints one line naming
   the outcome, and it still says `2 no listener`. The earlier `command-line error 2` on that line is a
   different outcome (`Use <switch> by itself.`). Change only the probe outcome.
 
@@ -259,7 +259,7 @@ DxUi's own fragment.
   `Tests/Controls/DxUi.Tests.Menu.cpp`, and `Specs/UI/UI_InputAndAccessibility.md`.
 - RedXe, after that commit: `Dependencies/DxUi.lock.json`, API revision staying 4.
 - RedXe, one change: `RedXe/CommandLine.h`, `docs/usage.md`, and
-  `Specs/UI/UI_XeneonDisplayWindowing.md`.
+  `Specs/UI/UI_Windowing.md`.
 - No edit to `Common/MonitorDiagnostics.cpp`, `Common/MonitorDiagnostics.h`, or
   `Specs/Core/Core_RedMonitorIntegration.md` for P1. They already describe exit 2.
 - No edit to `Specs/Plans/WIP/RedMonitor_Adoption_2026-10-23.md` that checks the gates in P3.

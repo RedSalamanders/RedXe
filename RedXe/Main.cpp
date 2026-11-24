@@ -329,7 +329,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     const bool screenshotRun = ! screenshotPath.empty() && ! selfTest;
     // Screen-edge dock for this run: --dock <edge>[@<monitor>] [--dock-mode fixed|autohide]
     // [--dock-thickness <dips>] [--dock-reserve on|off] [--dock-peek <pixels>]. Each switch overrides the same
-    // member of the settings document's `dock` object for the process lifetime (UI_XeneonDisplayWindowing.md).
+    // member of the settings document's `dock` object for the process lifetime (UI_Windowing.md).
     DockOverrides dockOverrides{};
     {
         struct DockSwitch final

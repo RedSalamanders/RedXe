@@ -211,7 +211,7 @@ The three files that still say `2 no listener` only, at `c61861c`:
 
 - `RedXe/CommandLine.h` lines 122-124
 - `docs/usage.md` line 176
-- `Specs/UI/UI_XeneonDisplayWindowing.md` line 52
+- `Specs/UI/UI_Windowing.md` line 52
 
 Use the catalog sentence already written in the annex. Keep the first 24 characters contiguous.
 
@@ -425,7 +425,7 @@ fragment. The engine change lives in `RedSalamanders/.github`.
   `Dependencies/DxUi.lock.json` only, API revision staying 4. Superseded on 2 November: the lock names DxUi main
   (P0-4), and RedXe no longer needs that branch.
 - RedXe probe wording: `RedXe/CommandLine.h`, `docs/usage.md`, and
-  `Specs/UI/UI_XeneonDisplayWindowing.md` in one change.
+  `Specs/UI/UI_Windowing.md` in one change.
 - RedXe HostPluginTests lifetime, `test.ps1` ARM64 gate, ConstructionWork idle, PackagingTests PE,
   WMI blank path, winget alias, changelog `#Requires`, junction deletes, VcpkgRestore mutex,
   tooling-test allowlist, TestRunEvidence closeout, and the P2-5 docs (P2-6 is done).

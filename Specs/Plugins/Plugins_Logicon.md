@@ -171,7 +171,7 @@ receiver child with a HID++ device index other than `0xFF`) is not driven.
 - The lane leaves the devices as found when it returns: the page buttons' and bound dialpad buttons' reporting flags,
   and with `restoreLogoOnExit` the splash reset. Every RedXe exit stops the service, a session end included: Windows
   ends the process once `WM_ENDSESSION` returns, so the host stops its services inside that message
-  (`../UI/UI_XeneonDisplayWindowing.md` "Window and rendering lifecycle") and a sign-out, restart, or shutdown restores
+  (`../UI/UI_Windowing.md` "Window and rendering lifecycle") and a sign-out, restart, or shutdown restores
   the devices within the lane's drain budget (`kRedXeDeviceWorkerDrainMilliseconds`), cut to what is left of the
   session-end deadline when the steps before it took longer. A crash or a forced kill does not: the buttons stay
   diverted until the device is reconnected or RedXe runs and exits again.

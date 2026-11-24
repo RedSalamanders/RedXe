@@ -12,7 +12,7 @@
 #include <wil/resource.h>
 #pragma warning(pop)
 
-// Notification-area icon (UI_XeneonDisplayWindowing.md "Notification-area icon"). A hidden top-level owner window holds
+// Notification-area icon (UI_Windowing.md "Notification-area icon"). A hidden top-level owner window holds
 // one Shell_NotifyIcon entry, adds it again whenever the taskbar is created (Explorer restarted, or started after
 // RedXe at sign-in), and turns the shell's callbacks into commands posted to the main window. The owner exists because
 // a notification-area menu must belong to the foreground window: foregrounding the dashboard instead would reveal an

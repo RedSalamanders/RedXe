@@ -137,7 +137,7 @@ widget on page 3 prevents page 1 from starting. Render failures are already isol
 | G1 | Add `static_assert(PluginManager::kMaximumWidgetInstances <= Renderer::kMaximumWidgetViewports)`. Both are 32 today by coincidence, not by construction. `UpdateCachedViewports` fails safe if they diverge, but `Render` indexes `_widgetViewports` with a `widgetCount`-bounded loop. | Raising `kMaximumWidgetsPerPage` alone fails to compile. |
 | G2 | Move page-swipe gesture state and raise state out of `Application` into `PageSwipeGesture` and `WidgetRaiseState`, beside the policy functions already extracted into `PageNavigation.h` and `WidgetRaise.h`. | `Application` owns the HWND, message routing, and runtime lifetime, as `AGENTS.md` states. Member count and file size drop materially from the current 2044 lines and ~30 members. |
 | G3 | Move `Application::Run`'s `selfTest` assertions and its `#if defined(_DEBUG)` disabled-plugin probe into `HostPluginTests`, which already exercises the production host/plugin stack. | `Run` contains window creation, the message loop, and frame policy only. |
-| G4 | Remove the Debug/Release behavioral divergence in `Run` — Debug never enters fullscreen and never shows the XENEON-missing prompt, so the Release startup path is the least exercised one. | Both configurations take the same startup path; any remaining difference is a diagnostic, not a behavior. Reconcile with `UI_XeneonDisplayWindowing.md`. |
+| G4 | Remove the Debug/Release behavioral divergence in `Run` — Debug never enters fullscreen and never shows the XENEON-missing prompt, so the Release startup path is the least exercised one. | Both configurations take the same startup path; any remaining difference is a diagnostic, not a behavior. Reconcile with `UI_Windowing.md`. |
 
 ## Workstream H — plugin-side hygiene
 
@@ -156,7 +156,7 @@ Landed and validated on Debug and Release x64: **A1–A5**, **B1–B5**, **C1–
 Three items changed shape once the code was in front of us, and the reasons matter more than the items:
 
 - **G4 is withdrawn as an incorrect finding.** The review called the Debug/Release divergence in `Run` accidental. It
-  is not: `UI_XeneonDisplayWindowing.md` specifies it row by row — Debug never forces fullscreen and never prompts,
+  is not: `UI_Windowing.md` specifies it row by row — Debug never forces fullscreen and never prompts,
   Release does both. Nothing was changed. That spec also already requires the Release missing-display prompt to be
   checked manually, so the "least exercised path" concern is covered by the existing validation contract.
 - **G3 kept the self-test inside `Application`.** The plan said move it into `HostPluginTests`. In practice the

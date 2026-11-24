@@ -40,13 +40,13 @@ Product requirements restated by the owner on 2026-09-07:
 
 This file does not change normative contracts by itself. Durable budgets discovered here MUST land in
 [`../../Core/Core_PerformanceAndResources.md`](../../Core/Core_PerformanceAndResources.md) and
-[`../../UI/UI_XeneonDisplayWindowing.md`](../../UI/UI_XeneonDisplayWindowing.md) at closeout, with plugin and
+[`../../UI/UI_Windowing.md`](../../UI/UI_Windowing.md) at closeout, with plugin and
 dashboard consumers updated in the same change.
 
 Owning contracts:
 
 - [`../../Core/Core_PerformanceAndResources.md`](../../Core/Core_PerformanceAndResources.md)
-- [`../../UI/UI_XeneonDisplayWindowing.md`](../../UI/UI_XeneonDisplayWindowing.md) (adapter-of-output rule)
+- [`../../UI/UI_Windowing.md`](../../UI/UI_Windowing.md) (adapter-of-output rule)
 - [`../../Plugins/Plugins_API.md`](../../Plugins/Plugins_API.md)
 - [`../../Plugins/Plugins_Weather.md`](../../Plugins/Plugins_Weather.md)
 - [`../../Plugins/Plugins_Logicon.md`](../../Plugins/Plugins_Logicon.md) (Debug monitor preparation)

@@ -18,7 +18,7 @@ struct RedXeAdapterOutputRecord final
     return left.LowPart == right.LowPart && left.HighPart == right.HighPart;
 }
 
-// Adapter-of-output policy (Core_PerformanceAndResources.md, UI_XeneonDisplayWindowing.md): the Direct3D device is
+// Adapter-of-output policy (Core_PerformanceAndResources.md, UI_Windowing.md): the Direct3D device is
 // created on the hardware adapter that scans out the monitor the window sits on, so presentation never crosses
 // adapters through DWM. Returns the first non-software record whose output owns `target`, or SIZE_MAX when nothing
 // matches (null monitor, window off every monitor, hidden test window); callers then use the default adapter.

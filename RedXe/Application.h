@@ -72,7 +72,7 @@ public:
     // request's result, ERROR_CANCELLED when the run ended before the capture finished.
     [[nodiscard]] HRESULT FinishScreenshot() noexcept;
     // An unattended run (RedXeIsUnattendedRun: `--screenshot` or `--self-test`), which Run never holds on a modal
-    // prompt (UI_XeneonDisplayWindowing.md mode table). The settings fallback notice becomes one Warning record, the
+    // prompt (UI_Windowing.md mode table). The settings fallback notice becomes one Warning record, the
     // previous-crash notice waits for the next interactive start, and the Release missing-display prompt takes its Yes
     // answer, the titled fallback window. RunSelfTest shows none of them either way.
     void SetUnattended() noexcept
@@ -100,7 +100,7 @@ private:
     HRESULT RegisterWindowClass() noexcept;
     HRESULT CreateMainWindow(bool visible, const RECT* targetBounds, bool fullscreen) noexcept;
     HRESULT RegisterDisplayPowerNotification(HWND window) noexcept;
-    // Dock window kind (UI_XeneonDisplayWindowing.md "Dock window kind"): a borderless topmost tool window on one
+    // Dock window kind (UI_Windowing.md "Dock window kind"): a borderless topmost tool window on one
     // edge of the monitor the effective dock selects. Placement, app-bar registration, DPI, and monitor changes are
     // owned by PlaceDock; autohide reveal and hide by the DockPlacement.h state machine.
     struct DockMonitorPlacement final
@@ -139,7 +139,7 @@ private:
     // window kind. A failed switch is rolled back to the previous kind and its failure returned, so the caller rejects
     // the reload; RedXe exits only when the rollback leaves no renderer.
     HRESULT ApplyDockSettings(const DockSettings& documentDock) noexcept;
-    // Live reload between `none` and an edge (UI_XeneonDisplayWindowing.md "Switching the window kind"): the same
+    // Live reload between `none` and an edge (UI_Windowing.md "Switching the window kind"): the same
     // window is hidden, restyled, placed as the other kind, and shown again without activation when it was visible,
     // and the swap chain is rebuilt for that kind's scaling. Widgets, services, native containers, the settings
     // watcher, and the drop target stay bound to the window. A failed step leaves the window hidden; the caller rolls
@@ -269,7 +269,7 @@ private:
     void RecordRuntimeFailure(HRESULT result, const char* eventId) noexcept;
     HRESULT ApplySettings(std::unique_ptr<AppSettings> settings) noexcept;
     // Shows or removes the notification-area icon for the current `trayIcon`; an interactive run only
-    // (UI_XeneonDisplayWindowing.md "Notification-area icon").
+    // (UI_Windowing.md "Notification-area icon").
     void ApplyTrayIconSettings() noexcept;
     // Logs tray-icon-failed when an add outcome (from Show or posted by the owner) differs from the last one.
     void RecordTrayIconResult(HRESULT result) noexcept;
@@ -294,7 +294,7 @@ private:
     void CloseMainWindow(ULONGLONG deadlineTick = 0) noexcept;
     // WM_ENDSESSION with wParam TRUE: logs `session-ending`, runs CloseMainWindow, stops the launch worker
     // (PluginHost::StopLaunches), and flushes the log, all within one deadline taken on arrival
-    // (kSessionEndMaximumMilliseconds), before Windows ends the process (UI_XeneonDisplayWindowing.md "Window and
+    // (kSessionEndMaximumMilliseconds), before Windows ends the process (UI_Windowing.md "Window and
     // rendering lifecycle").
     void OnEndSession(LPARAM reason) noexcept;
     [[nodiscard]] bool DashboardRequiresContinuousFrames() const noexcept;

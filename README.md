@@ -174,7 +174,7 @@ product behavior belongs in normative domain specs such as
 [`Specs/Core/Core_Settings.md`](Specs/Core/Core_Settings.md),
 [`Specs/Core/Core_CrashHandling.md`](Specs/Core/Core_CrashHandling.md),
 [`Specs/UI/UI_Dashboard.md`](Specs/UI/UI_Dashboard.md), and
-[`Specs/UI/UI_XeneonDisplayWindowing.md`](Specs/UI/UI_XeneonDisplayWindowing.md). Multi-step or undecided work may use
+[`Specs/UI/UI_Windowing.md`](Specs/UI/UI_Windowing.md). Multi-step or undecided work may use
 an indexed plan under `Specs/Plans/WIP/`. Once its implementation, tests, required validation, and normative contracts
 are complete, the plan must move to `Specs/Plans/Done/` and must not remain under WIP.
 
