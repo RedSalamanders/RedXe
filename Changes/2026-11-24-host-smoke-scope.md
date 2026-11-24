@@ -1,0 +1,1 @@
+- Include host smoke tests when their shared test executable changes.
