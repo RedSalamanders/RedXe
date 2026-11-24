@@ -3,7 +3,8 @@
   "$id": "SettingsStore.schema.json",
   "title": "RedXe settings",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
+  "propertyNames": { "not": { "enum": ["layout", "areas", "arrangeAlong", "sizeRatio", "settings", "override"] } },
   "required": ["version", "pages"],
   "properties": {
     "$schema": { "enum": ["SettingsStore.schema.json", "RedXe.settings.schema.json"] },
@@ -342,7 +343,7 @@
     },
     "dock": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "edge": {
           "enum": ["none", "top", "bottom", "left", "right"],

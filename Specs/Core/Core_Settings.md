@@ -39,8 +39,8 @@ directory is named `Settings`, logs live in its parent `Logs` folder; otherwise 
 Default interactive files are UTC-dated `%LocalAppData%\RedXe\Logs\RedXe-debug-YYYY-MM-DD.jsonl` (Debug) and
 `%LocalAppData%\RedXe\Logs\RedXe-YYYY-MM-DD.jsonl` (Release). `--settings` follows the same sibling rule from the
 portable file's directory. The host writer is event-blocked, uses a bounded 32×1024 ring, opens a new file when the
-UTC day changes, and deletes dated JSONL files whose UTC date is at least `logRetentionDays` old. Omitted
-`logRetentionDays` is 15; valid values are integers 1 through 365. Legacy undated `RedXe.jsonl` /
+UTC day changes, and deletes dated JSONL files whose UTC date is at least `logRetentionDays` old. The default
+`logRetentionDays` is 15 days. Usable values are integers 1 through 365. Legacy undated `RedXe.jsonl` /
 `RedXe-debug.jsonl` and `*.jsonl.1` rotate files in that folder are also deleted. `--self-test` MUST NOT open this
 directory.
 
@@ -106,8 +106,9 @@ new selector value is not an additive member: a build older than minor 3 rejects
 `secondary`. This build reads major 5 only. Missing, malformed, or different-major versions (including 4) are errors
 (`ERROR_INVALID_DATA`) with a diagnostic on `$.version.major`. RedXe MUST NOT convert a version 4 layout tree. A newer
 RedXe accepts older minors of major 5 and supplies documented defaults. An older RedXe accepts a newer minor of the same
-major, validates the shape it understands, and silently ignores additive unknown host fields. Exact-version unknown host
-fields are errors. A future editor saving a compatible newer-minor file MUST preserve unknown fields. Version 3 is not
+major and validates the shape it understands. All compatible minors ignore additive unknown members at the document root
+and in `dock`. These members stay in the authored source through widget persists and dock thickness updates. Page and
+plugin objects keep their own validation rules. Version 3 is not
 migrated. Version 4 is an incompatible major: cold recovery of a default file backs up the bytes and installs the
 version 5 template; a `--settings` portable version 4 file is left unchanged and the process runs the in-memory deployed
 version 5 default.
@@ -125,8 +126,13 @@ an older build validates plugin members as a closed set, so it may reject a file
 Studio Clock `glowPercent`, which `v1.0.102` rejects). Its cold recovery then keeps the user's file as the
 `.invalid-<timestamp>.json` backup described in "Cold load and recovery".
 
-User documents MUST NOT contain `layout`, `areas`, `arrangeAlong`, `sizeRatio`, nested `settings`, or `override`.
-Those members reject the complete candidate with a diagnostic on the authored JSON path.
+User documents MUST NOT use `layout`, `areas`, `arrangeAlong`, `sizeRatio`, nested `settings`, or `override` as host layout
+or plugin configuration keys. Those keys reject the candidate with a diagnostic on the authored JSON path.
+
+An unusable `wrapPages`, `logRetentionDays`, root `backgroundColor`, `trayIcon` or `continuousFrameRate` takes its
+documented default. Other valid preferences and the authored layout still apply. The authoring schema reports the
+expected values, while runtime fallback keeps the original bytes during a load. Structural checks for version,
+required page/layout shape, duplicate members and closed plugin models remain required.
 
 ### Declarations and widgets
 
@@ -177,11 +183,11 @@ Each appearance creates an independent runtime widget instance.
 
 ### Dock
 
-`dock` is an optional closed object (minor 2) that places RedXe as a bar on one edge of one monitor instead of the
+`dock` is an optional object (minor 2) that places RedXe as a bar on one edge of one monitor instead of the
 standard XENEON window; `Specs/UI/UI_Windowing.md` "Dock window kind" owns the window, placement, and
 autohide behavior. Every member is optional and the parser merges the defaults below, so an omitted object, `{}`, and
-`{ "edge": "none" }` are the same typed value. Unknown members, wrong types, out-of-range values, `all`, and an
-unknown edge or mode reject the complete candidate with a diagnostic on `$.dock.<member>`.
+`{ "edge": "none" }` are the same typed value. An unusable member takes its default and the other valid members
+still apply. A non-object `dock` takes the default dock. Additive members remain in the authored document.
 
 | Member | Type and range | Default | Contract |
 | --- | --- | --- | --- |
@@ -224,7 +230,7 @@ example ("Cold load and recovery").
 `trayIcon` is an optional boolean (minor 3). `true` shows the product icon in the Windows notification area while
 RedXe runs interactively; `false` shows none. Omitted, it follows the build: `true` in Release, `false` in Debug
 (`kRedXeDefaultTrayIcon`), including in documents of an older minor, so an existing Release file gains the icon.
-Any other type rejects the complete candidate with a diagnostic on `$.trayIcon`. Both shipped templates author it
+Any other type takes the build default. Both shipped templates author it
 explicitly: `true` in the Release template, `false` in the Debug template. It is a host member that never enters a
 plugin contract, and a change is a runtime change applied live without rebuilding the page. `--self-test` never
 shows the icon. `Specs/UI/UI_Windowing.md` "Notification-area icon" owns the icon, its double-click (the
@@ -540,7 +546,7 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   template System last column compiles Gpu/Thermal/Power short-side ratios 2, 3, and 1. Every schema `$defs` entry is
   referenced.
 - Tests reject version 4 documents, `layout` / `areas` / `arrangeAlong` / `sizeRatio`, nested `settings`, and
-  `override`. They reject malformed syntax/version, duplicate and exact-version unknown members, unresolved
+  `override`. They reject malformed syntax/version, duplicate members, unknown members of closed models, unresolved
   references, invalid merge results, plugin settings failures, Process Viewer `topN` values outside 1 through 32,
   Network Meter and GPU Processes `topN` values outside 1 through 16, and malformed Studio
   Clock booleans including `externalDotsAlwaysOn`, colors, date formats, `glowPercent` values that are not integers
@@ -553,7 +559,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   `TryLoadChanged` of a valid or invalid file does not mutate those bytes, and that persist writes remain opt-in.
   Persist of an instance on a `widgets` / `columns` / `rows` page MUST leave sibling human syntax intact and MUST NOT
   rewrite the page to `layout`.
-- Tests cover merge rules, plugin replacement, minor compatibility, and compatible unknown-field preservation.
+- Tests cover merge rules, plugin replacement, minor compatibility, and preservation of unknown root and dock members
+  through reload, widget persist and dock thickness changes.
 - Tests accept a `services` member with defaults merged and the plugin model applied, prove it adds no referenced
   widget plugin, and reject a widget plugin as a service, an unknown service plugin, a duplicated service plugin,
   plugin-model failures (`slot` 9, `brightness` 0, unknown members), an unknown or malformed `action` name, a
@@ -578,8 +585,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   carrying the `v1.0.102` entry, so `Application`'s startup order runs for real: the file loads as written and its log
   holds that one Warning.
 - Tests prove `trayIcon`: omitted it is `true` in Release and `false` in Debug, also in a minor 2 document; an authored
-  `true` or `false` wins; a string, a number, `null`, an object, and a duplicate member are rejected, with the
-  diagnostic on `$.trayIcon`; the member changes no other typed setting, and a toggle is a runtime change
+  `true` or `false` wins. A string, a number, `null` and an object take the build default. A duplicate is rejected
+  with the diagnostic on `$.trayIcon`. The member changes no other typed setting, and a toggle is a runtime change
   (`RuntimeSettingsEqual`) that keeps the active page (`ActiveDashboardRuntimeEquals`); both templates author it
   (`false` in Debug, `true` in Release); and the schema declares it a boolean without a default.
 - Tests prove `RuntimeSettingsEqual` member by member: a candidate that differs from the running settings in any one
@@ -587,11 +594,9 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   entries is not.
 - Tests accept a complete `dock` object, prove member-by-member default merging (an omitted object, `{}`, and a minor 1
   document equal `edge: none`), keep `edge: none` validating the other members, accept the `secondary` selector in the
-  document and on `--dock` and an `animationMilliseconds` of 0, reject every malformed member (unknown edge or mode,
-  `all`, `0`, `name:`, `Secondary`, and `second` selectors, thickness 31 and 1081, peek 0 and 65, delays past their
-  maximum, an `animationMilliseconds` of 1001, -1, a string, or a fraction, a non-boolean reserve, an unknown member, a
-  non-object `dock`) with the diagnostic on `$.dock.<member>`, and prove the `--dock*` grammar, its errors, and the
-  merge precedence over the document.
+  document and on `--dock` and an `animationMilliseconds` of 0. They verify that wrong types and out-of-range dock
+  values take their defaults, valid neighboring preferences still apply, and duplicate members are rejected. They
+  also prove the `--dock*` grammar, its errors, and the merge precedence over the document.
 - Tests prove `PatchFirstRunDock` on both shipped templates with a `top` bar on `secondary` (one contiguous commented
   insertion right after `version`, the template's commented `dock` example and its introduction removed so the result
   holds one `"dock"` and no instruction to uncomment another, the template's CRLF line breaks kept, the typed document
@@ -670,11 +675,11 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   startup. The `--self-test` run proves that a source-only reload keeps a staged swipe and is still the document after
   the swipe commits to its page. Host tests prove JSONL `Log` reject/write/flush behavior, UTC-dated file names, and
   retention deletion of expired and legacy log files. Settings tests prove the default logs path is the
-  `Logs` sibling of `Settings`, omitted `logRetentionDays` is 15, and values outside 1–365 are rejected.
+  `Logs` sibling of `Settings` and that omitted or unusable `logRetentionDays` takes the 15-day default.
 - Parser tests prove that `PreserveActiveDashboardPage` follows an authored page id across a reorder, keeps a
   generated `page.N` index when that page remains, and falls back to the first page when the current page is gone.
-- Settings tests prove the document `backgroundColor` default and rejection of malformed values at the root and on
-  widget objects, that a widget `backgroundColor` lifts onto the typed instance for closed-empty and settings-bearing
+- Settings tests prove the document `backgroundColor` default, fallback for a malformed root color, rejection of a
+  malformed widget color, and that a widget `backgroundColor` lifts onto the typed instance for closed-empty and settings-bearing
   plugins alike without entering `privateConfiguration`, that declare/use merging and `null` removal apply to it,
   that it survives a plugin persist and is rejected as a plugin persist member, that both templates author it, that
   the schema accepts it on every widget object variant and on no plugin settings definition, and that a document
