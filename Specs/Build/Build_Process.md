@@ -71,8 +71,9 @@ fetched with its history, never with `--depth`, and a partial or shallow clone a
 place (unshallowed, then refetched without a filter, the filter setting removed only afterwards), keeping its HEAD
 and working tree. The catalogue clone has independent Git objects; restoration changes neither
 pin nor caller environment. `vcpkg-install.ps1` MUST pass `--vcpkg-root` explicitly because an executable located in
-a valid checkout takes precedence over VCPKG_ROOT. Toolset overlays come from the selected catalogue and retain
-the same MSBuild/SDK/CRT/platform policy. `VcpkgRestore.Tests.ps1` covers distinct pins, available port metadata,
+a valid checkout takes precedence over VCPKG_ROOT. The pinned CI engine reads the selected MSVC default, generates
+overlays from that catalogue's stock triplets and constructs the manifest install arguments. The application restore
+uses those engine helpers before the separate DxUi restore and retains the same MSBuild/SDK/CRT/platform policy. `VcpkgRestore.Tests.ps1` covers distinct pins, available port metadata,
 warm restoration, preserved source/environment, dirty and foreign refusal, invalid identities, long port paths,
 complete clones from a server that offers filtering, and in-place completion of earlier partial and shallow clones,
 each read offline the way vcpkg reads it.

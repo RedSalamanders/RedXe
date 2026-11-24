@@ -152,7 +152,7 @@ Require ($longRestored.Length -gt 260) 'Long-path fixture is too short.'
 Require ([IO.File]::ReadAllText($longRestored) -ceq 'long port path') 'Long-path checkout failed.'
 Write-Host "PASS Git restores deep port files beyond MAX_PATH; fixtures retained at $scratch"
 $installer=[IO.File]::ReadAllText((Join-Path $root 'vcpkg-install.ps1'))
-Require ($installer.Contains('"--vcpkg-root=$registryRoot"')) 'Installer does not select the ports catalogue explicitly.'
+Require ($installer.Contains('-RegistryRoot $registryRoot')) 'Installer does not select the ports catalogue explicitly.'
 Require ($installer.Contains('(Join-Path $registryRoot "triplets/$triplet.cmake")')) 'Overlay triplet comes from the wrong source role.'
 Require (-not ($installer -match '\$env:VCPKG_ROOT\s*=')) 'Installer mutates caller root selection.'
 Write-Host 'PASS installer binds the explicit catalogue and its triplet without an environment override.'
