@@ -1,1 +1,0 @@
-- Rebuild the RedXe renderer through its existing device-loss path when Direct3D reports a device hang.
