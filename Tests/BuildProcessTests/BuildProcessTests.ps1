@@ -289,14 +289,23 @@ Z:\src\RedXe\Plugins\Launcher\Launcher.cpp(10,5): warning C4100: unreferenced pa
         @(Get-ChildItem -LiteralPath (Join-Path $intermediate 'RedXe') -Recurse -Filter '*.tlog' -File).Count -ne 2) {
         throw "A refused build must reset the tracking logs of Launcher and Weather only; reset: $($resetProjects -join ', ')."
     }
-    # build.ps1 gates every build on zero diagnostics, resets the projects they name before it rethrows, and prints its green
-    # result only through Write-NativeBuildResult, which checks the log again.
+    # Build results and isolated analyzer cleanup each have a diagnostic gate. A refused build also resets
+    # the affected incremental state before rethrowing, and the result writer checks the build log again.
     $buildTokens = $null
     $buildParseErrors = $null
     $buildAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repoRoot 'build.ps1'), [ref] $buildTokens, [ref] $buildParseErrors)
     $isCommand = { param([Management.Automation.Language.Ast] $Node, [string] $Name) $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -eq $Name }
     $assertions = @($buildAst.FindAll({ param($node) & $isCommand $node 'Assert-NativeBuildDiagnostics' }, $true))
-    $gate = if($assertions.Count -eq 1){$assertions[0].Parent}else{$null}
+    $usesLog = {
+        param([Management.Automation.Language.CommandAst] $Command, [string] $Variable)
+        $elements = $Command.CommandElements
+        $elements.Count -eq 3 -and $elements[1] -is [Management.Automation.Language.CommandParameterAst] -and
+            $elements[1].ParameterName -eq 'LogPath' -and $elements[2] -is [Management.Automation.Language.VariableExpressionAst] -and
+            $elements[2].VariablePath.UserPath -eq $Variable
+    }
+    $buildAssertions = @($assertions | Where-Object { & $usesLog $_ 'logPath' })
+    $analysisCleanAssertions = @($assertions | Where-Object { & $usesLog $_ 'analysisCleanLog' })
+    $gate = if ($buildAssertions.Count -eq 1) { $buildAssertions[0].Parent } else { $null }
     while($gate -and $gate -isnot [Management.Automation.Language.TryStatementAst]){$gate=$gate.Parent}
     # Inspect the assertion's immediate error boundary, not every enclosing SDK/host
     # boundary which also contains that assertion recursively.
@@ -306,6 +315,11 @@ Z:\src\RedXe\Plugins\Launcher\Launcher.cpp(10,5): warning C4100: unreferenced pa
         @($gateCatch.FindAll({ param($inner) $inner -is [Management.Automation.Language.ThrowStatementAst] }, $true)).Count -ne 1 -or
         @($buildAst.FindAll({ param($node) & $isCommand $node 'Write-NativeBuildResult' }, $true)).Count -ne 1) {
         throw 'build.ps1 must gate on Assert-NativeBuildDiagnostics, reset the warned projects and rethrow, and print its result through Write-NativeBuildResult.'
+    }
+    $cleanGate = if ($analysisCleanAssertions.Count -eq 1) { $analysisCleanAssertions[0].Parent } else { $null }
+    while ($cleanGate -and $cleanGate -isnot [Management.Automation.Language.IfStatementAst]) { $cleanGate = $cleanGate.Parent }
+    if ($null -eq $cleanGate -or $cleanGate.Clauses[0].Item1.Extent.Text -cne '$Analyze') {
+        throw 'build.ps1 must check the isolated cleanup log in the Analyze branch.'
     }
 
     # The emitter reports the arguments after its own path as the C runtime parsed the command line, which is how a
@@ -849,7 +863,7 @@ Write-Host 'Build presentation and streaming tests passed.' -ForegroundColor Gre
 
 # Test-process failure routing (Build_Process.md: a test process never waits on a dialog): the wmain of every test
 # executable starts with RedXeFailureReports::RouteAwayFromDialogs(), and RedXe.exe routes an unattended run
-# (--self-test, --screenshot) before its first argument check and before its Application exists, so a failed check in
+# (self-test, capture and the isolated crash probe) before its first argument check and before its Application exists, so a failed check in
 # any of them ends with its report rather than a dialog. The rule is proven on a sample that breaks it before the
 # sources are read.
 function Test-RoutedEntryPoint([string] $Text) {
@@ -871,7 +885,7 @@ foreach ($entryPoint in $entryPoints) {
 }
 $mainSource = [IO.File]::ReadAllText((Join-Path $repoRoot 'RedXe\Main.cpp'))
 $routedRun = [regex]::Match($mainSource,
-    'const bool unattended\s+=\s+RedXeIsUnattendedRun\(selfTest, screenshotSwitch\);\s*if \(unattended\)\s*\{\s*RedXeFailureReports::RouteAwayFromDialogs\(\);\s*\}')
+    'const bool unattended\s*=\s*RedXeIsUnattendedRun\(selfTest, screenshotSwitch\)\s*\|\|\s*crashProbe;\s*if \(unattended\)\s*\{\s*RedXeFailureReports::RouteAwayFromDialogs\(\);\s*\}')
 $firstArgumentCheck = $mainSource.IndexOf('RedXeIsHelpArgument(arguments')
 $applicationCreated = $mainSource.IndexOf('Application(instance, forceWarp)')
 if (-not $routedRun.Success -or $firstArgumentCheck -lt $routedRun.Index -or $applicationCreated -lt $routedRun.Index) {
