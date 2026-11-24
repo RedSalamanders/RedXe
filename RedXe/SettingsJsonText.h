@@ -2,13 +2,15 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <yyjson.h>
 
-// A forward scanner over settings source text in the user document's dialect: JSON with comments and trailing commas,
-// as yyjson reads it with YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS. The diagnostic locator
-// (SettingsV4.cpp) and the dock source patches (Settings.cpp) share it, so both read a document where the parser does.
-// `line` and `column` are 1-based; a line ends at LF.
+inline constexpr yyjson_read_flag kSettingsJsonReadFlags = YYJSON_READ_JSON5 | YYJSON_READ_ALLOW_BOM;
+
+// Locates tokens in yyjson-validated settings source without changing the authored bytes.
+// Diagnostic lines and byte columns are 1-based and advance to a new line at LF.
 struct JsonTextCursor final
 {
     std::string_view json;
@@ -16,66 +18,49 @@ struct JsonTextCursor final
     uint32_t line   = 1;
     uint32_t column = 1;
 
-    void SkipSpaceAndComments() noexcept
+    [[nodiscard]] static bool IsQuote(char character) noexcept
     {
-        for (;;)
+        return character == '"' || character == '\'';
+    }
+
+    [[nodiscard]] static size_t LineBreakSize(std::string_view text) noexcept
+    {
+        if (text.starts_with("\r\n"))
         {
-            while (index < json.size())
-            {
-                const char ch = json[index];
-                if (ch == ' ' || ch == '\t' || ch == '\r')
-                {
-                    ++index;
-                    ++column;
-                    continue;
-                }
-                if (ch == '\n')
-                {
-                    ++index;
-                    ++line;
-                    column = 1;
-                    continue;
-                }
-                break;
-            }
-            if (index + 1 < json.size() && json[index] == '/' && json[index + 1] == '/')
-            {
-                // A line comment ends at CR or LF, exactly where the parser ends it.
-                index += 2;
-                column += 2;
-                while (index < json.size() && json[index] != '\n' && json[index] != '\r')
-                {
-                    ++index;
-                    ++column;
-                }
-                continue;
-            }
-            if (index + 1 < json.size() && json[index] == '/' && json[index + 1] == '*')
-            {
-                index += 2;
-                column += 2;
-                while (index + 1 < json.size() && ! (json[index] == '*' && json[index + 1] == '/'))
-                {
-                    if (json[index] == '\n')
-                    {
-                        ++line;
-                        column = 1;
-                    }
-                    else
-                    {
-                        ++column;
-                    }
-                    ++index;
-                }
-                if (index + 1 < json.size())
-                {
-                    index += 2;
-                    column += 2;
-                }
-                continue;
-            }
-            break;
+            return 2;
         }
+        if (text.starts_with('\r') || text.starts_with('\n'))
+        {
+            return 1;
+        }
+        return text.starts_with("\xE2\x80\xA8") || text.starts_with("\xE2\x80\xA9") ? 3 : 0;
+    }
+
+    [[nodiscard]] static size_t WhitespaceSize(std::string_view text) noexcept
+    {
+        if (text.empty())
+        {
+            return 0;
+        }
+        if (std::string_view(" \t\r\n\v\f").find(text.front()) != std::string_view::npos)
+        {
+            return 1;
+        }
+        if (text.starts_with("\xC2\xA0"))
+        {
+            return 2;
+        }
+        // Match the UTF-8 whitespace accepted by yyjson's extended reader.
+        if (text.size() >= 3 && text.starts_with("\xE2\x80"))
+        {
+            const auto third = static_cast<unsigned char>(text[2]);
+            if ((third >= 0x80 && third <= 0x8A) || third == 0xA8 || third == 0xA9 || third == 0xAF)
+            {
+                return 3;
+            }
+        }
+        return text.starts_with("\xE1\x9A\x80") || text.starts_with("\xE2\x81\x9F") || text.starts_with("\xE3\x80\x80") || text.starts_with("\xEF\xBB\xBF") ? 3
+                                                                                                                                                            : 0;
     }
 
     void Advance() noexcept
@@ -84,7 +69,7 @@ struct JsonTextCursor final
         {
             return;
         }
-        if (json[index] == '\n')
+        if (json[index++] == '\n')
         {
             ++line;
             column = 1;
@@ -93,7 +78,42 @@ struct JsonTextCursor final
         {
             ++column;
         }
-        ++index;
+    }
+
+    void SkipSpaceAndComments() noexcept
+    {
+        while (index < json.size())
+        {
+            const auto remaining = json.substr(index);
+            if (const size_t space = WhitespaceSize(remaining); space != 0)
+            {
+                const size_t end = index + space;
+                while (index < end)
+                {
+                    Advance();
+                }
+            }
+            else if (remaining.starts_with("//"))
+            {
+                while (index < json.size() && LineBreakSize(json.substr(index)) == 0)
+                {
+                    Advance();
+                }
+            }
+            else if (remaining.starts_with("/*"))
+            {
+                const size_t closing = json.find("*/", index + 2);
+                const size_t end     = closing == std::string_view::npos ? json.size() : closing + 2;
+                while (index < end)
+                {
+                    Advance();
+                }
+            }
+            else
+            {
+                return;
+            }
+        }
     }
 
     [[nodiscard]] bool Consume(char expected) noexcept
@@ -110,64 +130,85 @@ struct JsonTextCursor final
     [[nodiscard]] bool SkipString() noexcept
     {
         SkipSpaceAndComments();
-        if (index >= json.size() || json[index] != '"')
+        if (index >= json.size() || ! IsQuote(json[index]))
         {
             return false;
         }
+        const char quote = json[index];
         Advance();
         while (index < json.size())
         {
-            const char ch = json[index];
-            if (ch == '"')
+            const char character = json[index];
+            Advance();
+            if (character == quote)
             {
-                Advance();
                 return true;
             }
-            if (ch == '\\')
+            if (character == '\\')
             {
                 Advance();
-                if (index < json.size())
-                {
-                    Advance();
-                }
-                continue;
             }
-            Advance();
         }
         return false;
     }
 
-    [[nodiscard]] bool ReadString(std::string& value) noexcept
+    [[nodiscard]] bool ReadKey(std::string& key)
     {
         SkipSpaceAndComments();
-        if (index >= json.size() || json[index] != '"')
+        if (index >= json.size())
         {
             return false;
         }
-        Advance();
-        value.clear();
-        while (index < json.size())
+        const size_t start = index;
+        const bool quoted  = IsQuote(json[index]);
+        if (quoted)
         {
-            const char ch = json[index];
-            if (ch == '"')
+            if (! SkipString())
             {
-                Advance();
-                return true;
+                return false;
             }
-            if (ch == '\\')
-            {
-                Advance();
-                if (index < json.size())
-                {
-                    value.push_back(json[index]);
-                    Advance();
-                }
-                continue;
-            }
-            value.push_back(ch);
-            Advance();
         }
-        return false;
+        else
+        {
+            while (index < json.size() && WhitespaceSize(json.substr(index)) == 0)
+            {
+                const char character = json[index];
+                const bool ascii = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') ||
+                                   character == '_' || character == '$';
+                if (! ascii && character != '\\' && static_cast<unsigned char>(character) < 0x80)
+                {
+                    break;
+                }
+                Advance();
+            }
+            if (index == start)
+            {
+                return false;
+            }
+        }
+        const auto token = json.substr(start, index - start);
+        if (token.find('\\') == std::string_view::npos)
+        {
+            key.assign(quoted ? token.substr(1, token.size() - 2) : token);
+            return true;
+        }
+        // An object lets yyjson decode escapes in both quoted and unquoted member names.
+        std::string entry{"{"};
+        entry.append(token).append(":null}");
+        const std::unique_ptr<yyjson_doc, decltype(&yyjson_doc_free)> document{yyjson_read(entry.data(), entry.size(), kSettingsJsonReadFlags),
+                                                                               &yyjson_doc_free};
+        yyjson_obj_iter members{};
+        if (! document || ! yyjson_obj_iter_init(yyjson_doc_get_root(document.get()), &members))
+        {
+            return false;
+        }
+        const yyjson_val* name = yyjson_obj_iter_next(&members);
+        if (! name)
+        {
+            return false;
+        }
+        key.assign(yyjson_get_str(name), yyjson_get_len(name));
+        return true;
     }
 
     [[nodiscard]] bool SkipValue() noexcept
@@ -177,113 +218,49 @@ struct JsonTextCursor final
         {
             return false;
         }
-        const char ch = json[index];
-        if (ch == '"')
+        const char first = json[index];
+        if (IsQuote(first))
         {
             return SkipString();
         }
-        if (ch == '{')
+        if (first != '{' && first != '[')
         {
-            Advance();
-            SkipSpaceAndComments();
-            if (index < json.size() && json[index] == '}')
+            const size_t begin = index;
+            while (index < json.size() && std::string_view(",}]/").find(json[index]) == std::string_view::npos && WhitespaceSize(json.substr(index)) == 0)
             {
                 Advance();
-                return true;
             }
-            for (;;)
+            return index > begin;
+        }
+
+        size_t depth = 1;
+        Advance();
+        while (depth != 0)
+        {
+            SkipSpaceAndComments();
+            if (index >= json.size())
             {
-                if (! SkipString() || ! Consume(':') || ! SkipValue())
+                return false;
+            }
+            const char character = json[index];
+            if (IsQuote(character))
+            {
+                if (! SkipString())
                 {
                     return false;
                 }
-                SkipSpaceAndComments();
-                if (index < json.size() && json[index] == ',')
-                {
-                    Advance();
-                    SkipSpaceAndComments();
-                    if (index < json.size() && json[index] == '}')
-                    {
-                        Advance();
-                        return true;
-                    }
-                    continue;
-                }
-                return Consume('}');
+                continue;
             }
-        }
-        if (ch == '[')
-        {
+            if (character == '{' || character == '[')
+            {
+                ++depth;
+            }
+            else if (character == '}' || character == ']')
+            {
+                --depth;
+            }
             Advance();
-            SkipSpaceAndComments();
-            if (index < json.size() && json[index] == ']')
-            {
-                Advance();
-                return true;
-            }
-            for (;;)
-            {
-                if (! SkipValue())
-                {
-                    return false;
-                }
-                SkipSpaceAndComments();
-                if (index < json.size() && json[index] == ',')
-                {
-                    Advance();
-                    SkipSpaceAndComments();
-                    if (index < json.size() && json[index] == ']')
-                    {
-                        Advance();
-                        return true;
-                    }
-                    continue;
-                }
-                return Consume(']');
-            }
         }
-        if (ch == '-' || (ch >= '0' && ch <= '9'))
-        {
-            while (index < json.size())
-            {
-                const char digit = json[index];
-                if ((digit >= '0' && digit <= '9') || digit == '-' || digit == '+' || digit == '.' || digit == 'e' || digit == 'E')
-                {
-                    Advance();
-                    continue;
-                }
-                break;
-            }
-            return true;
-        }
-        static constexpr std::string_view kTrue  = "true";
-        static constexpr std::string_view kFalse = "false";
-        static constexpr std::string_view kNull  = "null";
-        const std::string_view word              = json.substr(index);
-        if (word.starts_with(kTrue))
-        {
-            for (size_t n = 0; n < kTrue.size(); ++n)
-            {
-                Advance();
-            }
-            return true;
-        }
-        if (word.starts_with(kFalse))
-        {
-            for (size_t n = 0; n < kFalse.size(); ++n)
-            {
-                Advance();
-            }
-            return true;
-        }
-        if (word.starts_with(kNull))
-        {
-            for (size_t n = 0; n < kNull.size(); ++n)
-            {
-                Advance();
-            }
-            return true;
-        }
-        return false;
+        return true;
     }
 };

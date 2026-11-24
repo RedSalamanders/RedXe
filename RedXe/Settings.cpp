@@ -2080,11 +2080,7 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
     {
         std::vector<char> mutableSource(settings.sourceDocument.begin(), settings.sourceDocument.end());
         yyjson_read_err error{};
-        source.reset(yyjson_read_opts(mutableSource.data(),
-                                      mutableSource.size(),
-                                      YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS | YYJSON_READ_ALLOW_BOM,
-                                      nullptr,
-                                      &error));
+        source.reset(yyjson_read_opts(mutableSource.data(), mutableSource.size(), kSettingsJsonReadFlags, nullptr, &error));
     }
     catch (const std::bad_alloc&)
     {
@@ -2126,7 +2122,7 @@ HRESULT PatchWidgetInstanceSettings(AppSettings& settings, std::string_view inst
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
     size_t length = 0;
-    unique_malloc_string written{yyjson_mut_write(mutableDocument.get(), YYJSON_WRITE_NOFLAG, &length)};
+    unique_malloc_string written{yyjson_mut_write(mutableDocument.get(), YYJSON_WRITE_ALLOW_INF_AND_NAN, &length)};
     if (! written || length == 0)
     {
         widget->privateConfiguration = previousPrivate;
@@ -2158,72 +2154,16 @@ struct SourceMember final
     bool hasMembers     = false;
 };
 
-[[nodiscard]] bool SourceKeyEquals(std::string_view source, size_t begin, size_t end, std::string_view expected) noexcept
-{
-    if (end <= begin + 1 || expected.size() < 2 || source[begin] != '"' || expected.front() != '"')
-    {
-        return false;
-    }
-    size_t actual = begin + 1;
-    size_t wanted = 1;
-    while (actual + 1 < end)
-    {
-        char character = source[actual++];
-        if (character == '\\')
-        {
-            if (actual + 1 >= end)
-            {
-                return false;
-            }
-            character = source[actual++];
-            if (character == 'u')
-            {
-                if (actual + 4 >= end)
-                {
-                    return false;
-                }
-                uint32_t codepoint = 0;
-                for (uint32_t digit = 0; digit < 4; ++digit)
-                {
-                    const char hex       = source[actual++];
-                    const uint32_t value = hex >= '0' && hex <= '9'   ? static_cast<uint32_t>(hex - '0')
-                                           : hex >= 'a' && hex <= 'f' ? static_cast<uint32_t>(hex - 'a' + 10)
-                                           : hex >= 'A' && hex <= 'F' ? static_cast<uint32_t>(hex - 'A' + 10)
-                                                                      : 0x100U;
-                    if (value > 15)
-                    {
-                        return false;
-                    }
-                    codepoint = (codepoint << 4U) | value;
-                }
-                if (codepoint > 0x7f)
-                {
-                    return false;
-                }
-                character = static_cast<char>(codepoint);
-            }
-            else if (character == 'b' || character == 'f' || character == 'n' || character == 'r' || character == 't')
-            {
-                // Target member names are printable ASCII; these escapes cannot match them.
-                return false;
-            }
-        }
-        if (wanted + 1 >= expected.size() || character != expected[wanted++])
-        {
-            return false;
-        }
-    }
-    return wanted + 1 == expected.size();
-}
-
-[[nodiscard]] bool FindSourceMember(std::string_view source, size_t objectBegin, std::string_view key, SourceMember& found) noexcept
+[[nodiscard]] bool FindSourceMember(std::string_view source, size_t objectBegin, std::string_view quotedKey, SourceMember& found)
 {
     found = SourceMember{};
     if (objectBegin >= source.size() || source[objectBegin] != '{')
     {
         return false;
     }
+    const std::string_view key = quotedKey.substr(1, quotedKey.size() - 2);
     JsonTextCursor cursor{source, objectBegin + 1};
+    std::string sourceKey;
     for (;;)
     {
         cursor.SkipSpaceAndComments();
@@ -2237,11 +2177,10 @@ struct SourceMember final
             return true;
         }
         const size_t keyBegin = cursor.index;
-        if (! cursor.SkipString())
+        if (! cursor.ReadKey(sourceKey))
         {
             return false;
         }
-        const bool matching = SourceKeyEquals(source, keyBegin, cursor.index, key);
         if (! cursor.Consume(':'))
         {
             return false;
@@ -2255,7 +2194,7 @@ struct SourceMember final
         found.hasMembers   = true;
         found.lastKeyBegin = keyBegin;
         found.lastValueEnd = cursor.index;
-        if (matching)
+        if (sourceKey == key)
         {
             found.found      = true;
             found.keyBegin   = keyBegin;
@@ -2278,21 +2217,40 @@ struct SourceMember final
     }
 }
 
-// The document's own line break: CRLF when it has one, CR in a document that breaks lines only with CR, otherwise LF.
+// Prefer the document's existing line breaks when inserting a member.
 [[nodiscard]] std::string_view SourceLineBreak(std::string_view source) noexcept
 {
-    if (source.find("\r\n") != std::string_view::npos)
+    for (const std::string_view separator : {"\r\n", "\n", "\r", "\xE2\x80\xA8", "\xE2\x80\xA9"})
     {
-        return "\r\n";
+        if (source.find(separator) != std::string_view::npos)
+        {
+            return separator;
+        }
     }
-    return source.find('\r') != std::string_view::npos && source.find('\n') == std::string_view::npos ? "\r" : "\n";
+    return "\n";
 }
 
-// The start of the line holding `position`; a line ends at CR or LF.
 [[nodiscard]] size_t SourceLineBegin(std::string_view source, size_t position) noexcept
 {
     const size_t lineBreak = source.find_last_of("\r\n", position);
-    return lineBreak == std::string_view::npos ? 0 : lineBreak + 1;
+    size_t start           = lineBreak == std::string_view::npos ? 0 : lineBreak + 1;
+    for (const std::string_view separator : {"\xE2\x80\xA8", "\xE2\x80\xA9"})
+    {
+        if (const size_t found = source.rfind(separator, position); found != std::string_view::npos)
+        {
+            start = std::max(start, found + separator.size());
+        }
+    }
+    return start;
+}
+
+[[nodiscard]] size_t SourceLineEnd(std::string_view source, size_t position) noexcept
+{
+    while (position < source.size() && JsonTextCursor::LineBreakSize(source.substr(position)) == 0)
+    {
+        ++position;
+    }
+    return position;
 }
 
 // Replaces the value of `key`, or appends `"key": replacement` in the object's own layout: right after the last
@@ -2385,20 +2343,21 @@ struct SourceMember final
     size_t scan = position;
     for (;;)
     {
-        while (scan < source.size() && (source[scan] == ' ' || source[scan] == '\t'))
-        {
-            ++scan;
-        }
-        if (scan >= source.size() || source[scan] == '\r' || source[scan] == '\n')
+        if (scan >= source.size() || JsonTextCursor::LineBreakSize(source.substr(scan)) != 0)
         {
             return scan;
         }
+        if (const size_t space = JsonTextCursor::WhitespaceSize(source.substr(scan)); space != 0)
+        {
+            scan += space;
+            continue;
+        }
         if (source.substr(scan, 2) == "//")
         {
-            return std::min(source.find_first_of("\r\n", scan), source.size());
+            return SourceLineEnd(source, scan);
         }
         const size_t commentEnd = source.substr(scan, 2) == "/*" ? source.find("*/", scan + 2) : std::string_view::npos;
-        if (commentEnd == std::string_view::npos || source.find_first_of("\r\n", scan) < commentEnd)
+        if (commentEnd == std::string_view::npos || SourceLineEnd(source, scan) < commentEnd)
         {
             return position;
         }
@@ -2465,7 +2424,7 @@ struct SourceMember final
     while (position < source.size())
     {
         const char character = source[position];
-        if (character == '"')
+        if (JsonTextCursor::IsQuote(character))
         {
             JsonTextCursor text{source, position};
             if (! text.SkipString())
@@ -2489,9 +2448,8 @@ struct SourceMember final
         }
         if (character == '/' && source.compare(position, 2, "//") == 0)
         {
-            // A line comment ends at CR or LF, exactly where the parser ends it.
             const size_t lineBegin = SourceLineBegin(source, position);
-            const size_t lineEnd   = std::min(source.find_first_of("\r\n", position), source.size());
+            const size_t lineEnd   = SourceLineEnd(source, position);
             if (depth != 1 || source.find_first_not_of(" \t", lineBegin) != position)
             {
                 runBegin = std::string::npos;
@@ -2506,9 +2464,7 @@ struct SourceMember final
                 text = source.find_first_not_of(" \t", text + key.size());
                 if (text < lineEnd && source[text] == ':')
                 {
-                    size_t next = lineEnd;
-                    next += next < source.size() && source[next] == '\r' ? 1U : 0U;
-                    next += next < source.size() && source[next] == '\n' ? 1U : 0U;
+                    const size_t next = lineEnd + JsonTextCursor::LineBreakSize(std::string_view(source).substr(lineEnd));
                     source.erase(runBegin, next - runBegin);
                     position    = runBegin;
                     runBegin    = std::string::npos;
@@ -2519,26 +2475,27 @@ struct SourceMember final
             position = lineEnd;
             continue;
         }
-        if (character == '\r' || character == '\n')
+        const std::string_view remaining = std::string_view(source).substr(position);
+        if (const size_t lineBreak = JsonTextCursor::LineBreakSize(remaining); lineBreak != 0)
         {
-            // CRLF is one line break.
-            if (character == '\r' || position == 0 || source[position - 1] != '\r')
-            {
-                runBegin    = commentLine ? runBegin : std::string::npos;
-                commentLine = false;
-            }
+            runBegin    = commentLine ? runBegin : std::string::npos;
+            commentLine = false;
+            position += lineBreak;
+            continue;
         }
-        else if (! std::isspace(static_cast<unsigned char>(character)))
+        if (const size_t space = JsonTextCursor::WhitespaceSize(remaining); space != 0)
         {
-            runBegin = std::string::npos;
-            if (character == '{' || character == '[')
-            {
-                ++depth;
-            }
-            else if ((character == '}' || character == ']') && depth != 0)
-            {
-                --depth;
-            }
+            position += space;
+            continue;
+        }
+        runBegin = std::string::npos;
+        if (character == '{' || character == '[')
+        {
+            ++depth;
+        }
+        else if ((character == '}' || character == ']') && depth != 0)
+        {
+            --depth;
         }
         ++position;
     }

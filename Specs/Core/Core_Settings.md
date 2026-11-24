@@ -69,8 +69,10 @@ stay unique; module file names MAY repeat so several settings-visible widgets ca
 
 ## Version 5 document
 
-RedXe accepts standard JSON semantics plus comments and trailing commas. It MUST reject duplicate object members and
-other JSON5 extensions. The source MUST NOT exceed 1 MiB.
+RedXe reads the user document with yyjson's JSON5 and UTF-8 BOM flags. Comments, trailing commas, single-quoted
+strings, unquoted member names, and extended number syntax are accepted. The typed settings contract still checks
+types, ranges and finite numeric values. Duplicate object members are rejected after decoding their names. The source
+MUST NOT exceed 1 MiB.
 
 The document is UTF-8. Every read of the user document (load, live reload, and the source the widget persist and the
 dock patches start from) MUST accept a leading UTF-8 byte order mark (BOM, `EF BB BF`), which Windows PowerShell 5.1
@@ -209,7 +211,7 @@ member, and MUST follow the document's layout: a new `dock` is `"dock": { "thick
 CR), where the first-run dock goes; a comment that ends `version`'s line stays on that line. A missing `thickness`,
 or a missing `version.minor`, follows the object's last member, on a new line at its indentation when that member
 starts its own line and otherwise on the same line; in an empty object whose closing brace starts its own line, it
-gets its own line one level deeper than the brace. A line comment ends at CR or LF, as the parser ends it. The
+gets its own line one level deeper than the brace. Line comments end at the JSON5 line terminators. The
 patched text MUST parse back to the running `dock` with the new thickness, and to the document it was made from with
 only `dock.thickness` and a raised minor changed, before it is kept or written; otherwise the drag changes nothing in
 the document. A raised source minor is also the typed minor, so a later comment-only reload still matches the running

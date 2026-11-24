@@ -311,10 +311,7 @@ struct PointerSegment final
             for (;;)
             {
                 std::string key;
-                const uint32_t keyLine   = cursor.line;
-                const uint32_t keyColumn = cursor.column;
-                const uint64_t keyOffset = cursor.index;
-                if (! cursor.ReadString(key) || ! cursor.Consume(':'))
+                if (! cursor.ReadKey(key) || ! cursor.Consume(':'))
                 {
                     return false;
                 }
@@ -330,9 +327,6 @@ struct PointerSegment final
                     }
                     return self(self, segmentIndex + 1);
                 }
-                (void)keyLine;
-                (void)keyColumn;
-                (void)keyOffset;
                 if (! cursor.SkipValue())
                 {
                     return false;
@@ -1602,8 +1596,7 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json,
         yyjson_read_err error{};
         // A leading UTF-8 BOM (Windows PowerShell 5.1, "UTF-8 with signature" editors) is accepted and stays in the
         // retained source; error offsets and the diagnostic columns count its three bytes.
-        unique_doc document{yyjson_read_opts(
-            mutableJson.data(), mutableJson.size(), YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS | YYJSON_READ_ALLOW_BOM, nullptr, &error)};
+        unique_doc document{yyjson_read_opts(mutableJson.data(), mutableJson.size(), kSettingsJsonReadFlags, nullptr, &error)};
         if (! document)
         {
             if (diagnostic)
