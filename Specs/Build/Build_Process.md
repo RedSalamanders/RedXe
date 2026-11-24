@@ -60,7 +60,8 @@ Studio folders. `build.ps1` passes its choice to both scripts as `-MSBuildPath`;
 one. The vcpkg overlay triplets and the DxUi identity files therefore do not depend on which entrypoint ran last
 ([`Core_DxUiIntegration.md`](../Core/Core_DxUiIntegration.md)).
 
-`Build/VcpkgRestore.psm1` owns product vcpkg source restoration. `vcpkg-tool.json` selects the executable checkout
+`Build/VcpkgRestore.psm1` reads the product pins and uses the pinned engine to restore the complete sources.
+`vcpkg-tool.json` selects the executable checkout
 at `.build/vcpkg-tool`; the independent manifest `builtin-baseline` selects `.build/vcpkg-registry`, including its
 versions database, ports and stock triplets. Both roles require full nonzero commits, the declared repository,
 clean managed clones and verified final HEADs. Existing dirty, foreign, non-clone or reparse paths fail without
