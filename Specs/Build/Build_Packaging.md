@@ -82,6 +82,7 @@ The package MUST contain, with forward-slash entry names and no directory entrie
 | `README.txt` | generated with the version and platform |
 | `LICENSE.txt` | repository root (required) |
 | `THIRD-PARTY-NOTICES.md` | repository root (required): the third-party notices and the files under other terms |
+| `DxUi-licenses/` | Full notices from the production DxUi source pin, including the Unicode and WHATWG texts, or the verified SDK notice bundle for an SDK build. |
 | `RedMonitor-LICENSE.txt` | the MIT section of `ThirdParty/RedMonitor/LICENSE.txt`, extracted at package time (required) |
 
 - Every DLL named in `RedXe/BundledPlugins.h`, the AV Control helpers (`AVControlBroker.exe`,
