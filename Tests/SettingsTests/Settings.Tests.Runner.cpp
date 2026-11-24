@@ -1639,6 +1639,11 @@ constexpr std::string_view kRepresentative = R"json(
              "\"pages\":[{}]}",
              "{\"version\":{\"major\":5,\"minor\":2},// note\r\"dock\":{\"edge\":\"top\",\"thickness\":220},\n"
              "\"pages\":[{}]}"},
+            // Preserve JSON5 spelling and trivia around the exact replaced value.
+            {"\xEF\xBB\xBF{version:{major:0x5,minor:2},// note\xE2\x80\xA8"
+             "d\\u006fck\xC2\xA0:{edge:'top','\\x74hickness':+100,},pages:[{}],}",
+             "\xEF\xBB\xBF{version:{major:0x5,minor:2},// note\xE2\x80\xA8"
+             "d\\u006fck\xC2\xA0:{edge:'top','\\x74hickness':220,},pages:[{}],}"},
             // A comment that ends version's line stays on it; the new dock takes the next line.
             {"{\n  \"version\": { \"major\": 5, \"minor\": 2 }, // the version\n  \"pages\": [{}]\n}\n",
              "{\n  \"version\": { \"major\": 5, \"minor\": 2 }, // the version\n"
@@ -3019,7 +3024,7 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         }
 
         // A widget persist rewrites the document with the BOM it started with, once.
-        const std::string launcher = std::string(bom) + R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.launcher"}]}]})json";
+        const std::string launcher = std::string(bom) + R"json({version:{major:0x5},pages:[{widgets:[{plugin:'builtin.launcher'},],},],})json";
         AppSettings persisted{};
         AppSettings reparsed{};
         if (FAILED(ParseAppSettingsJson(launcher, persisted)) ||
@@ -3042,6 +3047,17 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         SettingsParseDiagnostic syntax;
         SettingsParseDiagnostic empty;
         SettingsParseDiagnostic commentsOnly;
+        SettingsParseDiagnostic nonFinite;
+        constexpr std::string_view infinitePeek = "{version:{major:5,minor:2},// note\xE2\x80\xA9"
+                                                  "dock:{'p\\u0065ek':-Infinity},pages:[{}],}";
+        AppSettings duplicate{};
+        if (! diagnose(infinitePeek, nonFinite) || nonFinite.path != "$.dock.peek" || ! nonFinite.hasLocation ||
+            nonFinite.byteOffset != infinitePeek.find("-Infinity") ||
+            SUCCEEDED(ParseAppSettingsJson(R"json({version:{major:5},'\u0076ersion':{major:5},pages:[{}]})json", duplicate)))
+        {
+            std::wprintf(L"JSON5 settings did not retain typed diagnostics or duplicate-member validation.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
         if (! diagnose(std::string(bom) + R"json({"version":{"major":5},"unknown":1,"pages":[{}]})json", unknown) ||
             unknown.path.find(".unknown") == std::string::npos ||
             ! diagnose(std::string(bom) + "{\n  \"version\": { \"major\": 5 },\n  \"pages\": [{}] x\n}\n", syntax) || syntax.line != 3 ||
