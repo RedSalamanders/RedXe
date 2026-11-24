@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Include the diagnostic footer in the direct MSBuild UTF-8 log.
 - Adopt the shared hosted MSVC action and pinned formatting and repository policy checks.
 - Moved the build profile out of the 32 project files into `Directory.Build.props`: the toolset (`v145`), the
   Windows SDK (`10.0.26100.0`), the Unicode character set, the debug-library choice, the runtime library (`/MDd`,
