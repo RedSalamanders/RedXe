@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Add a native MSVC code-analysis mode with isolated build outputs.
 - Include host smoke tests when their shared test executable changes.
 - Update the restore validation to verify both standard and AddressSanitizer triplet sources.
 - Add a root restore command for the pinned RedXe and DxUi dependencies on x64 and ARM64.
