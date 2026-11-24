@@ -5797,18 +5797,20 @@ void Application::OnSettingsChanged() noexcept
     const HRESULT loadResult    = _settingsStore.TryLoadChanged(candidate, stamp, status);
     if (FAILED(loadResult))
     {
-        ShowSettingsError(L"The settings file could not be read. The current dashboard remains active.");
+        ShowSettingsError(RedXeResources::LoadEmbeddedStringResourceView(_instance, IDS_SETTINGS_READ_FAILED));
         return;
     }
 
     switch (status)
     {
         case SettingsReloadStatus::Unchanged: return;
-        case SettingsReloadStatus::Missing: ShowSettingsError(L"The settings file is missing. The current dashboard remains active."); return;
+        case SettingsReloadStatus::Missing: ShowSettingsError(RedXeResources::LoadEmbeddedStringResourceView(_instance, IDS_SETTINGS_MISSING)); return;
         case SettingsReloadStatus::Invalid:
-            ShowSettingsError(_settingsStore.LastDiagnosticText().empty() ? L"The settings file is invalid. The current dashboard remains active."
-                                                                          : _settingsStore.LastDiagnosticText());
+        {
+            const std::wstring_view detail = _settingsStore.LastDiagnosticText();
+            ShowSettingsError(detail.empty() ? RedXeResources::LoadEmbeddedStringResourceView(_instance, IDS_SETTINGS_INVALID) : detail);
             return;
+        }
         case SettingsReloadStatus::Loaded: break;
     }
 
@@ -5820,7 +5822,7 @@ void Application::OnSettingsChanged() noexcept
 
     if (FAILED(PreserveActiveDashboardPage(*_settings, *candidate)))
     {
-        ShowSettingsError(L"The changed settings could not be applied. The previous dashboard was restored.");
+        ShowSettingsError(RedXeResources::LoadEmbeddedStringResourceView(_instance, IDS_SETTINGS_APPLY_FAILED));
         return;
     }
 
@@ -5847,7 +5849,7 @@ void Application::OnSettingsChanged() noexcept
     }
 
     _settingsStore.MarkRejected(stamp);
-    ShowSettingsError(L"The changed settings could not be applied. The previous dashboard was restored.");
+    ShowSettingsError(RedXeResources::LoadEmbeddedStringResourceView(_instance, IDS_SETTINGS_APPLY_FAILED));
     if (! _rendererReady)
     {
         RecordRuntimeFailure(applyResult, "settings-apply-failed");

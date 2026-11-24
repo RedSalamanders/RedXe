@@ -1,0 +1,1 @@
+- Localize settings, command-line and action notices through the shared compiled resource table.

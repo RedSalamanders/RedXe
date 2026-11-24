@@ -175,21 +175,22 @@ void EmitCommandLineText(const std::wstring& text, bool error, bool quiet) noexc
 
 // A switch with a missing or invalid value (exit 2): a message box for a person; an unattended run
 // (RedXeIsUnattendedRun) gets the text where EmitCommandLineText puts it, never a box.
-void ReportCommandLineError(const wchar_t* text, bool unattended) noexcept
+void ReportCommandLineError(UINT textId, bool unattended) noexcept
 {
+    const auto text = RedXeResources::LoadStringResource(nullptr, textId);
     if (! unattended)
     {
         const auto title = RedXeResources::LoadStringResource(nullptr, IDS_PRODUCT_TITLE);
-        MessageBoxW(nullptr, text, title.c_str(), MB_OK | MB_ICONERROR);
+        MessageBoxW(nullptr, text.c_str(), title.c_str(), MB_OK | MB_ICONERROR);
         return;
     }
     try
     {
-        EmitCommandLineText(std::wstring{text} + L"\n", true, true);
+        EmitCommandLineText(text + L"\n", true, true);
     }
     catch (...)
     {
-        OutputDebugStringW(text);
+        OutputDebugStringW(text.c_str());
     }
 }
 
@@ -281,7 +282,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     uint32_t probeSeconds = 0;
     if (! RedXeParseProbeArguments(arguments.get(), argumentCount, probeSeconds))
     {
-        ReportCommandLineError(L"Use --probe or --probe=<seconds>, once, with 1 through 3600 whole seconds.", unattended);
+        ReportCommandLineError(IDS_USAGE_PROBE, unattended);
         return 2;
     }
     const bool crashTest              = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::CrashTest));
@@ -289,7 +290,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     std::wstring_view settingsPath;
     if (! GetSettingsArgument(arguments.get(), argumentCount, settingsPath))
     {
-        ReportCommandLineError(L"Use --settings followed by exactly one settings file path.", unattended);
+        ReportCommandLineError(IDS_USAGE_SETTINGS, unattended);
         return 2;
     }
     // Documentation capture: --screenshot <png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>] runs
@@ -302,7 +303,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         ! GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Widget), screenshotWidget) ||
         ! GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::After), screenshotDelay))
     {
-        ReportCommandLineError(L"Use --capture <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>].", unattended);
+        ReportCommandLineError(IDS_USAGE_CAPTURE, unattended);
         return 2;
     }
     uint32_t screenshotDelayMilliseconds = 3000;
@@ -313,7 +314,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         const unsigned long parsed = std::wcstoul(screenshotDelay.data(), &end, 10);
         if (! end || *end != L'\0' || parsed == 0 || parsed > 120'000UL)
         {
-            ReportCommandLineError(L"--after takes a delay of 1 through 120000 milliseconds.", unattended);
+            ReportCommandLineError(IDS_USAGE_CAPTURE_DELAY, unattended);
             return 2;
         }
         screenshotDelayMilliseconds = static_cast<uint32_t>(parsed);
@@ -324,7 +325,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         const unsigned long parsed = std::wcstoul(screenshotWidget.data(), &end, 10);
         if (! end || *end != L'\0' || parsed >= 1024UL)
         {
-            ReportCommandLineError(L"--widget takes the 0-based ordinal of a widget on the captured page.", unattended);
+            ReportCommandLineError(IDS_USAGE_CAPTURE_WIDGET, unattended);
             return 2;
         }
         screenshotWidgetOrdinal = static_cast<uint32_t>(parsed);
@@ -340,31 +341,28 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         {
             const wchar_t* name;
             bool (*parse)(std::wstring_view, DockOverrides&) noexcept;
-            const wchar_t* usage;
+            UINT usageId;
         };
         constexpr DockSwitch dockSwitches[]{
-            {RedXeSwitchName(RedXeSwitch::Dock),
-             ParseDockEdgeArgument,
-             L"--dock takes none, top, bottom, left, or right, optionally followed by @primary, @secondary, @xeneon, "
-             L"@<n>, or @name:<substring>."},
-            {RedXeSwitchName(RedXeSwitch::DockMode), ParseDockModeArgument, L"--dock-mode takes fixed or autohide."},
-            {RedXeSwitchName(RedXeSwitch::DockThickness), ParseDockThicknessArgument, L"--dock-thickness takes 32 through 1080 DIPs."},
-            {RedXeSwitchName(RedXeSwitch::DockReserve), ParseDockReserveArgument, L"--dock-reserve takes on or off."},
-            {RedXeSwitchName(RedXeSwitch::DockPeek), ParseDockPeekArgument, L"--dock-peek takes 1 through 64 pixels."},
+            {RedXeSwitchName(RedXeSwitch::Dock), ParseDockEdgeArgument, IDS_USAGE_DOCK},
+            {RedXeSwitchName(RedXeSwitch::DockMode), ParseDockModeArgument, IDS_USAGE_DOCK_MODE},
+            {RedXeSwitchName(RedXeSwitch::DockThickness), ParseDockThicknessArgument, IDS_USAGE_DOCK_THICKNESS},
+            {RedXeSwitchName(RedXeSwitch::DockReserve), ParseDockReserveArgument, IDS_USAGE_DOCK_RESERVE},
+            {RedXeSwitchName(RedXeSwitch::DockPeek), ParseDockPeekArgument, IDS_USAGE_DOCK_PEEK},
         };
         for (const DockSwitch& dockSwitch : dockSwitches)
         {
             std::wstring_view value;
             if (! GetValueArgument(arguments.get(), argumentCount, dockSwitch.name, value) || (! value.empty() && ! dockSwitch.parse(value, dockOverrides)))
             {
-                ReportCommandLineError(dockSwitch.usage, unattended);
+                ReportCommandLineError(dockSwitch.usageId, unattended);
                 return 2;
             }
         }
     }
     if (crashProbe && (! validCrashProbe || crashTest || stackOverflowCrashTest))
     {
-        ReportCommandLineError(L"Use --crash-probe <directory> once without the legacy crash switches.", unattended);
+        ReportCommandLineError(IDS_USAGE_CRASH_PROBE, unattended);
         return 2;
     }
     if (crashProbe || crashTest || stackOverflowCrashTest)

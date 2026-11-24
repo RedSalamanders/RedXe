@@ -1,4 +1,5 @@
 #include "Common/FailureReports.h"
+#include "Common/Resources.h"
 #include "DashboardHost.h"
 #include "DeskClock.Tests.Contract.h"
 #include "DisplayEnumeration.h"
@@ -20,6 +21,7 @@
 #include "Plugins/Weather/Weather.Tests.Contract.h"
 #include "PointerCancellation.h"
 #include "ProcessViewer.Tests.Contract.h"
+#include "RedXe/resource.h"
 #include "Renderer.h"
 #include "RuntimeProbe.h"
 #include "Settings.h"
@@ -6800,6 +6802,10 @@ void TestActionValidation(bool& success) noexcept
     }
     std::array<wchar_t, 2048> notices{};
     Check(host.CopyActionNotices(notices.data(), notices.size()) == 0, L"the bundled publishers register without a collision notice", success);
+    Check(RedXeResources::FormatStringResource(nullptr, IDS_ACTION_INVALID_CONTRACT, L"demo", L"DemoPlugin") ==
+              L"Actions \"demo.*\" are unavailable: DemoPlugin published an invalid contract.",
+          L"the compiled action notice formats its namespace and publisher",
+          success);
 
     // Default namespaces execute inside the host; with device access disabled they count and act on nothing.
     host.SetDeviceAccessEnabled(false);

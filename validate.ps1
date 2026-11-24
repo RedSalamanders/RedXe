@@ -29,9 +29,10 @@ function Test-NativeChromeResources {
     $root = Join-Path $PSScriptRoot 'RedXe'
     $encoding = [Text.UTF8Encoding]::new($false, $true)
 
-    function Read-StringTable([string]$Path, [switch]$Source) {
+    $utf8Pragma = [regex]::new('(?m)^#pragma[ \t]+code_page\(65001\)[ \t]*\r?$')
+    function Read-StringTable([string]$Path, [switch]$Source, [switch]$Included) {
         $text = [IO.File]::ReadAllText($Path, $encoding)
-        if ($text -cnotmatch '(?m)^#pragma[ \t]+code_page\(65001\)[ \t]*\r?$') {
+        if (-not $Included -and -not $utf8Pragma.IsMatch($text)) {
             throw "$Path needs the UTF-8 resource code page."
         }
         $entries = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
@@ -71,7 +72,18 @@ function Test-NativeChromeResources {
         return ,$entries
     }
 
-    $base = Read-StringTable (Join-Path $root 'RedXe.rc') -Source
+    $base = Read-StringTable (Join-Path $root 'ChromeStrings.rc2') -Source -Included
+    foreach ($entry in @(
+        @{ Path = (Join-Path $root 'RedXe.rc'); Include = '#include "ChromeStrings.rc2"' },
+        @{ Path = (Join-Path $PSScriptRoot 'Tests/HostPluginTests/HostPluginTests.rc'); Include = '#include "../../RedXe/ChromeStrings.rc2"' }
+    )) {
+        $parent = [IO.File]::ReadAllText($entry.Path, $encoding)
+        $pragma = $utf8Pragma.Match($parent)
+        $include = $parent.IndexOf($entry.Include, [StringComparison]::Ordinal)
+        if (-not $pragma.Success -or $include -lt ($pragma.Index + $pragma.Length)) {
+            throw "$($entry.Path) must include the shared resource strings after its UTF-8 code page pragma."
+        }
+    }
     $ids = [Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
     $values = [Collections.Generic.HashSet[int]]::new()
     $definitions = [IO.File]::ReadAllText((Join-Path $root 'resource.h'), $encoding)
