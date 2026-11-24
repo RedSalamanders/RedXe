@@ -1413,6 +1413,10 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     {
         return FailSelfTest(L"Dashboard or renderer initialization failed.", result);
     }
+    if (! _renderer.DeviceInfo().warp)
+    {
+        return FailSelfTest(L"The hidden startup test did not initialize WARP.");
+    }
     PluginHost::Instance().SetHostActionHandler(&Application::HostActionThunk, &Application::HostActionCompletedThunk, this);
     result = PluginHost::Instance().StartServices(*_settings);
     if (FAILED(result))
