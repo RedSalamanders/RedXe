@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Restore and link instrumented vcpkg dependencies in each ASan Debug architecture.
 - Keep the ten newest new RedXe crash reports and stack files and claim the restart notice once. Legacy reports stay available.
 - Use the CI engine as the sole hosted MSVC setup implementation. Preserve the existing verification command and installer timeout override.
 - Declare Windows 11 build 22000.2600 as the minimum for RedXe WinGet packages.
