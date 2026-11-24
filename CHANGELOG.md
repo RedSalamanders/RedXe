@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Use the pinned shared toolchain and manifest arguments for the application vcpkg restore.
 - Bind the root RedMonitor client commands to the producer-owned tooling hashes recorded in the existing lock.
 - Validate RedXe skills, guidance and plan indexes with the pinned shared CI engine.
 - Adopt the pinned shared scoped-testing runner, keeping RedXe's suite ownership, stable build stamps, and retained evidence.
