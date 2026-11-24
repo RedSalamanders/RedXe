@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Run RedXe's compiler-free checks through root `validate.ps1` for local use and pull requests.
 - Add a native MSVC code-analysis mode with isolated build outputs.
 - Include host smoke tests when their shared test executable changes.
 - Update the restore validation to verify both standard and AddressSanitizer triplet sources.
