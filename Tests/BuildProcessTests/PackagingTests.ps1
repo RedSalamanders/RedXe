@@ -329,6 +329,10 @@ try {
     $manifest = New-RedXeWingetManifest -RepoRoot $repo -Version '1.0.42' -X64ZipPath $x64Zip -Arm64ZipPath $arm64Zip -OutputDirectory (Join-Path $fixture 'manifest') -ReleaseDate '2026-09-19'
     if ($manifest.Files.Count -ne 3) { throw 'Three manifest files expected.' }
     $installer = Get-Content -LiteralPath (Join-Path $manifest.OutputDirectory 'RedSalamanders.RedXe.installer.yaml') -Raw
+    $metadata=(Get-Content -LiteralPath (Join-Path $repo '.ci/project.json') -Raw | ConvertFrom-Json).winget
+    if($metadata.minimumOSVersion -cne '10.0.22000.2600' -or $installer -notmatch '(?m)^MinimumOSVersion: 10[.]0[.]22000[.]2600\r?$'){
+        throw 'The engine manifest and the generated installer must declare the reviewed Windows 11 minimum.'
+    }
     foreach ($needle in @('PackageVersion: 1.0.42', 'ReleaseDate: 2026-09-19', "InstallerSha256: $((Get-FileHash $x64Zip).Hash)", "InstallerSha256: $((Get-FileHash $arm64Zip).Hash)",
             'releases/download/v1.0.42/RedXe-1.0.42-x64-Portable.zip', 'releases/download/v1.0.42/RedXe-1.0.42-ARM64-Portable.zip', 'PortableCommandAlias: RedXe', 'RelativeFilePath: RedXeLauncher.exe')) {
         if (-not $installer.Contains($needle)) { throw "Installer manifest lacks '$needle'." }
