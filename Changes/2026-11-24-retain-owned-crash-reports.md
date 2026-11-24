@@ -1,1 +1,0 @@
-- Keep the ten newest new RedXe crash reports and stack files and claim the restart notice once. Legacy reports stay available.
