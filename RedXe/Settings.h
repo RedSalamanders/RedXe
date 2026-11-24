@@ -420,6 +420,8 @@ enum class SettingsWritePhase : uint8_t
     Flushed,
     GuardReleased,
     Renamed,
+    BeforeRecoveryBackup,
+    AfterRecoveryBackup,
 };
 struct SettingsWriteSeam final
 {
