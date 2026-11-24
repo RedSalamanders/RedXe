@@ -3695,7 +3695,20 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
 
-        // Once the file is free, the classic replacement commits.
+        // An editor can finish an atomic save after the guard closes and leave no open handle.
+        editor.act   = EditorAtCommit::Act::ReplaceAtomically;
+        editor.calls = 0;
+        if (persistSeed(store, *loaded, id, 39) != S_FALSE || editor.calls != 1 || editor.error != ERROR_SUCCESS || ! holds(editorDocument) ||
+            ! store.TakeDeferredPersistNotice() || ! memorySeed(*loaded, 39) || CountTemporaries(directory) != 0)
+        {
+            std::wprintf(L"A classic persist overwrote a settings save completed after the guard was released.\n");
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        SetSettingsWriteSeamForTesting({});
+        if (! applyChangedFile() || ! memorySeed(*loaded, 43))
+            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+        // The next classic replacement commits against the newly accepted file.
         SettingsWriteSeam classic{};
         classic.withoutPosixRename = true;
         SetSettingsWriteSeamForTesting(classic);
