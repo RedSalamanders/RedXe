@@ -1,1 +1,0 @@
-- Adopt the shared hosted MSVC action and pinned formatting and repository policy checks.
