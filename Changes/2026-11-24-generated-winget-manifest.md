@@ -1,1 +1,0 @@
-- Generate RedXe's WinGet manifests through the pinned engine, preserving product descriptions, links and release metadata.
