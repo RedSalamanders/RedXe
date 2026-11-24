@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Add a compiler-free root specification command for RedXe and include it in Static validation.
 - Check the accepted settings version again after releasing the guard for a classic rename, preserving completed external saves.
 - Restore the native qualification fixture checks for the independent build and analyzer logs and the unattended harness commands.
 - Accept the shared `--capture <png>` and `--crash-probe <directory>` commands and preserve the existing capture and crash commands.
