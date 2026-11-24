@@ -153,7 +153,9 @@ Require ([IO.File]::ReadAllText($longRestored) -ceq 'long port path') 'Long-path
 Write-Host "PASS Git restores deep port files beyond MAX_PATH; fixtures retained at $scratch"
 $installer=[IO.File]::ReadAllText((Join-Path $root 'vcpkg-install.ps1'))
 Require ($installer.Contains('-RegistryRoot $registryRoot')) 'Installer does not select the ports catalogue explicitly.'
-Require ($installer.Contains('(Join-Path $registryRoot "triplets/$triplet.cmake")')) 'Overlay triplet comes from the wrong source role.'
+Require ($installer.Contains('$tripletSource = Join-Path $registryRoot "triplets/$triplet.cmake"')) 'Standard overlay triplet comes from the wrong source role.'
+Require ($installer.Contains('$tripletSource = Join-Path $repoRoot "Build/vcpkg-triplets/$triplet.cmake"')) 'ASan overlay triplet does not use the product recipe.'
+Require ($installer.Contains('-SourceTripletPath $tripletSource')) 'The selected triplet source is not used to generate the overlay.'
 Require (-not ($installer -match '\$env:VCPKG_ROOT\s*=')) 'Installer mutates caller root selection.'
-Write-Host 'PASS installer binds the explicit catalogue and its triplet without an environment override.'
+Write-Host 'PASS installer binds the explicit catalogue and each overlay source without an environment override.'
 } finally {$env:GIT_CONFIG_GLOBAL=$oldGlobal;$env:GIT_CONFIG_NOSYSTEM=$oldSystem}

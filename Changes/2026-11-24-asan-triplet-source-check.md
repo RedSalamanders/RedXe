@@ -1,0 +1,1 @@
+- Update the restore validation to verify both standard and AddressSanitizer triplet sources.

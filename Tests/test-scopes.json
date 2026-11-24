@@ -359,9 +359,10 @@
     {
       "pattern": "Tests/HostPluginTests/**",
       "scopes": [
-        "HostPlugin"
+        "HostPlugin",
+        "HostSmoke"
       ],
-      "reason": "owning native test project"
+      "reason": "the shared HostPluginTests executable supplies plugin and smoke tests"
     },
     {
       "pattern": "Tests/SystemDataPhase0/**",
