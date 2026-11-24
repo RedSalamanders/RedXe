@@ -106,13 +106,16 @@ Copy-Item -LiteralPath $fixture -Destination $gate -Recurse
 [IO.Directory]::CreateDirectory((Join-Path $gate 'Build'))|Out-Null
 Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'Build/RedMonitor.props') -Destination (Join-Path $gate 'Build')
 Copy-Item -LiteralPath $verify -Destination $gate
+Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'Build/RedMonitorClientTools.psm1') -Destination (Join-Path $gate 'Build')
+Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'Dependencies/RedMonitorClientTools') -Destination (Join-Path $gate 'Dependencies') -Recurse
 # As in the product, the project sits in a subfolder, so Exec's working directory is not the checkout root.
 [IO.Directory]::CreateDirectory((Join-Path $gate 'RedXe'))|Out-Null
 [IO.File]::WriteAllText((Join-Path $gate 'RedXe/RedXe.proj'),'<Project><PropertyGroup><IntDir>obj\</IntDir></PropertyGroup><Import Project="..\Build\RedMonitor.props" /><Target Name="PrepareForBuild" /></Project>')
-function Invoke-Gate([bool]$Pass,[string]$Name,[bool]$Skipped=$false){
+function Invoke-Gate([bool]$Pass,[string]$Name,[bool]$Skipped=$false,[string]$ExpectedError){
  $result=Invoke-Owned $msbuild @((Join-Path $gate 'RedXe/RedXe.proj'),'-nologo','-nr:false','-v:normal','-t:PrepareForBuild') (Join-Path $gate 'RedXe') (Join-Path $packet "$Name.msbuild.log")
  $results.Add([pscustomobject]@{name=$Name;host='msbuild';expectedSuccess=$Pass;exitCode=$result.Exit})
  if(($result.Exit -eq 0) -ne $Pass){throw "MSBuild gate control failed: $Name`n$($result.Text)"}
+ if($ExpectedError -and -not $result.Text.Contains($ExpectedError)){throw "MSBuild gate control $Name omitted '$ExpectedError':`n$($result.Text)"}
  $ran=$result.Text.Contains('Verified local RedMonitor client')
  if($Pass -and $ran -eq $Skipped){throw "MSBuild gate control $Name expected the verifier to $(if($Skipped){'be skipped'}else{'run'}):`n$($result.Text)"}
  Write-Host "PASS RedMonitor MSBuild gate $Name"
@@ -126,6 +129,15 @@ Invoke-Gate $false 'gate-refuses-tampered-client'
 Invoke-Gate $false 'gate-keeps-refusing-without-a-stamp-update'
 [IO.File]::WriteAllBytes($client,$bytes)
 Invoke-Gate $true 'gate-reverifies-restored-client'
+$tools = Join-Path $gate 'Dependencies/RedMonitorClientTools'
+foreach ($name in @('Verify-RedMonitorClient.ps1', 'Update-RedMonitorClient.ps1')) {
+ $tool = Join-Path $tools $name
+ $toolBytes = [IO.File]::ReadAllBytes($tool)
+ [IO.File]::AppendAllText($tool, [Environment]::NewLine + '# fixture alteration')
+ Invoke-Gate $false ('gate-refuses-altered-tool-' + $name) -ExpectedError "RedMonitor client tooling hash mismatch: $name"
+ [IO.File]::WriteAllBytes($tool, $toolBytes)
+ Invoke-Gate $true ('gate-reverifies-restored-tool-' + $name)
+}
 $vendor=Join-Path $fixture 'ThirdParty/RedMonitor'
 Move-Item -LiteralPath $vendor -Destination ($vendor+'.saved')
 New-Item -ItemType Junction -Path $vendor -Target ($vendor+'.saved')|Out-Null

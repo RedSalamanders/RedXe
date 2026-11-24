@@ -10,6 +10,9 @@ gates. This file keeps only RedXe's adapter facts.
 - The client header and its MIT notice live under `ThirdParty/RedMonitor/`, recorded in
   [the lock](../../Dependencies/RedMonitor.lock.json). The root `Verify-RedMonitorClient.ps1` verifies them and
   `Update-RedMonitorClient.ps1 -Commit FULL_SHA` updates them with the lock.
+  The root commands verify the pinned bundle under `Dependencies/RedMonitorClientTools/` before invoking it.
+  The lock records the reviewed tooling commit separately from the native client commit. A client refresh preserves
+  the tooling pin.
 - Messages carry the `RedXe` label. Client.h, its provider definition and its link libraries stay in
   Common/MonitorDiagnostics.cpp; other translation units pass RedXeLogLevel values, which that adapter maps to
   RedMonitor severities.
