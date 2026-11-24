@@ -122,7 +122,7 @@ $sdkProperties=@()
 if (-not $Clean) {
     Write-Host '[1/2] Dependencies' -ForegroundColor Cyan
     # vcpkg builds with the Visual Studio installation that holds the MSBuild below, as MSBuild does.
-    & $dependencyInstaller -Platform $Platform -MSBuildPath $msbuild
+    & $dependencyInstaller -Platform $Platform -MSBuildPath $msbuild -Asan:($Configuration -eq 'ASan Debug')
     if($DxUiSdkInputDescriptor){
         $engine=Join-Path $repoRoot '.ci-engine'
         Import-Module (Join-Path $engine 'Tools/Modules/Ci.SdkConsumer.psm1')

@@ -12,11 +12,15 @@
     <IntDir>$(RedXeOutputRoot)Intermediate\$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
     <TargetName>$(MSBuildProjectName)</TargetName>
 
-    <!-- Keep each platform's vcpkg metadata private, matching RedSalamander's manifest layout. -->
+    <!-- Give each architecture and sanitizer recipe its own vcpkg metadata. -->
     <RedXeVcpkgPlatformScope Condition="'$(Platform)'=='ARM64'">arm64</RedXeVcpkgPlatformScope>
     <RedXeVcpkgPlatformScope Condition="'$(RedXeVcpkgPlatformScope)'==''">x64</RedXeVcpkgPlatformScope>
     <RedXeVcpkgTriplet Condition="'$(Platform)'=='ARM64'">arm64-windows</RedXeVcpkgTriplet>
     <RedXeVcpkgTriplet Condition="'$(RedXeVcpkgTriplet)'==''">x64-windows</RedXeVcpkgTriplet>
+    <RedXeVcpkgPlatformScope Condition="'$(Configuration)'=='ASan Debug'">$(RedXeVcpkgPlatformScope)-asan</RedXeVcpkgPlatformScope>
+    <RedXeVcpkgTriplet Condition="'$(Configuration)'=='ASan Debug'">$(RedXeVcpkgTriplet)-asan</RedXeVcpkgTriplet>
+    <RedXeVcpkgRestoreCommand>.\vcpkg-install.ps1 -Platform $(Platform)</RedXeVcpkgRestoreCommand>
+    <RedXeVcpkgRestoreCommand Condition="'$(Configuration)'=='ASan Debug'">$(RedXeVcpkgRestoreCommand) -Asan</RedXeVcpkgRestoreCommand>
     <VcpkgManifestRoot>$(MSBuildThisFileDirectory)</VcpkgManifestRoot>
     <VcpkgInstalledDir>$(RedXeBuildRoot)vcpkg_installed\$(RedXeVcpkgPlatformScope)\</VcpkgInstalledDir>
     <VcpkgEnabled>false</VcpkgEnabled>

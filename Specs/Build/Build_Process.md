@@ -79,6 +79,12 @@ warm restoration, preserved source/environment, dirty and foreign refusal, inval
 complete clones from a server that offers filtering, and in-place completion of earlier partial and shallow clones,
 each read offline the way vcpkg reads it.
 
+ASan Debug restores `vcpkg-install.ps1 -Platform <architecture> -Asan` before compiling. The instrumented
+vcpkg trees are separated by architecture and by sanitizer recipe. The ASan triplets keep the standard
+dynamic CRT and library linkage, enable AddressSanitizer for C and C++, and remove `/RTC1` from the
+chainloaded debug toolchain. MSVC STL annotations stay enabled. The app builds and loads the ASan tree's
+runtime DLLs in ASan Debug, and the existing PluginContract fault probe verifies real sanitizer detection.
+
 ## Output and validation
 
 Routine repository validators and their regression tests require PowerShell 7 and no Python or external YAML module.
