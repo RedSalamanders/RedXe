@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: RedSalamanders/.github
-          ref: 0bac99d97f815d68d4e3fbaab41f14088ee4eb00
+          ref: 4bcae89e6753fd90692aa64a0ac1095ca5283c33
           path: .ci-engine
           persist-credentials: false
       - shell: pwsh
