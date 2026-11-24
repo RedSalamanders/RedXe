@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Pause dashboard rendering while the window is cloaked and resume on the next eligible visibility event.
 - Move the active RedXe windowing specification to Specs/UI/UI_Windowing.md and preserve the original link for archived plans.
 - Force WARP for the hidden startup test and verify the renderer actually selected it.
 - Rebuild the RedXe renderer through its existing device-loss path when Direct3D reports a device hang.
