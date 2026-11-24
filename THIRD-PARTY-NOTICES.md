@@ -39,8 +39,8 @@ in WIL (below); toml++ 3.4.0, Mark Gillard, MIT; a math symbol table derived fro
 contributors, MIT; rapidyaml 0.16.0, Joao Paulo Magalhaes, MIT, with its bundled debugbreak (Scott Tsai, BSD 2-Clause)
 and fast_float (MIT) notices; tables generated from Unicode 17.0.0, copyright Unicode, Inc., Unicode License V3; and an
 HTML named-character table from the WHATWG snapshot of 18 October 2026, copyright WHATWG (Apple, Google, Mozilla,
-Microsoft), BSD 3-Clause for code and CC BY 4.0. Their full texts are in DxUi at that commit; a package built from an
-SDK carries them as `DxUi-licenses\`.
+Microsoft), BSD 3-Clause for code and CC BY 4.0. Source packages carry the complete texts from that revision in
+`DxUi-licenses/`, including `unicode.txt` and `whatwg.txt`. SDK packages carry the verified bundle as `DxUi-licenses\`.
 
 -------------------------------------------------------------------------------
 

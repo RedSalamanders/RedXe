@@ -300,9 +300,36 @@ function New-RedXePortablePackage {
         foreach ($name in $script:PackageInstallerFiles) { Copy-RedXePackageFile (Join-Path $RepoRoot "Installer\$name") (Join-Path $staging $name) }
         Copy-RedXePackageFile (Join-Path $RepoRoot 'LICENSE.txt') (Join-Path $staging 'LICENSE.txt')
         Copy-RedXePackageFile (Join-Path $RepoRoot 'THIRD-PARTY-NOTICES.md') (Join-Path $staging 'THIRD-PARTY-NOTICES.md')
-        if($null -ne $DxUiSdkInput){
-            if($DxUiSdkInput.Closed){throw 'SDK notice staging requires the active verified reader.'}
-            Copy-Item -LiteralPath (Join-Path $DxUiSdkInput.SdkRoot 'licenses') -Destination (Join-Path $staging 'DxUi-licenses') -Recurse
+        $noticeDirectory = Join-Path $staging 'DxUi-licenses'
+        if ($null -ne $DxUiSdkInput) {
+            if ($DxUiSdkInput.Closed) { throw 'SDK notice staging requires the active verified reader.' }
+            Copy-Item -LiteralPath (Join-Path $DxUiSdkInput.SdkRoot 'licenses') -Destination $noticeDirectory -Recurse
+        } else {
+            Import-Module (Join-Path $RepoRoot 'Build/DxUiPaths.psm1') -Scope Local -ErrorAction Stop
+            $pin = (Get-Content -LiteralPath (Join-Path $RepoRoot 'Dependencies/DxUi.lock.json') -Raw | ConvertFrom-Json).commit
+            $dxuiSource = Get-DxUiSourcePath -DependencyRoot (Join-Path $RepoRoot '.build/dependencies/DxUi') -Commit $pin
+            $notices = [ordered]@{
+                'LICENSE.txt'                = 'LICENSE.txt'
+                'THIRD-PARTY-NOTICES.md'      = 'THIRD-PARTY-NOTICES.md'
+                'katex.txt'                  = 'docs/licenses/katex.txt'
+                'rapidyaml.txt'              = 'docs/licenses/rapidyaml.txt'
+                'rapidyaml-bundled.txt'      = 'docs/licenses/rapidyaml-bundled.txt'
+                'tomlplusplus.txt'           = 'docs/licenses/tomlplusplus.txt'
+                'unicode.txt'                = 'ThirdParty/Unicode/17.0.0/LICENSE.txt'
+                'whatwg.txt'                 = 'ThirdParty/Markdown/whatwg-2026-10-18/LICENSE.txt'
+            }
+            $sourceCommit = & git -C $dxuiSource rev-parse HEAD
+            if ($LASTEXITCODE -ne 0 -or $sourceCommit -cne $pin) {
+                throw "The DxUi notice checkout does not match the production pin $pin."
+            }
+            $noticeChanges = & git -C $dxuiSource status --porcelain --untracked-files=no -- @($notices.Values)
+            if ($LASTEXITCODE -ne 0 -or $noticeChanges) {
+                throw "The pinned DxUi notices contain local changes under $dxuiSource."
+            }
+            [void][IO.Directory]::CreateDirectory($noticeDirectory)
+            foreach ($name in $notices.Keys) {
+                Copy-RedXePackageFile (Join-Path $dxuiSource $notices[$name]) (Join-Path $noticeDirectory $name)
+            }
         }
         # The vendored file is the whole RedSalamander licence with notices for components RedXe does not ship; the
         # package carries only the client's MIT section, and packaging fails unless that section is found exactly once.
