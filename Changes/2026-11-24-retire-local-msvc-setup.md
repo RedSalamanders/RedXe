@@ -1,0 +1,1 @@
+- Use the CI engine as the sole hosted MSVC setup implementation. Preserve the existing verification command and installer timeout override.
