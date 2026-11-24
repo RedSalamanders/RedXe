@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Include the pinned DxUi notices in source-built portable packages, including Unicode and WHATWG.
 - Publish `SettingsStore.schema.json` with new settings templates and preserve validation for existing RedXe settings.
 - Restore the separately pinned vcpkg executable and catalogue through the common engine checkout helper.
 - Use the pinned shared toolchain and manifest arguments for the application vcpkg restore.
