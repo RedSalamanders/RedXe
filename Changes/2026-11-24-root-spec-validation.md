@@ -1,0 +1,1 @@
+- Add a compiler-free root specification command for RedXe and include it in Static validation.
