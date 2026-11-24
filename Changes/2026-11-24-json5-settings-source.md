@@ -1,1 +1,0 @@
-- Read authored RedXe settings as JSON5 and preserve the surrounding text when editing a dock value.
