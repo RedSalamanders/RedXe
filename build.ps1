@@ -20,6 +20,9 @@ Runs the MSBuild Clean target.
 .PARAMETER Rebuild
 Runs the MSBuild Rebuild target.
 
+.PARAMETER Analyze
+Runs MSVC code analysis with an isolated build under .build/analysis.
+
 .PARAMETER Run
 Launches the resulting application after a successful build. Valid only for the current host architecture.
 
@@ -53,12 +56,16 @@ param(
 
     [ValidateRange(0, 65535)]
     [int] $BuildNumber = 0,
-    [string] $DxUiSdkInputDescriptor = ''
+    [string] $DxUiSdkInputDescriptor = '',
+    [switch] $Analyze
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if ($env:CI_NATIVE_BUILDS_DISABLED -eq 'true') { throw 'Native builds are forbidden in compiler-free PR checks.' }
+if ($Analyze -and ($Clean -or $ProductionOnly -or $DxUiSdkInputDescriptor)) {
+    throw '-Analyze requires an ordinary source build.'
+}
 if($DxUiSdkInputDescriptor -and ($Configuration -cne 'Release' -or $Clean)){throw 'Pinned SDK inputs require a Release build, not Clean or Debug/ASan.'}
 $nativeEntryElapsed = [Diagnostics.Stopwatch]::StartNew()
 Import-Module (Join-Path $PSScriptRoot 'Build/BuildConsole.psm1') -ErrorAction Stop
@@ -73,9 +80,11 @@ if ($Clean -and $Run) {
 Import-Module (Join-Path $PSScriptRoot 'Build/ScopedTesting.psm1') -Scope Local -ErrorAction Stop
 $profileLease = Enter-ScopedProfileLease -Root $PSScriptRoot -Platform $Platform -Configuration $Configuration
 try {
-$scopedReports = Get-ScopedReportRoot -Root $PSScriptRoot -Platform $Platform -Configuration $Configuration
-Remove-ScopedIteration -Root $PSScriptRoot -Path (Join-Path $scopedReports 'iteration.json')
-Remove-ScopedIteration -Root $PSScriptRoot -Path (Join-Path $scopedReports 'build.json')
+if (-not $Analyze) {
+    $scopedReports = Get-ScopedReportRoot -Root $PSScriptRoot -Platform $Platform -Configuration $Configuration
+    Remove-ScopedIteration -Root $PSScriptRoot -Path (Join-Path $scopedReports 'iteration.json')
+    Remove-ScopedIteration -Root $PSScriptRoot -Path (Join-Path $scopedReports 'build.json')
+}
 
 # Use one compiler host for dependency identity, restore, compilation and provenance.
 Import-Module (Join-Path $PSScriptRoot 'Build/DxUiRestore.psm1') -Force -ErrorAction Stop
@@ -86,7 +95,12 @@ $sdkInput=$null;$sdkFailure=$null;$sdkProvenanceWritten=$false
 try {
 $repoRoot = Split-Path -Parent $PSCommandPath
 $solutionPath = Join-Path $repoRoot 'RedXe.sln'
-$executable = Join-Path $repoRoot ".build\$Platform\$Configuration\RedXe.exe"
+$outputRoot = Join-Path $repoRoot '.build'
+if ($Analyze) {
+    Import-Module (Join-Path $repoRoot '.ci-engine/Tools/Modules/Ci.Policy.psm1')
+    $outputRoot = Assert-CiContainedPath -Root $repoRoot -Path (Join-Path $outputRoot 'analysis')
+}
+$executable = Join-Path $outputRoot "$Platform\$Configuration\RedXe.exe"
 $buildOutputProcessModule = Join-Path $repoRoot 'Build\BuildOutputProcess.psm1'
 $buildPresentationModule = Join-Path $repoRoot 'Build\BuildPresentation.psm1'
 $streamingProcessModule = Join-Path $repoRoot 'Build\StreamingProcess.psm1'
@@ -106,7 +120,7 @@ Assert-BuildOutputProcessNotRunning -ProcessName 'RedXe.exe' -ExpectedExecutable
 
 # vcpkg-install.ps1 and restore-dxui.ps1 resolve the same MSBuild when they run on their own.
 $msbuild = Find-RedXeMSBuild
-$target = if ($Clean) { 'Clean' } elseif ($Rebuild) { 'Rebuild' } else { 'Build' }
+$target = if ($Clean) { 'Clean' } elseif ($Rebuild -and -not $Analyze) { 'Rebuild' } else { 'Build' }
 if ($ProductionOnly) {
     if ($Configuration -ne 'Release' -or $Clean) { throw 'ProductionOnly requires Release and cannot clean unrelated targets.' }
     $productionTargets = @([regex]::Matches([IO.File]::ReadAllText($solutionPath),
@@ -149,8 +163,13 @@ $arguments = @(
     '/nologo',
     '/verbosity:minimal'
 ) + $sdkProperties
+if ($Analyze) {
+    $arguments += @('/p:RedXeAnalyze=true',"/p:RedXeOutputRoot=$outputRoot\")
+    Write-Host 'MSVC code analysis' -ForegroundColor Cyan
+}
 
-$logPath = New-RedXeBuildLogPath -RepoRoot $repoRoot -Target $target
+$logTarget = if ($Analyze) { 'Analyze' } else { $target }
+$logPath = New-RedXeBuildLogPath -RepoRoot $repoRoot -Target $logTarget
 $invocationPlan = Get-RedXeBuildInvocationPlan `
     -UseInteractiveTerminal $useInteractiveTerminal `
     -LogPath $logPath
@@ -160,9 +179,22 @@ Write-Host "$stageLabel $target" -ForegroundColor Cyan
 Write-Host "MSBuild: $msbuild" -ForegroundColor DarkGray
 
 Import-Module (Join-Path $repoRoot '.ci-engine/Tools/Modules/Ci.Policy.psm1')
+if ($Analyze) {
+    # The solution owns all first-party targets. Clean those outputs without cleaning the pinned DxUi archive.
+    $analysisCleanLog = [IO.Path]::ChangeExtension($logPath, '.clean.log')
+    $cleanArguments = $arguments.Clone()
+    $cleanArguments[1] = '/t:Clean'
+    $cleanArguments += @('/p:BuildProjectReferences=false', "/flp:LogFile=$analysisCleanLog;Verbosity=normal")
+    Invoke-CiNativeCommand -FilePath $msbuild -Arguments $cleanArguments -WorkingDirectory $repoRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Analysis output cleanup failed. See '$analysisCleanLog'."
+    }
+    Assert-NativeBuildDiagnostics -LogPath $analysisCleanLog
+}
 if ($invocationPlan.UseDirectConsole) {
     $directArguments = @($arguments + @($invocationPlan.AdditionalArguments))
-    $exitCode = Invoke-CiNativeCommand -FilePath $msbuild -Arguments $directArguments -WorkingDirectory $repoRoot
+    Invoke-CiNativeCommand -FilePath $msbuild -Arguments $directArguments -WorkingDirectory $repoRoot
+    $exitCode = $LASTEXITCODE
 }
 else {
     $nativeStart = [Diagnostics.ProcessStartInfo]::new()
@@ -199,7 +231,7 @@ if ($exitCode -ne 0) {
 # names forgets its incremental state, or an unchanged rerun would skip the file that warned and pass.
 try { Assert-NativeBuildDiagnostics -LogPath $logPath }
 catch {
-    $reset = @(Reset-RedXeWarnedProjectTracking -LogPath $logPath -IntermediateRoot (Join-Path $repoRoot ".build\Intermediate\$Platform\$Configuration"))
+    $reset = @(Reset-RedXeWarnedProjectTracking -LogPath $logPath -IntermediateRoot (Join-Path $outputRoot "Intermediate\$Platform\$Configuration"))
     if ($reset.Count) { Write-Host "Compiled again by the next build until they build clean: $($reset -join ', ')" -ForegroundColor DarkYellow }
     throw
 }
@@ -207,11 +239,13 @@ if (-not $Clean) {
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
         throw "Build succeeded but the expected executable was not found: $executable"
     }
-    Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1') -Force
-    $provenance=Write-RedXeDxUiProvenance -RepoRoot $repoRoot -Platform $Platform -Configuration $Configuration -ProductionOnly:$ProductionOnly -SdkInput $sdkInput
-    $sdkProvenanceWritten=$null -ne $sdkInput
-    if($null -ne $sdkInput){Close-CiPinnedSdkInput $sdkInput}
-    Write-Host "DxUi module provenance: $provenance" -ForegroundColor DarkGray
+    if (-not $Analyze) {
+        Import-Module (Join-Path $repoRoot 'Build/DxUiProvenance.psm1') -Force
+        $provenance=Write-RedXeDxUiProvenance -RepoRoot $repoRoot -Platform $Platform -Configuration $Configuration -ProductionOnly:$ProductionOnly -SdkInput $sdkInput
+        $sdkProvenanceWritten=$null -ne $sdkInput
+        if($null -ne $sdkInput){Close-CiPinnedSdkInput $sdkInput}
+        Write-Host "DxUi module provenance: $provenance" -ForegroundColor DarkGray
+    }
     Write-NativeBuildResult -Project RedXe -Platform $Platform -Configuration $Configuration -LogPath $logPath -Artifacts @($executable) -Executable $executable -Duration $nativeEntryElapsed.Elapsed
     if ($Run) {
         # The OS, not this PowerShell process, decides: x64 PowerShell on ARM64 Windows runs the ARM64 build too.

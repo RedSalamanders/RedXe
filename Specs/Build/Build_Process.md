@@ -117,6 +117,11 @@ uses the automatic read-only job token in CI and works anonymously locally. API 
 limiting produces an advisory notice and leaves the exact pin unchanged.
 
 Build outputs remain under `.build/<Platform>/<Configuration>/`, with intermediates under `.build/Intermediate/`.
+`build.ps1 -Analyze` rebuilds with MSVC code analysis enabled on the selected platform and configuration. It keeps
+diagnostic binaries and intermediate reports under `.build/analysis/` and writes a separate analysis log under
+`.build/logs/`. Build and analysis diagnostics follow the usual warning policy. The analysis run publishes no
+scoped build receipt or packaging provenance and uses the pinned source dependencies.
+
 The root `test.ps1` exits zero only after every required assertion has passed. Expected nonzero exits from isolated
 negative-test children must not become the test entrypoint's success exit code.
 

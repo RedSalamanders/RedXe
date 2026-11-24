@@ -70,7 +70,7 @@ function New-RedXeBuildLogPath {
         [Parameter(Mandatory)]
         [string] $RepoRoot,
 
-        [ValidateSet('Build', 'Clean', 'Rebuild')]
+        [ValidateSet('Build', 'Clean', 'Rebuild', 'Analyze')]
         [string] $Target = 'Build'
     )
 
