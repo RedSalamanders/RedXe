@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Validate RedXe skills, guidance and plan indexes with the pinned shared CI engine.
 - Adopt the pinned shared scoped-testing runner, keeping RedXe's suite ownership, stable build stamps, and retained evidence.
   Native suite reports record capability skips, and PrePush accounts for all six build profiles.
 - Moved the vcpkg tool pin in `vcpkg-tool.json` from `9e593bb1` to `aeb162b7`, the same commit as the baseline and
