@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Bind the root RedMonitor client commands to the producer-owned tooling hashes recorded in the existing lock.
 - Validate RedXe skills, guidance and plan indexes with the pinned shared CI engine.
 - Adopt the pinned shared scoped-testing runner, keeping RedXe's suite ownership, stable build stamps, and retained evidence.
   Native suite reports record capability skips, and PrePush accounts for all six build profiles.
