@@ -17,8 +17,9 @@ points MUST converge on the same best-effort artifact writer:
 - the process unhandled-exception filter;
 - the top-level `wWinMain` structured-exception boundary;
 - `std::terminate`;
-- the CRT purecall handler; and
-- the CRT invalid-parameter handler.
+- the CRT purecall handler;
+- the CRT invalid-parameter handler; and
+- SIGABRT.
 
 The top-level structured-exception scope MUST contain no C++ object whose destruction depends on stack unwinding.
 Normal C++ application lifetime remains inside a separate function below that boundary. Fatal handlers MUST NOT let
@@ -36,20 +37,20 @@ Before the top-level boundary runs, RedXe MUST request a 128 KiB main-thread sta
 scratch MUST live in fixed process storage, not as a large automatic array on the failing thread. Prepared crash,
 marker, and dump path buffers are bounded to 1,024 UTF-16 characters; an overlong override fails before crashing.
 
-The artifact writer MUST use a process-wide atomic first-writer gate. Recursive or concurrent fatal paths MUST return
-to termination without starting another dump. Failure to locate storage, create a directory, load the system dump
-library, create a file, write a dump, or flush a marker MUST remain best-effort and MUST NOT delay process termination
-with retries.
+The artifact writer MUST use a process-wide atomic first-writer gate. Recursive faults return to termination.
+Another faulting thread can wait on the prepared completion event for up to ten seconds without starting another
+dump. Failure to locate storage, create a directory, load the system dump library, create a file, write a dump, or
+flush a marker remains best-effort.
 
 ## Diagnostic artifacts
 
 The default crash directory is `%LOCALAPPDATA%\RedXe\Crashes`. A successful capture writes:
 
-- one timestamped `RedXe-*.dmp` minidump; and
-- one sibling `RedXe-*.txt` call-stack report with the same basename as the minidump; and
+- one timestamped `RedXe-report-*.dmp` minidump; and
+- one sibling `RedXe-report-*.txt` call-stack report with the same basename as the minidump; and
 - `last_crash.txt`, a UTF-16 marker containing the absolute minidump path.
 
-The marker MUST be committed only after `MiniDumpWriteDump` succeeds. An incomplete dump MUST be removed when that
+The marker MUST be flushed and atomically replaced only after `MiniDumpWriteDump` and the dump flush succeed. An incomplete dump MUST be removed when that
 best-effort cleanup succeeds. Dump names MUST include the process identifier so independent RedXe processes do not
 select the same normal path.
 
@@ -66,8 +67,9 @@ The portable package ships no PDBs, so a user's report names modules and address
 publishes `RedXe-<version>-<platform>-Symbols.zip` with the exact PDBs of its shipped binaries
 ([Build_Packaging.md](../Build/Build_Packaging.md)); a developer symbolizes a returned minidump with it.
 
-Crash artifacts remain local. RedXe MUST NOT upload, transmit, or automatically delete minidumps or call-stack
-reports. A minidump can contain fragments of process memory, while a report contains executable addresses and local
+Crash artifacts remain local. On a healthy interactive start, retain the newest ten post-adoption dumps by write
+time and their matching call-stack reports. Keep pre-adoption dumps, their reports and unrelated diagnostic files.
+RedXe MUST NOT upload or transmit crash artifacts. A minidump can contain fragments of process memory, while a report contains executable addresses and local
 source paths when symbols are available; both MUST be treated as potentially sensitive diagnostic data.
 
 ## Previous-crash notice
@@ -76,8 +78,8 @@ After the main window is ready on the next normal launch, RedXe MUST check for `
 unattended `--screenshot` run, and the deliberate crash process MUST NOT show or consume the user's marker; it waits
 for the next interactive start.
 
-When a marker exists, RedXe MUST remove it before presenting a one-shot prompt so another interrupted launch does not
-repeat the notice indefinitely. The prompt MUST identify the saved dump when the bounded marker can be read and MUST
+When a marker exists, RedXe MUST claim it under a delete-access handle that excludes a competing claim, then remove it
+before presenting a one-shot prompt. The prompt MUST identify the saved dump when the bounded marker can be read and MUST
 offer to open the crash directory. Opening the directory requires an explicit user choice; RedXe MUST NOT execute or
 open a path read from the marker itself.
 
@@ -95,9 +97,9 @@ nested message loop.
 
 `--crash-test` MUST raise a non-continuable application exception after handler installation and before application
 or plugin initialization. `--crash-test-stack-overflow` MUST exhaust the main-thread stack to produce
-`0xC00000FD` through that same production boundary. `--crash-test-directory=<absolute-path>` MAY override the artifact
-directory only for either deliberate crash invocation. An invalid override MUST fail without deliberately crashing
-or falling back to the user's normal crash directory.
+`0xC00000FD` through that same production boundary. Both probes require `--crash-test-directory=<absolute-path>` naming an existing isolated
+directory within the build root. Missing, invalid, out-of-scope and reparse destinations MUST fail before the deliberate
+fault. Help, probes and unattended self-tests and captures never enable the interactive crash store.
 
 The repository test entrypoint MUST launch each crash mode, and the invalid-override case, through its bounded child
 runner (`Invoke-RedXeStreamingProcess`, [`Build_Process.md`](../Build/Build_Process.md)) with a time budget and a log
@@ -114,18 +116,21 @@ unique directory beneath `.build`, and the entrypoint then verifies all of the f
 - `last_crash.txt` exists and identifies that dump; and
 - the isolated crash directory is removed after validation.
 
-The normal mode report MUST contain `0xE000CAFE`; the stack-exhaustion report MUST contain `0xC00000FD`. The harness
+The normal mode report MUST contain `0xE000CAFE`. The stack-exhaustion report MUST contain `0xC00000FD`. The harness
 MUST use process launch and filesystem inspection only. It MUST NOT require interactive desktop control, touch the
 normal `%LOCALAPPDATA%\RedXe\Crashes` directory, or retain generated crash artifacts.
 
+The console store control exercises retention at zero, ten and eleven owned dumps with matching call-stack reports,
+preserves legacy and unrelated files, and verifies a headless check followed by two ordinary notice claims.
+
 ## Performance and resources
 
-Normal execution incurs only fixed handler registration, three fixed 1,024-character prepared path buffers, the
+Normal execution incurs fixed handler registration, four fixed 1,024-character path buffers, the
 main-thread stack guarantee, and atomic state. Crash
 handling MUST create no worker thread, timer, polling loop, periodic wake-up, or steady-state rendering work. Directory
 creation, `dbghelp.dll` loading, symbol walking, dump/report I/O, and marker I/O occur only on a fatal path. The report
 uses fixed formatting buffers, performs at most 64 frame iterations, and restricts symbol lookup to a local directory.
-Previous-marker I/O occurs once after a normal main window becomes ready.
+Previous-marker I/O and bounded retention run once per healthy interactive start.
 
 These requirements supplement `Core_PerformanceAndResources.md`.
 

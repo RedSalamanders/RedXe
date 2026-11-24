@@ -1,6 +1,9 @@
 #include "CrashHandler.h"
 
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -9,7 +12,9 @@
 #include <iterator>
 #include <shellapi.h>
 #include <shlobj_core.h>
+#include <string_view>
 #include <strsafe.h>
+#include <utility>
 
 #include <dbghelp.h>
 
@@ -24,18 +29,20 @@ namespace
 {
 constexpr wchar_t kCrashDirectorySuffix[]      = L"RedXe\\Crashes";
 constexpr wchar_t kMarkerFileName[]            = L"last_crash.txt";
+constexpr std::wstring_view kOwnedReportPrefix = L"RedXe-report-";
 constexpr DWORD kCrashExceptionCode            = 0xE000CAFEU;
 constexpr size_t kPathCapacity                 = 1024;
-constexpr size_t kMarkerContentCapacity        = 1024;
 constexpr unsigned int kMaximumCallstackFrames = 64;
 constexpr ULONG kFatalPathStackGuaranteeBytes  = 128U * 1024U;
 
 std::atomic<bool> g_installed{false};
 std::atomic<bool> g_pathsReady{false};
-std::atomic_flag g_dumpStarted = ATOMIC_FLAG_INIT;
+std::atomic<DWORD> g_dumpOwner{0};
+wil::unique_handle g_dumpFinished;
 wchar_t g_crashDirectory[kPathCapacity]{};
 wchar_t g_markerPath[kPathCapacity]{};
 wchar_t g_dumpPath[kPathCapacity]{};
+wchar_t g_markerTemporaryPath[kPathCapacity]{};
 volatile LONG g_stackConsumptionDepth = 0;
 
 // Existing identity/RAII/reference traits intentionally delete these implicit operations.
@@ -152,6 +159,38 @@ void ConfigureDefaultCrashDirectory() noexcept
     return result == ERROR_SUCCESS || result == ERROR_FILE_EXISTS || result == ERROR_ALREADY_EXISTS;
 }
 
+bool IsOrdinaryLocalDirectory(const wchar_t* directory) noexcept
+{
+    wchar_t path[kPathCapacity]{};
+    if (! directory || FAILED(StringCchCopyW(path, std::size(path), directory)) || wcslen(path) < 3 || path[1] != L':' || path[2] != L'\\')
+    {
+        return false;
+    }
+    const wchar_t volume[]{path[0], L':', L'\\', L'\0'};
+    if (GetDriveTypeW(volume) != DRIVE_FIXED)
+    {
+        return false;
+    }
+    for (wchar_t* end = path + 3;; ++end)
+    {
+        if (*end != L'\\' && *end != L'\0')
+        {
+            continue;
+        }
+        const wchar_t separator = std::exchange(*end, L'\0');
+        const DWORD attrs       = GetFileAttributesW(path);
+        if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0 || (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+        {
+            return false;
+        }
+        if (! separator)
+        {
+            return true;
+        }
+        *end = separator;
+    }
+}
+
 [[nodiscard]] bool BuildDumpPath(wchar_t (&dumpPath)[kPathCapacity]) noexcept
 {
     SYSTEMTIME time{};
@@ -159,8 +198,9 @@ void ConfigureDefaultCrashDirectory() noexcept
 
     return SUCCEEDED(StringCchPrintfW(dumpPath,
                                       std::size(dumpPath),
-                                      L"%s\\RedXe-%04u%02u%02u-%02u%02u%02u-p%lu-t%lu.dmp",
+                                      L"%s\\%s%04u%02u%02u-%02u%02u%02u-p%lu-t%lu.dmp",
                                       g_crashDirectory,
+                                      kOwnedReportPrefix.data(),
                                       static_cast<unsigned>(time.wYear),
                                       static_cast<unsigned>(time.wMonth),
                                       static_cast<unsigned>(time.wDay),
@@ -197,14 +237,14 @@ void ConfigureDefaultCrashDirectory() noexcept
 
     constexpr MINIDUMP_TYPE dumpType = static_cast<MINIDUMP_TYPE>(MiniDumpNormal | MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules);
     if (! functions.miniDumpWriteDump(
-            GetCurrentProcess(), GetCurrentProcessId(), file.get(), dumpType, exceptionPointers ? &exceptionInformation : nullptr, nullptr, nullptr))
+            GetCurrentProcess(), GetCurrentProcessId(), file.get(), dumpType, exceptionPointers ? &exceptionInformation : nullptr, nullptr, nullptr) ||
+        ! FlushFileBuffers(file.get()))
     {
         file.reset();
         static_cast<void>(DeleteFileW(dumpPath));
         return false;
     }
 
-    static_cast<void>(FlushFileBuffers(file.get()));
     return true;
 }
 
@@ -252,7 +292,7 @@ void ConfigureDefaultCrashDirectory() noexcept
     return machine != 0 && frame.AddrPC.Offset != 0;
 }
 
-void PrepareSymbolSearchPath(wchar_t (&searchPath)[kMarkerContentCapacity]) noexcept
+void PrepareSymbolSearchPath(wchar_t (&searchPath)[kCrashNoticePathCapacity]) noexcept
 {
     const DWORD length = GetModuleFileNameW(nullptr, searchPath, static_cast<DWORD>(std::size(searchPath)));
     if (length == 0 || length >= std::size(searchPath))
@@ -343,7 +383,7 @@ void PrepareSymbolSearchPath(wchar_t (&searchPath)[kMarkerContentCapacity]) noex
     const HANDLE process     = GetCurrentProcess();
     if (canUseSymbols)
     {
-        wchar_t searchPath[kMarkerContentCapacity]{};
+        wchar_t searchPath[kCrashNoticePathCapacity]{};
         PrepareSymbolSearchPath(searchPath);
         static_cast<void>(
             functions.symSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME | SYMOPT_LOAD_LINES | SYMOPT_FAIL_CRITICAL_ERRORS | SYMOPT_NO_PROMPTS));
@@ -461,39 +501,46 @@ void PrepareSymbolSearchPath(wchar_t (&searchPath)[kMarkerContentCapacity]) noex
 
 void WriteMarkerFile(const wchar_t* dumpPath) noexcept
 {
-    wil::unique_handle marker(CreateFileW(g_markerPath, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (FAILED(StringCchPrintfW(g_markerTemporaryPath, std::size(g_markerTemporaryPath), L"%s.pending", dumpPath)))
+    {
+        return;
+    }
+    wil::unique_handle marker(CreateFileW(g_markerTemporaryPath, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
     if (! marker)
     {
         return;
     }
 
     constexpr wchar_t bom = 0xFEFF;
-    DWORD written         = 0;
-    if (! WriteFile(marker.get(), &bom, sizeof(bom), &written, nullptr) || written != sizeof(bom))
+    const bool complete   = WriteAll(marker.get(), &bom, sizeof(bom)) && WriteWideText(marker.get(), dumpPath) && FlushFileBuffers(marker.get());
+    marker.reset();
+    if (! complete || ! MoveFileExW(g_markerTemporaryPath, g_markerPath, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
     {
-        marker.reset();
-        static_cast<void>(DeleteFileW(g_markerPath));
-        return;
+        static_cast<void>(DeleteFileW(g_markerTemporaryPath));
     }
-
-    const size_t dumpPathLength = wcslen(dumpPath);
-    const size_t byteCount      = dumpPathLength * sizeof(wchar_t);
-    if (byteCount > MAXDWORD || ! WriteFile(marker.get(), dumpPath, static_cast<DWORD>(byteCount), &written, nullptr) ||
-        written != static_cast<DWORD>(byteCount))
-    {
-        marker.reset();
-        static_cast<void>(DeleteFileW(g_markerPath));
-        return;
-    }
-    static_cast<void>(FlushFileBuffers(marker.get()));
 }
 
 void WriteDumpAndMarker(EXCEPTION_POINTERS* exceptionPointers) noexcept
 {
-    if (g_dumpStarted.test_and_set(std::memory_order_acq_rel) || ! g_pathsReady.load(std::memory_order_acquire))
+    if (! g_pathsReady.load(std::memory_order_acquire))
     {
         return;
     }
+    const DWORD thread = GetCurrentThreadId();
+    DWORD owner{};
+    if (! g_dumpOwner.compare_exchange_strong(owner, thread, std::memory_order_acq_rel))
+    {
+        if (owner != thread && g_dumpFinished)
+        {
+            static_cast<void>(WaitForSingleObject(g_dumpFinished.get(), 10000));
+        }
+        return;
+    }
+    const auto completed = wil::scope_exit([]() noexcept
+    {
+        if (g_dumpFinished)
+            static_cast<void>(SetEvent(g_dumpFinished.get()));
+    });
     if (! EnsureCrashDirectoryExists())
     {
         return;
@@ -562,24 +609,22 @@ void __cdecl InvalidParameterHandler(const wchar_t*, const wchar_t*, const wchar
     TerminateProcessAfterDump();
 }
 
-[[nodiscard]] bool ReadMarkerDumpPath(wchar_t (&dumpPath)[kMarkerContentCapacity]) noexcept
+void __cdecl AbortHandler(int) noexcept
 {
-    wil::unique_handle marker(CreateFileW(
-        g_markerPath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
-    if (! marker)
-    {
-        return false;
-    }
+    TerminateProcessAfterDump();
+}
 
+[[nodiscard]] bool ReadMarkerDumpPath(HANDLE marker, wchar_t (&dumpPath)[kCrashNoticePathCapacity]) noexcept
+{
     LARGE_INTEGER size{};
-    if (! GetFileSizeEx(marker.get(), &size) || size.QuadPart <= 0 || size.QuadPart > static_cast<LONGLONG>(sizeof(dumpPath) - sizeof(wchar_t)) ||
+    if (! GetFileSizeEx(marker, &size) || size.QuadPart <= 0 || size.QuadPart > static_cast<LONGLONG>(sizeof(dumpPath) - sizeof(wchar_t)) ||
         (size.QuadPart % sizeof(wchar_t)) != 0)
     {
         return false;
     }
 
     DWORD bytesRead = 0;
-    if (! ReadFile(marker.get(), dumpPath, static_cast<DWORD>(size.QuadPart), &bytesRead, nullptr) || bytesRead != static_cast<DWORD>(size.QuadPart))
+    if (! ReadFile(marker, dumpPath, static_cast<DWORD>(size.QuadPart), &bytesRead, nullptr) || bytesRead != static_cast<DWORD>(size.QuadPart))
     {
         dumpPath[0] = L'\0';
         return false;
@@ -603,7 +648,89 @@ void __cdecl InvalidParameterHandler(const wchar_t*, const wchar_t*, const wchar
     }
     return dumpPath[0] != L'\0';
 }
+
+constexpr DWORD kExcludedReportAttributes = FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE;
+
+bool MarkOwnedFileForRemoval(HANDLE file, const FILETIME* expectedWriteTime = nullptr) noexcept
+{
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (! GetFileInformationByHandle(file, &info) || (info.dwFileAttributes & kExcludedReportAttributes) != 0 ||
+        (expectedWriteTime && CompareFileTime(expectedWriteTime, &info.ftLastWriteTime) != 0))
+    {
+        return false;
+    }
+    FILE_DISPOSITION_INFO remove{TRUE};
+    return SetFileInformationByHandle(file, FileDispositionInfo, &remove, sizeof(remove)) != FALSE;
+}
+
+void RemoveReportPair(const wchar_t* directory, const WIN32_FIND_DATAW& report) noexcept
+{
+    wchar_t path[kPathCapacity]{};
+    if (FAILED(StringCchPrintfW(path, std::size(path), L"%s\\%s", directory, report.cFileName)))
+    {
+        return;
+    }
+    wil::unique_handle dump(CreateFileW(path, DELETE | FILE_READ_ATTRIBUTES, 0, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (! dump || ! MarkOwnedFileForRemoval(dump.get(), &report.ftLastWriteTime) || ! ReplacePathExtension(path, L".txt"))
+    {
+        return;
+    }
+    wil::unique_handle sidecar(CreateFileW(path, DELETE | FILE_READ_ATTRIBUTES, 0, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (sidecar)
+    {
+        static_cast<void>(MarkOwnedFileForRemoval(sidecar.get()));
+    }
+}
 } // namespace
+
+void RetainRecentReports(const wchar_t* directory) noexcept
+{
+    if (! IsOrdinaryLocalDirectory(directory))
+    {
+        return;
+    }
+    wchar_t pattern[kPathCapacity]{};
+    if (FAILED(StringCchPrintfW(pattern, std::size(pattern), L"%s\\%s*.dmp", directory, kOwnedReportPrefix.data())))
+    {
+        return;
+    }
+    WIN32_FIND_DATAW found{};
+    wil::unique_hfind cursor(FindFirstFileW(pattern, &found));
+    if (! cursor)
+    {
+        return;
+    }
+    const auto older = [](const WIN32_FIND_DATAW& left, const WIN32_FIND_DATAW& right) noexcept
+    {
+        const LONG order = CompareFileTime(&left.ftLastWriteTime, &right.ftLastWriteTime);
+        return order < 0 || (order == 0 && std::wstring_view(left.cFileName) < std::wstring_view(right.cFileName));
+    };
+    std::array<WIN32_FIND_DATAW, 10> retained{};
+    size_t count{};
+    do
+    {
+        const std::wstring_view leaf(found.cFileName);
+        if ((found.dwFileAttributes & kExcludedReportAttributes) != 0 || ! leaf.starts_with(kOwnedReportPrefix) || ! leaf.ends_with(L".dmp"))
+        {
+            continue;
+        }
+        if (count < retained.size())
+        {
+            retained[count++] = found;
+            continue;
+        }
+        const auto oldest = std::ranges::min_element(retained, older);
+        if (older(found, *oldest))
+        {
+            RemoveReportPair(directory, found);
+        }
+        else
+        {
+            RemoveReportPair(directory, *oldest);
+            *oldest = found;
+        }
+    } while (FindNextFileW(cursor.get(), &found));
+}
 
 void Install() noexcept
 {
@@ -612,13 +739,35 @@ void Install() noexcept
         return;
     }
 
-    ConfigureDefaultCrashDirectory();
     ULONG stackGuarantee = kFatalPathStackGuaranteeBytes;
     static_cast<void>(SetThreadStackGuarantee(&stackGuarantee));
+    g_dumpFinished.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
     SetUnhandledExceptionFilter(&UnhandledExceptionFilterThunk);
     std::set_terminate(&TerminateHandler);
     _set_purecall_handler(&PureCallHandler);
     _set_invalid_parameter_handler(&InvalidParameterHandler);
+    static_cast<void>(std::signal(SIGABRT, &AbortHandler));
+}
+
+void EnableInteractiveReports() noexcept
+{
+    ConfigureDefaultCrashDirectory();
+}
+
+bool TakePendingNotice(bool interactive, wchar_t (&dumpPath)[kCrashNoticePathCapacity]) noexcept
+{
+    dumpPath[0] = L'\0';
+    if (! interactive || ! g_pathsReady.load(std::memory_order_acquire) || ! IsOrdinaryLocalDirectory(g_crashDirectory))
+    {
+        return false;
+    }
+    wil::unique_handle marker(CreateFileW(g_markerPath, GENERIC_READ | DELETE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (! marker || ! MarkOwnedFileForRemoval(marker.get()))
+    {
+        return false;
+    }
+    static_cast<void>(ReadMarkerDumpPath(marker.get(), dumpPath));
+    return true;
 }
 
 int WriteDumpForException(EXCEPTION_POINTERS* exceptionPointers) noexcept
@@ -629,18 +778,20 @@ int WriteDumpForException(EXCEPTION_POINTERS* exceptionPointers) noexcept
 
 void ShowPreviousCrashUiIfPresent(HWND ownerWindow) noexcept
 {
-    const DWORD markerAttributes = GetFileAttributesW(g_markerPath);
-    if (! g_pathsReady.load(std::memory_order_acquire) || markerAttributes == INVALID_FILE_ATTRIBUTES || (markerAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+    if (! g_pathsReady.load(std::memory_order_acquire))
     {
         return;
     }
 
-    wchar_t dumpPath[kMarkerContentCapacity]{};
-    const bool hasDumpPath = ReadMarkerDumpPath(dumpPath);
-    static_cast<void>(DeleteFileW(g_markerPath));
+    const auto retain = wil::scope_exit([]() noexcept { RetainRecentReports(g_crashDirectory); });
+    wchar_t dumpPath[kCrashNoticePathCapacity]{};
+    if (! TakePendingNotice(true, dumpPath))
+    {
+        return;
+    }
 
     wchar_t message[2048]{};
-    if (hasDumpPath)
+    if (dumpPath[0] != L'\0')
     {
         static_cast<void>(StringCchPrintfW(message,
                                            std::size(message),
@@ -668,14 +819,32 @@ HRESULT SetCrashDirectoryForTesting(const wchar_t* directory) noexcept
         return E_INVALIDARG;
     }
 
-    const size_t prefixLength = wcsnlen_s(directory, 3);
-    const bool driveAbsolute  = prefixLength >= 3 && directory[1] == L':' && (directory[2] == L'\\' || directory[2] == L'/');
-    const bool uncAbsolute    = prefixLength >= 2 && (directory[0] == L'\\' || directory[0] == L'/') && (directory[1] == L'\\' || directory[1] == L'/');
-    if (! driveAbsolute && ! uncAbsolute)
+    if (wcsnlen_s(directory, 3) < 3 || directory[1] != L':' || (directory[2] != L'\\' && directory[2] != L'/'))
     {
         return E_INVALIDARG;
     }
-    return SetCrashDirectory(directory);
+    wchar_t selected[kPathCapacity]{};
+    const DWORD selectedLength = GetFullPathNameW(directory, static_cast<DWORD>(std::size(selected)), selected, nullptr);
+    wchar_t executable[kPathCapacity]{};
+    const DWORD executableLength = GetModuleFileNameW(nullptr, executable, static_cast<DWORD>(std::size(executable)));
+    if (! selectedLength || selectedLength >= std::size(selected) || ! executableLength || executableLength >= std::size(executable))
+    {
+        return E_INVALIDARG;
+    }
+    constexpr std::wstring_view buildSegment = L"\\.build\\";
+    const auto build                         = std::wstring_view(executable, executableLength).rfind(buildSegment);
+    if (build == std::wstring_view::npos)
+    {
+        return E_ACCESSDENIED;
+    }
+    const auto prefixLength = build + buildSegment.size();
+    if (selectedLength <= prefixLength ||
+        CompareStringOrdinal(selected, static_cast<int>(prefixLength), executable, static_cast<int>(prefixLength), TRUE) != CSTR_EQUAL ||
+        ! IsOrdinaryLocalDirectory(selected))
+    {
+        return E_ACCESSDENIED;
+    }
+    return SetCrashDirectory(selected);
 }
 
 [[noreturn]] void TriggerCrashTest() noexcept

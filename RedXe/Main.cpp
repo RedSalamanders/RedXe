@@ -340,7 +340,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     }
     if (crashTest || stackOverflowCrashTest)
     {
-        if (ConfigureCrashTestDirectoryOverride(arguments.get(), argumentCount) == CrashDirectoryOverrideStatus::Invalid)
+        if (ConfigureCrashTestDirectoryOverride(arguments.get(), argumentCount) != CrashDirectoryOverrideStatus::Configured)
         {
             OutputDebugStringW(L"The crash-test output directory is invalid.\n");
             return 2;
@@ -350,6 +350,11 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             CrashHandler::TriggerStackOverflowCrashTest();
         }
         CrashHandler::TriggerCrashTest();
+    }
+
+    if (! unattended && probeSeconds == 0 && showCommand != SW_HIDE)
+    {
+        CrashHandler::EnableInteractiveReports();
     }
 
     if (argumentCount == 1)

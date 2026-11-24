@@ -583,9 +583,11 @@ if ($switchFailures.Count -ne 1 -or $switchFailures[0].Line -notmatch '"level":"
     $switchFailures[0].Line -notmatch '"hr":"0x80070057"') {
     throw "The self-test's rolled-back window-kind switch must leave one window-kind-switch-failed Warning on stderr (found $($switchFailures.Count)): $smokeLog"
 }
-# The same diagnosis for a failing check, proven in the product executable: a copy of RedXe.exe with no Settings folder
-# beside it fails its settings check, which must be named in its log, with exit code 6.
-$selfTestFailureDirectory = Join-Path $evidence.Path "SelfTestFailure\$([guid]::NewGuid().ToString('N'))"
+# The copied ASan executable needs a short DLL load path. Keep fixture bytes under .build and retain their logs as evidence.
+Import-Module (Join-Path $repoRoot '.ci-engine/Tools/Modules/Ci.Policy.psm1')
+$hostFixtureRoot = Assert-CiContainedPath -Root $repoRoot -Path (Join-Path $repoRoot '.build/host-smoke-fixtures')
+# A copy of RedXe.exe with no Settings folder beside it fails its settings check with exit code 6 and names it in the log.
+$selfTestFailureDirectory = Assert-CiContainedPath -Root $repoRoot -Path (Join-Path $hostFixtureRoot ([guid]::NewGuid().ToString('N')))
 $selfTestFailureLog = Join-Path $evidence.Path "RedXe.self-test-failure.log"
 [void](New-Item -ItemType Directory -Path $selfTestFailureDirectory -Force)
 $selfTestFailureRun = $null
@@ -602,7 +604,7 @@ try {
     catch { $selfTestFailureRun = $_ }
 }
 finally {
-    # The isolated fixture remains with its run evidence, including any failure output.
+    # Keep the isolated fixture and the separate run logs.
 }
 if ($selfTestFailureRun -or $selfTestFailureExit -ne 6 -or
     (Get-Content -LiteralPath $selfTestFailureLog -Raw) -notmatch 'Settings initialization or validation failed\. HRESULT 0x8') {
@@ -614,7 +616,7 @@ if ($selfTestFailureRun -or $selfTestFailureExit -ne 6 -or
 # opens no log directory: a copy with its Settings folder but no Plugins folder maps no plugin module, so a check fails
 # with ERROR_MOD_NOT_FOUND (today the configured Logicon service's start), and a module-map-failed Error record names
 # a plugin that could not be mapped with that HRESULT.
-$unmappedDirectory = Join-Path $evidence.Path "SelfTestFailure\$([guid]::NewGuid().ToString('N'))"
+$unmappedDirectory = Assert-CiContainedPath -Root $repoRoot -Path (Join-Path $hostFixtureRoot ([guid]::NewGuid().ToString('N')))
 $unmappedLog = Join-Path $evidence.Path "RedXe.self-test-unmapped.log"
 [void](New-Item -ItemType Directory -Path $unmappedDirectory -Force)
 $unmappedRun = $null
@@ -819,7 +821,7 @@ function Invoke-RedXeCrashTest {
         [string] $Label
     )
 
-    $buildRoot = [IO.Path]::GetFullPath((Join-Path $evidence.Path 'crash-probes'))
+    $buildRoot = Assert-CiContainedPath -Root $repoRoot -Path (Join-Path $repoRoot '.build/crash-probe-artifacts')
     $crashTestDirectory = [IO.Path]::GetFullPath(
         (Join-Path $buildRoot (Join-Path 'CrashTests' ([guid]::NewGuid().ToString('N')))))
     $expectedPrefix = $buildRoot.TrimEnd(
@@ -902,7 +904,7 @@ function Invoke-RedXeCrashTest {
             throw "Refusing to remove a crash-test directory outside the build root: $resolvedCleanupTarget"
         }
         if (Test-Path -LiteralPath $resolvedCleanupTarget) {
-            # Keep the validated crash dump, report and marker as run evidence.
+            # Keep the validated dump, report and marker locally outside runner artifact uploads.
         }
     }
 }
@@ -915,11 +917,28 @@ if ($invalidOverrideExit -ne 2) {
     throw "Invalid crash-directory override returned exit code $invalidOverrideExit; expected 2: $invalidOverrideLog"
 }
 
+$missingOverrideLog = Join-Path $evidence.Path 'RedXe.crash-test-missing-directory.log'
+$missingOverrideExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--crash-test') -WorkingDirectory $repoRoot -TimeoutSeconds 120 `
+    -LogPath $missingOverrideLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+if ($missingOverrideExit -ne 2) {
+    throw "Crash probe without an isolated directory returned $missingOverrideExit."
+}
+
 Invoke-RedXeCrashTest -CrashArgument '--crash-test' -ExpectedExceptionCode 0xE000CAFEl `
     -Label 'fatal-process'
 Invoke-RedXeCrashTest -CrashArgument '--crash-test-stack-overflow' -ExpectedExceptionCode 0xC00000FDl `
     -Label 'stack-overflow'
 
+$storeDirectory = Join-Path $evidence.Path ('crash-store-'+[guid]::NewGuid().ToString('N'))
+[void][IO.Directory]::CreateDirectory($storeDirectory)
+$storeLog = Join-Path $evidence.Path 'RedXe.crash-report-store.log'
+$storeTest = Join-Path (Split-Path -Parent $executable) 'HostPluginTests.exe'
+$storeExit = Invoke-RedXeStreamingProcess -FilePath $storeTest -Arguments @('--crash-report-store',$storeDirectory) -WorkingDirectory $repoRoot `
+    -TimeoutSeconds 120 -LogPath $storeLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
+if ($storeExit -ne 0) {
+    throw "Crash report retention and restart checks failed: $storeLog"
+}
+Write-Host 'Owned crash report retention and single restart notice passed.'
 
 }
 $resultReceipt = [ordered]@{
