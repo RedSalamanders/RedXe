@@ -51,7 +51,7 @@
     "executable": "RedXeLauncher.exe",
     "alias": "redxe",
     "license": "MIT",
-    "minimumOSVersion": "10.0.19041.0",
+    "minimumOSVersion": "10.0.22000.2600",
     "smokeTests": [
       {
         "timeoutSeconds": 300,

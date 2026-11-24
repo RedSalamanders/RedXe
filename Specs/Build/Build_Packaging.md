@@ -178,7 +178,7 @@ the sidecar form shared with the portable ZIP. It MUST leave no registry key, sh
 
 - Package identifier `RedSalamanders.RedXe`, multi-file manifest schema 1.12.0 from `Installer/winget/templates/`:
   `InstallerType: zip`, `NestedInstallerType: portable`, `NestedInstallerFiles` `RedXeLauncher.exe` with
-  `PortableCommandAlias: RedXe`, `Commands: [RedXe]`, `MinimumOSVersion: 10.0.19041.0`, `UpgradeBehavior: install`,
+  `PortableCommandAlias: RedXe`, `Commands: [RedXe]`, `MinimumOSVersion: 10.0.22000.2600`, `UpgradeBehavior: install`,
   and one installer per architecture (`x64`, `arm64`) whose `InstallerUrl` is
   `https://github.com/RedSalamanders/RedXe/releases/download/v<version>/RedXe-<version>-<x64|ARM64>-Portable.zip`.
   Do not use `InstallerType: portable` for a ZIP, and do not add `Icons` until the publisher is verified.
