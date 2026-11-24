@@ -21,9 +21,9 @@ The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 
 ## Native chrome resources
 
-The main and dock captions, notice captions and button, shell tooltip, static tray menu, and the startup and
-previous-crash prompts use the embedded UTF-8 resources in `RedXe/RedXe.rc`. The English base strings have stable
-IDs in `RedXe/resource.h`. The tray menu keeps its two command IDs and the default Edit settings action. Standard
+The main and dock captions, settings and action notices, command-line errors, shell tooltip, static tray menu,
+and startup and previous-crash prompts use embedded UTF-8 resources. `RedXe/RedXe.rc` compiles the menu and
+includes `RedXe/ChromeStrings.rc2`. The English base strings have stable IDs in `RedXe/resource.h`. The tray menu keeps its two command IDs and the default Edit settings action. Standard
 Win32 controls receive their accessible names from their resource-backed labels.
 
 Use `Common/Resources.h` to load or format the resource. Dynamic diagnostics and paths enter as values. Formatted

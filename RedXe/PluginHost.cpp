@@ -6,7 +6,9 @@
 #include "HostActionCatalog.h"
 #include "HostActions.h"
 #include "PlugInterfaces/FactoryImpl.h"
+#include "Resources.h"
 #include "Settings.h"
+#include "resource.h"
 
 #include <algorithm>
 #include <array>
@@ -1653,13 +1655,27 @@ namespace
     return false;
 }
 
-void FormatNotice(wchar_t* text, size_t capacity, const wchar_t* format, const char* first, const char* second = nullptr) noexcept
+void FormatNotice(wchar_t* text, size_t capacity, UINT stringId, const char* first, const char* second) noexcept
 {
     std::array<wchar_t, 129> wideFirst{};
     std::array<wchar_t, 129> wideSecond{};
     (void)MultiByteToWideChar(CP_UTF8, 0, first ? first : "", -1, wideFirst.data(), static_cast<int>(wideFirst.size()));
     (void)MultiByteToWideChar(CP_UTF8, 0, second ? second : "", -1, wideSecond.data(), static_cast<int>(wideSecond.size()));
-    (void)StringCchPrintfW(text, capacity, format, wideFirst.data(), wideSecond.data());
+    const auto pattern = RedXeResources::LoadEmbeddedStringResourceView(nullptr, stringId);
+    if (pattern.empty())
+        return;
+
+    try
+    {
+        const std::wstring_view actionNamespace{wideFirst.data()};
+        const std::wstring_view publisher{wideSecond.data()};
+        const auto message = std::vformat(pattern, std::make_wformat_args(actionNamespace, publisher));
+        (void)StringCchCopyW(text, capacity, message.c_str());
+    }
+    catch (...)
+    {
+        (void)StringCchCopyNW(text, capacity, pattern.data(), pattern.size());
+    }
 }
 } // namespace
 
@@ -1781,8 +1797,7 @@ void PluginHost::ReadActionContract(ModuleSlot& slot, const char* pluginId) noex
                 publisher.spec  = &spec;
                 publisher.state = ActionPublisherState::Missing;
                 std::array<wchar_t, kActionNoticeCharacters> text{};
-                FormatNotice(
-                    text.data(), text.size(), L"Action namespace \"%s\" is not provided by %s; its bindings are disabled.", spec.actionNamespace, pluginId);
+                FormatNotice(text.data(), text.size(), IDS_ACTION_NAMESPACE_MISSING, spec.actionNamespace, pluginId);
                 AddActionNotice(text.data());
                 (void)RedXeHostLog(Interface(),
                                    RedXeLogLevelError,
@@ -1834,7 +1849,7 @@ void PluginHost::ReadActionContract(ModuleSlot& slot, const char* pluginId) noex
                 _publishers[index].spec  = &spec;
                 _publishers[index].state = ActionPublisherState::Unavailable;
                 std::array<wchar_t, kActionNoticeCharacters> text{};
-                FormatNotice(text.data(), text.size(), L"Actions \"%s.*\" are unavailable: %s published an invalid contract.", spec.actionNamespace, pluginId);
+                FormatNotice(text.data(), text.size(), IDS_ACTION_INVALID_CONTRACT, spec.actionNamespace, pluginId);
                 AddActionNotice(text.data());
             }
         }
@@ -1846,7 +1861,7 @@ void PluginHost::ReadActionContract(ModuleSlot& slot, const char* pluginId) noex
         std::array<wchar_t, kActionNoticeCharacters> text{};
         if (HostActionCatalog::IsDefaultNamespace(entry.name))
         {
-            FormatNotice(text.data(), text.size(), L"Action namespace \"%s\" is published by both RedXe and %s; only RedXe is used.", entry.name, pluginId);
+            FormatNotice(text.data(), text.size(), IDS_ACTION_BUILTIN_COLLISION, entry.name, pluginId);
             AddActionNotice(text.data());
             (void)RedXeHostLog(Interface(),
                                RedXeLogLevelError,
@@ -1859,7 +1874,7 @@ void PluginHost::ReadActionContract(ModuleSlot& slot, const char* pluginId) noex
         PublisherSlot* publisher = FindPublisher(entry.name);
         if (! publisher)
         {
-            FormatNotice(text.data(), text.size(), L"Action namespace \"%s\" from %s is not registered and is ignored.", entry.name, pluginId);
+            FormatNotice(text.data(), text.size(), IDS_ACTION_NAMESPACE_UNKNOWN, entry.name, pluginId);
             AddActionNotice(text.data());
             (void)RedXeHostLog(Interface(),
                                RedXeLogLevelError,
@@ -1871,12 +1886,7 @@ void PluginHost::ReadActionContract(ModuleSlot& slot, const char* pluginId) noex
         }
         if (! RedXeAsciiEqualsIgnoreCase(publisher->spec->pluginId, pluginId))
         {
-            FormatNotice(text.data(),
-                         text.size(),
-                         L"Action namespace \"%s\" is published by both %s and another module; only the registered "
-                         L"publisher is used.",
-                         entry.name,
-                         pluginId);
+            FormatNotice(text.data(), text.size(), IDS_ACTION_PUBLISHER_COLLISION, entry.name, pluginId);
             AddActionNotice(text.data());
             (void)RedXeHostLog(Interface(),
                                RedXeLogLevelError,
@@ -1898,8 +1908,7 @@ void PluginHost::ReadActionContract(ModuleSlot& slot, const char* pluginId) noex
             publisher.spec  = &spec;
             publisher.state = ActionPublisherState::Missing;
             std::array<wchar_t, kActionNoticeCharacters> text{};
-            FormatNotice(
-                text.data(), text.size(), L"Action namespace \"%s\" is not provided by %s; its bindings are disabled.", spec.actionNamespace, pluginId);
+            FormatNotice(text.data(), text.size(), IDS_ACTION_NAMESPACE_MISSING, spec.actionNamespace, pluginId);
             AddActionNotice(text.data());
             (void)RedXeHostLog(Interface(),
                                RedXeLogLevelError,
@@ -1928,7 +1937,7 @@ HRESULT PluginHost::EnsurePublisherContract(PublisherSlot& slot) noexcept
     {
         slot.state = ActionPublisherState::Unavailable;
         std::array<wchar_t, kActionNoticeCharacters> text{};
-        FormatNotice(text.data(), text.size(), L"Actions \"%s.*\" are unavailable: %s could not be loaded.", slot.spec->actionNamespace, slot.spec->pluginId);
+        FormatNotice(text.data(), text.size(), IDS_ACTION_MODULE_LOAD_FAILED, slot.spec->actionNamespace, slot.spec->pluginId);
         AddActionNotice(text.data());
         (void)RedXeHostLog(Interface(),
                            RedXeLogLevelError,
@@ -2011,11 +2020,7 @@ HRESULT PluginHost::EnsurePublisherExecutor(PublisherSlot& slot, IRedXeActionPac
         {
             slot.state = ActionPublisherState::Unavailable;
             std::array<wchar_t, kActionNoticeCharacters> text{};
-            FormatNotice(text.data(),
-                         text.size(),
-                         L"Actions \"%s.*\" are unavailable: %s could not create its executor.",
-                         slot.spec->actionNamespace,
-                         slot.spec->pluginId);
+            FormatNotice(text.data(), text.size(), IDS_ACTION_EXECUTOR_FAILED, slot.spec->actionNamespace, slot.spec->pluginId);
             AddActionNotice(text.data());
             (void)RedXeHostLog(Interface(),
                                RedXeLogLevelError,
