@@ -4,6 +4,8 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Include host smoke tests when their shared test executable changes.
+- Update the restore validation to verify both standard and AddressSanitizer triplet sources.
 - Add a root restore command for the pinned RedXe and DxUi dependencies on x64 and ARM64.
 - Restore and link instrumented vcpkg dependencies in each ASan Debug architecture.
 - Keep the ten newest new RedXe crash reports and stack files and claim the restart notice once. Legacy reports stay available.
