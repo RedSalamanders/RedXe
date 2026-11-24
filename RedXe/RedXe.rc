@@ -2,6 +2,8 @@
 #include "../Common/Version.h"
 #include <windows.h>
 
+#pragma code_page(65001)
+
 IDI_REDXE ICON "assets\\redxe-xenon.ico"
 
 VS_VERSION_INFO VERSIONINFO
@@ -35,4 +37,39 @@ BEGIN
     BEGIN
         VALUE "Translation", 0x0409, 1200
     END
+END
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+IDR_TRAY_MENU MENU
+BEGIN
+    POPUP "RedXe"
+    BEGIN
+        MENUITEM "&Edit settings", IDM_TRAY_EDIT_SETTINGS
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit", IDM_TRAY_EXIT
+    END
+END
+
+STRINGTABLE
+BEGIN
+    IDS_PRODUCT_TITLE "RedXe"
+    IDS_WINDOW_TITLE "RedXe — CORSAIR XENEON"
+    IDS_WINDOW_SETTINGS "RedXe settings"
+    IDS_WINDOW_SETTINGS_ERROR "RedXe settings error"
+    IDS_WINDOW_ACTION_NOTICE "RedXe action notice"
+    IDS_COMMAND_LINE_TITLE "RedXe command line"
+    IDS_BUTTON_OK "OK"
+    IDS_TRAY_TOOLTIP_DEBUG "RedXe (Debug)"
+    IDS_XENEON_MISSING_TITLE "RedXe — XENEON display missing"
+    IDS_XENEON_MISSING_PROMPT "A CORSAIR XENEON display was not found.\n\nDo you want to display RedXe anyway in a standard window with a title bar?"
+    IDS_PREVIOUS_CRASH_TITLE "RedXe — previous crash detected"
+    IDS_PREVIOUS_CRASH_PROMPT "RedXe ended unexpectedly during its previous run. Open the crash folder?"
+    IDS_PREVIOUS_CRASH_WITH_PATH "RedXe ended unexpectedly during its previous run. A diagnostic minidump and call-stack report were saved beside each other at:\n\n{0}\n\nOpen the crash folder?"
+    IDS_EXIT_STARTUP_FAILED "RedXe could not start. See the debugger output."
+    IDS_EXIT_SETTINGS_FAILED "RedXe could not load settings. See the debugger output."
+    IDS_EXIT_WINDOW_FAILED "RedXe could not create its window. See the debugger output."
+    IDS_EXIT_PLUGINS_FAILED "RedXe could not initialize bundled plugins. See the debugger output."
+    IDS_EXIT_RENDERER_FAILED "RedXe could not complete graphics initialization or rendering. See the debugger output."
+    IDS_EXIT_WATCHER_FAILED "RedXe could not watch its settings file. See the debugger output."
 END

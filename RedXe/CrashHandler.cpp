@@ -1,4 +1,6 @@
 #include "CrashHandler.h"
+#include "Common/Resources.h"
+#include "resource.h"
 
 #include <algorithm>
 #include <array>
@@ -790,21 +792,11 @@ void ShowPreviousCrashUiIfPresent(HWND ownerWindow) noexcept
         return;
     }
 
-    wchar_t message[2048]{};
-    if (dumpPath[0] != L'\0')
-    {
-        static_cast<void>(StringCchPrintfW(message,
-                                           std::size(message),
-                                           L"RedXe ended unexpectedly during its previous run. A diagnostic minidump "
-                                           L"and call-stack report were saved beside each other at:\n\n%s\n\nOpen the crash folder?",
-                                           dumpPath));
-    }
-    else
-    {
-        static_cast<void>(StringCchCopyW(message, std::size(message), L"RedXe ended unexpectedly during its previous run. Open the crash folder?"));
-    }
-
-    const int choice = MessageBoxW(ownerWindow, message, L"RedXe — previous crash detected", MB_YESNO | MB_ICONERROR | MB_DEFBUTTON2 | MB_SETFOREGROUND);
+    constexpr UINT flags = MB_YESNO | MB_ICONERROR | MB_DEFBUTTON2 | MB_SETFOREGROUND;
+    const int choice     = dumpPath[0] == L'\0'
+                               ? RedXeResources::MessageBoxResource(ownerWindow, nullptr, IDS_PREVIOUS_CRASH_PROMPT, IDS_PREVIOUS_CRASH_TITLE, flags)
+                               : RedXeResources::MessageBoxResource(
+                                     ownerWindow, nullptr, IDS_PREVIOUS_CRASH_WITH_PATH, IDS_PREVIOUS_CRASH_TITLE, flags, std::wstring_view(dumpPath));
     if (choice == IDYES)
     {
         static_cast<void>(ShellExecuteW(ownerWindow, L"open", g_crashDirectory, nullptr, nullptr, SW_SHOWNORMAL));

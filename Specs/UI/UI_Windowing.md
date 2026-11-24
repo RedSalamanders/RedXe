@@ -19,6 +19,17 @@ is the [CORSAIR XENEON EDGE product specification](https://www.corsair.com/newsr
 
 The terms **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 
+## Native chrome resources
+
+The main and dock captions, notice captions and button, shell tooltip, static tray menu, and the startup and
+previous-crash prompts use the embedded UTF-8 resources in `RedXe/RedXe.rc`. The English base strings have stable
+IDs in `RedXe/resource.h`. The tray menu keeps its two command IDs and the default Edit settings action. Standard
+Win32 controls receive their accessible names from their resource-backed labels.
+
+Use `Common/Resources.h` to load or format the resource. Dynamic diagnostics and paths enter as values. Formatted
+strings use explicit positional arguments. `validate.ps1` checks base IDs, source argument order and matching
+placeholder signatures in any added satellite.
+
 ## Process DPI contract
 
 - The application MUST run as Per-Monitor-V2 DPI aware. `app.manifest` is the persistent declaration and process

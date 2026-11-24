@@ -1,6 +1,7 @@
 #include "Application.h"
 #include "AccessibilityHost.h"
 #include "Actions/ActionTargets.h"
+#include "Common/Resources.h"
 #include "HostActionCatalog.h"
 #include "HostActions.h"
 #include "PointerCancellation.h"
@@ -838,7 +839,8 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     }
     if (_settingsStore.UsedInitialFallback() && ! _unattended)
     {
-        MessageBoxW(nullptr, _settingsStore.InitialNotice().c_str(), L"RedXe settings", MB_OK | MB_ICONERROR);
+        const auto title = RedXeResources::LoadStringResource(_instance, IDS_WINDOW_SETTINGS);
+        MessageBoxW(nullptr, _settingsStore.InitialNotice().c_str(), title.c_str(), MB_OK | MB_ICONERROR);
     }
     else if (_settingsStore.UsedInitialFallback())
     {
@@ -899,11 +901,8 @@ int Application::Run(int showCommand, std::wstring_view settingsPath) noexcept
     {
         // Owned by UI_Windowing.md: Release prompts for a windowed fallback, Debug never does, and an
         // unattended run takes the fallback window without asking.
-        const int choice = MessageBoxW(nullptr,
-                                       L"A CORSAIR XENEON display was not found.\n\nDo you want to display RedXe anyway in a standard "
-                                       L"window with a title bar?",
-                                       L"RedXe \u2014 XENEON display missing",
-                                       MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND);
+        const int choice = RedXeResources::MessageBoxResource(
+            nullptr, _instance, IDS_XENEON_MISSING_PROMPT, IDS_XENEON_MISSING_TITLE, MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND);
         if (choice != IDYES)
         {
             return 0;
@@ -1724,8 +1723,8 @@ HRESULT Application::CreateMainWindow(bool visible, const RECT* targetBounds, bo
         height = windowSize.cy;
     }
 
-    const HWND window =
-        CreateWindowExW(extendedStyle, kWindowClassName, L"RedXe — CORSAIR XENEON", windowStyle, x, y, width, height, nullptr, nullptr, _instance, this);
+    const auto title  = RedXeResources::LoadStringResource(_instance, IDS_WINDOW_TITLE);
+    const HWND window = CreateWindowExW(extendedStyle, kWindowClassName, title.c_str(), windowStyle, x, y, width, height, nullptr, nullptr, _instance, this);
     if (! window)
     {
         return HRESULT_FROM_WIN32(GetLastError());
@@ -1811,9 +1810,10 @@ HRESULT Application::CreateDockWindow(bool visible) noexcept
 
     constexpr DWORD extendedStyle = kDockExtendedStyle;
     constexpr DWORD windowStyle   = kPopupWindowStyle;
+    const auto title              = RedXeResources::LoadStringResource(_instance, IDS_WINDOW_TITLE);
     const HWND window             = CreateWindowExW(extendedStyle,
                                                     kWindowClassName,
-                                                    L"RedXe — CORSAIR XENEON",
+                                                    title.c_str(),
                                                     windowStyle,
                                                     initial.left,
                                                     initial.top,
@@ -3989,7 +3989,8 @@ void Application::ShowActionNotices() noexcept
         (void)SetWindowTextW(GetDlgItem(_actionNoticeDialog, kNoticeTextControlId), text.data());
         return;
     }
-    _actionNoticeDialog = CreateNoticeWindow(WS_EX_TOOLWINDOW, L"RedXe action notice", text.data());
+    const auto title    = RedXeResources::LoadStringResource(_instance, IDS_WINDOW_ACTION_NOTICE);
+    _actionNoticeDialog = CreateNoticeWindow(WS_EX_TOOLWINDOW, title.c_str(), text.data());
 }
 
 HRESULT Application::HandleHostAction(std::string_view action, std::string_view target) noexcept
@@ -5914,20 +5915,21 @@ HWND Application::CreateNoticeWindow(DWORD extendedStyle, const wchar_t* title, 
         return nullptr;
     }
     // The controls follow the client area, which the caption, the frame, and a work area that cut the window shrink.
-    const HWND label = CreateWindowExW(0,
-                                       L"STATIC",
-                                       text,
-                                       WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL,
-                                       0,
-                                       0,
-                                       0,
-                                       0,
-                                       notice,
-                                       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNoticeTextControlId)),
-                                       _instance,
-                                       nullptr);
-    const HWND button =
-        CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, notice, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
+    const HWND label           = CreateWindowExW(0,
+                                                 L"STATIC",
+                                                 text,
+                                                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_EDITCONTROL,
+                                                 0,
+                                                 0,
+                                                 0,
+                                                 0,
+                                                 notice,
+                                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNoticeTextControlId)),
+                                                 _instance,
+                                                 nullptr);
+    const auto acknowledgement = RedXeResources::LoadStringResource(_instance, IDS_BUTTON_OK);
+    const HWND button          = CreateWindowExW(
+        0, L"BUTTON", acknowledgement.c_str(), WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0, 0, 0, 0, notice, reinterpret_cast<HMENU>(IDOK), _instance, nullptr);
     LayoutNoticeControls(notice);
     const HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
     if (label)
@@ -5952,7 +5954,8 @@ void Application::ShowSettingsError(std::wstring_view message) noexcept
                 SetWindowTextW(text, std::wstring(message).c_str());
             return;
         }
-        _settingsErrorDialog = CreateNoticeWindow(WS_EX_DLGMODALFRAME, L"RedXe settings error", std::wstring(message).c_str());
+        const auto title     = RedXeResources::LoadStringResource(_instance, IDS_WINDOW_SETTINGS_ERROR);
+        _settingsErrorDialog = CreateNoticeWindow(WS_EX_DLGMODALFRAME, title.c_str(), std::wstring(message).c_str());
         if (! _settingsErrorDialog)
         {
             return;
