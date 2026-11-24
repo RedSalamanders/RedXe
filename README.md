@@ -47,6 +47,9 @@ project intentionally matches the `v145` toolchain and pinned-vcpkg model used b
 # Change only the pin when RedXe validation already passed in another environment
 .\Update-DxUi.ps1 -UpdateOnly
 
+# Run the compiler-free pull request validation
+.\validate.ps1
+
 # Validate all repository-local Codex skills
 # PowerShell 7; no Python or pip packages required
 .\validate-skills.ps1
@@ -195,6 +198,7 @@ winget-manifest.ps1   Winget manifest generation and validation
 restore-dxui.ps1      Restore the pinned DxUi source and build its dependencies (build.ps1 runs it)
 Update-DxUi.ps1       Update the validated DxUi pin, optionally without local validation
 format.ps1            Format with the CI formatter; -Check verifies without writing
+validate.ps1          Run the compiler-free pull request validation
 validate-skills.ps1   Validate every repository-local skill
 Directory.Build.props Shared MSBuild output and compiler defaults
 vcpkg-install.ps1     Pinned dependency bootstrap and manifest install
