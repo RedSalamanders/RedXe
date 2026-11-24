@@ -189,6 +189,7 @@ Codex, Windows Terminal, redirected, or non-interactive hosts it MUST capture an
 progress remains visible, coloring errors red, warnings yellow, and completed project outputs green without adding
 terminal control sequences to the captured log. Every MSBuild invocation MUST write a uniquely named UTF-8 plain-text
 log beneath `.build/logs/`, report diagnostic counts, and finish with its elapsed time and success or failure signal.
+The direct MSBuild file logger includes its final diagnostic summary.
 
 `Tests/BuildProcessTests/BuildProcessTests.ps1` MUST launch two harmless same-name fixture processes from distinct
 paths, prove that the exact target blocks the build with identifying diagnostics, prove that both processes survive,

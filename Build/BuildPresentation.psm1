@@ -90,7 +90,7 @@ function Get-RedXeBuildFileLoggerArguments {
     $resolvedLogPath = [IO.Path]::GetFullPath($LogPath)
     return @(
         '/fl',
-        "/flp:Verbosity=minimal;LogFile=$resolvedLogPath;Encoding=UTF-8"
+        "/flp:Verbosity=minimal;LogFile=$resolvedLogPath;Encoding=UTF-8;Summary"
     )
 }
 

@@ -1,0 +1,1 @@
+- Include the diagnostic footer in the direct MSBuild UTF-8 log.
