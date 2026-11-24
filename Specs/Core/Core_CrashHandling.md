@@ -95,17 +95,19 @@ nested message loop.
 
 ## Deterministic crash harness
 
-`--crash-test` MUST raise a non-continuable application exception after handler installation and before application
-or plugin initialization. `--crash-test-stack-overflow` MUST exhaust the main-thread stack to produce
-`0xC00000FD` through that same production boundary. Both probes require `--crash-test-directory=<absolute-path>` naming an existing isolated
-directory within the build root. Missing, invalid, out-of-scope and reparse destinations MUST fail before the deliberate
-fault. Help, probes and unattended self-tests and captures never enable the interactive crash store.
+`--crash-probe <directory>` MUST raise a non-continuable application exception after handler installation and before
+application or plugin initialization. `--crash-test` remains available for existing callers.
+`--crash-test-stack-overflow` MUST exhaust the main-thread stack to produce `0xC00000FD` through that same production
+boundary. Both legacy switches require `--crash-test-directory=<absolute-path>`. Use one probe form per invocation.
+The supplied path MUST name an existing isolated directory within the build root. Missing, invalid, out-of-scope and
+reparse destinations MUST fail before the deliberate fault. Help, probes and unattended self-tests and captures
+never enable the interactive crash store.
 
 The repository test entrypoint MUST launch each crash mode, and the invalid-override case, through its bounded child
 runner (`Invoke-RedXeStreamingProcess`, [`Build_Process.md`](../Build/Build_Process.md)) with a time budget and a log
 under `.build/<Platform>/<Configuration>/`. The runner's job keeps Windows Error Reporting's dialog away, so a crash
 path that stops handling its exception ends the run at once instead of holding it. Each crash mode writes into its own
-unique directory beneath `.build`, and the entrypoint then verifies all of the following for both modes:
+unique directory beneath `.build`. The entry point verifies these results for the shared, legacy and stack-overflow forms.
 
 - the process exits through the top-level fatal boundary with the documented nonzero crash exit code (127);
 - exactly one non-empty `.dmp` exists, starts with the `MDMP` signature, and has a non-empty in-bounds stream
@@ -113,12 +115,11 @@ unique directory beneath `.build`, and the entrypoint then verifies all of the f
 - exactly one sibling UTF-16 `.txt` report exists and contains the deliberate exception code, the identifier of the
   process the runner started, the thread identifier, a `Callstack` section, at least one numbered address frame, and a
   positive bounded frame count;
-- `last_crash.txt` exists and identifies that dump; and
-- the isolated crash directory is removed after validation.
+- `last_crash.txt` exists and identifies that dump.
 
 The normal mode report MUST contain `0xE000CAFE`. The stack-exhaustion report MUST contain `0xC00000FD`. The harness
-MUST use process launch and filesystem inspection only. It MUST NOT require interactive desktop control, touch the
-normal `%LOCALAPPDATA%\RedXe\Crashes` directory, or retain generated crash artifacts.
+MUST use process launch and filesystem inspection only. It MUST NOT require interactive desktop control or touch the
+normal `%LOCALAPPDATA%\RedXe\Crashes` directory. The dump, report and marker remain in local build evidence outside runner artifact uploads.
 
 The console store control exercises retention at zero, ten and eleven owned dumps with matching call-stack reports,
 preserves legacy and unrelated files, and verifies a headless check followed by two ordinary notice claims.

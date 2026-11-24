@@ -65,15 +65,21 @@ bool HasArgument(wchar_t* const* arguments, int argumentCount, std::wstring_view
     value = {};
     for (int index = 1; index < argumentCount; ++index)
     {
-        if (std::wstring_view{arguments[index]} != expected)
+        const auto* entry = RedXeFindSwitch(arguments[index]);
+        if (! entry || entry->valueKind != RedXeSwitchValue::Separate)
         {
             continue;
         }
-        if (! value.empty() || index + 1 >= argumentCount || arguments[index + 1][0] == L'\0')
+        const int valueIndex = index + 1;
+        if (expected == entry->name)
         {
-            return false;
+            if (! value.empty() || valueIndex >= argumentCount || arguments[valueIndex][0] == L'\0')
+            {
+                return false;
+            }
+            value = arguments[valueIndex];
         }
-        value = arguments[++index];
+        ++index;
     }
     return true;
 }
@@ -85,25 +91,36 @@ enum class CrashDirectoryOverrideStatus
     Invalid,
 };
 
-CrashDirectoryOverrideStatus ConfigureCrashTestDirectoryOverride(wchar_t* const* arguments, int argumentCount) noexcept
+CrashDirectoryOverrideStatus ConfigureCrashTestDirectoryOverride(wchar_t* const* arguments, int argumentCount, std::wstring_view probeDirectory) noexcept
 {
-    const std::wstring prefix = std::wstring{RedXeSwitchName(RedXeSwitch::CrashTestDirectory)} + L"=";
     for (int index = 1; index < argumentCount; ++index)
     {
-        const std::wstring_view argument{arguments[index]};
-        if (argument.starts_with(prefix))
+        const auto* entry = RedXeFindSwitch(arguments[index]);
+        if (! entry)
         {
-            const wchar_t* value = arguments[index] + prefix.size();
-            if (value[0] == L'\0')
+            continue;
+        }
+        if (entry->id == RedXeSwitch::CrashTestDirectory)
+        {
+            if (! probeDirectory.empty())
             {
                 return CrashDirectoryOverrideStatus::Invalid;
             }
-
+            const wchar_t* value = arguments[index] + std::wstring_view{entry->name}.size() + 1;
             return SUCCEEDED(CrashHandler::SetCrashDirectoryForTesting(value)) ? CrashDirectoryOverrideStatus::Configured
                                                                                : CrashDirectoryOverrideStatus::Invalid;
         }
+        if (entry->valueKind == RedXeSwitchValue::Separate)
+        {
+            ++index;
+        }
     }
-    return CrashDirectoryOverrideStatus::NotPresent;
+    if (probeDirectory.empty())
+    {
+        return CrashDirectoryOverrideStatus::NotPresent;
+    }
+    return SUCCEEDED(CrashHandler::SetCrashDirectoryForTesting(probeDirectory.data())) ? CrashDirectoryOverrideStatus::Configured
+                                                                                       : CrashDirectoryOverrideStatus::Invalid;
 }
 
 // Command-line text (the `--help` catalog or an argument error) goes to the console this process was started from
@@ -189,8 +206,13 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     // test.ps1 runs the self-test and agents run captures unattended: such a run never waits on a modal box. Its caller
     // reads the exit code, the console or redirected output, and (for a capture) the JSONL log, and a failed Debug
     // check ends it with its report instead of a dialog.
-    const bool screenshotSwitch = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Screenshot));
-    const bool unattended       = RedXeIsUnattendedRun(selfTest, screenshotSwitch);
+    std::wstring_view screenshotPath;
+    std::wstring_view crashProbeDirectory;
+    const bool validCapture     = GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Screenshot), screenshotPath);
+    const bool validCrashProbe  = GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::CrashProbe), crashProbeDirectory);
+    const bool screenshotSwitch = ! validCapture || ! screenshotPath.empty();
+    const bool crashProbe       = ! validCrashProbe || ! crashProbeDirectory.empty();
+    const bool unattended       = RedXeIsUnattendedRun(selfTest, screenshotSwitch) || crashProbe;
     if (unattended)
     {
         RedXeFailureReports::RouteAwayFromDialogs();
@@ -269,16 +291,14 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
     // Documentation capture: --screenshot <png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>] runs
     // the dashboard, jumps to the page, waits, captures its own window (or one tile), and exits (0 with the PNG
     // written, 8 without it).
-    std::wstring_view screenshotPath;
     std::wstring_view screenshotPage;
     std::wstring_view screenshotWidget;
     std::wstring_view screenshotDelay;
-    if (! GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Screenshot), screenshotPath) ||
-        ! GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Page), screenshotPage) ||
+    if (! validCapture || ! GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Page), screenshotPage) ||
         ! GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Widget), screenshotWidget) ||
         ! GetValueArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::After), screenshotDelay))
     {
-        ReportCommandLineError(L"Use --screenshot <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>].", unattended);
+        ReportCommandLineError(L"Use --capture <file.png> [--page <id>] [--widget <ordinal>] [--after <milliseconds>].", unattended);
         return 2;
     }
     uint32_t screenshotDelayMilliseconds = 3000;
@@ -338,9 +358,14 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
             }
         }
     }
-    if (crashTest || stackOverflowCrashTest)
+    if (crashProbe && (! validCrashProbe || crashTest || stackOverflowCrashTest))
     {
-        if (ConfigureCrashTestDirectoryOverride(arguments.get(), argumentCount) != CrashDirectoryOverrideStatus::Configured)
+        ReportCommandLineError(L"Use --crash-probe <directory> once without the legacy crash switches.", unattended);
+        return 2;
+    }
+    if (crashProbe || crashTest || stackOverflowCrashTest)
+    {
+        if (ConfigureCrashTestDirectoryOverride(arguments.get(), argumentCount, crashProbeDirectory) != CrashDirectoryOverrideStatus::Configured)
         {
             OutputDebugStringW(L"The crash-test output directory is invalid.\n");
             return 2;
