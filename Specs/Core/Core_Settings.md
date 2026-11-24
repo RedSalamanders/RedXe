@@ -392,9 +392,10 @@ rename during that time is refused; an atomic replacement, rename, or deletion o
 sharing lets through, makes the persist defer instead of undoing it. Only the instant between that last check and the
 rename stays open. The stamp then recorded is the renamed file's own, read through the temporary's handle before any
 other program can open the file, never a later path query that an editor's save could answer. Where the file system or
-Windows build has no POSIX rename (FAT, exFAT, some network shares), the guard is released right before a classic
-replacement, which defers, as a held file does, when another program opened the file in that moment, and the stamp is
-read by path once the temporary's handle has closed, since such a file system may set the last write time only then. The
+Windows build has no POSIX rename (FAT, exFAT, some network shares), release the guard and check the path again before
+the classic replacement. A completed save that changes the accepted version during that interval defers the persist.
+A program holding the target open at the classic rename also causes a deferral. Read the committed stamp by path
+once the temporary's handle closes, since such a file system may set the last write time only then. The
 guard opens without data access: measured 2026-10-07 on the same SSD with a probe of both write sequences, 300
 interleaved writes of a 24 KB document each, the guarded replacement took a median 3.5 ms (p95 6.7 ms) against 3.3 ms
 (p95 6.3 ms) for the previous unguarded write, while a guard opened for reading data took a median 4.3 ms to open the
@@ -640,9 +641,10 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   save and a POSIX replacement attempted right after the rename both fail with `ERROR_SHARING_VIOLATION`, and the stamp
   recorded is the one the next `TryLoadChanged` sees (`Unchanged`); a POSIX replacement or a deletion while the
   temporary is flushed goes through and the persist defers without overwriting or recreating the file, and an applied
-  load of the replacing document is then written by the next persist; and with the POSIX rename refused, a file another
-  program opened once the guard was released defers the persist, and the classic replacement then commits. No temporary
-  file stays behind in any case.
+  load of the replacing document is then written by the next persist. With POSIX rename refused, test both a file
+  held open and an atomic save completed after the guard releases. Both defer the persist and preserve the pending
+  change and destination bytes. The classic replacement commits once the application accepts the newer version.
+  Each case removes its staging file.
 - Settings tests MUST cover immutable private-object ownership, allocation-free copies and moves, safe moved-from
   views, logical equality across distinct owners, the 4096-byte boundary, last-payload release and concurrent copies
   of a stable value. Payload and shared-owner allocation failures during first assignment, replacement, parsing and

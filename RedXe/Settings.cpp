@@ -1341,6 +1341,10 @@ private:
             g_settingsWriteSeam.checkpoint(SettingsWritePhase::GuardReleased, g_settingsWriteSeam.context);
         }
 #endif
+        if (! stillExpected())
+        {
+            return S_FALSE;
+        }
         result = temporary.Rename(target, false, true);
         if (result == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) || result == E_ACCESSDENIED)
         {
