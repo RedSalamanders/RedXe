@@ -1,1 +1,0 @@
-- Force WARP for the hidden startup test and verify the renderer actually selected it.
