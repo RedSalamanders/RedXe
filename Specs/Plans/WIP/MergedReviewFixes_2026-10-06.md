@@ -230,7 +230,7 @@ setting.
 
 ## Contracts expected to change
 
-`Specs/Core/Core_Settings.md`, `Specs/Settings.schema.json`, `Specs/Plugins/Plugins_Zoom.md`,
+`Specs/Core/Core_Settings.md`, `Specs/SettingsStore.schema.json`, `Specs/Plugins/Plugins_Zoom.md`,
 `Specs/Plugins/Plugins_Logicon.md`, `Specs/Plugins/Plugins_Actions.md`, `Specs/Plugins/Plugins_API.md`,
 `Specs/Plugins/Plugins_AVControl.md`, `Specs/Plugins/Plugins_Weather.md`, `Specs/UI/UI_XeneonDisplayWindowing.md`,
 `Specs/UI/UI_Dashboard.md`, `Specs/Core/Core_PerformanceAndResources.md`, `Specs/Core/Core_CrashHandling.md`,

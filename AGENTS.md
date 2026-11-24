@@ -235,7 +235,7 @@ evaluates nothing; explicit Full (`test.ps1 -Full`) remains the full gate.
   copy dynamic strings into mutable documents.
 - Public COM contracts use `interface __declspec(uuid(...)) __declspec(novtable) Name : IUnknown`. Do not declare
   them with `struct`, and do not use interface inheritance to couple generic widget identity to a rendering mechanism.
-- Keep `Settings/`, `Specs/Settings.schema.json`, `Settings.*`, `Core_Settings.md`, and `SettingsTests` aligned. A
+- Keep `Settings/`, `Specs/SettingsStore.schema.json`, `Settings.*`, `Core_Settings.md`, and `SettingsTests` aligned. A
   settings change is incomplete if any one of these still describes the old document.
 
 ## Interactive desktop tests

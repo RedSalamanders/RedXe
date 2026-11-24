@@ -2768,13 +2768,12 @@ HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexc
 
 [[nodiscard]] HRESULT LoadAppSettingsFileCandidate(std::wstring_view path,
                                                    std::unique_ptr<AppSettings>& settings,
-                                                   SettingsParseDiagnostic* diagnostic = nullptr) noexcept
+                                                   SettingsParseDiagnostic* diagnostic = nullptr,
+                                                   bool* usesLegacySchema              = nullptr) noexcept
 {
     std::vector<char> bytes;
     const HRESULT result = ReadFileBytes(path, bytes);
-    return SUCCEEDED(result) ? (diagnostic ? ParseAppSettingsJsonV5(std::string_view(bytes.data(), bytes.size()), settings, diagnostic)
-                                           : ParseAppSettingsJsonCandidate(std::string_view(bytes.data(), bytes.size()), settings))
-                             : result;
+    return SUCCEEDED(result) ? ParseAppSettingsJsonV5(std::string_view(bytes.data(), bytes.size()), settings, diagnostic, usesLegacySchema) : result;
 }
 
 [[nodiscard]] std::wstring FormatDiagnostic(const SettingsParseDiagnostic& diagnostic) noexcept
@@ -3039,7 +3038,14 @@ HRESULT SettingsStore::Initialize(bool selfTest,
             return result;
         }
 
-        result = LoadAppSettingsFileCandidate(_settingsPath, settings);
+        bool usesLegacySchema = false;
+        result                = LoadAppSettingsFileCandidate(_settingsPath, settings, nullptr, &usesLegacySchema);
+        if (SUCCEEDED(result) && usesLegacySchema)
+        {
+            result = CopyFileAtomically(deployedSchema, settingsDirectory / kRedXeLegacySchemaFileName, true);
+            if (FAILED(result))
+                return result;
+        }
         if (result == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || result == HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE))
         {
             std::filesystem::path backupPath;

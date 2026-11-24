@@ -29,7 +29,8 @@ inline constexpr uint32_t kRedXeSettingsDockAnimationMinor    = 3;
 // Removed with the v3 parser; retained temporarily so the transition remains buildable between slices.
 inline constexpr wchar_t kRedXeDebugSettingsFileName[]   = L"RedXe-debug.settings.json";
 inline constexpr wchar_t kRedXeReleaseSettingsFileName[] = L"RedXe.settings.json";
-inline constexpr wchar_t kRedXeSettingsSchemaFileName[]  = L"RedXe.settings.schema.json";
+inline constexpr wchar_t kRedXeSettingsSchemaFileName[]  = L"SettingsStore.schema.json";
+inline constexpr wchar_t kRedXeLegacySchemaFileName[]    = L"RedXe.settings.schema.json";
 inline constexpr wchar_t kRedXeLogsDirectoryName[]       = L"Logs";
 inline constexpr uint32_t kRedXeDefaultLogRetentionDays  = 15;
 inline constexpr uint32_t kRedXeMinimumLogRetentionDays  = 1;
@@ -400,7 +401,8 @@ enum class SettingsReloadStatus : std::uint8_t
                                              SettingsParseDiagnostic* diagnostic = nullptr) noexcept;
 [[nodiscard]] HRESULT ParseAppSettingsJsonV5(std::string_view json,
                                              std::unique_ptr<AppSettings>& settings,
-                                             SettingsParseDiagnostic* diagnostic = nullptr) noexcept;
+                                             SettingsParseDiagnostic* diagnostic = nullptr,
+                                             bool* usesLegacySchema              = nullptr) noexcept;
 [[nodiscard]] HRESULT ParseAppSettingsJsonDetailed(std::string_view json, AppSettings& settings, SettingsParseDiagnostic& diagnostic) noexcept;
 [[nodiscard]] HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexcept;
 // S_FALSE when the file is missing; the stamp is then unchanged.

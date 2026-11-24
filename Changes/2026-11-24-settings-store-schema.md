@@ -1,0 +1,1 @@
+- Publish `SettingsStore.schema.json` with new settings templates and preserve validation for existing RedXe settings.

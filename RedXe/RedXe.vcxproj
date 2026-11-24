@@ -212,9 +212,9 @@
       <TargetPath>Settings\RedXe.settings.json</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="..\Specs\Settings.schema.json">
-      <Link>Settings\RedXe.settings.schema.json</Link>
-      <TargetPath>Settings\RedXe.settings.schema.json</TargetPath>
+    <None Include="..\Specs\SettingsStore.schema.json">
+      <Link>Settings\SettingsStore.schema.json</Link>
+      <TargetPath>Settings\SettingsStore.schema.json</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

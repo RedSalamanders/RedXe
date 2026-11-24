@@ -16,7 +16,7 @@
   "runtimeFiles": [
     "Settings/RedXe-debug.settings.json",
     "Settings/RedXe.settings.json",
-    "Settings/RedXe.settings.schema.json",
+    "Settings/SettingsStore.schema.json",
     "DxUi.provenance.json"
   ],
   "prose": [
@@ -399,7 +399,7 @@
       "reason": "shipped settings and schema integration"
     },
     {
-      "pattern": "Specs/Settings.schema.json",
+      "pattern": "Specs/SettingsStore.schema.json",
       "scopes": [
         "Settings",
         "HostPlugin",
