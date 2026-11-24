@@ -1,1 +1,0 @@
-- Bind the root RedMonitor client commands to the producer-owned tooling hashes recorded in the existing lock.
