@@ -1,1 +1,0 @@
-- Check the accepted settings version again after releasing the guard for a classic rename, preserving completed external saves.
