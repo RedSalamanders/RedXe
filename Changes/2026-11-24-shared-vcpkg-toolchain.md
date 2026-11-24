@@ -1,0 +1,1 @@
+- Use the pinned shared toolchain and manifest arguments for the application vcpkg restore.
