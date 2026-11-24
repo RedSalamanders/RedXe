@@ -1,1 +1,0 @@
-- Validate RedXe skills, guidance and plan indexes with the pinned shared CI engine.
