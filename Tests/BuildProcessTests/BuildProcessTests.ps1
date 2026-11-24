@@ -202,7 +202,7 @@ try {
         -UseInteractiveTerminal $true `
         -LogPath $planLogPath `
         -Environment @{ PLAIN_CONSOLE = '1' }
-    $expectedLoggerArgument = "/flp:Verbosity=minimal;LogFile=$([IO.Path]::GetFullPath($planLogPath));Encoding=UTF-8"
+    $expectedLoggerArgument = "/flp:Verbosity=minimal;LogFile=$([IO.Path]::GetFullPath($planLogPath));Encoding=UTF-8;Summary"
     if (-not $plainConsolePlan.UseDirectConsole -or
         @($plainConsolePlan.AdditionalArguments).Count -ne 2 -or
         $plainConsolePlan.AdditionalArguments[0] -ne '/fl' -or
