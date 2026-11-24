@@ -1,1 +1,0 @@
-- Declare Windows 11 build 22000.2600 as the minimum for RedXe WinGet packages.

@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Declare Windows 11 build 22000.2600 as the minimum for RedXe WinGet packages.
 - Include the diagnostic footer in the direct MSBuild UTF-8 log.
 - Adopt the shared hosted MSVC action and pinned formatting and repository policy checks.
 - Moved the build profile out of the 32 project files into `Directory.Build.props`: the toolset (`v145`), the
