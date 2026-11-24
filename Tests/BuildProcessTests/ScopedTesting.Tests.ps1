@@ -54,7 +54,7 @@ try {
     Run-Case 'unmapped executable input widens to every scope' {$plan=Get-ScopedTestPlan $manifest @('Unknown/new.cpp');Assert-Scope $plan.full 'Fallback was narrowed'}
 
     Run-Case 'isolated skill package checks select only tooling without narrowing shared build policy' {
-        foreach($path in @('Build/SkillPackageIntegrity.psm1','Build/SkillText.psm1','Build/SkillValidation.psm1','Tests/BuildProcessTests/SkillPackageIntegrity.Tests.ps1','Tests/BuildProcessTests/SkillValidation.Tests.ps1')) {
+        foreach($path in @('validate-skills.ps1','Tools/Test-AgentGuidance.ps1')) {
             $plan=Get-ScopedTestPlan $manifest @($path)
             Assert-Scope (($plan.scopes -join ',') -ceq 'BuildProcess') "Independent package input widened coverage: $path"
             Assert-Scope (@($manifest.rules | Where-Object {$_.pattern -ceq $path -and $_.PSObject.Properties['exclusive'] -and $_.exclusive}).Count -eq 1) "The exception for $path is not one exclusive manifest rule"
@@ -106,7 +106,7 @@ try {
         foreach($consumer in @('Settings','PluginContract','HostPlugin','HostSmoke','Packaging')) {Assert-Scope ($consumer -in $project.scopes) "A test project edit omitted $consumer"}
         Assert-Scope (-not $project.full) 'A test project edit fell back to every scope'
         Assert-Scope (((Get-ScopedTestPlan $manifest @('Tests/SettingsTests/SettingsTests.vcxproj.filters')).scopes -join ',') -eq 'Settings') 'An IDE-only filters edit left its own suite'
-        foreach($path in @('.agents/skills/yyjson/agents/openai.yaml','validate-skills.ps1','Build/SkillValidation.psm1')) {
+        foreach($path in @('.agents/skills/yyjson/agents/openai.yaml','validate-skills.ps1','Tools/Test-AgentGuidance.ps1')) {
             $plan=Get-ScopedTestPlan $manifest @($path)
             Assert-Scope (($plan.scopes -join ',') -eq 'BuildProcess') "Skill tooling input $path selected $($plan.scopes -join ', ')"
         }

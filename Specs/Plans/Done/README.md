@@ -37,3 +37,34 @@ plan instead.
 - [Hosted MSVC setup followup](MsvcHostedSetup_2026-10-27.md) - explicit GUI completion, exact tool checks, diagnostic retention and passing local tooling; hosted delivery limits remain explicit.
 
 - [Verified hosted MSBuild selection](MsvcHostedSelection_2026-10-27.md) - tested setup-to-build handoff, older ambient counterfactual and strict missing-tool/read-only controls.
+
+## Earlier archived records
+
+- [Application and plugin review fixes](ApplicationPluginReviewFixes_2026-09-05.md)
+- [Done: Crash handling implementation](CrashHandling_2026-08-31.md)
+- [Done: Normalize plugin, page, and grid dashboard settings](DashboardSettingsNormalization_2026-08-31.md)
+- [Done: Desk Clock Direct3D split-flap plugin](DeskClock_Direct3DPlugin_2026-08-31.md)
+- [Desk Clock DirectWrite typography refinement](DeskClock_DirectWriteTypography_2026-09-01.md)
+- [DxUi adoption and build matrix (I19 consumer slice)](DxUiAdoption_2026-09-09.md)
+- [Launcher import and settings formatting](LauncherImportAndSettingsFormatting_2026-09-05.md)
+- [Done: Launcher plugin](LauncherPlugin_2026-09-04.md)
+- [Done: Matrix Rain Direct3D plugin](MatrixRain_Direct3DPlugin_2026-08-31.md)
+- [Mouse edge page navigation](MouseEdgePageNavigation_2026-09-03.md)
+- [Native plugin interface consolidation](PluginInterfaceConsolidation_2026-09-01.md)
+- [PowerShell tooling migration](PowerShellTooling_2026-10-28.md)
+- [RFC: Human-first RedXe settings schema version 4](RFC_Core_SettingsSchema.md)
+- [RFC: Remaining plugin-dashboard architecture decisions](RFC_Plugins_XeneonDashboardArchitecture.md)
+- [Done: Runtime efficiency and Windows shell identity](RuntimeEfficiencyAndShellIdentity_2026-08-31.md)
+- [Done: Studio Clock Direct3D plugin](StudioClock_Direct3DPlugin_2026-08-31.md)
+- [Done: Studio Clock external dots and date spacing](StudioClock_ExternalDotsAndDateSpacing_2026-09-01.md)
+- [Done: Studio Clock overlay alignment](StudioClock_OverlayAlignment_2026-09-01.md)
+- [Done: Studio Clock reference fidelity](StudioClock_ReferenceFidelity_2026-09-01.md)
+- [System data metrics expansion](SystemDataMetricsExpansion_2026-09-01.md)
+- [System data expansion — native information-class matrix](SystemDataMetricsExpansion_NativeClassMatrix.md)
+- [System data expansion — Phase 0 evidence](SystemDataMetricsExpansion_Phase0Evidence.md)
+- [System data native layouts and modern accelerators](SystemDataNativeLayoutsAndAccelerators_2026-09-03.md)
+- [System data source, host provider, and process viewer](SystemDataPlugin_2026-08-31.md)
+- [Done: System Data viewers in Process Viewer](SystemDataViewers_2026-09-02.md)
+- [Weather layout and location corrections](WeatherLayoutAndLocation_2026-09-05.md)
+- [Weather location fallbacks](WeatherLocationFallbacks_2026-09-05.md)
+- [Done: raised widget overlay](WidgetRaiseOverlay_2026-09-02.md)

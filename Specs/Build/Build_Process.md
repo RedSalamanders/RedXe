@@ -392,24 +392,8 @@ The native build policy adopted a DxUi API4 maintenance commit; `Dependencies/Dx
 
 ## Repository skill validation
 
-`validate-skills.ps1` uses the local `Build/SkillValidation.psm1` on PowerShell 7. No Python,
-pip package, external YAML module or developer Codex installation is required. The routine CI tooling
-job runs the same validator and behavioral fixtures once; native jobs retain their independent coverage.
+`validate-skills.ps1` checks the changelog and calls the pinned shared guidance validator. The independent
+tooling runner and compiler-free CI use the same command. See the [skill package contract](Build_SkillPackages.md)
+for ownership, scope selection and fixtures.
 
-The supported front matter is an explicit YAML subset: exact top-level keys `name`, `description`,
-`license`, `allowed-tools` and `metadata`; plain, single-quoted or JSON-compatible double-quoted scalars;
-two-space-indented literal (`|`) and folded (`>`) block scalars with optional `-`/`+` chomping; comments;
-and a one-level, two-space-indented scalar mapping for `metadata`. Duplicate keys, flow collections,
-tags, anchors, aliases, arbitrary nesting and unsupported syntax fail validation. Required strings retain
-YAML 1.1 scalar-type rejection, exact folder/name identity, 64/1024-character limits and nonempty
-instructions. Description TODO placeholders and standalone body TODO placeholders outside Markdown
-backtick/tilde fences fail. This is a deliberate restricted grammar, not general YAML compatibility.
-Quoted scalar strings remain strings even when they contain ISO timestamps. Hidden skill directories receive
-the same metadata validation as visible packages; package admission runs before their metadata is opened.
-Date/timestamp type rejection matches the complete scalar; date-prefixed ordinary description prose remains a string.
-
-`Tests/BuildProcessTests/SkillValidation.Tests.ps1` covers valid and malformed metadata, Unicode,
-CRLF, multiline values, boundaries, fenced examples and aggregate failures. Its parser fixtures run in
-memory and its small aggregate fixtures stay under repository `.build`. Python is not discovered or
-included in tooling receipt identity. Historical measurement scripts remain reproduction artifacts;
-manual source generators and upstream dependency tools retain their separate prerequisites.
+Manual source generators, historical measurement reproductions and upstream tools retain their prerequisites.
