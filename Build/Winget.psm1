@@ -3,14 +3,12 @@ $ErrorActionPreference = 'Stop'
 
 # Winget manifest generation and validation. See Specs/Build/Build_Packaging.md.
 
-$script:WingetPackageIdentifier = 'RedSalamanders.RedXe'
-$script:WingetTemplateNames = @(
-    'RedSalamanders.RedXe.yaml',
-    'RedSalamanders.RedXe.installer.yaml',
-    'RedSalamanders.RedXe.locale.en-US.yaml'
-)
+$script:WingetManifestSuffixes = @('.yaml', '.installer.yaml', '.locale.en-US.yaml')
 
-function Get-RedXeWingetPackageIdentifier { $script:WingetPackageIdentifier }
+function Get-RedXeWingetPackageIdentifier {
+    $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../.ci/project.json') -Raw | ConvertFrom-Json
+    return $manifest.winget.identifier
+}
 
 function Resolve-RedXeWingetZip {
     param([Parameter(Mandatory)][string] $Path, [Parameter(Mandatory)][string] $ExpectedName, [Parameter(Mandatory)][string] $Label)
@@ -23,7 +21,7 @@ function Resolve-RedXeWingetZip {
 
 <#
 .SYNOPSIS
-Writes the three-file winget manifest for one release from the repository templates.
+Writes the three-file WinGet manifest from the project configuration and the two portable ZIPs.
 .DESCRIPTION
 The x64 and ARM64 portable ZIPs are both required: winget selects the native package per machine. Their names must
 match the release asset names exactly, because the InstallerUrl is derived from the version. ReleaseDate defaults to
@@ -44,41 +42,41 @@ function New-RedXeWingetManifest {
     if ($parsed.Build -le 0) { throw "A published version needs a positive build number (got $($parsed.Version)); pass -BuildNumber to build.ps1/package.ps1." }
     $Version = $parsed.Version
     if (-not $ReleaseDate) { $ReleaseDate = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd') }
-    $date = [datetime]::MinValue
-    if ($ReleaseDate -notmatch '^\d{4}-\d{2}-\d{2}$' -or
-        -not [datetime]::TryParseExact($ReleaseDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref] $date)) {
-        throw "ReleaseDate must be yyyy-MM-dd: '$ReleaseDate'"
-    }
 
     $x64 = Resolve-RedXeWingetZip -Path $X64ZipPath -ExpectedName (Get-RedXePackageName -Version $Version -Platform x64) -Label 'x64'
     $arm64 = Resolve-RedXeWingetZip -Path $Arm64ZipPath -ExpectedName (Get-RedXePackageName -Version $Version -Platform ARM64) -Label 'ARM64'
     if (-not $OutputDirectory) { $OutputDirectory = Join-Path $RepoRoot ".build\packages\winget-manifest\$Version" }
-    [void](New-Item -ItemType Directory -Path $OutputDirectory -Force)
-
-    $replacements = [ordered]@{
-        '{VERSION}' = $Version
-        '{RELEASE_DATE}' = $ReleaseDate
-        '{X64_SHA256}' = (Get-FileHash -LiteralPath $x64 -Algorithm SHA256).Hash.ToUpperInvariant()
-        '{ARM64_SHA256}' = (Get-FileHash -LiteralPath $arm64 -Algorithm SHA256).Hash.ToUpperInvariant()
+    Import-Module (Join-Path $RepoRoot '.ci-engine/Tools/Modules/Ci.EngineBinding.psm1') -Scope Local -ErrorAction Stop
+    $publicationModule = Resolve-CiPinnedEngineModule -ProjectRoot $RepoRoot -Name 'Publication.psm1'
+    Import-Module $publicationModule -Scope Local -ErrorAction Stop
+    Import-Module (Join-Path (Split-Path -Parent $publicationModule) 'Ci.Policy.psm1') -Scope Local -ErrorAction Stop
+    $project = Read-CiProject $RepoRoot
+    if ($project.repository -cne 'RedSalamanders/RedXe') { throw 'The manifest generator requires the RedXe project configuration.' }
+    $OutputDirectory = Assert-CiContainedPath -Root $RepoRoot -Path $OutputDirectory
+    $identifier = $project.winget.identifier
+    $manifestFiles = @($script:WingetManifestSuffixes | ForEach-Object {
+        Assert-CiContainedPath -Root $RepoRoot -Path (Join-Path $OutputDirectory "$identifier$_")
+    })
+    $x64Hash = (Get-FileHash -LiteralPath $x64 -Algorithm SHA256).Hash
+    $arm64Hash = (Get-FileHash -LiteralPath $arm64 -Algorithm SHA256).Hash
+    $plan = @{
+        project = $project
+        batch = @{ version = $Version }
+        tag = "v$Version"
+        assets = @(
+            @{ platform = 'x64'; file = [IO.Path]::GetFileName($x64); path = $x64; sha256 = $x64Hash }
+            @{ platform = 'ARM64'; file = [IO.Path]::GetFileName($arm64); path = $arm64; sha256 = $arm64Hash }
+        )
     }
-    $templateDirectory = Join-Path $RepoRoot 'Installer\winget\templates'
-    $written = foreach ($name in $script:WingetTemplateNames) {
-        $content = Get-Content -LiteralPath (Join-Path $templateDirectory $name) -Raw
-        foreach ($key in $replacements.Keys) { $content = $content.Replace($key, [string] $replacements[$key]) }
-        $unresolved = [regex]::Matches($content, '\{[A-Z0-9_]+\}') | ForEach-Object { $_.Value } | Sort-Object -Unique
-        if ($unresolved) { throw "Template $name has unresolved placeholders: $($unresolved -join ', ')" }
-        $path = Join-Path $OutputDirectory $name
-        [IO.File]::WriteAllText($path, $content.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
-        $path
-    }
+    $writtenDirectory = New-CiWingetManifest -Plan $plan -Directory $OutputDirectory -ReleaseDate $ReleaseDate
     [pscustomobject]@{
-        PackageIdentifier = $script:WingetPackageIdentifier
+        PackageIdentifier = $identifier
         Version = $Version
         ReleaseDate = $ReleaseDate
-        OutputDirectory = $OutputDirectory
-        Files = @($written)
-        X64Sha256 = $replacements['{X64_SHA256}']
-        Arm64Sha256 = $replacements['{ARM64_SHA256}']
+        OutputDirectory = $writtenDirectory
+        Files = $manifestFiles
+        X64Sha256 = $x64Hash
+        Arm64Sha256 = $arm64Hash
     }
 }
 
@@ -89,7 +87,9 @@ Runs `winget validate --manifest` and returns its output; throws on a nonzero ex
 function Test-RedXeWingetManifest {
     param([Parameter(Mandatory)][string] $ManifestDirectory, [string] $WingetCommand = 'winget')
     if (-not (Test-Path -LiteralPath $ManifestDirectory -PathType Container)) { throw "Manifest directory not found: $ManifestDirectory" }
-    foreach ($name in $script:WingetTemplateNames) {
+    $identifier = Get-RedXeWingetPackageIdentifier
+    foreach ($suffix in $script:WingetManifestSuffixes) {
+        $name = "$identifier$suffix"
         if (-not (Test-Path -LiteralPath (Join-Path $ManifestDirectory $name) -PathType Leaf)) { throw "Manifest file missing: $name" }
     }
     if (-not (Get-Command $WingetCommand -ErrorAction SilentlyContinue)) { throw "winget was not found on this machine ($WingetCommand)." }

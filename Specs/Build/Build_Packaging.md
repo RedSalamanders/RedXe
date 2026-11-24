@@ -176,21 +176,21 @@ the sidecar form shared with the portable ZIP. It MUST leave no registry key, sh
 
 ## Winget manifest (`winget-manifest.ps1`, `Build/Winget.psm1`)
 
-- Package identifier `RedSalamanders.RedXe`, multi-file manifest schema 1.12.0 from `Installer/winget/templates/`:
+- The pinned engine renders the three WinGet files for `RedSalamanders.RedXe` from the `winget` block in `.ci/project.json`:
   `InstallerType: zip`, `NestedInstallerType: portable`, `NestedInstallerFiles` `RedXeLauncher.exe` with
-  `PortableCommandAlias: RedXe`, `Commands: [RedXe]`, `MinimumOSVersion: 10.0.22000.2600`, `UpgradeBehavior: install`,
+  `PortableCommandAlias: redxe`, `Commands: [redxe]`, `MinimumOSVersion: 10.0.22000.2600`, `UpgradeBehavior: install`,
   and one installer per architecture (`x64`, `arm64`) whose `InstallerUrl` is
   `https://github.com/RedSalamanders/RedXe/releases/download/v<version>/RedXe-<version>-<x64|ARM64>-Portable.zip`.
   Do not use `InstallerType: portable` for a ZIP, and do not add `Icons` until the publisher is verified.
 - Generation requires the exact three-part version with a positive build, both ZIPs named exactly as `package.ps1`
-  names them, and a `yyyy-MM-dd` `ReleaseDate` (default today UTC; the workflow passes the release's `published_at`
-  date so a rerun produces an identical manifest). Output goes under `.build/packages/winget-manifest/<version>/`
+  names them and exactly one configured launcher in each ZIP. The local `ReleaseDate` uses `yyyy-MM-dd` and defaults
+  to today's UTC date. Supply a fixed date to reproduce identical output. The default directory is `.build/packages/winget-manifest/<version>/`
   with LF line endings and no unresolved `{PLACEHOLDER}`.
 - `winget validate --manifest` MUST pass. "Manifest validation succeeded with warnings" from an older client is
   accepted; the warnings are shown.
 - `License: MIT` and `LicenseUrl` in the locale manifest mirror the repository's `LICENSE.txt` (MIT);
   `THIRD-PARTY-NOTICES.md` lists the carve-outs: the CC BY-NC-SA 3.0 Shadertoy ports and the OFL Weather Icons font.
-  The package always ships both; a license change updates the files and the template together.
+  The package ships both notices. Update the files and `.ci/project.json` together when the license changes.
 
 ## Manual qualified-artifact promotion
 

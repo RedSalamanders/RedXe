@@ -4,8 +4,8 @@ Generates and validates the winget manifest for one release from its two portabl
 
 .DESCRIPTION
 Writes RedSalamanders.RedXe.yaml, .installer.yaml, and .locale.en-US.yaml under
-.build/packages/winget-manifest/<version>/ from Installer/winget/templates, filling in the version, the release
-date, and the SHA256 of both packages, then runs `winget validate --manifest` on the result. Both packages must be
+.build/packages/winget-manifest/<version>/ from .ci/project.json and the pinned engine, using the version, release
+date and SHA-256 of both packages, then runs `winget validate --manifest`. Both packages must be
 named exactly as package.ps1 names them because the manifest's InstallerUrl is derived from the version.
 
 .PARAMETER Version
@@ -18,7 +18,10 @@ Path to RedXe-<Version>-x64-Portable.zip. Default: the package.ps1 output.
 Path to RedXe-<Version>-ARM64-Portable.zip. Default: the package.ps1 output.
 
 .PARAMETER ReleaseDate
-Manifest ReleaseDate as yyyy-MM-dd. Default: today (UTC). The release workflow passes the GitHub release date.
+Manifest ReleaseDate as yyyy-MM-dd. Default is the current UTC date.
+
+.PARAMETER OutputDirectory
+Owned output directory within the repository. Defaults to .build/packages/winget-manifest/<version>.
 
 .PARAMETER SkipValidation
 Write the manifest without running winget validate (for hosts without winget).

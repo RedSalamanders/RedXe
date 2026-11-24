@@ -324,8 +324,16 @@ try {
     [void](New-Item -ItemType Directory -Path $packages)
     $x64Zip = Join-Path $packages (Get-RedXePackageName -Version '1.0.42' -Platform x64)
     $arm64Zip = Join-Path $packages (Get-RedXePackageName -Version '1.0.42' -Platform ARM64)
-    Set-Content -LiteralPath $x64Zip -Value 'x64 bytes'
-    Set-Content -LiteralPath $arm64Zip -Value 'arm64 bytes'
+    foreach ($zipPath in $x64Zip, $arm64Zip) {
+        $zip = [IO.Compression.ZipFile]::Open($zipPath, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            $entry = $zip.CreateEntry('RedXeLauncher.exe')
+            $writer = [IO.StreamWriter]::new($entry.Open())
+            try { $writer.Write([IO.Path]::GetFileName($zipPath)) }
+            finally { $writer.Dispose() }
+        }
+        finally { $zip.Dispose() }
+    }
     $manifest = New-RedXeWingetManifest -RepoRoot $repo -Version '1.0.42' -X64ZipPath $x64Zip -Arm64ZipPath $arm64Zip -OutputDirectory (Join-Path $fixture 'manifest') -ReleaseDate '2026-09-19'
     if ($manifest.Files.Count -ne 3) { throw 'Three manifest files expected.' }
     $installer = Get-Content -LiteralPath (Join-Path $manifest.OutputDirectory 'RedSalamanders.RedXe.installer.yaml') -Raw
@@ -334,8 +342,14 @@ try {
         throw 'The engine manifest and the generated installer must declare the reviewed Windows 11 minimum.'
     }
     foreach ($needle in @('PackageVersion: 1.0.42', 'ReleaseDate: 2026-09-19', "InstallerSha256: $((Get-FileHash $x64Zip).Hash)", "InstallerSha256: $((Get-FileHash $arm64Zip).Hash)",
-            'releases/download/v1.0.42/RedXe-1.0.42-x64-Portable.zip', 'releases/download/v1.0.42/RedXe-1.0.42-ARM64-Portable.zip', 'PortableCommandAlias: RedXe', 'RelativeFilePath: RedXeLauncher.exe')) {
+            'releases/download/v1.0.42/RedXe-1.0.42-x64-Portable.zip', 'releases/download/v1.0.42/RedXe-1.0.42-ARM64-Portable.zip', "PortableCommandAlias: '$($metadata.alias)'", "RelativeFilePath: '$($metadata.executable)'")) {
         if (-not $installer.Contains($needle)) { throw "Installer manifest lacks '$needle'." }
+    }
+    $locale = Get-Content -LiteralPath (Join-Path $manifest.OutputDirectory 'RedSalamanders.RedXe.locale.en-US.yaml') -Raw
+    $description = ConvertTo-Json -InputObject $metadata.localeMetadata.ShortDescription -Compress
+    if (-not $locale.Contains("ShortDescription: $description") -or
+        -not $locale.Contains('ReleaseNotesUrl: https://github.com/RedSalamanders/RedXe/releases/tag/v1.0.42')) {
+        throw 'The generated manifest lost the product description or release link.'
     }
     foreach ($file in $manifest.Files) {
         $text = Get-Content -LiteralPath $file -Raw

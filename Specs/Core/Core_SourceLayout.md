@@ -35,10 +35,9 @@ Plugins/
   Logicon/          Headless MX Creative Console keypad and dialpad service (HID++ and Raw Input over the device lane, key faces, the `logicon` action namespace) plus the Debug monitor tile and the Probe tool
   Actions/Zoom/     zoom.action.dll: browser-only dedicated action DLL publishing `zoom.open` and `zoom.join` (no service or settings); no Zoom installation, SDK, OAuth, or Marketplace application registration
 RedXeLauncher/
-  Main.cpp          Dependency-free shim behind the winget `RedXe` alias: resolves its final path, starts the package-root RedXe.exe
+  Main.cpp          Dependency-free shim behind the winget `redxe` alias. Resolves its final path and starts the package-root RedXe.exe
 Installer/
   Install-RedXe.ps1 In-package installer (copy, Start Menu, Apps entry, start at sign-in, remove); install.cmd / uninstall.cmd wrap it
-  winget/templates/ RedSalamanders.RedXe manifest templates (schema 1.12.0, zip + nested portable launcher)
 RedXe/
   Main.cpp          Process setup and command-line modes
   CommandLine.h     Command-line switch catalog: --help text, names Main.cpp parses through, unknown-token scanner
@@ -74,7 +73,7 @@ Build/
   Versioning.psm1   major.minor from Common/Version.h plus the caller's build number
   Package.psm1      Portable ZIP and release symbols ZIP staging rules, CRT bundling from the build's own toolset, and the clean-extraction smoke
   CameraPackage.psm1 PE machine probe and the AV Control camera package helpers shared with the packaging
-  Winget.psm1       Manifest generation from Installer/winget/templates and `winget validate`
+  Winget.psm1       Manifest generation from .ci/project.json through the pinned engine and `winget validate`
   DxUiRestore.psm1  The DxUi pin: lock, verified sparse restore, leases, the leased and locked output root, superseded-restore cleanup, and the MSBuild the build runs
   DxUiPaths.psm1    16-hex DxUi source and output folder locators with full identity markers (shared with RedPrism and RedTilde)
   DxUiProvenance.psm1, DxUiUpdate.psm1 The DxUi module provenance record the build writes, and Update-DxUi.ps1's pin update
