@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Force WARP for the hidden startup test and verify the renderer actually selected it.
 - Rebuild the RedXe renderer through its existing device-loss path when Direct3D reports a device hang.
 - Add a compiler-free root specification command for RedXe and include it in Static validation.
 - Check the accepted settings version again after releasing the guard for a classic rename, preserving completed external saves.
