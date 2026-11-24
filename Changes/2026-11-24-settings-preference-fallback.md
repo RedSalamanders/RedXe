@@ -1,1 +1,0 @@
-- Keep valid RedXe settings when an optional host or dock preference takes its default, and preserve additive settings across saves.

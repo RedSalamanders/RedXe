@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Keep valid RedXe settings when an optional host or dock preference takes its default, and preserve additive settings across saves.
 - Read authored RedXe settings as JSON5 and preserve the surrounding text when editing a dock value.
 - Pause dashboard rendering while the window is cloaked and resume on the next eligible visibility event.
 - Move the active RedXe windowing specification to Specs/UI/UI_Windowing.md and preserve the original link for archived plans.
