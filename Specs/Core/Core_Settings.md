@@ -455,8 +455,10 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   after that install. A catalogued plugin whose DLL cannot be mapped becomes a placeholder tile; it MUST NOT abort
   launch or roll back the installed file.
 - An invalid or incompatible default is preserved byte-for-byte beside it, then atomically replaced with a fresh
-  template. Its backup name is `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`. The user is told what happened and where
-  the backup was written.
+  template. Its backup name is `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`. Backup may move only the exact file
+  version read by validation. Installation may create the settings name only when it is still absent. If another
+  writer supplies a file before backup or installation, RedXe keeps it and validates it for startup. The user is told
+  where an invalid version was preserved and whether a fresh template was installed.
 - When XENEON discovery succeeded without finding a display outside a remote session
   (`Specs/UI/UI_Windowing.md` "First start without a XENEON"), a default file installed because it was
   missing is the template plus the first-run dock (`PatchFirstRunDock`): one `dock` member on its own line after
@@ -473,8 +475,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   the default file missing, at most once per start, so a start that finds the file, a recovery, a `--settings` file,
   and the self-test measure no display for it. The patched document is validated before the same atomic
   same-directory write, and an existing file is never patched. The recovery of an invalid or incompatible default MUST
-  install the plain template, even without a XENEON, so a file that failed validation never turns the user's XENEON or
-  window configuration into a bar. After a failed discovery, in a remote session, when no dock is made, or when the
+  use the plain template when the settings path remains missing, so recovery never installs a first-run dock.
+  After a failed discovery, in a remote session, when no dock is made, or when the
   patch cannot be applied, the plain template is installed; the first-run dock never fails startup.
 - A missing, unreadable, or invalid command-line file is never modified. RedXe reports the problem, runs with the
   deployed default configuration in memory, and writes nothing to that path until a later save of it loads ("Plugin
@@ -483,6 +485,8 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   unattended `--screenshot` run, which writes the same text as one Warning record (`settings-fallback-notice`) instead
   (`Specs/UI/UI_Windowing.md` "Configuration behavior").
 - If a deployed default cannot be read or validated, startup fails rather than inventing settings.
+- Settings loaded from disk retain the version of the same open file that supplied the bytes. A later save checks
+  that version before publishing.
 - Template/schema installation and recovery use same-directory temporary files and write-through atomic rename; a
   settings template is written and flushed like any document write ("Plugin persist"), the schema copy is not.
 

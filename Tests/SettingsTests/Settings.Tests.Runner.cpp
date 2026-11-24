@@ -3463,6 +3463,7 @@ struct EditorAtCommit final
         SaveInPlace,
         ReplaceAtomically,
         Delete,
+        Create,
         // Opens the file for reading without FILE_SHARE_DELETE and keeps it open in `held`.
         Hold,
     };
@@ -3495,10 +3496,11 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
             editor.error = editor.held ? ERROR_SUCCESS : GetLastError();
             return;
         }
-        if (editor.act == EditorAtCommit::Act::SaveInPlace)
+        if (editor.act == EditorAtCommit::Act::SaveInPlace || editor.act == EditorAtCommit::Act::Create)
         {
+            const DWORD disposition = editor.act == EditorAtCommit::Act::Create ? CREATE_NEW : OPEN_EXISTING;
             wil::unique_hfile file{
-                CreateFileW(editor.file.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+                CreateFileW(editor.file.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, disposition, FILE_ATTRIBUTE_NORMAL, nullptr)};
             DWORD written = 0;
             editor.error =
                 file && SetEndOfFile(file.get()) && WriteFile(file.get(), editor.bytes.data(), static_cast<DWORD>(editor.bytes.size()), &written, nullptr)
@@ -3519,6 +3521,92 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
     catch (...)
     {
         editor.error = ERROR_GEN_FAILURE;
+    }
+}
+
+[[nodiscard]] HRESULT ValidateDefaultRecoveryGuard() noexcept
+{
+    constexpr std::string_view invalid = "invalid default bytes\r\n";
+    constexpr std::string_view newer   = R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":43}]}]})json";
+#if defined(_DEBUG)
+    constexpr const wchar_t* selectedName = kRedXeDebugSettingsFileName;
+#else
+    constexpr const wchar_t* selectedName = kRedXeReleaseSettingsFileName;
+#endif
+    struct Scenario final
+    {
+        const wchar_t* name;
+        SettingsWritePhase phase;
+        EditorAtCommit::Act act;
+        size_t backupCount;
+    };
+    constexpr std::array scenarios{
+        Scenario{L"rewrite", SettingsWritePhase::BeforeRecoveryBackup, EditorAtCommit::Act::SaveInPlace, 0},
+        Scenario{L"replace", SettingsWritePhase::BeforeRecoveryBackup, EditorAtCommit::Act::ReplaceAtomically, 0},
+        Scenario{L"create", SettingsWritePhase::AfterRecoveryBackup, EditorAtCommit::Act::Create, 1},
+    };
+
+    try
+    {
+        const auto root = std::filesystem::temp_directory_path() /
+                          (L"RedXe.RecoveryGuardTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+        if (! std::filesystem::create_directory(root))
+            return E_FAIL;
+        const auto cleanup = wil::scope_exit([&]() noexcept
+        {
+            SetSettingsWriteSeamForTesting({});
+            std::error_code error;
+            std::filesystem::remove_all(root, error);
+        });
+        const auto prefix  = std::filesystem::path(selectedName).stem().wstring() + L".invalid-";
+        for (const Scenario& scenario : scenarios)
+        {
+            const auto local     = root / scenario.name;
+            const auto directory = local / L"RedXe" / L"Settings";
+            std::filesystem::create_directories(directory);
+            EditorAtCommit editor{};
+            editor.phase = scenario.phase;
+            editor.act   = scenario.act;
+            editor.file  = directory / selectedName;
+            editor.bytes = newer;
+            {
+                std::ofstream source(editor.file, std::ios::binary);
+                if (! source.write(invalid.data(), static_cast<std::streamsize>(invalid.size())))
+                    return E_FAIL;
+            }
+            SettingsWriteSeam seam{};
+            seam.checkpoint = ActAtCommit;
+            seam.context    = &editor;
+            SetSettingsWriteSeamForTesting(seam);
+            SettingsStore store;
+            std::unique_ptr<AppSettings> accepted;
+            const HRESULT initialized = store.Initialize(false, {}, accepted, local.wstring());
+            SetSettingsWriteSeamForTesting({});
+            if (FAILED(initialized))
+                return initialized;
+            std::string bytes;
+            if (editor.calls != 1 || editor.error != ERROR_SUCCESS || ! accepted || accepted->sourceDocument != newer || FAILED(ReadFile(editor.file, bytes)) ||
+                bytes != newer)
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+            size_t count = 0;
+            for (const auto& entry : std::filesystem::directory_iterator(directory))
+            {
+                if (! entry.path().filename().wstring().starts_with(prefix))
+                    continue;
+                ++count;
+                if (FAILED(ReadFile(entry.path(), bytes)) || bytes != invalid)
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            if (count != scenario.backupCount || store.UsedInitialFallback() != (count != 0) ||
+                store.InitialNotice().find(L"A fresh default configuration was installed.") != std::wstring::npos)
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        return E_FAIL;
     }
 }
 
@@ -4014,6 +4102,7 @@ int wmain()
                        {L"watcher", ValidateWatcher},
                        {L"external selection", ValidateExternalSelection},
                        {L"default recovery", ValidateDefaultRecovery},
+                       {L"guarded default recovery", ValidateDefaultRecoveryGuard},
                        {L"v1.0.102 settings", ValidateReleasedTemplates},
                        {L"legacy filename", ValidateLegacyReleaseFilenameMigration},
                        {L"first-run dock", ValidateFirstRunDock},

@@ -1,0 +1,1 @@
+- Guard startup settings recovery with the identity of the file that validation read. Preserve competing edits before backup and accept a competing creation before template installation.

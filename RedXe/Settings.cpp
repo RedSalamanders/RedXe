@@ -774,7 +774,10 @@ template <size_t Count> [[nodiscard]] bool HasExactKeys(yyjson_val* object, cons
 }
 #endif
 
-[[nodiscard]] HRESULT BackupInvalidSettings(const std::filesystem::path& path, std::filesystem::path& backupPath) noexcept
+[[nodiscard]] HRESULT ReadHandleStamp(HANDLE file, SettingsFileStamp& stamp) noexcept;
+[[nodiscard]] HRESULT RenameSettingsFile(HANDLE file, const std::wstring& target, bool posix, bool replaceExisting) noexcept;
+
+[[nodiscard]] HRESULT BackupInvalidSettings(const std::filesystem::path& path, const SettingsFileStamp& expected, std::filesystem::path& backupPath) noexcept
 {
     try
     {
@@ -787,12 +790,23 @@ template <size_t Count> [[nodiscard]] bool HasExactKeys(yyjson_val* object, cons
         {
             return E_FAIL;
         }
-        const std::filesystem::path backup = path.parent_path() / (path.stem().wstring() + suffix + path.extension().wstring());
-        if (! MoveFileExW(path.c_str(), backup.c_str(), MOVEFILE_WRITE_THROUGH))
+        auto backup = path.parent_path() / (path.stem().wstring() + suffix + path.extension().wstring());
+        // Rename the accepted file itself. Deny writers and other renames while checking its identity and moving it.
+        wil::unique_hfile file{
+            CreateFileW(path.c_str(), DELETE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr)};
+        if (! file)
         {
-            return HRESULT_FROM_WIN32(GetLastError());
+            const DWORD error = GetLastError();
+            return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? S_FALSE : HRESULT_FROM_WIN32(error);
         }
-        backupPath = backup;
+        SettingsFileStamp current{};
+        if (const HRESULT result = ReadHandleStamp(file.get(), current); FAILED(result))
+            return result;
+        if (current != expected)
+            return S_FALSE;
+        if (const HRESULT result = RenameSettingsFile(file.get(), backup.native(), false, false); FAILED(result))
+            return result;
+        backupPath = std::move(backup);
         return S_OK;
     }
     catch (const std::bad_alloc&)
@@ -805,23 +819,25 @@ template <size_t Count> [[nodiscard]] bool HasExactKeys(yyjson_val* object, cons
     }
 }
 
-[[nodiscard]] HRESULT ReadFileBytes(std::wstring_view path, std::vector<char>& bytes) noexcept
+[[nodiscard]] HRESULT ReadFileBytes(std::wstring_view path, std::vector<char>& bytes, SettingsFileStamp* stamp = nullptr) noexcept
 {
     try
     {
         const std::wstring pathText(path);
-        wil::unique_hfile file{CreateFileW(pathText.c_str(),
-                                           GENERIC_READ,
-                                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                                           nullptr,
-                                           OPEN_EXISTING,
-                                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
-                                           nullptr)};
+        const DWORD share = stamp ? FILE_SHARE_READ | FILE_SHARE_DELETE : FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+        wil::unique_hfile file{
+            CreateFileW(pathText.c_str(), GENERIC_READ, share, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
         if (! file)
         {
             return HRESULT_FROM_WIN32(GetLastError());
         }
 
+        // An accepted version describes this open file and its bytes, even if the pathname is replaced while reading.
+        if (stamp)
+        {
+            if (const HRESULT result = ReadHandleStamp(file.get(), *stamp); FAILED(result))
+                return result;
+        }
         LARGE_INTEGER size{};
         if (! GetFileSizeEx(file.get(), &size))
         {
@@ -1101,6 +1117,29 @@ SettingsWriteSeam g_settingsWriteSeam{};
     return S_OK;
 }
 
+[[nodiscard]] HRESULT RenameSettingsFile(HANDLE file, const std::wstring& target, bool posix, bool replaceExisting) noexcept
+{
+    const size_t nameBytes = target.size() * sizeof(wchar_t);
+    const size_t size      = offsetof(FILE_RENAME_INFO, FileName) + nameBytes + sizeof(wchar_t);
+    if (size > MAXDWORD)
+        return HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE);
+
+    // uint64_t storage keeps the record's pointer-sized members aligned.
+    const std::unique_ptr<uint64_t[]> storage{new (std::nothrow) uint64_t[(size + 7U) / 8U]{}};
+    if (! storage)
+        return E_OUTOFMEMORY;
+
+    auto* info = reinterpret_cast<FILE_RENAME_INFO*>(storage.get());
+    if (posix)
+        info->Flags = FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS;
+    else
+        info->ReplaceIfExists = replaceExisting ? TRUE : FALSE;
+    info->FileNameLength = static_cast<DWORD>(nameBytes);
+    std::memcpy(info->FileName, target.c_str(), nameBytes);
+    return SetFileInformationByHandle(file, posix ? FileRenameInfoEx : FileRenameInfo, info, static_cast<DWORD>(size)) ? S_OK
+                                                                                                                       : HRESULT_FROM_WIN32(GetLastError());
+}
+
 // The same-directory temporary file of one document write (Core_Settings.md "Plugin persist"). Its handle shares
 // nothing and holds DELETE access, so no other program can open, change, rename, or delete the file until it is renamed
 // over the target through that handle, and the stamp read through it afterwards is the renamed file's. The data is
@@ -1180,33 +1219,8 @@ public:
             return HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER);
         }
 #endif
-        const size_t nameBytes = target.size() * sizeof(wchar_t);
-        const size_t size      = offsetof(FILE_RENAME_INFO, FileName) + nameBytes + sizeof(wchar_t);
-        if (size > MAXDWORD)
-        {
-            return HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE);
-        }
-        // uint64_t storage keeps the record's pointer-sized members aligned.
-        const std::unique_ptr<uint64_t[]> storage{new (std::nothrow) uint64_t[(size + 7U) / 8U]{}};
-        if (! storage)
-        {
-            return E_OUTOFMEMORY;
-        }
-        auto* info = reinterpret_cast<FILE_RENAME_INFO*>(storage.get());
-        if (posix)
-        {
-            info->Flags = FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS;
-        }
-        else
-        {
-            info->ReplaceIfExists = replaceExisting ? TRUE : FALSE;
-        }
-        info->FileNameLength = static_cast<DWORD>(nameBytes);
-        std::memcpy(info->FileName, target.c_str(), nameBytes);
-        if (! SetFileInformationByHandle(_file.get(), posix ? FileRenameInfoEx : FileRenameInfo, info, static_cast<DWORD>(size)))
-        {
-            return HRESULT_FROM_WIN32(GetLastError());
-        }
+        if (const HRESULT result = RenameSettingsFile(_file.get(), target, posix, replaceExisting); FAILED(result))
+            return result;
         _renamed = true;
         // A rename through a handle is not documented as durable on return, even on a write-through handle. Flushing
         // the renamed file writes the file system's log through its changes, the new name included (NTFS and ReFS
@@ -1233,9 +1247,8 @@ private:
     bool _renamed = false;
 };
 
-// An install or recovery write: the temporary is written, flushed, and renamed over target. S_FALSE without
-// replaceExisting when the target already exists (an install that lost the race keeps that file).
-[[nodiscard]] HRESULT WriteUtf8FileAtomically(const std::filesystem::path& target, std::string_view bytes, bool replaceExisting) noexcept
+// Install through a flushed temporary. S_FALSE means a competing installer already owns the target.
+[[nodiscard]] HRESULT InstallUtf8FileAtomically(const std::filesystem::path& target, std::string_view bytes) noexcept
 {
     try
     {
@@ -1244,9 +1257,9 @@ private:
         HRESULT result = temporary.Write(path, bytes);
         if (SUCCEEDED(result))
         {
-            result = temporary.Rename(path, false, replaceExisting);
+            result = temporary.Rename(path, false, false);
         }
-        if (! replaceExisting && (result == HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) || result == HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)))
+        if (result == HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) || result == HRESULT_FROM_WIN32(ERROR_FILE_EXISTS))
         {
             return S_FALSE;
         }
@@ -1381,20 +1394,14 @@ private:
     return S_OK;
 }
 
-// A plain template install or recovery: the template's bytes through the same flushed atomic write as a persist, so a
-// power loss right after it cannot leave an empty settings file that the next start backs up and replaces. S_FALSE
-// without replaceExisting when the target already exists.
-[[nodiscard]] HRESULT InstallTemplateFile(const std::filesystem::path& source, const std::filesystem::path& target, bool replaceExisting) noexcept
-{
-    std::vector<char> bytes;
-    const HRESULT result = ReadFileBytes(source.native(), bytes);
-    return FAILED(result) ? result : WriteUtf8FileAtomically(target, std::string_view(bytes.data(), bytes.size()), replaceExisting);
-}
-
+// A plain template install or recovery publishes only to an absent name.
 [[nodiscard]] HRESULT InstallIfMissing(const std::filesystem::path& source, const std::filesystem::path& target) noexcept
 {
-    const HRESULT probe = ProbeInstallTarget(target);
-    return probe == S_OK ? InstallTemplateFile(source, target, false) : probe;
+    if (const HRESULT probe = ProbeInstallTarget(target); probe != S_OK)
+        return probe;
+    std::vector<char> bytes;
+    const HRESULT result = ReadFileBytes(source.native(), bytes);
+    return FAILED(result) ? result : InstallUtf8FileAtomically(target, std::string_view(bytes.data(), bytes.size()));
 }
 } // namespace
 
@@ -2730,10 +2737,11 @@ HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexc
 [[nodiscard]] HRESULT LoadAppSettingsFileCandidate(std::wstring_view path,
                                                    std::unique_ptr<AppSettings>& settings,
                                                    SettingsParseDiagnostic* diagnostic = nullptr,
-                                                   bool* usesLegacySchema              = nullptr) noexcept
+                                                   bool* usesLegacySchema              = nullptr,
+                                                   SettingsFileStamp* stamp            = nullptr) noexcept
 {
     std::vector<char> bytes;
-    const HRESULT result = ReadFileBytes(path, bytes);
+    const HRESULT result = ReadFileBytes(path, bytes, stamp);
     return SUCCEEDED(result) ? ParseAppSettingsJsonV5(std::string_view(bytes.data(), bytes.size()), settings, diagnostic, usesLegacySchema) : result;
 }
 
@@ -2856,7 +2864,7 @@ namespace
         {
             return result;
         }
-        return WriteUtf8FileAtomically(target, text, false);
+        return InstallUtf8FileAtomically(target, text);
     }
     catch (const std::bad_alloc&)
     {
@@ -2904,16 +2912,13 @@ HRESULT SettingsStore::Initialize(bool selfTest,
             _settingsDirectory = deployedSettings.wstring();
             _logsDirectory     = MakeLogsDirectory(_settingsDirectory);
             _schemaPath        = deployedSchema.wstring();
-            result             = LoadAppSettingsFileCandidate(_settingsPath, settings);
+            SettingsFileStamp stamp{};
+            result = LoadAppSettingsFileCandidate(_settingsPath, settings, nullptr, nullptr, &stamp);
             if (FAILED(result))
             {
                 return result;
             }
-            SettingsFileStamp stamp{};
-            if (QuerySettingsFileStamp(_settingsPath, stamp) == S_OK)
-            {
-                _lastAppliedStamp = stamp;
-            }
+            _lastAppliedStamp = stamp;
             return S_OK;
         }
 
@@ -2925,7 +2930,8 @@ HRESULT SettingsStore::Initialize(bool selfTest,
             _logsDirectory                           = MakeLogsDirectory(_settingsDirectory);
             _schemaPath                              = deployedSchema.wstring();
 
-            result = LoadAppSettingsFileCandidate(_settingsPath, settings);
+            SettingsFileStamp stamp{};
+            result = LoadAppSettingsFileCandidate(_settingsPath, settings, nullptr, nullptr, &stamp);
             if (FAILED(result))
             {
                 _usedInitialFallback = true;
@@ -2937,8 +2943,7 @@ HRESULT SettingsStore::Initialize(bool selfTest,
             {
                 return result;
             }
-            SettingsFileStamp stamp{};
-            if (QuerySettingsFileStamp(_settingsPath, stamp) == S_OK && ! _usedInitialFallback)
+            if (! _usedInitialFallback)
             {
                 _lastAppliedStamp = stamp;
             }
@@ -3000,34 +3005,45 @@ HRESULT SettingsStore::Initialize(bool selfTest,
         }
 
         bool usesLegacySchema = false;
-        result                = LoadAppSettingsFileCandidate(_settingsPath, settings, nullptr, &usesLegacySchema);
-        if (SUCCEEDED(result) && usesLegacySchema)
+        SettingsFileStamp stamp{};
+        const auto loadDefault = [&]() noexcept
         {
-            result = CopyFileAtomically(deployedSchema, settingsDirectory / kRedXeLegacySchemaFileName, true);
-            if (FAILED(result))
-                return result;
-        }
+            usesLegacySchema = false;
+            return LoadAppSettingsFileCandidate(_settingsPath, settings, nullptr, &usesLegacySchema, &stamp);
+        };
+        result = loadDefault();
         if (result == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || result == HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE))
         {
+#if defined(REDXE_SETTINGS_TESTS)
+            if (g_settingsWriteSeam.checkpoint)
+                g_settingsWriteSeam.checkpoint(SettingsWritePhase::BeforeRecoveryBackup, g_settingsWriteSeam.context);
+#endif
             std::filesystem::path backupPath;
-            const HRESULT backupResult = BackupInvalidSettings(settingsPath, backupPath);
+            const HRESULT backupResult = BackupInvalidSettings(settingsPath, stamp, backupPath);
             if (FAILED(backupResult))
             {
                 return backupResult;
             }
-            // Recovery installs the plain template even without a XENEON: only a missing file gets the first-run dock,
-            // so a file that failed validation never turns the user's XENEON or window configuration into a bar.
             _installedFirstRunDock = false;
-            result                 = InstallTemplateFile(selectedTemplate, settingsPath, true);
-            if (SUCCEEDED(result))
+            HRESULT installResult  = S_FALSE;
+            if (backupResult == S_OK)
             {
-                result = LoadAppSettingsFileCandidate(_settingsPath, settings);
+#if defined(REDXE_SETTINGS_TESTS)
+                if (g_settingsWriteSeam.checkpoint)
+                    g_settingsWriteSeam.checkpoint(SettingsWritePhase::AfterRecoveryBackup, g_settingsWriteSeam.context);
+#endif
+                // Recover with the plain template, provided no other writer has created the settings name.
+                installResult = InstallIfMissing(selectedTemplate, settingsPath);
+                if (FAILED(installResult))
+                    return installResult;
             }
-            if (SUCCEEDED(result))
+            result = loadDefault();
+            if (SUCCEEDED(result) && backupResult == S_OK)
             {
                 _usedInitialFallback = true;
-                _initialNotice       = L"The default settings file was incompatible or invalid. It was preserved as:\n" + backupPath.wstring() +
-                                       L"\n\nA fresh default configuration was installed.";
+                _initialNotice       = L"The default settings file was incompatible or invalid. It was preserved as:\n" + backupPath.wstring();
+                if (installResult == S_OK)
+                    _initialNotice += L"\n\nA fresh default configuration was installed.";
             }
         }
         if (FAILED(result))
@@ -3035,11 +3051,11 @@ HRESULT SettingsStore::Initialize(bool selfTest,
             return result;
         }
 
-        SettingsFileStamp stamp{};
-        result = QuerySettingsFileStamp(_settingsPath, stamp);
-        if (result != S_OK)
+        if (usesLegacySchema)
         {
-            return result == S_FALSE ? HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) : result;
+            result = CopyFileAtomically(deployedSchema, settingsDirectory / kRedXeLegacySchemaFileName, true);
+            if (FAILED(result))
+                return result;
         }
         _lastAppliedStamp = stamp;
         _lastRejectedStamp.reset();
@@ -3084,7 +3100,7 @@ HRESULT SettingsStore::TryLoadChanged(std::unique_ptr<AppSettings>& settings, Se
 
     std::unique_ptr<AppSettings> candidate;
     SettingsParseDiagnostic diagnostic;
-    const HRESULT loadResult = LoadAppSettingsFileCandidate(_settingsPath, candidate, &diagnostic);
+    const HRESULT loadResult = LoadAppSettingsFileCandidate(_settingsPath, candidate, &diagnostic, nullptr, &currentStamp);
     if (loadResult == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || loadResult == HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE))
     {
         _lastRejectedStamp  = currentStamp;
