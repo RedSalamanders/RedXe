@@ -661,7 +661,7 @@ $captureSettingsText = @'
 }
 '@
 # One bounded capture run in a folder of its own; returns its exit code, PNG path, and JSONL text.
-function Invoke-RedXeCaptureRun([string] $Name, [string[]] $Extra) {
+function Invoke-RedXeCaptureRun([string] $Name, [string[]] $Extra, [string] $CaptureSwitch = '--capture') {
     $runRoot = Join-Path $captureRoot $Name
     $settingsPath = Join-Path $runRoot 'Settings\capture.settings.json'
     [void](New-Item -ItemType Directory -Path (Split-Path -Parent $settingsPath) -Force)
@@ -669,7 +669,7 @@ function Invoke-RedXeCaptureRun([string] $Name, [string[]] $Extra) {
     $png = Join-Path $runRoot 'capture.png'
     $log = Join-Path $evidence.Path "RedXe.screenshot-$Name.log"
     $arguments = @('--warp', '--settings', $settingsPath, '--dock', 'bottom@primary', '--dock-mode', 'fixed',
-        '--dock-reserve', 'off', '--dock-thickness', '32', '--screenshot', $png, '--after', '1250', '--probe=1') + $Extra
+        '--dock-reserve', 'off', '--dock-thickness', '32', $CaptureSwitch, $png, '--after', '1250', '--probe=1') + $Extra
     $exit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments $arguments -WorkingDirectory $repoRoot `
         -TimeoutSeconds 120 -LogPath $log -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
     $jsonl = (@(Get-ChildItem -LiteralPath $runRoot -Recurse -Filter '*.jsonl' -File) |
@@ -707,7 +707,7 @@ try {
     }
     # A widget ordinal the page does not have ends the request before any capture: exit 8, no PNG, and one
     # screenshot-failed Warning with ERROR_NOT_FOUND.
-    $missing = Invoke-RedXeCaptureRun 'missing-widget' @('--widget', '511')
+    $missing = Invoke-RedXeCaptureRun 'missing-widget' @('--widget', '511') '--screenshot'
     if ($missing.Exit -ne 8 -or (Test-Path -LiteralPath $missing.Png) -or
         $missing.Jsonl -notmatch '"level":"warning","event":"screenshot-failed","message":"[^"]*","hr":"0x80070490"') {
         throw "RedXe.exe --screenshot --widget 511 must exit 8 without a PNG and log screenshot-failed with ERROR_NOT_FOUND (it exited $($missing.Exit)): $($missing.Log) $($missing.Jsonl)"
@@ -736,8 +736,8 @@ if (-not $helpTitle.Contains([string] [char] 0x2014)) {
     throw "RedXe.exe --help did not reach its log as the UTF-8 it writes: its title line lost U+2014: $helpLog"
 }
 foreach ($switch in @('--help', '--redmonitor', '--settings', '--warp', '--dock', '--dock-mode', '--dock-thickness',
-        '--dock-reserve', '--dock-peek', '--screenshot', '--page', '--widget', '--after', '--probe', '--self-test',
-        '--crash-test', '--crash-test-stack-overflow', '--crash-test-directory', '--redmonitor-probe', 'Exit codes:')) {
+        '--dock-reserve', '--dock-peek', '--capture', '--screenshot', '--page', '--widget', '--after', '--probe', '--self-test',
+        '--crash-probe', '--crash-test', '--crash-test-stack-overflow', '--crash-test-directory', '--redmonitor-probe', 'Exit codes:')) {
     if ($helpText -notmatch [regex]::Escape($switch)) {
         throw "RedXe.exe --help does not mention $switch."
     }
@@ -761,6 +761,9 @@ foreach ($case in @(
         @{ Arguments = @('--self-test', '--probe', '--probe=5'); Usage = 'Use --probe or --probe=<seconds>, once, with 1 through 3600 whole seconds.' },
         @{ Arguments = @('--self-test', '--warp', '--settings'); Usage = 'Use --settings followed by exactly one settings file path.' },
         @{ Arguments = @('--screenshot', $unattendedPng, '--after', '0'); Usage = '--after takes a delay of 1 through 120000 milliseconds.' },
+        @{ Arguments = @('--capture', $unattendedPng, '--screenshot', $unattendedPng); Usage = 'Use --capture <file.png>' },
+        @{ Arguments = @('--crash-probe'); Usage = 'Use --crash-probe <directory>' },
+        @{ Arguments = @('--crash-probe', $evidence.Path, '--crash-test'); Usage = 'Use --crash-probe <directory>' },
         @{ Arguments = @('--self-test', '--warp', '--dock', 'top@second'); Usage = '--dock takes none, top, bottom, left, or right, optionally followed by @primary, @secondary, @xeneon, @<n>, or @name:<substring>.' })) {
     $unattendedCase++
     $unattendedLog = Join-Path $evidence.Path "RedXe.unattended-error-$unattendedCase.log"
@@ -838,8 +841,10 @@ function Invoke-RedXeCrashTest {
         # dialog away, so a crash path that stopped handling its exception ends the run instead of holding it.
         $crashLog = Join-Path $evidence.Path "RedXe.crash-test-$Label.log"
         $crashProcessId = 0
+        $crashArguments = if ($CrashArgument -eq '--crash-probe') { @($CrashArgument, $crashTestDirectory) }
+            else { @($CrashArgument, "--crash-test-directory=$crashTestDirectory") }
         $crashExit = Invoke-RedXeStreamingProcess -FilePath $executable `
-            -Arguments @($CrashArgument, "--crash-test-directory=$crashTestDirectory") -WorkingDirectory $repoRoot `
+            -Arguments $crashArguments -WorkingDirectory $repoRoot `
             -TimeoutSeconds $testTimeoutSeconds -LogPath $crashLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -ProcessId ([ref] $crashProcessId) `
             -OutputLineCallback { param([string] $Line, [bool] $IsError) }
     if ($crashExit -ne 127) {
@@ -925,6 +930,8 @@ if ($missingOverrideExit -ne 2) {
 }
 
 Invoke-RedXeCrashTest -CrashArgument '--crash-test' -ExpectedExceptionCode 0xE000CAFEl `
+    -Label 'legacy-fatal-process'
+Invoke-RedXeCrashTest -CrashArgument '--crash-probe' -ExpectedExceptionCode 0xE000CAFEl `
     -Label 'fatal-process'
 Invoke-RedXeCrashTest -CrashArgument '--crash-test-stack-overflow' -ExpectedExceptionCode 0xC00000FDl `
     -Label 'stack-overflow'

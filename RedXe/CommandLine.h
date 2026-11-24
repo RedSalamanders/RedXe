@@ -28,6 +28,7 @@ enum class RedXeSwitch : uint8_t
     After,
     Probe,
     SelfTest,
+    CrashProbe,
     CrashTest,
     CrashTestStackOverflow,
     CrashTestDirectory,
@@ -130,8 +131,8 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
                            L"Autohide only: pixels that stay visible while hidden, 1 through 64 (default 4).",
                            L"Dock"},
     RedXeCommandLineSwitch{RedXeSwitch::Screenshot,
+                           L"--capture",
                            L"--screenshot",
-                           nullptr,
                            RedXeSwitchValue::Separate,
                            L"<png>",
                            L"Start normally, wait, save the window (or one widget) as PNG, and exit: 0 written, 8 not written.",
@@ -172,6 +173,14 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
                            nullptr,
                            L"Hidden startup validation with the deployed template; exits 0 when the host works and 6 "
                            L"when a check fails, which it names on stderr.",
+                           L"Diagnostics",
+                           true},
+    RedXeCommandLineSwitch{RedXeSwitch::CrashProbe,
+                           L"--crash-probe",
+                           nullptr,
+                           RedXeSwitchValue::Separate,
+                           L"<directory>",
+                           L"Raise a test crash and write its report to the existing isolated build directory.",
                            L"Diagnostics",
                            true},
     RedXeCommandLineSwitch{RedXeSwitch::CrashTest,
@@ -253,7 +262,7 @@ inline constexpr std::array<const wchar_t*, 4> kRedXeCommandLineGroups{L"General
             }
             continue;
         }
-        if (argument == name)
+        if (argument == name || (entry.id != RedXeSwitch::Help && entry.aliases && argument == entry.aliases))
         {
             return &entry;
         }
@@ -373,7 +382,8 @@ inline constexpr int kRedXeScreenshotFailedExitCode = 8;
     std::wstring text;
     text += L"RedXe — CORSAIR XENEON EDGE dashboard\n\n";
     text += L"Usage: RedXe.exe [--settings <path>] [--dock <edge>[@<monitor>] [dock options]]\n";
-    text += L"                 [--screenshot <png> [--page <id>] [--widget <ordinal>] [--after <ms>]] [--warp]\n";
+    text += L"                 [--capture <png> [--page <id>] [--widget <ordinal>] [--after <ms>]] [--warp]\n";
+    text += L"       RedXe.exe --crash-probe <directory>\n";
     text += L"       RedXe.exe --help\n";
     text += L"\nWithout switches RedXe follows the settings file under %LocalAppData%\\RedXe\\Settings and watches it for "
             L"edits:\n";

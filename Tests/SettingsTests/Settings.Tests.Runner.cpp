@@ -1915,8 +1915,8 @@ constexpr std::string_view kRepresentative = R"json(
         for (const RedXeCommandLineSwitch& entry : kRedXeCommandLineSwitches)
         {
             const bool endsOnItsOwn = entry.id == RedXeSwitch::Help || entry.id == RedXeSwitch::RedMonitor || entry.id == RedXeSwitch::RedMonitorProbe ||
-                                      entry.id == RedXeSwitch::Screenshot || entry.id == RedXeSwitch::SelfTest || entry.id == RedXeSwitch::CrashTest ||
-                                      entry.id == RedXeSwitch::CrashTestStackOverflow;
+                                      entry.id == RedXeSwitch::Screenshot || entry.id == RedXeSwitch::SelfTest || entry.id == RedXeSwitch::CrashProbe ||
+                                      entry.id == RedXeSwitch::CrashTest || entry.id == RedXeSwitch::CrashTestStackOverflow;
             if (entry.launcherWaitForExit != endsOnItsOwn)
             {
                 std::wprintf(L"The launcher wait policy of %s does not match whether it ends on its own.\n", entry.name);
@@ -1960,7 +1960,10 @@ constexpr std::string_view kRepresentative = R"json(
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
         }
-        if (RedXeIsHelpArgument(L"--HELP") || RedXeIsHelpArgument(L"help") || RedXeFindSwitch(L"--settings=x") || RedXeFindSwitch(L"--crash-test-directory") ||
+        if (RedXeFindSwitch(L"--capture") != &RedXeSwitchInfo(RedXeSwitch::Screenshot) ||
+            RedXeFindSwitch(L"--screenshot") != &RedXeSwitchInfo(RedXeSwitch::Screenshot) ||
+            RedXeFindSwitch(L"--crash-probe") != &RedXeSwitchInfo(RedXeSwitch::CrashProbe) || RedXeFindSwitch(L"--crash-probe=folder") ||
+            RedXeIsHelpArgument(L"--HELP") || RedXeIsHelpArgument(L"help") || RedXeFindSwitch(L"--settings=x") || RedXeFindSwitch(L"--crash-test-directory") ||
             RedXeFindSwitch(L"--crash-test-directory=") || ! RedXeFindSwitch(L"--crash-test-directory=C:\\dumps") || RedXeFindSwitch(L"--dock-peek=4"))
         {
             std::wprintf(L"Switch matching is not exact.\n");

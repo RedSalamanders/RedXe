@@ -1,0 +1,1 @@
+- Accept the shared `--capture <png>` and `--crash-probe <directory>` commands and preserve the existing capture and crash commands.
