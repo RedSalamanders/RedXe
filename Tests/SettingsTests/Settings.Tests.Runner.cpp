@@ -1442,7 +1442,8 @@ constexpr std::string_view kRepresentative = R"json(
     };
     for (const std::string_view document : defaults)
     {
-        if (FAILED(ParseAppSettingsJson(document, parsed)) || parsed.dock != DefaultDockSettings() || parsed.sourceDocument != document)
+        AppSettings fallback{};
+        if (FAILED(ParseAppSettingsJson(document, fallback)) || fallback.dock != DefaultDockSettings() || fallback.sourceDocument != document)
         {
             std::wprintf(L"A dock preference failed to take its default and retain the authored document.\n");
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
