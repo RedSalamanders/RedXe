@@ -1,0 +1,1 @@
+- Restore the native qualification fixture checks for the independent build and analyzer logs and the unattended harness commands.
