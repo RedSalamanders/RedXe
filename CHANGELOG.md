@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Publish `SettingsStore.schema.json` with new settings templates and preserve validation for existing RedXe settings.
 - Restore the separately pinned vcpkg executable and catalogue through the common engine checkout helper.
 - Use the pinned shared toolchain and manifest arguments for the application vcpkg restore.
 - Bind the root RedMonitor client commands to the producer-owned tooling hashes recorded in the existing lock.
