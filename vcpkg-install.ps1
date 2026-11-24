@@ -67,7 +67,7 @@ $commit = $toolIdentity.ToolCommit
 # so a broken installation fails at once and every triplet below is pinned to what MSBuild uses.
 Import-Module (Join-Path $repoRoot 'Build/DxUiRestore.psm1') -Force
 Import-Module (Join-Path $repoRoot '.ci-engine/Tools/Modules/Ci.EngineBinding.psm1') -ErrorAction Stop
-foreach ($name in @('VisualStudio.psm1', 'VcpkgTriplet.psm1', 'VcpkgInstall.psm1')) {
+foreach ($name in @('VisualStudio.psm1', 'VcpkgTriplet.psm1', 'VcpkgCheckout.psm1', 'VcpkgInstall.psm1')) {
     Import-Module (Resolve-CiPinnedEngineModule -ProjectRoot $repoRoot -Name $name) -Scope Local -ErrorAction Stop
 }
 if (-not $MSBuildPath) { $MSBuildPath = Find-RedXeMSBuild }
@@ -82,20 +82,7 @@ $sources = Initialize-RedXeVcpkgSources -RepoRoot $repoRoot
 $toolRoot = $sources.ToolRoot
 $registryRoot = $sources.RegistryRoot
 if ($sources.ToolCommit -cne $commit -or $sources.Baseline -cne $toolIdentity.Baseline) { throw 'vcpkg pin declarations changed during dependency setup.' }
-$vcpkg = Join-Path $toolRoot 'vcpkg.exe'
-$stampedCommit = if (Test-Path -LiteralPath $toolStampPath -PathType Leaf) {
-    (Get-Content -Raw -LiteralPath $toolStampPath).Trim()
-} else {
-    ''
-}
-if (-not (Test-Path -LiteralPath $vcpkg -PathType Leaf) -or $stampedCommit -ne $commit) {
-    Write-Host 'Bootstrapping vcpkg...' -ForegroundColor Cyan
-    & (Join-Path $toolRoot 'bootstrap-vcpkg.bat') -disableMetrics
-    if ($LASTEXITCODE -ne 0) {
-        throw "vcpkg bootstrap failed with exit code $LASTEXITCODE."
-    }
-    Set-Content -LiteralPath $toolStampPath -Value $commit -Encoding ascii
-}
+$vcpkg = Initialize-CiVcpkgExecutable -ProjectRoot $repoRoot -ToolRoot $toolRoot -StampPath $toolStampPath -Commit $commit
 
 $platforms = if ($Platform -eq 'All') { @('x64', 'ARM64') } else { @($Platform) }
 foreach ($targetPlatform in $platforms) {

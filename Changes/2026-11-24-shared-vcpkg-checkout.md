@@ -1,0 +1,1 @@
+- Restore the separately pinned vcpkg executable and catalogue through the common engine checkout helper.
