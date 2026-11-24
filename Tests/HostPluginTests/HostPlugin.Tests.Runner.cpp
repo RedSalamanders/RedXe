@@ -439,8 +439,8 @@ constexpr UINT kHostHeight = 720;
 // Thread count for this process. The shared plugin runtime owns exactly one acquisition worker no matter how many
 // PluginManager instances are live, so staging an adjacent page must not raise this.
 
-// These hidden WARP fixtures grant frames explicitly, including after DXGI reports occlusion. Prepare the real
-// cached interfaces before drawing; production occlusion/scheduling suppression has its own decision tests.
+// These hidden WARP fixtures grant frames explicitly. Prepare the cached interfaces before drawing.
+// Production visibility and scheduling have their own decision tests.
 [[nodiscard]] HRESULT RenderPreparedTestFrame(Renderer& renderer, DashboardHost& dashboard, float now, float delta) noexcept
 {
     for (size_t index = 0; index < dashboard.WidgetCount(); ++index)
@@ -663,13 +663,11 @@ void TestFrameScheduler(bool& success) noexcept
     state.rendererSuspended = true;
     Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"minimized host waits", success);
     state.rendererSuspended = false;
-    state.rendererOccluded  = true;
-    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"occluded host waits without a DXGI notification", success);
-    state.occlusionStatusChanged = true;
-    Check(SelectHostFrameAction(state) == HostFrameAction::ProbeOcclusion, L"occluded host probes only after a DXGI notification", success);
+    state.windowCloaked     = true;
+    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"a cloaked host waits even with continuous content", success);
+    state.windowCloaked = false;
+    Check(SelectHostFrameAction(state) == HostFrameAction::Render, L"uncloaking resumes a visible continuous host", success);
 
-    state.rendererOccluded         = false;
-    state.occlusionStatusChanged   = false;
     state.continuousFramesRequired = false;
     state.frameInvalidated         = false;
     Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"clean static host waits", success);
@@ -680,15 +678,12 @@ void TestFrameScheduler(bool& success) noexcept
     state.frameInvalidated     = false;
     state.pageNavigationActive = true;
     Check(SelectHostFrameAction(state) == HostFrameAction::Render, L"an active page swipe keeps presenting so widget animation continues", success);
-    state.rendererOccluded = true;
-    Check(SelectHostFrameAction(state) == HostFrameAction::Render, L"page navigation keeps presenting when DXGI reports the swap chain occluded", success);
+    state.windowCloaked = true;
+    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"a cloaked host waits during page navigation", success);
     state.pageNavigationActive = false;
-    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"occluded host without page navigation waits", success);
-    state.overlayMotionActive = true;
-    Check(SelectHostFrameAction(state) == HostFrameAction::Render,
-          L"raise or dismiss settle keeps presenting when DXGI reports the swap chain occluded",
-          success);
-    state.rendererOccluded = false;
+    state.overlayMotionActive  = true;
+    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"a cloaked host waits during overlay motion", success);
+    state.windowCloaked = false;
     Check(SelectHostFrameAction(state) == HostFrameAction::Render, L"an active raise settle keeps presenting so overlay motion continues", success);
     state.overlayMotionActive = false;
     Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"a settled overlay does not keep a static host presenting", success);
@@ -699,11 +694,10 @@ void TestFrameScheduler(bool& success) noexcept
     Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"a hidden dock with a clean frame waits even with continuous widgets", success);
     state.frameInvalidated = true;
     Check(SelectHostFrameAction(state) == HostFrameAction::Render, L"a hidden dock renders its one grip frame", success);
-    state.rendererOccluded       = true;
-    state.occlusionStatusChanged = false;
-    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"an occluded hidden dock waits like any occluded host", success);
-    state.rendererOccluded = false;
-    state.windowVisible    = false;
+    state.windowCloaked = true;
+    Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"a cloaked dock suppresses its grip frame", success);
+    state.windowCloaked = false;
+    state.windowVisible = false;
     Check(SelectHostFrameAction(state) == HostFrameAction::WaitForMessage, L"a hidden dock on a hidden window waits", success);
 }
 
@@ -8455,7 +8449,11 @@ void TestNativeWindowNeighborSwipe(bool& success) noexcept
     {
         result = renderer.Render(0.3f, 1.0f / 60.0f);
     }
-    Check(SUCCEEDED(result) && ! renderer.IsOccluded(), L"a full-page native widget does not mark the swap chain occluded", success);
+    if (SUCCEEDED(result))
+    {
+        result = renderer.Render(0.4f, 1.0f / 60.0f);
+    }
+    Check(SUCCEEDED(result), L"consecutive frames complete with a full-page native widget", success);
 
     renderer.Shutdown();
     nextDashboard.Shutdown();

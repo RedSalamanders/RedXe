@@ -306,9 +306,9 @@ or state change is pending. Normal operating-system scheduling noise is outside 
   with any Open With picker or shell error box, runs on the launch worker, so the dashboard keeps presenting. While its
   menu is open the system's modal menu loop runs on the UI thread and the dashboard presents nothing, like any other
   modal UI.
-- After `Present` reports occlusion, RedXe must stop frame construction, wait for the DXGI factory's registered
-  occlusion-status window message, and use `DXGI_PRESENT_TEST` to detect recovery without presenting content.
-  Occlusion polling and periodic timers are prohibited.
+- Hidden, minimized, DWM-cloaked and display-off windows wait on application visibility and power events without
+  constructing or presenting frames. The visibility transition governs scheduling. Occlusion polling and periodic
+  timers are prohibited.
 - Adapter of output: the Direct3D device is created on the hardware adapter whose output scans out the monitor the
   main window sits on, never on the default adapter while a matching output exists. When the window moves to a
   monitor scanned out by another adapter (move, size/move end, DPI change, or display-topology change), the host
@@ -794,7 +794,7 @@ The numeric arrays keep even maximum-width values within one logger slot:
 
 HRESULTs are unsigned 32-bit values. Only S_OK (0) supplies a successful value; AV S_FALSE (1) means the module is
 absent. Process validity bits 0–6 correspond to memory, CPU, handles, threads, modules, GDI and USER queries. Host
-state bits 0–8 mean continuous, visible, display on, renderer suspended, DXGI occluded, dock hidden, navigation,
+state bits 0–8 mean continuous, visible, display on, renderer suspended, window cloaked, dock hidden, navigation,
 overlay/dock motion and an active raised widget. The raised bit remains set through raise/dismiss motion and clears
 when dismissal completes; with motion clear it identifies a settled raised widget. Consumers MUST tolerate unknown
 state bits. Visible is the host's show state and can remain set while minimized; renderer suspended identifies that
@@ -901,10 +901,9 @@ remain with the AV owner.
 - Review must confirm that steady-state GPU callbacks allocate no heap memory and reuse bounded device resources.
 - `HostPluginTests` must exercise the production `PluginManager`, `DashboardHost`, and `Renderer` with a hidden
   off-screen HWND and WARP. It must verify the scheduler decision table for hidden, minimized/suspended, display-off,
-  occluded, clean-static, invalidated-static, continuous, page-navigation-active, and overlay-motion-active states
-  without automating the desktop, including that page navigation and raise/dismiss settle keep presenting when DXGI
-  reports the swap chain occluded. The scheduler
-  input MUST NOT contain an any-message redraw proxy.
+  cloaked, clean-static, invalidated-static, continuous, page-navigation-active and overlay-motion-active states
+  on the off-screen host. A cloak blocks presentation during page navigation and raise/dismiss motion. Explicit frame
+  invalidation and motion state control scheduling.
 - `HostPluginTests` MUST also prove raised-overlay geometry, Process Viewer half-width raise while sibling tiles still
   draw, no continuous wake from that raise, and GdiOrbit container move/restore, using the same hidden WARP host.
 - `HostPluginTests` MUST prove the host chrome contract on the hidden WARP host: a settled page draws zero chrome
@@ -920,7 +919,7 @@ remain with the AV owner.
   resize, and releases it at shutdown. A live launch on the XENEON MUST show one `device-created` record naming the
   adapter that owns that monitor, and the process MUST appear on exactly one adapter LUID in the `GPU Engine` and
   `GPU Process Memory` counters.
-- Changes to the acquisition of operating-system visibility, power, or DXGI occlusion signals that are not represented
+- Changes to the acquisition of operating-system visibility, power, or DWM cloak signals that are not represented
   by the scheduler decision seam additionally require a live check that inactive windows do not spin and recovery
   resumes rendering.
 - System-data validation must exercise two 2,048-row steady collections through the production row-population path,

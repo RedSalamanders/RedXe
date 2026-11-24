@@ -548,15 +548,16 @@ the repository test entrypoint MUST validate the version fields without desktop 
   Windows 10, every test binary that creates native containers embeds an equivalent compatibility manifest
   (`Tests/HostPluginTests/HostPluginTests.manifest`), and the self-test creates one layered child and fails when the
   system rejects it.
-- `Application` MUST subscribe to `GUID_SESSION_DISPLAY_STATUS`. While the session display is powered off, hidden, or
-  minimized, it MUST drain pending messages and then block without rendering or presenting. Display-on, show, and
-  restore messages resume normal scheduling.
+- `Application` MUST use window visibility, minimization, DWM cloak state and `GUID_SESSION_DISPLAY_STATUS` to
+  schedule frames. While the window is hidden, minimized or cloaked, or the session display is off, it MUST drain
+  pending work and wait without frame construction or presentation. Show, restore, uncloak and display-on events
+  resume scheduling when the other conditions permit it.
 - Host-owned native-widget child containers MUST use the same physical design-canvas transform as GPU viewports.
-  Resize and `WM_DPICHANGED` MUST reposition them and report the destination DPI. Hidden, minimized, display-off, and
-  DXGI-occluded states MUST hide and quiesce them before the host blocks.
-- `Renderer` MUST register `Application` for DXGI factory occlusion-status window messages. After presentation reports
-  full occlusion, RedXe MUST block until that notification and then issue `DXGI_PRESENT_TEST` without building a
-  frame. It resumes rendering only after that test succeeds.
+  Resize and `WM_DPICHANGED` MUST reposition them and report the destination DPI. Hidden, minimized, display-off and
+  cloaked states MUST hide and quiesce them before the host blocks.
+- The main window receives DWM cloak and uncloak events through an owner-thread notification. The first eligible
+  frame after uncloaking is invalidated. The renderer treats a DXGI occlusion status as a successful presentation
+  result. Frame scheduling depends on the window and display signals above.
 - Adapter of output: `Renderer` MUST create the Direct3D device on the hardware adapter whose DXGI output scans out
   the monitor returned by `MonitorFromWindow` for the top-level window, so a XENEON attached to an integrated GPU is
   driven by that GPU and never through a cross-adapter DWM copy. `Application` MUST re-check that adapter on

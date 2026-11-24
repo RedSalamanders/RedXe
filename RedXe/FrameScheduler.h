@@ -12,7 +12,6 @@ enum class ContinuousFrameRate : uint32_t
 enum class HostFrameAction
 {
     WaitForMessage,
-    ProbeOcclusion,
     Render,
 };
 
@@ -21,13 +20,10 @@ struct HostFrameState final
     bool windowVisible            = false;
     bool displayPoweredOn         = false;
     bool rendererSuspended        = true;
-    bool rendererOccluded         = false;
-    bool occlusionStatusChanged   = false;
+    bool windowCloaked            = false;
     bool continuousFramesRequired = false;
     bool frameInvalidated         = true;
-    // Follow-finger pan, settle, or a staged neighbor. Presentation-paced frames MUST continue so widget animation
-    // and the page-scroll ease keep moving, even when DXGI reports the swap chain occluded because a native child
-    // covers it.
+    // Follow-finger pan, settle, or a staged neighbor. A visible host paces these frames with presentation.
     bool pageNavigationActive = false;
     // Raise or dismiss settle. Same presentation-paced rule as a page swipe; settled overlay chrome does not keep
     // presenting on its own.
@@ -39,13 +35,9 @@ struct HostFrameState final
 
 [[nodiscard]] constexpr HostFrameAction SelectHostFrameAction(const HostFrameState& state) noexcept
 {
-    if (! state.windowVisible || ! state.displayPoweredOn || state.rendererSuspended)
+    if (! state.windowVisible || ! state.displayPoweredOn || state.rendererSuspended || state.windowCloaked)
     {
         return HostFrameAction::WaitForMessage;
-    }
-    if (state.rendererOccluded && ! state.pageNavigationActive && ! state.overlayMotionActive)
-    {
-        return state.occlusionStatusChanged ? HostFrameAction::ProbeOcclusion : HostFrameAction::WaitForMessage;
     }
     if (state.dockHidden)
     {

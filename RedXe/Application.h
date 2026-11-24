@@ -99,7 +99,7 @@ private:
 
     HRESULT RegisterWindowClass() noexcept;
     HRESULT CreateMainWindow(bool visible, const RECT* targetBounds, bool fullscreen) noexcept;
-    HRESULT RegisterDisplayPowerNotification(HWND window) noexcept;
+    HRESULT RegisterWindowVisibilityNotifications(HWND window) noexcept;
     // Dock window kind (UI_Windowing.md "Dock window kind"): a borderless topmost tool window on one
     // edge of the monitor the effective dock selects. Placement, app-bar registration, DPI, and monitor changes are
     // owned by PlaceDock; autohide reveal and hide by the DockPlacement.h state machine.
@@ -446,6 +446,7 @@ private:
     HWND _settingsErrorDialog                     = nullptr;
     HWND _actionNoticeDialog                      = nullptr;
     wil::unique_hpowernotify _displayPowerNotification;
+    wil::unique_any<HWINEVENTHOOK, decltype(&::UnhookWinEvent), ::UnhookWinEvent> _windowCloakNotification;
     std::unique_ptr<PluginManager> _pluginManager;
     std::unique_ptr<DashboardHost> _dashboardHost;
     Renderer _renderer;
@@ -550,7 +551,7 @@ private:
     bool _rendererReady                   = false;
     bool _windowVisible                   = false;
     bool _displayPoweredOn                = true;
-    bool _occlusionStatusChanged          = false;
+    bool _windowCloaked                   = false;
     bool _frameInvalidated                = true;
     ULONGLONG _scheduledFrameDeadlineTick = 0;
     ContinuousFramePacer _continuousFramePacer;

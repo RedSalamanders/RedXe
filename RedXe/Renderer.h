@@ -24,8 +24,6 @@ class DashboardHost;
 class Renderer final
 {
 public:
-    static constexpr UINT kOcclusionStatusMessage = WM_APP + 1;
-
     // Identity of the live Direct3D device, logged as the `device-created` JSONL record and probed by tests.
     struct DeviceIdentity final
     {
@@ -76,7 +74,6 @@ public:
     {
         _appearance = appearance;
     }
-    HRESULT ProbeOcclusion() noexcept;
     // Rebuilds the device on the adapter that now owns the window's monitor. S_OK after a rebuild, S_FALSE when the
     // device already sits on that adapter (or the window is off every monitor, or WARP is forced), failure otherwise.
     HRESULT EnsureDeviceForWindowMonitor() noexcept;
@@ -93,7 +90,6 @@ public:
         return _frameLatencyWaitable ? _frameLatencyGeneration : 0;
     }
     [[nodiscard]] bool IsSuspended() const noexcept;
-    [[nodiscard]] bool IsOccluded() const noexcept;
     [[nodiscard]] size_t LastFrameWidgetCount() const noexcept;
     [[nodiscard]] size_t LastFrameSuccessfulWidgetCount() const noexcept;
     [[nodiscard]] bool HasRaisedOverlay() const noexcept;
@@ -156,7 +152,6 @@ private:
     UINT _dockWidth                    = 0;
     UINT _dockHeight                   = 0;
     bool _suspended                    = true;
-    bool _occluded                     = false;
     bool _gpuWidgetsDeviceReady        = false;
     bool _transitionWidgetsDeviceReady = false;
     UINT _width                        = 0;
@@ -187,7 +182,6 @@ private:
     wil::com_ptr_nothrow<ID3D11Device> _device;
     wil::com_ptr_nothrow<ID3D11DeviceContext> _context;
     wil::com_ptr_nothrow<ID3D11DeviceContext1> _context1;
-    wil::com_ptr_nothrow<IDXGIFactory2> _factory;
     wil::com_ptr_nothrow<IDXGISwapChain1> _swapChain;
     wil::com_ptr_nothrow<ID3D11RenderTargetView> _renderTarget;
     wil::unique_handle _frameLatencyWaitable;
@@ -195,7 +189,5 @@ private:
     uint64_t _swapChainGeneration    = 0;
     uint64_t _frameLatencyGeneration = 0;
     // Monitor the device was matched against; null on the default-adapter fallback.
-    HMONITOR _deviceMonitor         = nullptr;
-    DWORD _occlusionStatusCookie    = 0;
-    bool _occlusionStatusRegistered = false;
+    HMONITOR _deviceMonitor = nullptr;
 };

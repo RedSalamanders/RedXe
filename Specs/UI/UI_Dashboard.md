@@ -343,13 +343,12 @@ other than `Unavailable`; `Degraded` and `Initializing` never hand the tile to t
   second page's widgets. Host tests prove that `Renderer::AdoptPrimaryDashboard` is transactional: a failed adopt leaves
   the renderer pointing at the previous dashboard after the incoming host is destroyed.
 - Host tests prove that sliding through a native-window neighbor (GdiOrbit) succeeds at mid-settle and fully off-screen
-  offsets, that promote does not mark the swap chain occluded, and that a full-page native child does not freeze
-  subsequent frames.
+  offsets. After promotion a full-page native child allows consecutive frames.
 - Navigation tests cover two- and three-finger eligibility, one-finger exclusion, that an uncommitted second contact
   does not steal a widget gesture, direction, axis lock, vertical rejection, rubber-band end stops, wrap, distance and flick
   commit, settle interpolation, capture loss, deferred adjacent staging, in-place commit without device recreation,
-  current-plus-adjacent-only resource lifetime, and that page navigation requires presentation-paced frames even when
-  DXGI reports the swap chain occluded.
+  current-plus-adjacent-only resource lifetime, and presentation-paced navigation while the host is eligible to
+  render. The scheduler blocks navigation presentation while the window is cloaked.
 - Host tests prove that a right-swipe onto a previous Matrix page still draws that Matrix while its viewport origin is
   negative, that Studio Clock and Desk Clock keep drawing when only part of the tile is on-screen, and that
   `LastFrameSuccessfulWidgetCount` includes those widgets rather than dropping a tile that is not completely visible.
