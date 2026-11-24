@@ -13,10 +13,18 @@ function Assert-True([bool]$Condition,[string]$Message){if(-not $Condition){thro
 function Assert-Equal($Expected,$Actual,[string]$Message){if($Expected -cne $Actual){throw "$Message; expected '$Expected', actual '$Actual'."}}
 function Assert-Contains($Values,$Expected,[string]$Message){if($Expected -cnotin $Values){throw $Message}}
 $repository=(& git -C $PSScriptRoot rev-parse --show-toplevel).Trim()
-if(-not $SetupScriptPath){$SetupScriptPath=Join-Path $repository '.github/actions/setup-msvc/Setup.ps1'}
+if(-not $SetupScriptPath){
+    $engine=Join-Path $repository '.ci-engine'
+    $pin=(Get-Content -LiteralPath (Join-Path $repository '.ci/project.json') -Raw|ConvertFrom-Json).engine.ref
+    if((git -C $engine rev-parse HEAD).Trim() -cne $pin -or (git -C $engine --no-optional-locks status --porcelain)){
+        throw 'The setup fixture requires the clean exact CI engine.'
+    }
+    $SetupScriptPath=Join-Path $engine '.github/actions/setup-msvc/Setup.ps1'
+}
+$SetupScriptPath=(Resolve-Path -LiteralPath $SetupScriptPath).Path
 if(-not $IsWindows){Write-Host 'SKIP hosted MSVC GUI bootstrapper fixtures: Windows process semantics required.';return}
 # Retain all attempts as setup evidence.
-$packet=Join-Path $repository ('.build/msvc-setup-fixtures/'+[guid]::NewGuid().ToString('N'))
+$packet=Join-Path $repository ('.build/msvc-'+[guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($packet)
 $source=Join-Path $packet 'FakeInstaller.cs'
 [IO.File]::WriteAllText($source,@'
@@ -56,9 +64,6 @@ $fakeDiscoveryExecutable=Join-Path $packet 'FakeDiscovery.exe'
 if($LASTEXITCODE-ne 0){throw 'Cannot compile the console discovery fixture.'}
 function Invoke-SetupFixture([string]$Name,[int]$ExitCode=0,[string]$Version='14.52.37025',[switch]$Ready,[switch]$VerifyOnly,[switch]$Local,[switch]$BadSignature,[string]$Missing='',[int]$HangMilliseconds=0,[int]$TimeoutSeconds=0){
     $fixture=Join-Path $packet $Name
-    $script=Join-Path $fixture '.github/actions/setup-msvc/Setup.ps1'
-    [void][IO.Directory]::CreateDirectory((Split-Path $script))
-    Copy-Item $SetupScriptPath $script
     $discovery=Join-Path $fixture 'Program Files/Microsoft Visual Studio/Installer/vswhere.exe'
     [void][IO.Directory]::CreateDirectory((Split-Path $discovery))
     Copy-Item -LiteralPath $fakeDiscoveryExecutable -Destination $discovery
@@ -82,7 +87,7 @@ function Get-AuthenticodeSignature {param($LiteralPath) [pscustomobject]@{Status
 # Success starts with LASTEXITCODE unset, as on hosted CI. Failure has stale success.
 if($env:DXUI_FIXTURE_EXIT-ne '0'){$global:LASTEXITCODE=0}
 $budget=@{};if($env:DXUI_FIXTURE_TIMEOUT){$budget.InstallerTimeoutSeconds=[int]$env:DXUI_FIXTURE_TIMEOUT}
-& (Join-Path $PSScriptRoot '.github/actions/setup-msvc/Setup.ps1') -Platform x64 -VerifyOnly:$VerifyOnly @budget
+& $env:REDXE_TEST_SHARED_SETUP -ProjectRoot $PSScriptRoot -Platform x64 -VerifyOnly:$VerifyOnly @budget
 '@)
     $start=[Diagnostics.ProcessStartInfo]::new('pwsh')
     $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
@@ -99,6 +104,7 @@ $budget=@{};if($env:DXUI_FIXTURE_TIMEOUT){$budget.InstallerTimeoutSeconds=[int]$
     $start.Environment['TEMP']=$start.Environment['RUNNER_TEMP']
     $start.Environment['GITHUB_OUTPUT']=Join-Path $fixture 'github-output.txt'
     $start.Environment['GITHUB_ENV']=Join-Path $fixture 'github-env.txt'
+    $start.Environment['REDXE_TEST_SHARED_SETUP']=$SetupScriptPath
     # Model the older installation that wins ambient discovery on hosted images.
     $oldMSBuild=Join-Path $fixture 'old installation/MSBuild/Current/Bin/amd64/MSBuild.exe'
     [void][IO.Directory]::CreateDirectory((Split-Path $oldMSBuild))
@@ -122,11 +128,11 @@ Invoke-TestCase 'delayed GUI success waits and preserves install path with space
     $index=[Array]::IndexOf($arguments,'--installPath')
     Assert-Equal (Join-Path $result.Root 'runner temp with spaces/VS-Msvc-14.52') $arguments[$index+1] 'install path remains one argument'
     Assert-Contains $arguments '--wait' 'bootstrapper waits for its installer'
-    Assert-Equal '300|3|15' ([IO.File]::ReadAllText((Join-Path $result.Root 'download-policy.txt'))) 'the bootstrapper download is bounded and retried'
+    Assert-Equal '180||' ([IO.File]::ReadAllText((Join-Path $result.Root 'download-policy.txt'))) 'the shared bootstrapper download has its documented budget'
 }
 Invoke-TestCase 'stalled GUI installer is ended within its budget and keeps its logs' {
     $result=Invoke-SetupFixture 'stalled' -HangMilliseconds 60000 -TimeoutSeconds 2
-    Assert-True ($result.Exit-ne 0 -and $result.Text-match 'VS provisioning failed: timeout after 2 s') $result.Text
+    Assert-True ($result.Exit-ne 0 -and $result.Text-match 'VS provisioning timed out after 2 seconds') $result.Text
     Assert-True (-not(Test-Path (Join-Path $result.Root 'completed.txt'))) 'the stalled installer was ended before it completed'
     $output=[IO.File]::ReadAllLines((Join-Path $result.Root 'github-output.txt'))
     $logs=($output|Where-Object {$_-like 'installer_logs=*'}).Substring('installer_logs='.Length)
@@ -179,9 +185,11 @@ Invoke-TestCase 'successful installer cannot admit another compiler family' {
     $result=Invoke-SetupFixture 'wrong-family' -Version '14.51.36231'
     Assert-True ($result.Exit-ne 0 -and $result.Text-match 'Insiders did not provide default MSVC 14.52') $result.Text
 }
+$missingIndex=0
 foreach($missing in @("VC/Tools/MSVC/14.52.37025/bin/Host$(if([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()-eq 'Arm64'){'arm64'}else{'x64'})/x64/cl.exe",'VC/Tools/MSVC/14.52.37025/lib/x64/clang_rt.asan_dynamic-x86_64.lib','VC/Tools/Llvm/x64/bin/llvm-pdbutil.exe','SDK')){
+    ++$missingIndex
     Invoke-TestCase "successful installer cannot admit missing $missing" {
-        $result=Invoke-SetupFixture ('missing-'+[guid]::NewGuid().ToString('N')) -Missing $missing
+        $result=Invoke-SetupFixture ('missing-'+$missingIndex) -Missing $missing
         Assert-True ($result.Exit-ne 0 -and $result.Text-match 'Insiders did not provide') $result.Text
     }
 }

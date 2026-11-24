@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: RedSalamanders/.github
-          ref: 235b2a78edb9d4bf1d8687606fc68bd6840007f5
+          ref: dd0ab778a2aa9ab13699db19baef0e41ac3bd82c
           path: .ci-engine
           persist-credentials: false
       - id: pr
@@ -54,9 +54,9 @@ jobs:
   checks:
     needs: resolve
     if: always() && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && needs.resolve.result == 'success'))
-    uses: RedSalamanders/.github/.github/workflows/pr.yml@235b2a78edb9d4bf1d8687606fc68bd6840007f5
+    uses: RedSalamanders/.github/.github/workflows/pr.yml@dd0ab778a2aa9ab13699db19baef0e41ac3bd82c
     with:
-      engine_ref: 235b2a78edb9d4bf1d8687606fc68bd6840007f5
+      engine_ref: dd0ab778a2aa9ab13699db19baef0e41ac3bd82c
       head: ${{ github.event.pull_request.head.sha || needs.resolve.outputs.head }}
       base: ${{ github.event.pull_request.base.sha || needs.resolve.outputs.base }}
     permissions:
@@ -64,9 +64,9 @@ jobs:
   security-recheck:
     needs: resolve
     if: github.event_name == 'workflow_dispatch' && needs.resolve.result == 'success'
-    uses: RedSalamanders/.github/.github/workflows/security.yml@235b2a78edb9d4bf1d8687606fc68bd6840007f5
+    uses: RedSalamanders/.github/.github/workflows/security.yml@dd0ab778a2aa9ab13699db19baef0e41ac3bd82c
     with:
-      engine_ref: 235b2a78edb9d4bf1d8687606fc68bd6840007f5
+      engine_ref: dd0ab778a2aa9ab13699db19baef0e41ac3bd82c
       head: ${{ needs.resolve.outputs.head }}
       base: ${{ needs.resolve.outputs.base }}
       pr_number: ${{ inputs.pr_number }}
@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: RedSalamanders/.github
-          ref: 235b2a78edb9d4bf1d8687606fc68bd6840007f5
+          ref: dd0ab778a2aa9ab13699db19baef0e41ac3bd82c
           path: .ci-engine
           persist-credentials: false
       - shell: pwsh
@@ -116,9 +116,9 @@ jobs:
           if ($failed) { throw 'One or more compiler-free PR rechecks failed.' }
   coordinate:
     if: github.event_name == 'push'
-    uses: RedSalamanders/.github/.github/workflows/coordinate.yml@235b2a78edb9d4bf1d8687606fc68bd6840007f5
+    uses: RedSalamanders/.github/.github/workflows/coordinate.yml@dd0ab778a2aa9ab13699db19baef0e41ac3bd82c
     with:
-      engine_ref: 235b2a78edb9d4bf1d8687606fc68bd6840007f5
+      engine_ref: dd0ab778a2aa9ab13699db19baef0e41ac3bd82c
     permissions:
       contents: read
       statuses: write
