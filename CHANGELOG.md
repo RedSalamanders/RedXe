@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Accept the shared `--capture <png>` and `--crash-probe <directory>` commands and preserve the existing capture and crash commands.
 - Generate RedXe's WinGet manifests through the pinned engine, preserving product descriptions, links and release metadata.
 - Run RedXe's compiler-free checks through root `validate.ps1` for local use and pull requests.
 - Add a native MSVC code-analysis mode with isolated build outputs.
