@@ -1,1 +1,0 @@
-- Add a root restore command for the pinned RedXe and DxUi dependencies on x64 and ARM64.
