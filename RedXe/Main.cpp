@@ -1,10 +1,12 @@
 #include "Application.h"
 #include "CommandLine.h"
 #include "Common/FailureReports.h"
+#include "Common/Resources.h"
 #include "CrashHandler.h"
 #include "DockOptions.h"
 #include "MonitorDiagnostics.h"
 #include "PluginHost.h"
+#include "resource.h"
 
 #include <array>
 #include <cstdio>
@@ -167,7 +169,8 @@ void EmitCommandLineText(const std::wstring& text, bool error, bool quiet) noexc
         OutputDebugStringW(text.c_str());
         return;
     }
-    MessageBoxW(nullptr, text.c_str(), L"RedXe command line", static_cast<UINT>(MB_OK | (error ? MB_ICONERROR : MB_ICONINFORMATION)));
+    const auto title = RedXeResources::LoadStringResource(nullptr, IDS_COMMAND_LINE_TITLE);
+    MessageBoxW(nullptr, text.c_str(), title.c_str(), static_cast<UINT>(MB_OK | (error ? MB_ICONERROR : MB_ICONINFORMATION)));
 }
 
 // A switch with a missing or invalid value (exit 2): a message box for a person; an unattended run
@@ -176,7 +179,8 @@ void ReportCommandLineError(const wchar_t* text, bool unattended) noexcept
 {
     if (! unattended)
     {
-        MessageBoxW(nullptr, text, L"RedXe", MB_OK | MB_ICONERROR);
+        const auto title = RedXeResources::LoadStringResource(nullptr, IDS_PRODUCT_TITLE);
+        MessageBoxW(nullptr, text, title.c_str(), MB_OK | MB_ICONERROR);
         return;
     }
     try
@@ -444,21 +448,21 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
 
     if (RedXeShowsExitCodeBox(exitCode, selfTest, screenshotSwitch))
     {
-        const wchar_t* message = L"RedXe could not start. See the debugger output.";
+        UINT message = IDS_EXIT_STARTUP_FAILED;
         switch (exitCode)
         {
-            case 1: message = L"RedXe could not load settings. See the debugger output."; break;
-            case 2: message = L"RedXe could not create its window. See the debugger output."; break;
-            case 3: message = L"RedXe could not initialize bundled plugins. See the debugger output."; break;
-            case 5: message = L"RedXe could not complete graphics initialization or rendering. See the debugger output."; break;
-            case 7: message = L"RedXe could not watch its settings file. See the debugger output."; break;
+            case 1: message = IDS_EXIT_SETTINGS_FAILED; break;
+            case 2: message = IDS_EXIT_WINDOW_FAILED; break;
+            case 3: message = IDS_EXIT_PLUGINS_FAILED; break;
+            case 5: message = IDS_EXIT_RENDERER_FAILED; break;
+            case 7: message = IDS_EXIT_WATCHER_FAILED; break;
             default: break;
         }
         // Destroying the main window posted a WM_QUIT that no loop retrieved on these paths, and a modal loop that
         // finds one ends at once. Discard it so the box waits for the user; wWinMain returns the exit code directly.
         MSG quit{};
         (void)PeekMessageW(&quit, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE);
-        MessageBoxW(nullptr, message, L"RedXe", MB_OK | MB_ICONERROR);
+        RedXeResources::MessageBoxResource(nullptr, nullptr, message, IDS_PRODUCT_TITLE, MB_OK | MB_ICONERROR);
     }
     return exitCode;
 }

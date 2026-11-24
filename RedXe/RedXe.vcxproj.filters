@@ -6,6 +6,7 @@
     <ClCompile Include="RuntimeProbe.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClInclude Include="RuntimeProbe.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\Common\ProcessResources.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\Common\Resources.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\Plugins\AVControl\AVControlDiagnostics.h"><Filter>Header Files</Filter></ClInclude>
     <ClCompile Include="PluginHost.cpp">
       <Filter>Source Files</Filter>

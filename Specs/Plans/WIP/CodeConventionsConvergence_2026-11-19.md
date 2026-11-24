@@ -57,8 +57,9 @@ Prepared: 2026-11-19, after the 155-line reformat (#108).
 - [ ] **H-15 Settings reload.** The watcher follows RedHome decision D19. Optional root and dock preferences now
   take field defaults and keep unknown members across writes. Reconcile document-level rejection and recovery for
   incompatible versions, required layout shape and closed plugin models with the shared D19 rule.
-- [ ] **H-06 and H-08 Resource strings.** RedXe has no `STRINGTABLE`. Target: chrome strings in resources through the
-  shared helper set, then the resource-string gate.
+- [ ] **H-06 and H-08 Resource strings.** Native window captions, tray chrome and startup and crash prompts use the
+  common resource helpers. Root validation checks the base string table. Review host-rendered chrome and dynamic
+  notice composition for additional strings and retain the interactive tray replay.
 - [ ] **H-23 Keyboard state under hidden self-tests.** `Application` reads modifiers with `GetKeyState`. Target: an
   application-owned keyboard state wherever a hidden self-test drives keys; first establish whether one does.
 

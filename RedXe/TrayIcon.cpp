@@ -1,7 +1,9 @@
 #include "TrayIcon.h"
 
+#include "Common/Resources.h"
 #include "resource.h"
 
+#include <algorithm>
 #include <utility>
 #include <windowsx.h>
 
@@ -36,7 +38,8 @@ HRESULT TrayIcon::Show(HINSTANCE instance, HWND commandTarget) noexcept
     // TaskbarCreated is broadcast to top-level windows, so the owner is a hidden popup rather than a message-only
     // window, which would neither hear it nor be able to take the foreground for the menu.
     _taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
-    if (! CreateWindowExW(WS_EX_TOOLWINDOW, kWindowClassName, L"RedXe", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, instance, this) || ! _window)
+    const auto title       = RedXeResources::LoadStringResource(instance, IDS_PRODUCT_TITLE);
+    if (! CreateWindowExW(WS_EX_TOOLWINDOW, kWindowClassName, title.c_str(), WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, instance, this) || ! _window)
     {
         const DWORD error = GetLastError();
         Hide();
@@ -88,10 +91,13 @@ bool TrayIcon::AddIcon() noexcept
     data.uCallbackMessage = kCallbackMessage;
     data.hIcon            = _icon.get();
 #if defined(_DEBUG)
-    (void)wcscpy_s(data.szTip, L"RedXe (Debug)");
+    constexpr UINT tooltipId = IDS_TRAY_TOOLTIP_DEBUG;
 #else
-    (void)wcscpy_s(data.szTip, L"RedXe");
+    constexpr UINT tooltipId = IDS_PRODUCT_TITLE;
 #endif
+    const auto tooltip = RedXeResources::LoadEmbeddedStringResourceView(_instance, tooltipId);
+    if (! tooltip.empty())
+        std::copy_n(tooltip.data(), (std::min)(tooltip.size(), static_cast<size_t>(_countof(data.szTip) - 1)), data.szTip);
     // A taskbar that still shows the icon (TaskbarCreated without a new Explorer, or an add that landed after its call
     // timed out) refuses the add; it takes an update. A busy Explorer times the call out (ERROR_TIMEOUT, when the shell
     // passes it on); the update would only block the UI thread for a second timeout, so the retry makes it instead.
@@ -168,14 +174,16 @@ void TrayIcon::ShowMenu(POINT anchor) noexcept
     {
         return;
     }
-    wil::unique_hmenu menu{CreatePopupMenu()};
-    if (! menu || ! AppendMenuW(menu.get(), MF_STRING, static_cast<UINT_PTR>(TrayCommand::EditSettings), L"&Edit settings") ||
-        ! AppendMenuW(menu.get(), MF_SEPARATOR, 0, nullptr) || ! AppendMenuW(menu.get(), MF_STRING, static_cast<UINT_PTR>(TrayCommand::Exit), L"E&xit"))
+    static_assert(static_cast<UINT>(TrayCommand::EditSettings) == IDM_TRAY_EDIT_SETTINGS);
+    static_assert(static_cast<UINT>(TrayCommand::Exit) == IDM_TRAY_EXIT);
+    wil::unique_hmenu menu{LoadMenuW(_instance, MAKEINTRESOURCEW(IDR_TRAY_MENU))};
+    const HMENU popup = menu ? GetSubMenu(menu.get(), 0) : nullptr;
+    if (! popup)
     {
         return;
     }
     // The double-click action, drawn bold.
-    (void)SetMenuDefaultItem(menu.get(), static_cast<UINT>(TrayCommand::EditSettings), FALSE);
+    (void)SetMenuDefaultItem(popup, IDM_TRAY_EDIT_SETTINGS, FALSE);
     // A notification-area menu must belong to the foreground window, or it stays open when the person clicks
     // elsewhere; the WM_NULL afterwards is the documented companion. The menu runs the system's modal menu loop, so
     // the dashboard presents no frame while it is open.
@@ -183,7 +191,7 @@ void TrayIcon::ShowMenu(POINT anchor) noexcept
     UINT flags = TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY;
     flags |= GetSystemMetrics(SM_MENUDROPALIGNMENT) != 0 ? TPM_RIGHTALIGN : TPM_LEFTALIGN;
     _menuOpen         = true;
-    const UINT chosen = static_cast<UINT>(TrackPopupMenuEx(menu.get(), flags, anchor.x, anchor.y, _window.get(), nullptr));
+    const UINT chosen = static_cast<UINT>(TrackPopupMenuEx(popup, flags, anchor.x, anchor.y, _window.get(), nullptr));
     _menuOpen         = false;
     // A settings reload during the menu may have hidden the icon; the owner is then gone.
     if (! _window)
