@@ -38,14 +38,14 @@
       <RedXeRuntimeDependency Include="$(RedXeVcpkgRuntimeDir)yyjson.dll" />
     </ItemGroup>
     <Error Condition="!Exists('%(RedXeRuntimeDependency.Identity)')"
-           Text="Missing vcpkg runtime dependency: %(RedXeRuntimeDependency.Identity). Run .\vcpkg-install.ps1 -Platform $(Platform)." />
+           Text="Missing vcpkg runtime dependency: %(RedXeRuntimeDependency.Identity). Run $(RedXeVcpkgRestoreCommand)." />
     <Copy SourceFiles="@(RedXeRuntimeDependency)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
   <Target Name="CopyLauncherRuntimeDependencies" AfterTargets="Link"
           Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and ('$(MSBuildProjectName)'=='Launcher' or '$(MSBuildProjectName)'=='AVControl' or '$(MSBuildProjectName)'=='Logicon' or '$(MSBuildProjectName)'=='Zoom')">
     <Error Condition="!Exists('$(RedXeVcpkgRuntimeDir)yyjson.dll')"
-           Text="Missing vcpkg runtime dependency: $(RedXeVcpkgRuntimeDir)yyjson.dll. Run .\vcpkg-install.ps1 -Platform $(Platform)." />
+           Text="Missing vcpkg runtime dependency: $(RedXeVcpkgRuntimeDir)yyjson.dll. Run $(RedXeVcpkgRestoreCommand)." />
     <ItemGroup>
       <LauncherRuntimeDependency Include="$(RedXeVcpkgRuntimeDir)yyjson.dll" />
     </ItemGroup>
@@ -55,11 +55,11 @@
   <Target Name="CopyWeatherRuntimeDependencies" AfterTargets="Link"
           Condition="'$(MSBuildProjectExtension)'=='.vcxproj' and '$(MSBuildProjectName)'=='Weather'">
     <Error Condition="!Exists('$(RedXeVcpkgRuntimeDir)yyjson.dll')"
-           Text="Missing vcpkg runtime dependency: $(RedXeVcpkgRuntimeDir)yyjson.dll. Run .\vcpkg-install.ps1 -Platform $(Platform)." />
+           Text="Missing vcpkg runtime dependency: $(RedXeVcpkgRuntimeDir)yyjson.dll. Run $(RedXeVcpkgRestoreCommand)." />
     <Error Condition="!Exists('$(RedXeVcpkgRuntimeDir)libcurl.dll') and !Exists('$(RedXeVcpkgRuntimeDir)libcurl-d.dll')"
-           Text="Missing vcpkg libcurl runtime DLL. Run .\vcpkg-install.ps1 -Platform $(Platform)." />
+           Text="Missing vcpkg libcurl runtime DLL. Run $(RedXeVcpkgRestoreCommand)." />
     <Error Condition="!Exists('$(RedXeVcpkgRuntimeDir)z.dll') and !Exists('$(RedXeVcpkgRuntimeDir)zd.dll') and !Exists('$(RedXeVcpkgRuntimeDir)zlib1.dll') and !Exists('$(RedXeVcpkgRuntimeDir)zlibd1.dll')"
-           Text="Missing vcpkg zlib runtime DLL (z.dll / zd.dll / zlib1.dll). Run .\vcpkg-install.ps1 -Platform $(Platform)." />
+           Text="Missing vcpkg zlib runtime DLL (z.dll / zd.dll / zlib1.dll). Run $(RedXeVcpkgRestoreCommand)." />
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)Plugins\Weather\Fonts\weathericons-regular-webfont.ttf')"
            Text="Missing Weather Icons font. Expected Plugins\Weather\Fonts\weathericons-regular-webfont.ttf." />
     <ItemGroup>
