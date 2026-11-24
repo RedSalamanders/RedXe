@@ -170,7 +170,7 @@ The bar collapses to a thin line until you rest the pointer on it. Its `thicknes
 | `--warp` | Render on the Microsoft Basic Render Driver (WARP) instead of the GPU. |
 | `--dock <edge>[@<monitor>]` | Run as a bar on that screen edge; see [Dock](#dock) for `--dock-mode`, `--dock-thickness`, `--dock-reserve`, and `--dock-peek`. |
 | `--capture <png>` (also `--screenshot <png>`) | Start normally, wait, save the window as PNG, and exit. See [Screenshots](#screenshots) for `--page`, `--widget`, and `--after`. |
-| `--self-test` | Hidden startup validation with the deployed template; exits 0 when the host works and 6 when a check fails, which it names on stderr. |
+| `--self-test` | Hidden startup validation with WARP and the deployed template. Exits 0 when the host works and 6 when a check fails, which it names on stderr. |
 | `--probe[=seconds]` | Write a resource sample to the normal JSONL log every 1–3600 seconds (default 5). The dashboard keeps running; close it normally when finished. Ignored by `--self-test`. |
 | `--crash-probe <directory>` | Raise an isolated test crash before application initialization. Supply an existing, owned absolute directory under the build root. |
 | `--crash-test`, `--crash-test-stack-overflow`, `--crash-test-directory=<dir>` | Legacy crash probes and the dedicated stack-overflow probe. Both legacy probe switches require the directory argument. |

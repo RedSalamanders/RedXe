@@ -273,7 +273,7 @@ int RunApplication(HINSTANCE instance, int showCommand) noexcept
         return 2;
     }
 
-    const bool forceWarp  = HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Warp));
+    const bool forceWarp  = selfTest || HasArgument(arguments.get(), argumentCount, RedXeSwitchName(RedXeSwitch::Warp));
     uint32_t probeSeconds = 0;
     if (! RedXeParseProbeArguments(arguments.get(), argumentCount, probeSeconds))
     {

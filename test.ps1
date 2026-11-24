@@ -544,7 +544,7 @@ $smokeLog = Join-Path $evidence.Path "RedXe.self-test.log"
 # Nothing streams to the console, so the tail is shown for a run ended at its budget as well as for a failing one.
 $smokeFailure = $null
 try {
-    $smokeExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--self-test', '--warp') -WorkingDirectory $repoRoot `
+    $smokeExit = Invoke-RedXeStreamingProcess -FilePath $executable -Arguments @('--self-test') -WorkingDirectory $repoRoot `
         -TimeoutSeconds $testTimeoutSeconds -LogPath $smokeLog -StandardOutputEncoding $utf8 -StandardErrorEncoding $utf8 -OutputLineCallback { param([string] $Line, [bool] $IsError) }
 }
 catch { $smokeFailure = $_ }

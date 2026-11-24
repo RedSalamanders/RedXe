@@ -171,7 +171,7 @@ inline constexpr std::array<RedXeCommandLineSwitch, static_cast<size_t>(RedXeSwi
                            nullptr,
                            RedXeSwitchValue::None,
                            nullptr,
-                           L"Hidden startup validation with the deployed template; exits 0 when the host works and 6 "
+                           L"Hidden WARP startup validation with the deployed template. Exits 0 when the host works and 6 "
                            L"when a check fails, which it names on stderr.",
                            L"Diagnostics",
                            true},
