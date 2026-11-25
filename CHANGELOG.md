@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Add the root clang-tidy checks for member naming and reserved identifiers. Apply the private member names in the AV profile transaction and process-viewer test.
 - Guard startup settings recovery with the identity of the file that validation read. Preserve competing edits before backup and accept a competing creation before template installation.
 - Localize settings, command-line and action notices through the shared compiled resource table.
 - Move RedXe’s tray menu, window captions and startup and crash notices into validated Win32 resources.
