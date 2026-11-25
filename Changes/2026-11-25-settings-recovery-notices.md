@@ -1,1 +1,0 @@
-- Load startup settings notices from the localized resource table. The recovery notice carries the preserved path and reports a fresh template when one was installed.
