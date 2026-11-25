@@ -1407,7 +1407,7 @@ private:
 }
 } // namespace
 
-#if defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS)
+#if defined(ENABLE_TESTS) && (defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS))
 namespace
 {
 thread_local uint32_t g_jsonObjectAllocationFailure = 0;
@@ -1437,7 +1437,7 @@ HRESULT JsonObjectSettings::Assign(std::string_view utf8) noexcept
         _bytes = 2;
         return S_OK;
     }
-#if defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS)
+#if defined(ENABLE_TESTS) && (defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS))
     if (ConsumeJsonObjectAllocationFailure(1))
         return E_OUTOFMEMORY;
 #endif
@@ -1448,7 +1448,7 @@ HRESULT JsonObjectSettings::Assign(std::string_view utf8) noexcept
     buffer[utf8.size()] = '\0';
     try
     {
-#if defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS)
+#if defined(ENABLE_TESTS) && (defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS))
         if (ConsumeJsonObjectAllocationFailure(2))
             throw std::bad_alloc{};
 #endif

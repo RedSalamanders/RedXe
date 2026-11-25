@@ -191,7 +191,7 @@ private:
     uint32_t _bytes = 2;
 };
 static_assert(sizeof(JsonObjectSettings) == 24);
-#if defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS)
+#if defined(ENABLE_TESTS) && (defined(REDXE_SETTINGS_TESTS) || defined(REDXE_HOST_PLUGIN_TESTS))
 // Thread-local one-shot faults at payload (1) and shared-owner (2) allocation. Absent from production builds.
 void FailJsonObjectAllocationForTesting(uint32_t phase) noexcept;
 #endif

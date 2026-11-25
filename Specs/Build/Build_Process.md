@@ -94,6 +94,10 @@ The root command uses repository-owned dependency trees and leaves the caller's 
 Routine repository validators and their regression tests require PowerShell 7 and no Python or external YAML module.
 
 Every native project and solution mapping supports Debug, Release and ASan Debug on x64 and ARM64.
+`ENABLE_TESTS` selects the optional app plugin-admission check in Debug and ASan Debug.
+The app's ordinary Release build omits that check. The independent Settings and HostPlugin targets use
+`ENABLE_TESTS` and their suite-specific definitions for the shared settings fault fixtures in every profile.
+The app's `--self-test` entry point is available in every profile.
 Optimized Release projects MUST use full link-time code generation (`/LTCG`), preserving whole-program
 optimization without `/LTCG:incremental`. The v145 incremental cache has reused old inlined member offsets after a
 private `PluginHost` layout change, producing a Release page-activation hang despite successful compilation and

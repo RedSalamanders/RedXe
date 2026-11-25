@@ -550,7 +550,7 @@ struct FirstRunTopology final
     return plugin && plugin->enabled;
 }
 
-// Kept for the ENABLE_TESTS plugin-admission regression; Release omits that caller.
+// Kept for the ENABLE_TESTS plugin-admission regression.
 [[maybe_unused, nodiscard]] HRESULT DisablePluginAndRemoveWidgets(AppSettings& settings, std::string_view pluginId) noexcept
 {
     PluginSettings* plugin = FindPluginSettings(settings, pluginId);
@@ -1354,7 +1354,7 @@ int Application::RunSelfTest(std::wstring_view settingsPath) noexcept
     _dropRegistered = true;
     PluginHost::Instance().SetSettingsPersistHandler(&Application::SettingsPersistThunk, this);
 
-#if defined(_DEBUG)
+#if defined(ENABLE_TESTS)
     {
         std::unique_ptr<AppSettings> matrixDisabled{new (std::nothrow) AppSettings{*_settings}};
         if (! matrixDisabled)
