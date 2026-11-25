@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Build: Use `ENABLE_TESTS` for RedXe's optional plugin-admission and settings allocation checks.
 - Add a manual paired offscreen AV benchmark with source-bound build and measurement evidence.
 - Load the location and path labels for invalid settings notices from the shared RedXe resource table.
 - Load startup settings notices from the localized resource table. The recovery notice carries the preserved path and reports a fresh template when one was installed.
