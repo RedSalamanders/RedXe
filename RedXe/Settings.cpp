@@ -3044,7 +3044,7 @@ HRESULT SettingsStore::Initialize(bool selfTest,
                     return installResult;
             }
             result = loadDefault();
-            if (SUCCEEDED(result) && backupResult == S_OK)
+            if (backupResult == S_OK)
             {
                 _usedInitialFallback = true;
                 const UINT noticeId  = installResult == S_OK ? IDS_SETTINGS_RECOVERY_INSTALLED : IDS_SETTINGS_RECOVERY_PRESERVED;
@@ -3057,7 +3057,9 @@ HRESULT SettingsStore::Initialize(bool selfTest,
             _installedFirstRunDock = false;
             _usedInitialFallback   = true;
             _lastRejectedStamp     = stamp;
-            _initialNotice =
+            if (! _initialNotice.empty())
+                _initialNotice += L"\n\n";
+            _initialNotice +=
                 std::vformat(RedXeResources::LoadEmbeddedStringResourceView(nullptr, IDS_SETTINGS_MANAGED_FALLBACK), std::make_wformat_args(_settingsPath));
             if (! diagnostic.message.empty())
                 _initialNotice += L"\n\n" + FormatDiagnostic(diagnostic);

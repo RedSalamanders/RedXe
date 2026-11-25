@@ -3535,8 +3535,9 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
 
 [[nodiscard]] HRESULT ValidateDefaultRecoveryGuard() noexcept
 {
-    constexpr std::string_view invalid = "invalid default bytes\r\n";
-    constexpr std::string_view newer   = R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":43}]}]})json";
+    constexpr std::string_view invalid      = "invalid default bytes\r\n";
+    constexpr std::string_view newer        = R"json({"version":{"major":5},"pages":[{"widgets":[{"plugin":"builtin.matrix-rain","seed":43}]}]})json";
+    constexpr std::string_view incompatible = R"json({"version":{"major":4},"pages":[{}]})json";
 #if defined(_DEBUG)
     constexpr const wchar_t* selectedName = kRedXeDebugSettingsFileName;
 #else
@@ -3548,11 +3549,13 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
         SettingsWritePhase phase;
         EditorAtCommit::Act act;
         size_t backupCount;
+        std::string_view document;
     };
     constexpr std::array scenarios{
-        Scenario{L"rewrite", SettingsWritePhase::BeforeRecoveryBackup, EditorAtCommit::Act::SaveInPlace, 0},
-        Scenario{L"replace", SettingsWritePhase::BeforeRecoveryBackup, EditorAtCommit::Act::ReplaceAtomically, 0},
-        Scenario{L"create", SettingsWritePhase::AfterRecoveryBackup, EditorAtCommit::Act::Create, 1},
+        Scenario{L"rewrite", SettingsWritePhase::BeforeRecoveryBackup, EditorAtCommit::Act::SaveInPlace, 0, newer},
+        Scenario{L"replace", SettingsWritePhase::BeforeRecoveryBackup, EditorAtCommit::Act::ReplaceAtomically, 0, newer},
+        Scenario{L"create", SettingsWritePhase::AfterRecoveryBackup, EditorAtCommit::Act::Create, 1, newer},
+        Scenario{L"create-incompatible", SettingsWritePhase::AfterRecoveryBackup, EditorAtCommit::Act::Create, 1, incompatible},
     };
 
     try
@@ -3577,7 +3580,7 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
             editor.phase = scenario.phase;
             editor.act   = scenario.act;
             editor.file  = directory / selectedName;
-            editor.bytes = newer;
+            editor.bytes = scenario.document;
             {
                 std::ofstream source(editor.file, std::ios::binary);
                 if (! source.write(invalid.data(), static_cast<std::streamsize>(invalid.size())))
@@ -3594,8 +3597,15 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
             if (FAILED(initialized))
                 return initialized;
             std::string bytes;
-            if (editor.calls != 1 || editor.error != ERROR_SUCCESS || ! accepted || accepted->sourceDocument != newer || FAILED(ReadFile(editor.file, bytes)) ||
-                bytes != newer)
+            if (editor.calls != 1 || editor.error != ERROR_SUCCESS || ! accepted || FAILED(ReadFile(editor.file, bytes)) || bytes != scenario.document)
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            if (scenario.document == incompatible)
+            {
+                if (accepted->versionMajor != kRedXeSettingsVersionMajor || store.PersistPatchedDocument(*accepted) != S_FALSE ||
+                    store.InitialNotice().find(editor.file.native()) == std::wstring::npos)
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            else if (accepted->sourceDocument != newer)
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
             size_t count = 0;
@@ -3604,7 +3614,7 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
                 if (! entry.path().filename().wstring().starts_with(prefix))
                     continue;
                 ++count;
-                if (FAILED(ReadFile(entry.path(), bytes)) || bytes != invalid)
+                if (FAILED(ReadFile(entry.path(), bytes)) || bytes != invalid || store.InitialNotice().find(entry.path().native()) == std::wstring::npos)
                     return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
             if (count != scenario.backupCount || store.UsedInitialFallback() != (count != 0) ||

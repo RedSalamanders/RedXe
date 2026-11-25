@@ -30,7 +30,7 @@ BEGIN
     IDS_SETTINGS_APPLY_FAILED "The changed settings could not be applied. The previous dashboard was restored."
     IDS_SETTINGS_SELECTED_FALLBACK "The selected settings file could not be loaded. RedXe is running with its default configuration; the selected file was not changed."
     IDS_SETTINGS_RECOVERY_PRESERVED "RedXe could not parse the default settings file. The backup is at {0}."
-    IDS_SETTINGS_RECOVERY_INSTALLED "RedXe could not parse the default settings file. The backup is at {0}.\n\nRedXe installed a fresh default configuration."
+    IDS_SETTINGS_RECOVERY_INSTALLED "RedXe could not parse the default settings file. The backup is at {0}.\n\nA fresh default configuration was installed."
     IDS_SETTINGS_DIAGNOSTIC_LOCATION "Line {0}, column {1}"
     IDS_SETTINGS_DIAGNOSTIC_PATH "Path: {0}"
     IDS_SETTINGS_DIAGNOSTIC_VERSION "The settings file is not valid version 5."
