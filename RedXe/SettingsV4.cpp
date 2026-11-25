@@ -1556,7 +1556,11 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json,
     try
     {
         if (json.empty())
+        {
+            if (diagnostic)
+                diagnostic->malformedJson = true;
             return sink.FailHr(path.View(), "The settings file is empty.");
+        }
         if (json.size() > 1024U * 1024U)
             return sink.FailHr(path.View(), "The settings file exceeds the 1 MiB limit.");
         std::vector<char> mutableJson(json.begin(), json.end());
@@ -1566,13 +1570,16 @@ HRESULT ParseAppSettingsJsonV5(std::string_view json,
         unique_doc document{yyjson_read_opts(mutableJson.data(), mutableJson.size(), kSettingsJsonReadFlags, nullptr, &error)};
         if (! document)
         {
+            if (error.code == YYJSON_READ_ERROR_MEMORY_ALLOCATION)
+                return E_OUTOFMEMORY;
             if (diagnostic)
             {
-                diagnostic->byteOffset  = error.pos;
-                diagnostic->line        = 1;
-                diagnostic->column      = 1;
-                diagnostic->hasLocation = true;
-                diagnostic->path        = "$";
+                diagnostic->malformedJson = true;
+                diagnostic->byteOffset    = error.pos;
+                diagnostic->line          = 1;
+                diagnostic->column        = 1;
+                diagnostic->hasLocation   = true;
+                diagnostic->path          = "$";
                 for (size_t index = 0; index < error.pos && index < json.size(); ++index)
                 {
                     if (json[index] == '\n')
