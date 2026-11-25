@@ -1,0 +1,1 @@
+- Load the location and path labels for invalid settings notices from the shared RedXe resource table.

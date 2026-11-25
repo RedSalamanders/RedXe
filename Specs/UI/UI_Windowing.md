@@ -26,9 +26,10 @@ and startup and previous-crash prompts use embedded UTF-8 resources. `RedXe/RedX
 includes `RedXe/ChromeStrings.rc2`. The English base strings have stable IDs in `RedXe/resource.h`. The tray menu keeps its two command IDs and the default Edit settings action. Standard
 Win32 controls receive their accessible names from their resource-backed labels.
 
-Use `Common/Resources.h` to load or format the resource. Dynamic diagnostics and paths enter as values. Formatted
-strings use explicit positional arguments. `validate.ps1` checks base IDs, source argument order and matching
-placeholder signatures in any added satellite.
+Use `Common/Resources.h` to load or format the resource. The settings reload notice uses resource strings for its
+line, column and path labels and inserts the diagnostic location and detail as values. Formatted strings use
+explicit positional arguments. `validate.ps1` checks base IDs, source argument order and matching placeholder
+signatures in any added satellite.
 
 ## Process DPI contract
 

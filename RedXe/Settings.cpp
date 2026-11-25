@@ -2751,38 +2751,41 @@ HRESULT LoadAppSettingsFile(std::wstring_view path, AppSettings& settings) noexc
 {
     try
     {
-        std::wstring message;
-        const auto appendUtf8 = [&message](std::string_view text)
+        const auto fromUtf8 = [](std::string_view text) -> std::wstring
         {
             if (text.empty())
-                return;
+                return {};
             const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0);
             if (count <= 0)
-                return;
-            const size_t offset = message.size();
-            message.resize(offset + static_cast<size_t>(count));
-            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), message.data() + offset, count);
+                return {};
+            std::wstring wide(static_cast<size_t>(count), L'\0');
+            if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), wide.data(), count) != count)
+                return {};
+            return wide;
         };
+
+        std::wstring message;
         if (diagnostic.hasLocation)
         {
-            message += L"Line " + std::to_wstring(diagnostic.line) + L", column " + std::to_wstring(diagnostic.column) + L"\r\n";
+            message = RedXeResources::FormatStringResource(nullptr, IDS_SETTINGS_DIAGNOSTIC_LOCATION, diagnostic.line, diagnostic.column);
+            message += L"\r\n";
         }
-        message += L"Path: ";
-        appendUtf8(diagnostic.path.empty() ? "$" : diagnostic.path);
+        const auto path = fromUtf8(diagnostic.path.empty() ? "$" : diagnostic.path);
+        message += RedXeResources::FormatStringResource(nullptr, IDS_SETTINGS_DIAGNOSTIC_PATH, path);
         message += L"\r\n\r\n";
         if (diagnostic.message.empty())
         {
-            message += L"The settings file is not valid version 5.";
+            message += RedXeResources::LoadEmbeddedStringResourceView(nullptr, IDS_SETTINGS_DIAGNOSTIC_VERSION);
         }
         else
         {
-            appendUtf8(diagnostic.message);
+            message += fromUtf8(diagnostic.message);
         }
         return message;
     }
     catch (...)
     {
-        return L"The settings file is invalid.";
+        return {};
     }
 }
 
