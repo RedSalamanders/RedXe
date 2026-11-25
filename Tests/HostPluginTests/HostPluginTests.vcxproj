@@ -29,7 +29,7 @@
   <PropertyGroup Label="UserMacros" />
   <ItemDefinitionGroup Condition="('$(Configuration)'=='Debug' or '$(Configuration)'=='ASan Debug')">
     <ClCompile>
-      <PreprocessorDefinitions>_DEBUG;REDXE_HOST_PLUGIN_TESTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;ENABLE_TESTS;REDXE_HOST_PLUGIN_TESTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(IntDir);..\..\RedXe;..\..\Plugins\MatrixRain;..\..\Plugins\ProcessViewer;..\..\Plugins\StudioClock;..\..\Plugins\DeskClock;..\..\Plugins\Launcher;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -41,7 +41,7 @@
     <ClCompile>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>NDEBUG;REDXE_HOST_PLUGIN_TESTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;ENABLE_TESTS;REDXE_HOST_PLUGIN_TESTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(IntDir);..\..\RedXe;..\..\Plugins\MatrixRain;..\..\Plugins\ProcessViewer;..\..\Plugins\StudioClock;..\..\Plugins\DeskClock;..\..\Plugins\Launcher;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
