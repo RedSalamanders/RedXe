@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Guard startup settings recovery with the identity of the file that validation read. Preserve competing edits before backup and accept a competing creation before template installation.
 - Localize settings, command-line and action notices through the shared compiled resource table.
 - Move RedXe’s tray menu, window captions and startup and crash notices into validated Win32 resources.
 - Keep valid RedXe settings when an optional host or dock preference takes its default, and preserve additive settings across saves.
