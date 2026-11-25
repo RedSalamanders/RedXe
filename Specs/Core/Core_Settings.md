@@ -108,10 +108,8 @@ new selector value is not an additive member: a build older than minor 3 rejects
 RedXe accepts older minors of major 5 and supplies documented defaults. An older RedXe accepts a newer minor of the same
 major and validates the shape it understands. All compatible minors ignore additive unknown members at the document root
 and in `dock`. These members stay in the authored source through widget persists and dock thickness updates. Page and
-plugin objects keep their own validation rules. Version 3 is not
-migrated. Version 4 is an incompatible major: cold recovery of a default file backs up the bytes and installs the
-version 5 template; a `--settings` portable version 4 file is left unchanged and the process runs the in-memory deployed
-version 5 default.
+plugin objects keep their own validation rules. When a readable version 3 or 4 file is selected at startup, its bytes
+stay at its current path and RedXe uses the deployed version 5 default in memory.
 
 A settings file written by an earlier release, back to the public `v1.0.102`, MUST load unchanged after an upgrade.
 Plugin members are not versioned by `minor`, so a plugin settings model that retires a member MUST keep accepting it
@@ -123,8 +121,8 @@ published namespace no longer publishes (the removed `zoom.*` controls) stays in
 (`Specs/Plugins/Plugins_Actions.md`), not a document error, and so does a Logicon key, dialpad button, or turn bound
 to `keys.down` or `mouse.down` (`Specs/Plugins/Plugins_Logicon.md`). Rolling back to an older build is not supported:
 an older build validates plugin members as a closed set, so it may reject a file that uses a newer member (for example
-Studio Clock `glowPercent`, which `v1.0.102` rejects). Its cold recovery then keeps the user's file as the
-`.invalid-<timestamp>.json` backup described in "Cold load and recovery".
+Studio Clock `glowPercent`, which `v1.0.102` rejects). A build with the earlier recovery policy can move the user's
+file to an `.invalid-<timestamp>.json` backup and install its own template.
 
 User documents MUST NOT use `layout`, `areas`, `arrangeAlong`, `sizeRatio`, nested `settings`, or `override` as host layout
 or plugin configuration keys. Those keys reject the candidate with a diagnostic on the authored JSON path.
@@ -454,11 +452,14 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - A missing default file causes atomic installation and loading of the selected version 5 template. Startup MUST continue
   after that install. A catalogued plugin whose DLL cannot be mapped becomes a placeholder tile; it MUST NOT abort
   launch or roll back the installed file.
-- An invalid or incompatible default is preserved byte-for-byte beside it, then atomically replaced with a fresh
+- A default file with malformed JSON is preserved byte-for-byte beside it, then atomically replaced with a fresh
   template. Its backup name is `<stem>.invalid-YYYY-MM-DD_HH-MM-SSZ.json`. Backup may move only the exact file
   version read by validation. Installation may create the settings name only when it is still absent. If another
   writer supplies a file before backup or installation, RedXe keeps it and validates it for startup. The user is told
-  where an invalid version was preserved and whether a fresh template was installed.
+  where the backup is and whether a fresh template was installed.
+- A readable default that fails compatibility or dashboard validation, or exceeds the 1 MiB limit, stays at its
+  existing path. RedXe reports the path and uses the deployed configuration in memory. A later valid edit can apply
+  through the watcher. A persist needs an applied version of the selected file before it can replace its bytes.
 - When XENEON discovery succeeded without finding a display outside a remote session
   (`Specs/UI/UI_Windowing.md` "First start without a XENEON"), a default file installed because it was
   missing is the template plus the first-run dock (`PatchFirstRunDock`): one `dock` member on its own line after
@@ -474,17 +475,17 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
   there is more than one display). The store MUST ask for that dock (`FirstRunDockProvider`) only once it has found
   the default file missing, at most once per start, so a start that finds the file, a recovery, a `--settings` file,
   and the self-test measure no display for it. The patched document is validated before the same atomic
-  same-directory write, and an existing file is never patched. The recovery of an invalid or incompatible default MUST
+  same-directory write, and an existing file is never patched. The recovery of a malformed default MUST
   use the plain template when the settings path remains missing, so recovery never installs a first-run dock.
   After a failed discovery, in a remote session, when no dock is made, or when the
   patch cannot be applied, the plain template is installed; the first-run dock never fails startup.
 - A missing, unreadable, or invalid command-line file is never modified. RedXe reports the problem, runs with the
   deployed default configuration in memory, and writes nothing to that path until a later save of it loads ("Plugin
   persist").
-- The recovery notice and the command-line file report are a message box before the window is created, except in an
+- The startup fallback and recovery notices are a message box before the window is created, except in an
   unattended `--screenshot` run, which writes the same text as one Warning record (`settings-fallback-notice`) instead
   (`Specs/UI/UI_Windowing.md` "Configuration behavior").
-  Both read the base message from the shared application resource table. Arguments preserve the original backup path.
+  They read the base message from the shared application resource table. Arguments carry the selected path or backup path.
 - If a deployed default cannot be read or validated, startup fails rather than inventing settings.
 - Settings loaded from disk retain the version of the same open file that supplied the bytes. A later save checks
   that version before publishing.

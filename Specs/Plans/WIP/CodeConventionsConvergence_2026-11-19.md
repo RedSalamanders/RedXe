@@ -54,9 +54,10 @@ Prepared: 2026-11-19, after the 155-line reformat (#108).
   text, in the comments-and-trailing-commas dialect only. It must read JSON5 (single-quoted strings, unquoted keys,
   hexadecimal and signed numbers, `Infinity`, `NaN`) before the flag changes, and the strict-rejection settings
   tests are re-checked.
-- [ ] **H-15 Settings reload.** The watcher follows RedHome decision D19. Optional root and dock preferences now
-  take field defaults and keep unknown members across writes. Reconcile document-level rejection and recovery for
-  incompatible versions, required layout shape and closed plugin models with the shared D19 rule.
+- [x] **H-15 Settings reload.** The watcher follows RedHome decision D19. Optional root and dock preferences take
+  field defaults and keep unknown members across writes. The settings store recovers malformed JSON with a backup
+  and the template. A readable file that fails the product's compatibility or dashboard validation stays in place
+  while the app uses the deployed configuration in memory. The next valid version can apply through the watcher.
 - [ ] **H-06 and H-08 Resource strings.** Native window captions, tray chrome and startup and crash prompts use the
   common resource helpers. Root validation checks the base string table. Review host-rendered chrome and dynamic
   notice composition for additional strings and retain the interactive tray replay.

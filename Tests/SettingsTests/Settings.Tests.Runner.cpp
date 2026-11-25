@@ -2358,43 +2358,52 @@ DWORD WINAPI ParseOnLowStack(void* context) noexcept
         if (backupCount != 1 || FAILED(LoadAppSettingsFile(selected.wstring(), installed)))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
-        const std::filesystem::path v4Root =
+        const std::filesystem::path incompatibleRoot =
             std::filesystem::temp_directory_path() /
-            (L"RedXe.DefaultRecoveryV4Tests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
-        const std::filesystem::path v4Directory = v4Root / L"RedXe" / L"Settings";
-        std::filesystem::create_directories(v4Directory);
-        const auto cleanupV4                   = wil::scope_exit([&]() noexcept
+            (L"RedXe.DefaultCompatibilityTests." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()));
+        const std::filesystem::path incompatibleDirectory = incompatibleRoot / L"RedXe" / L"Settings";
+        std::filesystem::create_directories(incompatibleDirectory);
+        const auto cleanupCompatibility = wil::scope_exit([&]() noexcept
         {
             std::error_code error;
-            std::filesystem::remove_all(v4Root, error);
+            std::filesystem::remove_all(incompatibleRoot, error);
         });
-        constexpr std::string_view v4Bytes     = R"json({"version":{"major":4},"pages":[{}]})json";
-        const std::filesystem::path v4Selected = v4Directory / selectedName;
+        const std::string oversized     = std::string(1024U * 1024U, ' ') + "[]";
+        const std::string_view rejectedDocuments[]{
+            R"json({"version":{"major":4},"pages":[{}]})json",
+            R"json({"version":{"major":5},"pages":"editor mistake"})json",
+            oversized,
+        };
+        const std::filesystem::path incompatible = incompatibleDirectory / selectedName;
+        for (const std::string_view rejected : rejectedDocuments)
         {
-            std::ofstream stream(v4Selected, std::ios::binary);
-            stream.write(v4Bytes.data(), static_cast<std::streamsize>(v4Bytes.size()));
-        }
-        SettingsStore v4Store;
-        std::unique_ptr<AppSettings> v4Recovered;
-        result = v4Store.Initialize(false, {}, v4Recovered, v4Root.wstring());
-        if (FAILED(result) || ! v4Recovered || ! v4Store.UsedInitialFallback() || v4Recovered->versionMajor != kRedXeSettingsVersionMajor ||
-            v4Store.InitialNotice().find(L".invalid-") == std::wstring::npos)
-            return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        size_t v4BackupCount = 0;
-        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(v4Directory))
-        {
-            const std::wstring name = entry.path().filename().wstring();
-            if (! name.starts_with(std::filesystem::path(selectedName).stem().wstring() + L".invalid-") || entry.path().extension() != L".json")
-                continue;
-            ++v4BackupCount;
+            {
+                std::ofstream stream(incompatible, std::ios::binary);
+                stream.write(rejected.data(), static_cast<std::streamsize>(rejected.size()));
+            }
+            SettingsStore compatibilityStore;
+            std::unique_ptr<AppSettings> fallback;
+            result = compatibilityStore.Initialize(false, {}, fallback, incompatibleRoot.wstring());
+            if (FAILED(result) || ! fallback || ! compatibilityStore.UsedInitialFallback() || fallback->versionMajor != kRedXeSettingsVersionMajor ||
+                compatibilityStore.InitialNotice().find(incompatible.native()) == std::wstring::npos ||
+                compatibilityStore.PersistPatchedDocument(*fallback) != S_FALSE)
+                return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
             std::string preserved;
-            result = ReadFile(entry.path(), preserved);
-            if (FAILED(result) || preserved != v4Bytes)
+            result = ReadFile(incompatible, preserved);
+            if (FAILED(result) || preserved != rejected)
+                return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+
+            std::unique_ptr<AppSettings> changed;
+            SettingsFileStamp stamp{};
+            SettingsReloadStatus status{};
+            result = compatibilityStore.TryLoadChanged(changed, stamp, status);
+            if (FAILED(result) || changed || status != SettingsReloadStatus::Unchanged)
                 return FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        AppSettings v4Installed{};
-        if (v4BackupCount != 1 || FAILED(LoadAppSettingsFile(v4Selected.wstring(), v4Installed)) || v4Installed.versionMajor != kRedXeSettingsVersionMajor)
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        for (const auto& entry : std::filesystem::directory_iterator(incompatibleDirectory))
+            if (entry.path().filename().wstring().find(L".invalid-") != std::wstring::npos)
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         return S_OK;
     }
     catch (...)

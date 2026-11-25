@@ -3009,14 +3009,16 @@ HRESULT SettingsStore::Initialize(bool selfTest,
         }
 
         bool usesLegacySchema = false;
+        SettingsParseDiagnostic diagnostic;
         SettingsFileStamp stamp{};
         const auto loadDefault = [&]() noexcept
         {
             usesLegacySchema = false;
-            return LoadAppSettingsFileCandidate(_settingsPath, settings, nullptr, &usesLegacySchema, &stamp);
+            diagnostic       = {};
+            return LoadAppSettingsFileCandidate(_settingsPath, settings, &diagnostic, &usesLegacySchema, &stamp);
         };
         result = loadDefault();
-        if (result == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || result == HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE))
+        if (result == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) && diagnostic.malformedJson)
         {
 #if defined(REDXE_SETTINGS_TESTS)
             if (g_settingsWriteSeam.checkpoint)
@@ -3048,6 +3050,18 @@ HRESULT SettingsStore::Initialize(bool selfTest,
                 const UINT noticeId  = installResult == S_OK ? IDS_SETTINGS_RECOVERY_INSTALLED : IDS_SETTINGS_RECOVERY_PRESERVED;
                 _initialNotice = std::vformat(RedXeResources::LoadEmbeddedStringResourceView(nullptr, noticeId), std::make_wformat_args(backupPath.native()));
             }
+        }
+        if (result == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) || result == HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE))
+        {
+            // A rejected document does not grant authority to publish over the selected path.
+            _installedFirstRunDock = false;
+            _usedInitialFallback   = true;
+            _lastRejectedStamp     = stamp;
+            _initialNotice =
+                std::vformat(RedXeResources::LoadEmbeddedStringResourceView(nullptr, IDS_SETTINGS_MANAGED_FALLBACK), std::make_wformat_args(_settingsPath));
+            if (! diagnostic.message.empty())
+                _initialNotice += L"\n\n" + FormatDiagnostic(diagnostic);
+            return LoadAppSettingsFileCandidate(selectedTemplate.wstring(), settings);
         }
         if (FAILED(result))
         {

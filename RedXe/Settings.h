@@ -362,6 +362,7 @@ struct SettingsParseDiagnostic final
     uint32_t line       = 1;
     uint32_t column     = 1;
     bool hasLocation    = false;
+    bool malformedJson  = false;
     std::string path    = "$";
     std::string message;
 };
