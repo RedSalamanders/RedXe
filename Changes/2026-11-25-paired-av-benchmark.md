@@ -1,0 +1,1 @@
+- Add a manual paired offscreen AV benchmark with source-bound build and measurement evidence.

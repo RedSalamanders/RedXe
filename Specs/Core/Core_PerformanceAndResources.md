@@ -883,6 +883,16 @@ remain with the AV owner.
   descriptor, provenance, archive, modules, fixture and production sources before
   and after all rounds. SDK provenance never depends on skipped Source restore
   files. See `Core_DxUiIntegration.md` for descriptor and lease refusal rules.
+- `performance-paired.ps1 -BaselineRevision <git-revision> -CandidateRevision <git-revision>` builds both
+  exact revisions on one native x64 Windows host. Use a short checkout path for the nested builds. Both revisions
+  use the same engine, dependency inputs, AV fixture, and measurement wrapper. Each build uses test-enabled
+  Release with pinned DxUi source. `-CalibrationAA` compares one revision under both labels to measure variation.
+  The default study records five seeded ABBA or BAAB blocks, two observations per source per block. Each observation
+  retains all five raw rounds per scenario, the linked DxUi and AV executable hashes, and machine context.
+  Report the median per observation and the candidate minus baseline difference between each block's two-observation
+  means for timing, throughput, and memory. Retain `.build/paired-av/<study>/evidence` on failure.
+  Review control variation and the scoped AV budgets before accepting a measured change. Display topology,
+  present and input timing, and physical AV/XENEON behavior have their own qualification.
 - Debug and Release x64 WARP smoke tests must pass.
 - Current composition accounting (2026-10-11) is retained in `.build/receipts/runtime-2026-10-11-p04-accounting`
   and `-p04-accounting-canonical`. The 2560×720 / 96-DPI Focus Matrix grid calculates 5,248 glyph instances;
