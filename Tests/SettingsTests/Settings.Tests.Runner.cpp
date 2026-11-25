@@ -4053,8 +4053,9 @@ void ActAtCommit(SettingsWritePhase phase, void* context) noexcept
         if (FAILED(result) || FAILED(store.TryLoadChanged(candidate, stamp, status)) || status != SettingsReloadStatus::Invalid || candidate)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         std::string afterInvalidLoad;
-        if (FAILED(ReadFile(file, afterInvalidLoad)) || afterInvalidLoad != afterInvalidWrite ||
-            store.LastDiagnosticText().find(L"version 5") == std::wstring::npos)
+        const std::wstring_view detail = store.LastDiagnosticText();
+        if (FAILED(ReadFile(file, afterInvalidLoad)) || afterInvalidLoad != afterInvalidWrite || ! detail.starts_with(L"Line 1, column ") ||
+            ! detail.contains(L"\r\nPath: $.version.major\r\n\r\nThis RedXe build reads settings version 5 only."))
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 
         constexpr std::string_view laterValid = R"json({"version":{"major":5},"wrapPages":true,"pages":[{}]})json";
