@@ -1,6 +1,6 @@
 # Code conventions convergence (RedHome CV-6-08)
 
-Status: ACTIVE — plan written; each row lands in its own pull request.
+Status: ACTIVE — the local convention changes have merged. API 6 adoption and the source-bound replays remain open.
 Owner: RedXe maintainers.
 Prepared: 2026-11-19, after the 155-line reformat (#108).
 
@@ -11,6 +11,7 @@ Prepared: 2026-11-19, after the 155-line reformat (#108).
   Each register row names one target for every repository; this plan lists the rows that move RedXe.
 - **Owning contracts**: [display and windowing](../../UI/UI_Windowing.md), [settings](../../Core/Core_Settings.md),
   [performance and resources](../../Core/Core_PerformanceAndResources.md), [source layout](../../Core/Core_SourceLayout.md),
+  [DxUi integration](../../Core/Core_DxUiIntegration.md), [crash handling](../../Core/Core_CrashHandling.md),
   [build process](../../Build/Build_Process.md) and [changes workflow](../../Core/Core_Changes.md). The shared skills
   in `../RedHome/.agents/skills/` (`d3d11-win32-host`, `yyjson`, `app-settings`, `file-io-safety`, `localization`,
   `test-evidence`) state the target rules once.
@@ -27,44 +28,48 @@ Prepared: 2026-11-19, after the 155-line reformat (#108).
 
 ## Rows
 
-- [ ] **H-19 Device-loss results.** `Renderer::IsDeviceLost` accepts `DXGI_ERROR_DEVICE_REMOVED`,
-  `DXGI_ERROR_DEVICE_RESET` and `DXGI_ERROR_DRIVER_INTERNAL_ERROR`. Target: the shared set, which adds
-  `DXGI_ERROR_DEVICE_HUNG`. Direct2D does not draw to RedXe's swap chain, so `D2DERR_RECREATE_TARGET` stays out.
-- [ ] **H-11 `--self-test` and WARP.** Only `--warp` sets `forceWarp`. Target: `--self-test` forces WARP too, as in
-  RedPrism, so the hidden startup check runs on the same device on every machine.
-- [ ] **H-12 Host windowing spec name.** The active contract is `Specs/UI/UI_Windowing.md`. Its original path routes archived references.
-  The specification keeps its XENEON EDGE sections.
-- [ ] **H-20 Occlusion.** The renderer registers a DXGI occlusion-status message and acts on `DXGI_STATUS_OCCLUDED`
-  from its flip-model `Present`. DxUi measured that the status is not a usable signal for a flip-model swap chain on
-  Windows 11 25H2: `Present` returned `S_OK` while the window was minimized, cloaked, hidden or covered (DxUi
-  `Measurements/FlipModelOcclusion_2026-11-19/`), and RedXe itself sees it only under its own covering native child,
-  where it ignores it. Target: occlusion from signals the application owns (minimize, visibility, cloaking, display
-  power), as `d3d11-win32-host` states. The occlusion state runs through `Renderer`, `FrameScheduler`,
-  `PageEdgeAffordance`, the runtime probe bits, `HostPluginTests` and MUST statements in the windowing and performance
-  contracts, so this row changes them together.
-- [ ] **H-25 Replace sequence — owner decision needed.** The register named `CommitTemporaryFile`, which only copies
-  the schema. The settings save writes a flushed temporary and renames it over the file with POSIX semantics
-  (`FileRenameInfoEx`) while a guard handle on the target stays open, as [settings](../../Core/Core_Settings.md)
-  requires, so a save another program makes meanwhile is refused instead of lost. `ReplaceFileW` cannot keep that
-  guard. The owner decides whether this guarded rename stays or the contract changes (RedHome register H-25).
-- [ ] **H-09 `yyjson` read flags.** Settings are read with comments, trailing commas and BOM. Target:
-  `YYJSON_READ_JSON5 | YYJSON_READ_ALLOW_BOM`. Host settings read integers and widget `number` parameters already
-  reject non-finite values, so `NaN` and `Infinity` are not the risk. `JsonTextCursor` (`RedXe/SettingsJsonText.h`)
-  is: it scans the user's document for the diagnostic locator and for the dock patches that rewrite the user's own
-  text, in the comments-and-trailing-commas dialect only. It must read JSON5 (single-quoted strings, unquoted keys,
-  hexadecimal and signed numbers, `Infinity`, `NaN`) before the flag changes, and the strict-rejection settings
-  tests are re-checked.
+- [x] **H-19 Device-loss results.** `Renderer::IsDeviceLost` includes `DXGI_ERROR_DEVICE_HUNG`. RedXe continues to
+  own the recovery boundary for its swap chain. [#165](https://github.com/RedSalamanders/RedXe/pull/165)
+- [x] **H-11 `--self-test` and WARP.** Hidden startup uses WARP for `--self-test`.
+  [#167](https://github.com/RedSalamanders/RedXe/pull/167)
+- [x] **H-12 Host windowing spec name.** [UI_Windowing.md](../../UI/UI_Windowing.md) owns the active contract and
+  its XENEON EDGE behavior. The original path routes archived references.
+  [#169](https://github.com/RedSalamanders/RedXe/pull/169)
+- [x] **H-20 Occlusion.** Production render scheduling follows window visibility, minimization, DWM cloaking,
+  suspend and display power. [#171](https://github.com/RedSalamanders/RedXe/pull/171)
+- [x] **H-25 Guarded replacement.** D23 keeps the accepted target version guarded through publication. The normal
+  rename holds the guard, and the classic fallback performs a final name and version check. Cold malformed-file
+  recovery guards both the backup and creation of defaults. [#161](https://github.com/RedSalamanders/RedXe/pull/161) ·
+  [#182](https://github.com/RedSalamanders/RedXe/pull/182)
+- [x] **H-09 `yyjson` read flags.** RedXe reads JSON5 with BOM support. Its source cursor understands the same
+  syntax for diagnostics and source-preserving dock updates. [#173](https://github.com/RedSalamanders/RedXe/pull/173)
 - [x] **H-15 Settings reload.** The watcher follows RedHome decision D19. Optional root and dock preferences take
   field defaults and keep unknown members across writes. The settings store recovers malformed JSON with a backup
   and the template. A readable file that fails the product's compatibility or dashboard validation stays in place
   while the app uses the deployed configuration in memory. The next valid version can apply through the watcher.
-- [ ] **H-06 and H-08 Resource strings.** Native window captions, tray chrome and startup and crash prompts use the
-  common resource helpers. Root validation checks the base string table. Review host-rendered chrome and dynamic
-  notice composition for additional strings and retain the interactive tray replay.
-- [ ] **H-23 Keyboard state under hidden self-tests.** `Application` reads modifiers with `GetKeyState`. Target: an
-  application-owned keyboard state wherever a hidden self-test drives keys; first establish whether one does.
+- [x] **H-06 and H-08 Resource strings.** Native window captions, tray chrome, startup and crash prompts, and settings
+  and plugin-action notices use the common resource helpers. Root validation checks positional formats.
+  [#178](https://github.com/RedSalamanders/RedXe/pull/178) · [#186](https://github.com/RedSalamanders/RedXe/pull/186) ·
+  [#189](https://github.com/RedSalamanders/RedXe/pull/189)
+- [x] **H-16 Crash artifacts.** Under D24, healthy interactive startup claims one pending notice and keeps the
+  newest ten owned dump and sidecar pairs. Legacy artifacts are preserved.
+  [#143](https://github.com/RedSalamanders/RedXe/pull/143)
+- [x] **H-23 Keyboard state applicability.** Interactive widget forwarding reads current modifiers. Hidden tests
+  exercise the message policy as pure functions. Recheck H-23 if a hidden fixture begins driving widget keys.
+- [x] **H-27 Member naming.** The root `.clang-tidy` and changed fields follow the common private and protected
+  member naming rule. [#184](https://github.com/RedSalamanders/RedXe/pull/184)
 
-## Rows that wait
+## API 6 receiving work
 
-- **H-01, H-02** wait for API 6 (D20); **H-05, H-14** wait for DxUi to publish its helpers with API 6.
-- **H-16 Crash artifacts** waits for an owner choice of one shape.
+- Select a qualified exact API 6 revision under D20. Apply the public consumer ABI and failure-host changes
+  (H-01 and H-02) and the shared logging and posted-payload interfaces (H-05 and H-14) where RedXe uses them.
+- Adopt the producer's compatible restore and provenance tooling, pinned native build policy, neutral triplet
+  property and MSVC family guard. Preserve the public RedXe commands and documented profile exceptions. Bind the
+  archive, headers and policy to the same commit. [DxUi consumption contract](https://github.com/RedSalamanders/DxUi/blob/main/Specs/Build/Build_ToolchainAndConsumption.md) ·
+  [Shared toolset guard](https://github.com/RedSalamanders/DxUi/pull/340)
+- Verify all six evaluated build profiles and exact native builds, clean restore and rejection of an incompatible
+  pin. Run affected native x64 and ARM64 and clean-package checks under the owning RedXe contracts before closing
+  the receiving work.
+
+The [RedHome D21 ledger](https://github.com/RedSalamanders/RedHome/blob/main/Specs/Plans/WIP/Convergence_2026-11-17/DeferredTests.md)
+retains the separate runtime, hardware, tray and performance replays at their own sources.

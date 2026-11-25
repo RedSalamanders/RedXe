@@ -1,0 +1,1 @@
+- Reconcile the RedXe convergence plan with merged work and record the remaining API 6 receiving checks.
