@@ -100,8 +100,8 @@ private:
         const char* id = nullptr;
         wil::com_ptr_nothrow<ObservationSubscription> subscription;
     };
-    std::array<Slot, 2> slots{};
-    size_t slotCount = 0;
+    std::array<Slot, 2> _slots{};
+    size_t _slotCount = 0;
 };
 #pragma warning(pop)
 
