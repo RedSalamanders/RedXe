@@ -1,1 +1,0 @@
-- Settings: Keep a readable settings file at its current path when its version or dashboard cannot be applied. RedXe recovers malformed JSON by preserving a backup and installing the shipped template.
