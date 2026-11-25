@@ -1,1 +1,0 @@
-- Build: Use `ENABLE_TESTS` for RedXe's optional plugin-admission and settings allocation checks.
