@@ -8,7 +8,9 @@
 #include "Plugins/Launcher/LauncherBindings.h"
 #include "Plugins/Launcher/LauncherPaging.h"
 #include "Plugins/StudioClock/StudioClockSettings.h"
+#include "Resources.h"
 #include "SettingsJsonText.h"
+#include "resource.h"
 
 #include <algorithm>
 #include <array>
@@ -2935,8 +2937,7 @@ HRESULT SettingsStore::Initialize(bool selfTest,
             if (FAILED(result))
             {
                 _usedInitialFallback = true;
-                _initialNotice       = L"The selected settings file could not be loaded. RedXe is running with its "
-                                       L"default configuration; the selected file was not changed.";
+                _initialNotice       = RedXeResources::LoadEmbeddedStringResourceView(nullptr, IDS_SETTINGS_SELECTED_FALLBACK);
                 result               = LoadAppSettingsFileCandidate(selectedTemplate.wstring(), settings);
             }
             if (FAILED(result))
@@ -3041,9 +3042,8 @@ HRESULT SettingsStore::Initialize(bool selfTest,
             if (SUCCEEDED(result) && backupResult == S_OK)
             {
                 _usedInitialFallback = true;
-                _initialNotice       = L"The default settings file was incompatible or invalid. It was preserved as:\n" + backupPath.wstring();
-                if (installResult == S_OK)
-                    _initialNotice += L"\n\nA fresh default configuration was installed.";
+                const UINT noticeId  = installResult == S_OK ? IDS_SETTINGS_RECOVERY_INSTALLED : IDS_SETTINGS_RECOVERY_PRESERVED;
+                _initialNotice = std::vformat(RedXeResources::LoadEmbeddedStringResourceView(nullptr, noticeId), std::make_wformat_args(backupPath.native()));
             }
         }
         if (FAILED(result))
