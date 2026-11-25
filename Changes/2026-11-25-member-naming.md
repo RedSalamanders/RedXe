@@ -1,0 +1,1 @@
+- Add the root clang-tidy rule for private and protected member naming and reserved identifiers.
