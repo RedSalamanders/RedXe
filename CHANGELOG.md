@@ -4,6 +4,7 @@ Entries are generated from [Changes](Changes/README.md). Existing release notes 
 
 ## Unreleased
 
+- Settings: Keep a readable settings file at its current path when its version or dashboard cannot be applied. RedXe recovers malformed JSON by preserving a backup and installing the shipped template.
 - Build: Use `ENABLE_TESTS` for RedXe's optional plugin-admission and settings allocation checks.
 - Add a manual paired offscreen AV benchmark with source-bound build and measurement evidence.
 - Load the location and path labels for invalid settings notices from the shared RedXe resource table.
