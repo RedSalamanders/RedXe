@@ -71,9 +71,9 @@ public:
         if (! output)
             return E_POINTER;
         *output = nullptr;
-        if (! options || ! sink || slotCount == slots.size())
+        if (! options || ! sink || _slotCount == _slots.size())
             return E_INVALIDARG;
-        auto& slot = slots[slotCount++];
+        auto& slot = _slots[_slotCount++];
         slot.id    = options->dataSetId;
         slot.subscription.attach(new (std::nothrow) ObservationSubscription(sink));
         if (! slot.subscription)
@@ -86,7 +86,7 @@ public:
         // Exercise the real DLL's worker/UI boundary. Each call joins before changing borrowed fixture storage.
         std::jthread worker([&]
         {
-            for (auto& slot : slots)
+            for (auto& slot : _slots)
                 if (slot.subscription && slot.subscription->active && std::strcmp(slot.id, snapshot.dataSetId) == 0)
                     result = slot.subscription->sink->OnDataSnapshot(&snapshot);
         });
@@ -100,8 +100,8 @@ private:
         const char* id = nullptr;
         wil::com_ptr_nothrow<ObservationSubscription> subscription;
     };
-    std::array<Slot, 2> slots{};
-    size_t slotCount = 0;
+    std::array<Slot, 2> _slots{};
+    size_t _slotCount = 0;
 };
 #pragma warning(pop)
 

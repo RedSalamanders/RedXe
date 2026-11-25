@@ -1,0 +1,1 @@
+- Add the root clang-tidy checks for member naming and reserved identifiers. Apply the private member names in the AV profile transaction and process-viewer test.

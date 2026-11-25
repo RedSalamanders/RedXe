@@ -218,6 +218,9 @@ evaluates nothing; explicit Full (`test.ps1 -Full`) remains the full gate.
 
 ## C++ and Win32 rules
 
+Private and protected non-static members use `_camelCase` under H-27. Public struct and DTO fields use `camelCase`.
+The root `.clang-tidy` configures the member naming and reserved identifier checks for first-party native code.
+
 - Use WIL `wil::com_ptr_nothrow<T>` for COM ownership in HRESULT-based code and the matching WIL unique wrapper for
   owned Windows resources.
 - Do not manually release or destroy an owned resource; reset its WIL owner and make cleanup idempotent.
