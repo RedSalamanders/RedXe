@@ -24,9 +24,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   shadow:
-    uses: RedSalamanders/.github/.github/workflows/integration-execution.yml@4bcae89e6753fd90692aa64a0ac1095ca5283c33
+    uses: RedSalamanders/.github/.github/workflows/integration-execution.yml@a6fbe82d83ece48b822ee656a69bdc16921bbc03
     with:
-      engine_ref: 4bcae89e6753fd90692aa64a0ac1095ca5283c33
+      engine_ref: a6fbe82d83ece48b822ee656a69bdc16921bbc03
       pull_request: ${{ inputs.pull_request }}
       identity: ${{ inputs.identity }}
       nonce: ${{ inputs.nonce }}
