@@ -167,7 +167,9 @@ exceptions still take precedence.
 
 ### Workflows
 
-None.
+`benchmark.yml` manually collects native x64 Release paired AV evidence through `performance-paired.ps1`.
+The workflow takes exact source commits and retains the study, build provenance, and every observation.
+The performance contract owns the protocol and its review. Main qualification owns native regression and production.
 
 ### Static phase
 
