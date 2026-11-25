@@ -4,6 +4,7 @@
     <Filter Include="Source Files"><UniqueIdentifier>{CC830561-3CEE-45AF-B4D0-FBFA82E6E31A}</UniqueIdentifier></Filter>
     <Filter Include="Header Files"><UniqueIdentifier>{A0993EE3-5D21-43E4-947C-2217673B3D1E}</UniqueIdentifier></Filter>
     <Filter Include="Settings"><UniqueIdentifier>{6157520E-1966-44BA-9CC5-2CB8458F5E20}</UniqueIdentifier></Filter>
+    <Filter Include="Resource Files"><UniqueIdentifier>{ED81324D-0B1C-4930-A784-80EABE996830}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Settings.Tests.Runner.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -22,5 +23,8 @@
     <None Include="..\..\Settings\RedXe-debug.settings.json"><Filter>Settings</Filter></None>
     <None Include="..\..\Settings\RedXe.settings.json"><Filter>Settings</Filter></None>
     <None Include="..\..\Specs\SettingsStore.schema.json"><Filter>Settings</Filter></None>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="SettingsTests.rc"><Filter>Resource Files</Filter></ResourceCompile>
   </ItemGroup>
 </Project>

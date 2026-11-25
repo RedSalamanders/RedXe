@@ -484,6 +484,7 @@ RedXe MUST validate settings before plugin-provider or Direct3D initialization.
 - The recovery notice and the command-line file report are a message box before the window is created, except in an
   unattended `--screenshot` run, which writes the same text as one Warning record (`settings-fallback-notice`) instead
   (`Specs/UI/UI_Windowing.md` "Configuration behavior").
+  Both read the base message from the shared application resource table. Arguments preserve the original backup path.
 - If a deployed default cannot be read or validated, startup fails rather than inventing settings.
 - Settings loaded from disk retain the version of the same open file that supplied the bytes. A later save checks
   that version before publishing.
