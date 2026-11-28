@@ -1,0 +1,1 @@
+- Align the vcpkg registry, tool and shared CI engine with the reviewed convergence pins.
